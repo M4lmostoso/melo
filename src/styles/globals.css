@@ -257,8 +257,8 @@ html.dark.bg-spotlight .animated-bg::after {
 }
 
 ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+    width: 5px;
+    height: 5px;
 }
 
 ::-webkit-scrollbar-track {
@@ -266,11 +266,17 @@ html.dark.bg-spotlight .animated-bg::after {
 }
 
 ::-webkit-scrollbar-thumb {
-    background-color: var(--color-text-tertiary);
+    background-color: transparent;
     border-radius: 3px;
+    transition: background-color 0.25s ease;
 }
 
-::-webkit-scrollbar-thumb:hover {
+/* Thumb visible when hovering the scrollable container (or any child inside it) */
+*:hover::-webkit-scrollbar-thumb {
+    background-color: var(--color-text-tertiary);
+}
+
+*:hover::-webkit-scrollbar-thumb:hover {
     background-color: var(--color-text-secondary);
 }
 

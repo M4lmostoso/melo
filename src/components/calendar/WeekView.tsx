@@ -1,16 +1,18 @@
 import { useMemo } from "react";
 import type { DbCalendarEvent } from "@/services/db/calendarEvents";
+import { chipStyle } from "./calendarColors";
 
 interface WeekViewProps {
   currentDate: Date;
   events: DbCalendarEvent[];
+  colorMap: Record<string, string>;
   onEventClick: (event: DbCalendarEvent) => void;
 }
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-export function WeekView({ currentDate, events, onEventClick }: WeekViewProps) {
+export function WeekView({ currentDate, events, colorMap, onEventClick }: WeekViewProps) {
   const weekStart = new Date(currentDate);
   weekStart.setDate(weekStart.getDate() - weekStart.getDay());
   weekStart.setHours(0, 0, 0, 0);
@@ -86,15 +88,21 @@ export function WeekView({ currentDate, events, onEventClick }: WeekViewProps) {
           const allDay = allDayByDay.get(day.getDate()) ?? [];
           return (
             <div key={i} className="border-r border-border-secondary px-1 py-1 space-y-0.5">
-              {allDay.map((e) => (
-                <button
-                  key={e.id}
-                  onClick={() => onEventClick(e)}
-                  className="w-full text-left text-[0.625rem] px-1 py-0.5 rounded bg-accent/10 text-accent truncate hover:bg-accent/20 transition-colors"
-                >
-                  {e.summary ?? "Event"}
-                </button>
-              ))}
+              {allDay.map((e) => {
+                const color = e.calendar_id ? colorMap[e.calendar_id] : undefined;
+                return (
+                  <button
+                    key={e.id}
+                    onClick={() => onEventClick(e)}
+                    className={`w-full text-left text-[0.625rem] px-1 py-0.5 rounded truncate transition-opacity hover:opacity-80 ${
+                      color ? "" : "bg-accent/10 text-accent"
+                    }`}
+                    style={color ? chipStyle(color) : undefined}
+                  >
+                    {e.summary ?? "Event"}
+                  </button>
+                );
+              })}
             </div>
           );
         })}
@@ -114,16 +122,22 @@ export function WeekView({ currentDate, events, onEventClick }: WeekViewProps) {
                 const hourEvents = dayHourEvents.get(`${day.getDate()}-${hour}`) ?? [];
                 return (
                   <div key={di} className="border-r border-b border-border-secondary h-12 relative px-0.5">
-                    {hourEvents.map((e) => (
-                      <button
-                        key={e.id}
-                        onClick={() => onEventClick(e)}
-                        className="absolute inset-x-0.5 text-[0.625rem] px-1 py-0.5 rounded bg-accent/15 text-accent truncate hover:bg-accent/25 transition-colors"
-                        title={e.summary ?? "Event"}
-                      >
-                        {e.summary ?? "Event"}
-                      </button>
-                    ))}
+                    {hourEvents.map((e) => {
+                      const color = e.calendar_id ? colorMap[e.calendar_id] : undefined;
+                      return (
+                        <button
+                          key={e.id}
+                          onClick={() => onEventClick(e)}
+                          className={`absolute inset-x-0.5 text-[0.625rem] px-1 py-0.5 rounded truncate transition-opacity hover:opacity-80 ${
+                            color ? "" : "bg-accent/15 text-accent"
+                          }`}
+                          style={color ? chipStyle(color) : undefined}
+                          title={e.summary ?? "Event"}
+                        >
+                          {e.summary ?? "Event"}
+                        </button>
+                      );
+                    })}
                   </div>
                 );
               })}

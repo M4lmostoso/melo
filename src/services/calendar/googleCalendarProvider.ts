@@ -225,9 +225,10 @@ function mapGoogleEvent(event: GoogleCalendarEvent): CalendarEventData {
   const startTime = event.start.dateTime
     ? Math.floor(new Date(event.start.dateTime).getTime() / 1000)
     : Math.floor(new Date(event.start.date + "T00:00:00").getTime() / 1000);
+  // end.date from Google is exclusive (day-after), so subtract 1 second to get the true end
   const endTime = event.end.dateTime
     ? Math.floor(new Date(event.end.dateTime).getTime() / 1000)
-    : Math.floor(new Date(event.end.date + "T23:59:59").getTime() / 1000);
+    : Math.floor(new Date(event.end.date + "T00:00:00").getTime() / 1000) - 1;
 
   return {
     remoteEventId: event.id,

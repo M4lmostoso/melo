@@ -1,17 +1,28 @@
+import { X } from "lucide-react";
 import type { DbCalendar } from "@/services/db/calendars";
 
 interface CalendarListProps {
   calendars: DbCalendar[];
   onVisibilityChange: (calendarId: string, visible: boolean) => void;
+  onClose: () => void;
 }
 
-export function CalendarList({ calendars, onVisibilityChange }: CalendarListProps) {
+export function CalendarList({ calendars, onVisibilityChange, onClose }: CalendarListProps) {
   return (
-    <div className="w-52 border-r border-border-primary p-3 overflow-y-auto shrink-0">
-      <h3 className="text-xs font-medium text-text-tertiary uppercase tracking-wider mb-2">
-        Calendars
-      </h3>
-      <div className="space-y-1">
+    <div className="w-56 border-l border-border-primary bg-bg-secondary overflow-y-auto shrink-0 flex flex-col">
+      <div className="flex items-center justify-between px-3 pt-3 pb-2">
+        <h3 className="text-xs font-medium text-text-tertiary uppercase tracking-wider">
+          Calendars
+        </h3>
+        <button
+          onClick={onClose}
+          className="p-1 text-text-tertiary hover:text-text-primary hover:bg-bg-hover rounded transition-colors"
+          title="Close"
+        >
+          <X size={14} />
+        </button>
+      </div>
+      <div className="space-y-0.5 px-2 pb-3">
         {calendars.map((cal) => (
           <label
             key={cal.id}
@@ -37,14 +48,17 @@ export function CalendarList({ calendars, onVisibilityChange }: CalendarListProp
                 </svg>
               )}
             </span>
-            <span className="text-sm text-text-primary truncate">
+            <span className="text-sm text-text-primary truncate flex-1">
               {cal.display_name ?? "Calendar"}
             </span>
             {!!cal.is_primary && (
-              <span className="text-[0.6rem] text-text-tertiary ml-auto shrink-0">Primary</span>
+              <span className="text-[0.6rem] text-text-tertiary shrink-0">Primary</span>
             )}
           </label>
         ))}
+        {calendars.length === 0 && (
+          <p className="px-2 py-2 text-xs text-text-tertiary">No calendars found</p>
+        )}
       </div>
     </div>
   );

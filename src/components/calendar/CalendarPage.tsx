@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useAccountStore } from "@/stores/accountStore";
 import { getCalendarEventsInRangeMulti, upsertCalendarEvent, type DbCalendarEvent } from "@/services/db/calendarEvents";
 import { getVisibleCalendars, getCalendarsForAccount, upsertCalendar, type DbCalendar } from "@/services/db/calendars";
@@ -29,6 +29,14 @@ export function CalendarPage() {
   const [showCalendarList, setShowCalendarList] = useState(false);
   const [hasCalendar, setHasCalendar] = useState(true);
   const reauthDoneRef = useRef(false);
+
+  const colorMap = useMemo<Record<string, string>>(() => {
+    const map: Record<string, string> = {};
+    for (const cal of calendars) {
+      if (cal.color) map[cal.id] = cal.color;
+    }
+    return map;
+  }, [calendars]);
 
   const getRange = useCallback((): { start: Date; end: Date } => {
     const d = new Date(currentDate);
@@ -282,7 +290,7 @@ export function CalendarPage() {
         onViewChange={setView}
         onCreateEvent={() => setShowCreate(true)}
         onToggleCalendarList={() => setShowCalendarList((v) => !v)}
-        showCalendarListButton={calendars.length > 1}
+        calendarListOpen={showCalendarList}
       />
 
       {needsReauth && activeAccount && (
@@ -314,9 +322,37 @@ export function CalendarPage() {
       )}
 
       <div className="flex flex-1 min-h-0">
-        {showCalendarList && calendars.length > 1 && (
+        <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
+          {view === "month" && (
+            <MonthView
+              currentDate={currentDate}
+              events={events}
+              colorMap={colorMap}
+              onEventClick={handleEventClick}
+            />
+          )}
+          {view === "week" && (
+            <WeekView
+              currentDate={currentDate}
+              events={events}
+              colorMap={colorMap}
+              onEventClick={handleEventClick}
+            />
+          )}
+          {view === "day" && (
+            <DayView
+              currentDate={currentDate}
+              events={events}
+              colorMap={colorMap}
+              onEventClick={handleEventClick}
+            />
+          )}
+        </div>
+
+        {showCalendarList && (
           <CalendarList
             calendars={calendars}
+            onClose={() => setShowCalendarList(false)}
             onVisibilityChange={async (calendarId, visible) => {
               const { setCalendarVisibility } = await import("@/services/db/calendars");
               await setCalendarVisibility(calendarId, visible);
@@ -325,30 +361,6 @@ export function CalendarPage() {
             }}
           />
         )}
-
-        <div className="flex-1 min-w-0">
-          {view === "month" && (
-            <MonthView
-              currentDate={currentDate}
-              events={events}
-              onEventClick={handleEventClick}
-            />
-          )}
-          {view === "week" && (
-            <WeekView
-              currentDate={currentDate}
-              events={events}
-              onEventClick={handleEventClick}
-            />
-          )}
-          {view === "day" && (
-            <DayView
-              currentDate={currentDate}
-              events={events}
-              onEventClick={handleEventClick}
-            />
-          )}
-        </div>
       </div>
 
       {showCreate && (

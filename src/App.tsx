@@ -158,6 +158,7 @@ export default function App() {
     return () => document.removeEventListener("contextmenu", handler);
   }, []);
 
+
   // Listen for command palette / shortcuts help toggle events
   useEffect(() => {
     const togglePalette = () => setShowCommandPalette((p) => !p);

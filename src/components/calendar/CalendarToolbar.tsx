@@ -10,8 +10,8 @@ interface CalendarToolbarProps {
   onToday: () => void;
   onViewChange: (view: CalendarView) => void;
   onCreateEvent: () => void;
-  onToggleCalendarList?: () => void;
-  showCalendarListButton?: boolean;
+  onToggleCalendarList: () => void;
+  calendarListOpen?: boolean;
 }
 
 export function CalendarToolbar({
@@ -23,7 +23,7 @@ export function CalendarToolbar({
   onViewChange,
   onCreateEvent,
   onToggleCalendarList,
-  showCalendarListButton,
+  calendarListOpen,
 }: CalendarToolbarProps) {
   const title = formatTitle(currentDate, view);
 
@@ -54,15 +54,17 @@ export function CalendarToolbar({
       </div>
 
       <div className="flex items-center gap-2">
-        {showCalendarListButton && onToggleCalendarList && (
-          <button
-            onClick={onToggleCalendarList}
-            className="p-1.5 text-text-secondary hover:text-text-primary hover:bg-bg-hover rounded transition-colors"
-            title="Toggle calendar list"
-          >
-            <CalendarDays size={16} />
-          </button>
-        )}
+        <button
+          onClick={onToggleCalendarList}
+          className={`p-1.5 rounded transition-colors ${
+            calendarListOpen
+              ? "text-text-primary bg-bg-hover"
+              : "text-text-secondary hover:text-text-primary hover:bg-bg-hover"
+          }`}
+          title="My calendars"
+        >
+          <CalendarDays size={16} />
+        </button>
         <div className="flex bg-bg-tertiary rounded-md p-0.5">
           {(["day", "week", "month"] as CalendarView[]).map((v) => (
             <button

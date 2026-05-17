@@ -122,7 +122,10 @@ export function parseVEvent(icalData: string, href?: string): CalendarEventData 
   }
 
   const startTime = dtstart ? parseICalDateTime(dtstart, isAllDay) : 0;
-  const endTime = dtend ? parseICalDateTime(dtend, isAllDay) : startTime + 3600;
+  // DTEND for all-day events is exclusive (RFC 5545 §3.6.1), subtract 1s to get the true end
+  const endTime = dtend
+    ? parseICalDateTime(dtend, isAllDay) - (isAllDay ? 1 : 0)
+    : startTime + 3600;
 
   return {
     remoteEventId: href ?? uid ?? crypto.randomUUID(),

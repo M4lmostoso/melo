@@ -1,15 +1,17 @@
 import { useMemo } from "react";
 import type { DbCalendarEvent } from "@/services/db/calendarEvents";
+import { chipStyle } from "./calendarColors";
 
 interface DayViewProps {
   currentDate: Date;
   events: DbCalendarEvent[];
+  colorMap: Record<string, string>;
   onEventClick: (event: DbCalendarEvent) => void;
 }
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 
-export function DayView({ currentDate, events, onEventClick }: DayViewProps) {
+export function DayView({ currentDate, events, colorMap, onEventClick }: DayViewProps) {
   const dayStart = new Date(currentDate);
   dayStart.setHours(0, 0, 0, 0);
 
@@ -56,15 +58,21 @@ export function DayView({ currentDate, events, onEventClick }: DayViewProps) {
       {/* All-day events */}
       {allDayEvents.length > 0 && (
         <div className="px-6 py-2 border-b border-border-secondary space-y-1">
-          {allDayEvents.map((e) => (
-            <button
-              key={e.id}
-              onClick={() => onEventClick(e)}
-              className="w-full text-left text-xs px-2 py-1.5 rounded bg-accent/10 text-accent hover:bg-accent/20 transition-colors"
-            >
-              {e.summary ?? "Event"} · All day
-            </button>
-          ))}
+          {allDayEvents.map((e) => {
+            const color = e.calendar_id ? colorMap[e.calendar_id] : undefined;
+            return (
+              <button
+                key={e.id}
+                onClick={() => onEventClick(e)}
+                className={`w-full text-left text-xs px-2 py-1.5 rounded transition-opacity hover:opacity-80 ${
+                  color ? "" : "bg-accent/10 text-accent"
+                }`}
+                style={color ? chipStyle(color) : undefined}
+              >
+                {e.summary ?? "Event"} · All day
+              </button>
+            );
+          })}
         </div>
       )}
 
@@ -80,16 +88,22 @@ export function DayView({ currentDate, events, onEventClick }: DayViewProps) {
                 </span>
               </div>
               <div className="flex-1 relative px-1">
-                {hourEvents.map((e) => (
-                  <button
-                    key={e.id}
-                    onClick={() => onEventClick(e)}
-                    className="w-full text-left text-xs px-2 py-1 rounded bg-accent/15 text-accent truncate hover:bg-accent/25 transition-colors mb-0.5"
-                  >
-                    {e.summary ?? "Event"}
-                    {e.location && <span className="text-text-tertiary"> · {e.location}</span>}
-                  </button>
-                ))}
+                {hourEvents.map((e) => {
+                  const color = e.calendar_id ? colorMap[e.calendar_id] : undefined;
+                  return (
+                    <button
+                      key={e.id}
+                      onClick={() => onEventClick(e)}
+                      className={`w-full text-left text-xs px-2 py-1 rounded truncate transition-opacity hover:opacity-80 mb-0.5 ${
+                        color ? "" : "bg-accent/15 text-accent"
+                      }`}
+                      style={color ? chipStyle(color) : undefined}
+                    >
+                      {e.summary ?? "Event"}
+                      {e.location && <span className="opacity-70"> · {e.location}</span>}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           );
