@@ -1,5 +1,5 @@
 import { X } from "lucide-react";
-import type { DbCalendar } from "@/services/db/calendars";
+import { calColor, calDisplayName, type DbCalendar } from "@/services/db/calendars";
 
 interface CalendarListProps {
   calendars: DbCalendar[];
@@ -40,7 +40,7 @@ export function CalendarList({ calendars, onVisibilityChange, onClose }: Calenda
                   ? "border-transparent"
                   : "border-border-primary bg-transparent"
               }`}
-              style={cal.is_visible ? { backgroundColor: cal.color ?? "var(--color-accent)" } : undefined}
+              style={cal.is_visible ? { backgroundColor: calColor(cal) ?? "var(--color-accent)" } : undefined}
             >
               {!!cal.is_visible && (
                 <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
@@ -49,7 +49,7 @@ export function CalendarList({ calendars, onVisibilityChange, onClose }: Calenda
               )}
             </span>
             <span className="text-sm text-text-primary truncate flex-1">
-              {cal.display_name ?? "Calendar"}
+              {calDisplayName(cal)}
             </span>
             {!!cal.is_primary && (
               <span className="text-[0.6rem] text-text-tertiary shrink-0">Primary</span>

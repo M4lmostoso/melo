@@ -8,6 +8,7 @@ import {
   Filter,
   Users,
   UserCircle,
+  CalendarDays,
   Keyboard,
   Sparkles,
   Brain,
@@ -25,6 +26,7 @@ import { ShortcutsTab } from "./tabs/ShortcutsTab";
 import { AITab } from "./tabs/AITab";
 import { IntelligenceTab } from "./tabs/IntelligenceTab";
 import { TasksTab } from "./tabs/TasksTab";
+import { CalendarTab } from "./tabs/CalendarTab";
 import { AboutTab } from "./tabs/AboutTab";
 
 type SettingsTab =
@@ -34,6 +36,7 @@ type SettingsTab =
   | "mail-rules"
   | "people"
   | "accounts"
+  | "calendar"
   | "shortcuts"
   | "ai"
   | "intelligence"
@@ -47,6 +50,7 @@ const tabs: { id: SettingsTab; label: string; icon: LucideIcon }[] = [
   { id: "mail-rules", label: "Mail Rules", icon: Filter },
   { id: "people", label: "People", icon: Users },
   { id: "accounts", label: "Accounts", icon: UserCircle },
+  { id: "calendar", label: "Calendar", icon: CalendarDays },
   { id: "shortcuts", label: "Shortcuts", icon: Keyboard },
   { id: "ai", label: "AI", icon: Sparkles },
   { id: "intelligence", label: "Intelligence", icon: Brain },
@@ -114,6 +118,7 @@ export function SettingsPage() {
               {activeTab === "mail-rules" && <MailRulesTab />}
               {activeTab === "people" && <PeopleTab />}
               {activeTab === "accounts" && <AccountsTab />}
+              {activeTab === "calendar" && <CalendarTab />}
               {activeTab === "shortcuts" && <ShortcutsTab />}
               {activeTab === "ai" && <AITab />}
               {activeTab === "intelligence" && <IntelligenceTab />}

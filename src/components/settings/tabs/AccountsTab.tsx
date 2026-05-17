@@ -32,7 +32,6 @@ import {
   mapDbAlias,
   type SendAsAlias,
 } from "@/services/db/sendAsAliases";
-import { CalDavSettings } from "@/components/settings/CalDavSettings";
 
 function SortableAccountRow({ id, children }: { id: string; children: React.ReactNode }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
@@ -229,36 +228,6 @@ function SyncOfflineSection() {
   );
 }
 
-function ImapCalDavSection() {
-  const accounts = useAccountStore((s) => s.accounts);
-  const activeAccountId = useAccountStore((s) => s.activeAccountId);
-  const [account, setAccount] = useState<import("@/services/db/accounts").DbAccount | null>(null);
-
-  useEffect(() => {
-    if (!activeAccountId) return;
-    import("@/services/db/accounts").then(({ getAccount }) => {
-      getAccount(activeAccountId).then(setAccount);
-    });
-  }, [activeAccountId]);
-
-  const activeUiAccount = accounts.find((a) => a.id === activeAccountId);
-  const isImap = activeUiAccount?.provider === "imap";
-
-  if (!isImap || !account) return null;
-
-  return (
-    <Section title="Calendar (CalDAV)">
-      <CalDavSettings
-        account={account}
-        onSaved={() => {
-          import("@/services/db/accounts").then(({ getAccount }) => {
-            getAccount(account.id).then(setAccount);
-          });
-        }}
-      />
-    </Section>
-  );
-}
 
 export function AccountsTab() {
   const accounts = useAccountStore((s) => s.accounts);
@@ -476,40 +445,7 @@ export function AccountsTab() {
         )}
       </Section>
 
-      {accounts.some((a) => a.provider === "caldav") && (
-        <Section title="Calendar Accounts">
-          <div className="space-y-2">
-            {accounts
-              .filter((a) => a.provider === "caldav")
-              .map((account) => (
-                <div
-                  key={account.id}
-                  className="flex items-center justify-between py-2.5 px-4 bg-bg-secondary rounded-lg"
-                >
-                  <div>
-                    <div className="text-sm font-medium text-text-primary flex items-center gap-2">
-                      {account.displayName ?? account.email}
-                      <span className="text-[0.6rem] font-medium px-1.5 py-0.5 rounded-full bg-accent/10 text-accent">
-                        CalDAV
-                      </span>
-                    </div>
-                    <div className="text-xs text-text-tertiary">{account.email}</div>
-                  </div>
-                  <button
-                    onClick={() => handleRemoveAccount(account.id)}
-                    className="text-xs text-danger hover:text-danger/80 transition-colors"
-                  >
-                    Remove
-                  </button>
-                </div>
-              ))}
-          </div>
-        </Section>
-      )}
-
       <SendAsAliasesSection />
-
-      <ImapCalDavSection />
 
       <Section title="Sync">
         <div className="flex items-center justify-between">

@@ -2,7 +2,7 @@ import { useState, useCallback } from "react";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { TextField } from "@/components/ui/TextField";
-import type { DbCalendar } from "@/services/db/calendars";
+import { calDisplayName, type DbCalendar } from "@/services/db/calendars";
 
 interface EventCreateModalProps {
   calendars?: DbCalendar[];
@@ -62,7 +62,7 @@ export function EventCreateModal({ calendars, onClose, onCreate }: EventCreateMo
             >
               {calendars.map((cal) => (
                 <option key={cal.id} value={cal.id}>
-                  {cal.display_name ?? "Calendar"}
+                  {calDisplayName(cal)}
                   {cal.is_primary ? " (Primary)" : ""}
                 </option>
               ))}

@@ -10,6 +10,7 @@ import type {
 } from "./types";
 import { generateVEvent, parseVEvent } from "./icalHelper";
 import { getAccount } from "@/services/db/accounts";
+import { listCalDavCalendars, fetchCalDavEvents } from "./caldavHttp";
 
 export class CalDAVProvider implements CalendarProvider {
   readonly type: CalendarProviderType = "caldav";
@@ -43,35 +44,26 @@ export class CalDAVProvider implements CalendarProvider {
   }
 
   async listCalendars(): Promise<CalendarInfo[]> {
-    const client = await this.getClient();
-    const calendars = await client.fetchCalendars();
-
-    return calendars.map((cal, index) => ({
-      remoteId: cal.url,
-      displayName: typeof cal.displayName === "string" ? cal.displayName : `Calendar ${index + 1}`,
-      color: extractCalendarColor(cal) ?? null,
-      isPrimary: index === 0,
-    }));
+    const account = await getAccount(this.accountId);
+    if (!account?.caldav_url || !account.caldav_password) {
+      throw new Error("CalDAV credentials not configured");
+    }
+    const username = account.caldav_username ?? account.email;
+    // Uses Tauri's plugin-http fetch (bypasses WebKit CORS for PROPFIND)
+    return listCalDavCalendars(account.caldav_url, username, account.caldav_password);
   }
 
   async fetchEvents(calendarRemoteId: string, timeMin: string, timeMax: string): Promise<CalendarEventData[]> {
-    const client = await this.getClient();
+    const account = await getAccount(this.accountId);
+    if (!account?.caldav_url || !account.caldav_password) throw new Error("CalDAV credentials not configured");
+    const username = account.caldav_username ?? account.email;
 
-    const objects = await client.fetchCalendarObjects({
-      calendar: { url: calendarRemoteId } as DAVCalendar,
-      timeRange: {
-        start: timeMin,
-        end: timeMax,
-      },
+    const objects = await fetchCalDavEvents(calendarRemoteId, username, account.caldav_password, timeMin, timeMax);
+    return objects.map((obj) => {
+      const event = parseVEvent(obj.icalData, obj.url);
+      event.etag = obj.etag;
+      return event;
     });
-
-    return objects
-      .filter((obj) => obj.data)
-      .map((obj) => {
-        const event = parseVEvent(obj.data!, obj.url);
-        event.etag = obj.etag ?? null;
-        return event;
-      });
   }
 
   async createEvent(calendarRemoteId: string, event: CreateEventInput): Promise<CalendarEventData> {
@@ -152,32 +144,29 @@ export class CalDAVProvider implements CalendarProvider {
   }
 
   async syncEvents(calendarRemoteId: string, _syncToken?: string): Promise<CalendarSyncResult> {
-    const client = await this.getClient();
-    const created: CalendarEventData[] = [];
+    const account = await getAccount(this.accountId);
+    if (!account?.caldav_url || !account.caldav_password) throw new Error("CalDAV credentials not configured");
+    const username = account.caldav_username ?? account.email;
 
-    // Full fetch — tsdav's syncCalendars doesn't reliably expose per-object deltas,
-    // so we do a time-range fetch and let the DB upsert logic handle deduplication.
     const now = new Date();
     const timeMin = new Date(now);
     timeMin.setDate(timeMin.getDate() - 90);
     const timeMax = new Date(now);
     timeMax.setFullYear(timeMax.getFullYear() + 1);
 
-    const objects = await client.fetchCalendarObjects({
-      calendar: { url: calendarRemoteId } as DAVCalendar,
-      timeRange: {
-        start: timeMin.toISOString(),
-        end: timeMax.toISOString(),
-      },
-    });
+    const objects = await fetchCalDavEvents(
+      calendarRemoteId,
+      username,
+      account.caldav_password,
+      timeMin.toISOString(),
+      timeMax.toISOString(),
+    );
 
-    for (const obj of objects) {
-      if (obj.data) {
-        const event = parseVEvent(obj.data, obj.url);
-        event.etag = obj.etag ?? null;
-        created.push(event);
-      }
-    }
+    const created = objects.map((obj) => {
+      const event = parseVEvent(obj.icalData, obj.url);
+      event.etag = obj.etag;
+      return event;
+    });
 
     return { created, updated: [], deletedRemoteIds: [], newSyncToken: null, newCtag: null };
   }
@@ -198,9 +187,3 @@ export class CalDAVProvider implements CalendarProvider {
   }
 }
 
-function extractCalendarColor(cal: DAVCalendar): string | null {
-  // tsdav may expose calendar-color in props
-  const props = cal as unknown as Record<string, unknown>;
-  if (typeof props.calendarColor === "string") return props.calendarColor;
-  return null;
-}

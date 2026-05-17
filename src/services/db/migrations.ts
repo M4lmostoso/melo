@@ -1031,6 +1031,14 @@ const MIGRATIONS = [
       ALTER TABLE accounts ADD COLUMN label TEXT DEFAULT NULL;
     `,
   },
+  {
+    version: 44,
+    description: "Add user_label and user_color columns to calendars for per-calendar customization (CalDAV)",
+    sql: `
+      ALTER TABLE calendars ADD COLUMN user_label TEXT DEFAULT NULL;
+      ALTER TABLE calendars ADD COLUMN user_color TEXT DEFAULT NULL;
+    `,
+  },
 ];
 
 /**

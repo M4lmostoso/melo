@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useAccountStore } from "@/stores/accountStore";
 import { getCalendarEventsInRangeMulti, upsertCalendarEvent, type DbCalendarEvent } from "@/services/db/calendarEvents";
-import { getVisibleCalendars, getCalendarsForAccount, upsertCalendar, type DbCalendar } from "@/services/db/calendars";
+import { getVisibleCalendars, getCalendarsForAccount, upsertCalendar, calColor, type DbCalendar } from "@/services/db/calendars";
 import { getCalendarProvider, hasCalendarSupport } from "@/services/calendar/providerFactory";
 import type { CalendarEventData, CreateEventInput } from "@/services/calendar/types";
 import { CalendarToolbar, type CalendarView } from "./CalendarToolbar";
@@ -33,7 +33,8 @@ export function CalendarPage() {
   const colorMap = useMemo<Record<string, string>>(() => {
     const map: Record<string, string> = {};
     for (const cal of calendars) {
-      if (cal.color) map[cal.id] = cal.color;
+      const c = calColor(cal);
+      if (c) map[cal.id] = c;
     }
     return map;
   }, [calendars]);

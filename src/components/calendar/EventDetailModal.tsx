@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { TextField } from "@/components/ui/TextField";
 import type { DbCalendarEvent } from "@/services/db/calendarEvents";
-import type { DbCalendar } from "@/services/db/calendars";
+import { calColor, calDisplayName, type DbCalendar } from "@/services/db/calendars";
 import { getCalendarProvider } from "@/services/calendar/providerFactory";
 import { deleteCalendarEvent as deleteCalendarEventDb } from "@/services/db/calendarEvents";
 
@@ -150,9 +150,9 @@ export function EventDetailModal({ event, calendars, accountId, onClose, onUpdat
           <div className="flex items-center gap-2 text-xs text-text-tertiary">
             <span
               className="w-2.5 h-2.5 rounded-full"
-              style={{ backgroundColor: calendar.color ?? "var(--color-accent)" }}
+              style={{ backgroundColor: calColor(calendar) ?? "var(--color-accent)" }}
             />
-            {calendar.display_name}
+            {calDisplayName(calendar)}
           </div>
         )}
 
