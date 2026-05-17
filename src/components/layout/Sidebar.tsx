@@ -15,6 +15,7 @@ import {
   Inbox,
   Star,
   Clock,
+  ClockArrowUp,
   Send,
   FileEdit,
   Trash2,
@@ -41,7 +42,6 @@ import {
   Paperclip,
   FolderSearch,
   Loader2,
-  Layers,
   type LucideIcon,
 } from "lucide-react";
 
@@ -59,6 +59,7 @@ export const ALL_NAV_ITEMS: { id: string; label: string; icon: LucideIcon }[] =
     { id: "starred", label: "Starred", icon: Star },
     { id: "snoozed", label: "Snoozed", icon: Clock },
     { id: "sent", label: "Sent", icon: Send },
+    { id: "scheduled", label: "Scheduled", icon: ClockArrowUp },
     { id: "drafts", label: "Drafts", icon: FileEdit },
     { id: "trash", label: "Trash", icon: Trash2 },
     { id: "spam", label: "Spam", icon: Ban },
@@ -305,6 +306,7 @@ const GLOBAL_FOLDER_ITEMS: { id: string; label: string; icon: LucideIcon }[] = [
   { id: "starred",     label: "Starred",     icon: Star },
   { id: "snoozed",     label: "Snoozed",     icon: Clock },
   { id: "sent",        label: "Sent",        icon: Send },
+  { id: "scheduled",   label: "Scheduled",   icon: ClockArrowUp },
   { id: "drafts",      label: "Drafts",      icon: FileEdit },
   { id: "trash",       label: "Trash",       icon: Trash2 },
   { id: "spam",        label: "Spam",        icon: Ban },
@@ -357,8 +359,10 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   const unreadCounts = useLabelStore((s) => s.unreadCounts);
   const categoryUnreadCounts = useLabelStore((s) => s.categoryUnreadCounts);
   const globalUnreadCounts = useLabelStore((s) => s.globalUnreadCounts);
+  const scheduledCounts = useLabelStore((s) => s.scheduledCounts);
   const refreshLabelUnreadCounts = useLabelStore((s) => s.refreshUnreadCounts);
   const refreshGlobalUnreadCounts = useLabelStore((s) => s.refreshGlobalUnreadCounts);
+  const refreshScheduledCounts = useLabelStore((s) => s.refreshScheduledCounts);
   const deleteLabel = useLabelStore((s) => s.deleteLabel);
   const smartFolders = useSmartFolderStore((s) => s.folders);
   const smartFolderCounts = useSmartFolderStore((s) => s.unreadCounts);
@@ -460,8 +464,11 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   // Load global unread counts for all accounts (for per-account sidebar sections)
   useEffect(() => {
     const allIds = accounts.map((a) => a.id);
-    if (allIds.length > 0) refreshGlobalUnreadCounts(allIds);
-  }, [accounts, refreshGlobalUnreadCounts]);
+    if (allIds.length > 0) {
+      refreshGlobalUnreadCounts(allIds);
+      refreshScheduledCounts(allIds);
+    }
+  }, [accounts, refreshGlobalUnreadCounts, refreshScheduledCounts]);
 
   // Load smart folders when active account changes
   useEffect(() => {
@@ -485,6 +492,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
         const allIds = useAccountStore.getState().accounts.map((a) => a.id);
         if (allIds.length > 0) {
           refreshGlobalUnreadCounts(allIds);
+          refreshScheduledCounts(allIds);
           loadAllAccountLabels(allIds);
         }
         useUIStore.getState().setSyncingFolder(null);
@@ -495,7 +503,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
       window.removeEventListener("velo-sync-done", handler);
       if (timer) clearTimeout(timer);
     };
-  }, [activeAccountId, loadLabels, loadAllAccountLabels, refreshSmartFolderCounts, refreshGlobalUnreadCounts]);
+  }, [activeAccountId, loadLabels, loadAllAccountLabels, refreshSmartFolderCounts, refreshGlobalUnreadCounts, refreshScheduledCounts]);
 
   const handleDeleteLabel = useCallback(
     async (labelId: string) => {
@@ -663,12 +671,14 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
             ).map((gi) => {
               const GIcon = gi.icon;
               const unreadKey = FOLDER_UNREAD_KEY[gi.id];
-              const globalTotal = unreadKey
-                ? globalAccounts.reduce(
-                    (sum, a) => sum + (globalUnreadCounts[a.id]?.[unreadKey] ?? 0),
-                    0,
-                  )
-                : 0;
+              const globalTotal = gi.id === "scheduled"
+                ? globalAccounts.reduce((sum, a) => sum + (scheduledCounts[a.id] ?? 0), 0)
+                : unreadKey
+                  ? globalAccounts.reduce(
+                      (sum, a) => sum + (globalUnreadCounts[a.id]?.[unreadKey] ?? 0),
+                      0,
+                    )
+                  : 0;
               return (
                 <div key={`global-${gi.id}`}>
                   <ExpandableNavItem
@@ -703,7 +713,9 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                         {globalAccounts.map((account) => {
                           const color = account.color ?? "#3182CE";
                           const displayName = account.label ?? account.displayName ?? account.email;
-                          const unread = unreadKey ? (globalUnreadCounts[account.id]?.[unreadKey] ?? 0) : 0;
+                          const unread = gi.id === "scheduled"
+                            ? (scheduledCounts[account.id] ?? 0)
+                            : unreadKey ? (globalUnreadCounts[account.id]?.[unreadKey] ?? 0) : 0;
                           const isAccountActive =
                             activeLabel === gi.id && activeAccountId === account.id;
                           return (
@@ -845,10 +857,13 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
           const Icon = item.icon;
           const isInbox = item.id === "inbox";
 
-          // Only show unread badge on Inbox — other folders (Trash, Spam, All Mail, etc.)
-          // either don't have meaningful unread semantics or would double-count.
+          // Show unread badge on Inbox; scheduled count badge on Scheduled.
           const unreadCount =
-            item.id === "inbox" ? (unreadCounts["INBOX"] ?? 0) : 0;
+            item.id === "inbox"
+              ? (unreadCounts["INBOX"] ?? 0)
+              : item.id === "scheduled" && activeAccountId
+                ? (scheduledCounts[activeAccountId] ?? 0)
+                : 0;
 
           return (
             <div key={item.id}>

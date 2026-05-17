@@ -41,11 +41,14 @@ interface LabelState {
   categoryUnreadCounts: Record<string, number>;
   /** Cross-account unread counts: accountId → labelId → count */
   globalUnreadCounts: Record<string, Record<string, number>>;
+  /** Pending scheduled email counts: accountId → count */
+  scheduledCounts: Record<string, number>;
   isLoading: boolean;
   loadLabels: (accountId: string) => Promise<void>;
   loadAllAccountLabels: (accountIds: string[]) => Promise<void>;
   refreshUnreadCounts: (accountId: string) => Promise<void>;
   refreshGlobalUnreadCounts: (accountIds: string[]) => Promise<void>;
+  refreshScheduledCounts: (accountIds: string[]) => Promise<void>;
   clearLabels: () => void;
   createLabel: (accountId: string, name: string, color?: { textColor: string; backgroundColor: string }) => Promise<void>;
   updateLabel: (accountId: string, labelId: string, updates: { name?: string; color?: { textColor: string; backgroundColor: string } | null }) => Promise<void>;
@@ -75,6 +78,7 @@ export const useLabelStore = create<LabelState>((set, get) => ({
   unreadCounts: {},
   categoryUnreadCounts: {},
   globalUnreadCounts: {},
+  scheduledCounts: {},
   isLoading: false,
 
   loadLabels: async (accountId: string) => {
@@ -129,7 +133,17 @@ export const useLabelStore = create<LabelState>((set, get) => ({
     }
   },
 
-  clearLabels: () => set({ labels: [], allAccountLabels: {}, unreadCounts: {}, categoryUnreadCounts: {}, globalUnreadCounts: {}, isLoading: false }),
+  refreshScheduledCounts: async (accountIds: string[]) => {
+    try {
+      const { getScheduledCountsByAccounts } = await import("@/services/db/scheduledEmails");
+      const counts = await getScheduledCountsByAccounts(accountIds);
+      set({ scheduledCounts: counts });
+    } catch (err) {
+      console.error("Failed to refresh scheduled counts:", err);
+    }
+  },
+
+  clearLabels: () => set({ labels: [], allAccountLabels: {}, unreadCounts: {}, categoryUnreadCounts: {}, globalUnreadCounts: {}, scheduledCounts: {}, isLoading: false }),
 
   createLabel: async (accountId: string, name: string, color?: { textColor: string; backgroundColor: string }) => {
     const client = await getGmailClient(accountId);

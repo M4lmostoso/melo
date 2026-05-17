@@ -3,3 +3,4 @@ export { NoSearchResultsIllustration } from "./NoSearchResultsIllustration";
 export { NoAccountIllustration } from "./NoAccountIllustration";
 export { ReadingPaneIllustration } from "./ReadingPaneIllustration";
 export { GenericEmptyIllustration } from "./GenericEmptyIllustration";
+export { ScheduledEmptyIllustration } from "./ScheduledEmptyIllustration";

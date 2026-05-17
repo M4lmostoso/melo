@@ -58,10 +58,14 @@ function SortableAccountRow({ id, children }: { id: string; children: React.Reac
 
 function SendAsAliasesSection() {
   const accounts = useAccountStore((s) => s.accounts);
+  const storedActiveId = useAccountStore((s) => s.activeAccountId);
   const [aliases, setAliases] = useState<SendAsAlias[]>([]);
 
+  const activeAccount = storedActiveId
+    ? accounts.find((a) => a.id === storedActiveId)
+    : accounts[0];
+
   useEffect(() => {
-    const activeAccount = accounts.find((a) => a.isActive);
     if (!activeAccount) return;
     let cancelled = false;
     getAliasesForAccount(activeAccount.id).then((dbAliases) => {
@@ -71,9 +75,7 @@ function SendAsAliasesSection() {
     return () => {
       cancelled = true;
     };
-  }, [accounts]);
-
-  const activeAccount = accounts.find((a) => a.isActive);
+  }, [activeAccount]);
 
   const handleSetDefault = async (alias: SendAsAlias) => {
     if (!activeAccount) return;
@@ -286,7 +288,7 @@ export function AccountsTab() {
   }, []);
 
   const handleManualSync = useCallback(async () => {
-    const activeIds = accounts.filter((a) => a.isActive).map((a) => a.id);
+    const activeIds = accounts.map((a) => a.id);
     if (activeIds.length === 0) return;
     setIsSyncing(true);
     try {
@@ -297,7 +299,7 @@ export function AccountsTab() {
   }, [accounts]);
 
   const handleForceFullSync = useCallback(async () => {
-    const activeIds = accounts.filter((a) => a.isActive).map((a) => a.id);
+    const activeIds = accounts.map((a) => a.id);
     if (activeIds.length === 0) return;
     setIsSyncing(true);
     try {

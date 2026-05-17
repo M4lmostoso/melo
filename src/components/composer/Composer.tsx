@@ -8,7 +8,7 @@ import { Color } from "@tiptap/extension-color";
 import Underline from "@tiptap/extension-underline";
 import { FontFamily, FontSize } from "./tiptapExtensions";
 
-import { Clock } from "lucide-react";
+import { Clock, X } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
 import { AddressInput } from "./AddressInput";
@@ -104,6 +104,7 @@ export function Composer() {
   const sendingRef = useRef(false);
   const isDiscardingRef = useRef(false);
   const [showSchedule, setShowSchedule] = useState(false);
+  const [pendingScheduledAt, setPendingScheduledAt] = useState<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [aliases, setAliases] = useState<SendAsAlias[]>([]);
   const templateShortcutsRef = useRef<DbTemplate[]>([]);
@@ -406,64 +407,67 @@ const getFullHtml = useCallback(() => {
     state.setUndoSendTimer(timer);
   }, [effectiveAccountId, activeAccount, closeComposer, getFullHtml]);
 
-  const handleSchedule = useCallback(
-    async (scheduledAt: number) => {
-      if (!effectiveAccountId || !activeAccount) return;
-      const state = useComposerStore.getState();
-      if (state.to.length === 0) return;
-      const html = getFullHtml();
-      const attachmentData =
-        state.attachments.length > 0
-          ? JSON.stringify(
-              state.attachments.map((a) => ({
-                filename: a.filename,
-                mimeType: a.mimeType,
-                content: a.content,
-              })),
-            )
-          : null;
-      await insertScheduledEmail({
-        accountId: effectiveAccountId,
-        toAddresses: state.to.join(", "),
-        ccAddresses: state.cc.length > 0 ? state.cc.join(", ") : null,
-        bccAddresses: state.bcc.length > 0 ? state.bcc.join(", ") : null,
-        subject: state.subject,
-        bodyHtml: html,
-        replyToMessageId: state.inReplyToMessageId,
-        threadId: state.threadId,
-        scheduledAt,
-        signatureId: null,
-      });
-      if (attachmentData) {
-        const { getDb } = await import("@/services/db/connection");
-        const db = await getDb();
-        const rows = await db.select<{ id: string }[]>(
-          "SELECT id FROM scheduled_emails WHERE account_id = $1 ORDER BY created_at DESC LIMIT 1",
-          [effectiveAccountId],
+  const handleSelectScheduleTime = useCallback((scheduledAt: number) => {
+    setPendingScheduledAt(scheduledAt);
+    setShowSchedule(false);
+  }, []);
+
+  const handleConfirmSchedule = useCallback(async () => {
+    if (!effectiveAccountId || !activeAccount || !pendingScheduledAt) return;
+    const state = useComposerStore.getState();
+    if (state.to.length === 0) return;
+    const html = getFullHtml();
+    const attachmentData =
+      state.attachments.length > 0
+        ? JSON.stringify(
+            state.attachments.map((a) => ({
+              filename: a.filename,
+              mimeType: a.mimeType,
+              content: a.content,
+            })),
+          )
+        : null;
+    await insertScheduledEmail({
+      accountId: effectiveAccountId,
+      toAddresses: state.to.join(", "),
+      ccAddresses: state.cc.length > 0 ? state.cc.join(", ") : null,
+      bccAddresses: state.bcc.length > 0 ? state.bcc.join(", ") : null,
+      subject: state.subject,
+      bodyHtml: html,
+      replyToMessageId: state.inReplyToMessageId,
+      threadId: state.threadId,
+      scheduledAt: pendingScheduledAt,
+      signatureId: null,
+    });
+    if (attachmentData) {
+      const { getDb } = await import("@/services/db/connection");
+      const db = await getDb();
+      const rows = await db.select<{ id: string }[]>(
+        "SELECT id FROM scheduled_emails WHERE account_id = $1 ORDER BY created_at DESC LIMIT 1",
+        [effectiveAccountId],
+      );
+      if (rows[0])
+        await db.execute(
+          "UPDATE scheduled_emails SET attachment_paths = $1 WHERE id = $2",
+          [attachmentData, rows[0].id],
         );
-        if (rows[0])
-          await db.execute(
-            "UPDATE scheduled_emails SET attachment_paths = $1 WHERE id = $2",
-            [attachmentData, rows[0].id],
-          );
+    }
+    stopAutoSave();
+    if (state.draftId) {
+      try {
+        await deleteDraftAction(
+          effectiveAccountId,
+          state.draftId,
+          state.threadId ?? undefined,
+        );
+      } catch {
+        /* ignore */
       }
-      stopAutoSave();
-      if (state.draftId) {
-        try {
-          await deleteDraftAction(
-            effectiveAccountId,
-            state.draftId,
-            state.threadId ?? undefined,
-          );
-        } catch {
-          /* ignore */
-        }
-      }
-      setShowSchedule(false);
-      closeComposer();
-    },
-    [effectiveAccountId, activeAccount, closeComposer, getFullHtml],
-  );
+    }
+    setPendingScheduledAt(null);
+    closeComposer();
+    window.dispatchEvent(new Event("velo-sync-done"));
+  }, [effectiveAccountId, activeAccount, pendingScheduledAt, closeComposer, getFullHtml]);
 
   const handleDiscard = useCallback(async () => {
     // Guard against double-clicks
@@ -678,37 +682,51 @@ const getFullHtml = useCallback(() => {
           <SignatureSelector />
           <TemplatePicker editor={editor} />
         </div>
-<div className="flex items-center gap-2">
-            <Button
-              variant="secondary"
-              onClick={handleDiscard}
-              disabled={isSending}
-            >
-              Discard
-            </Button>
+        <div className="flex items-end gap-2">
+          <Button
+            variant="secondary"
+            onClick={handleDiscard}
+            disabled={isSending}
+          >
+            Discard
+          </Button>
+          <div className="flex flex-col items-end gap-1">
+            {pendingScheduledAt && (
+              <span className="text-[10px] text-text-tertiary">
+                Scheduled for{" "}
+                {new Date(pendingScheduledAt * 1000).toLocaleString(undefined, {
+                  weekday: "short",
+                  month: "short",
+                  day: "numeric",
+                  hour: "numeric",
+                  minute: "2-digit",
+                })}
+              </span>
+            )}
             <div className="flex items-center">
               <button
-                onClick={handleSend}
+                onClick={pendingScheduledAt ? handleConfirmSchedule : handleSend}
                 disabled={to.length === 0 || isSending}
                 className="px-4 py-1.5 text-xs font-medium text-white bg-accent hover:bg-accent-hover rounded-l-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isSending ? "Sending..." : "Send"}
+                {isSending ? "Sending..." : pendingScheduledAt ? "Schedule" : "Send"}
               </button>
               <button
-                onClick={() => setShowSchedule(true)}
+                onClick={pendingScheduledAt ? () => setPendingScheduledAt(null) : () => setShowSchedule(true)}
                 disabled={to.length === 0 || isSending}
                 className="px-2 py-1.5 text-white bg-accent hover:bg-accent-hover border-l border-white/20 rounded-r-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                title="Schedule send"
+                title={pendingScheduledAt ? "Cancel scheduled send" : "Schedule send"}
               >
-                <Clock size={12} />
+                {pendingScheduledAt ? <X size={12} /> : <Clock size={12} />}
               </button>
             </div>
           </div>
+        </div>
       </div>
 
       {showSchedule && (
         <ScheduleSendDialog
-          onSchedule={handleSchedule}
+          onSchedule={handleSelectScheduleTime}
           onClose={() => setShowSchedule(false)}
         />
       )}

@@ -11,7 +11,8 @@ const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 function BundleSettings() {
   const accounts = useAccountStore((s) => s.accounts);
-  const activeAccountId = accounts.find((a) => a.isActive)?.id;
+  const storedActiveId = useAccountStore((s) => s.activeAccountId);
+  const activeAccountId = storedActiveId ?? accounts[0]?.id;
   const [rules, setRules] = useState<
     Record<string, { bundled: boolean; delivery: boolean; days: number[]; hour: number; minute: number }>
   >({});
@@ -129,6 +130,8 @@ function BundleSettings() {
 
 export function AITab() {
   const accounts = useAccountStore((s) => s.accounts);
+  const storedActiveId = useAccountStore((s) => s.activeAccountId);
+  const activeAccountId = storedActiveId ?? accounts[0]?.id;
 
   const [aiProvider, setAiProvider] = useState<"claude" | "openai" | "gemini" | "ollama" | "copilot">("claude");
   const [claudeApiKey, setClaudeApiKey] = useState("");
@@ -521,10 +524,9 @@ export function AITab() {
                 setStyleAnalyzing(true);
                 setStyleAnalyzeDone(false);
                 try {
-                  const activeId = accounts.find((a) => a.isActive)?.id;
-                  if (activeId) {
+                  if (activeAccountId) {
                     const { refreshWritingStyle } = await import("@/services/ai/writingStyleService");
-                    await refreshWritingStyle(activeId);
+                    await refreshWritingStyle(activeAccountId);
                     setStyleAnalyzeDone(true);
                     setTimeout(() => setStyleAnalyzeDone(false), 3000);
                   }

@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/Button";
 
 export function NotificationsTab() {
   const accounts = useAccountStore((s) => s.accounts);
+  const storedActiveId = useAccountStore((s) => s.activeAccountId);
+  const activeAccountId = storedActiveId ?? accounts[0]?.id;
 
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [smartNotifications, setSmartNotifications] = useState(true);
@@ -28,7 +30,7 @@ export function NotificationsTab() {
 
       try {
         const { getAllVipSenders } = await import("@/services/db/notificationVips");
-        const activeId = accounts.find((a) => a.isActive)?.id;
+        const activeId = activeAccountId;
         if (activeId) {
           const vips = await getAllVipSenders(activeId);
           setVipSenders(vips.map((v) => ({ email_address: v.email_address, display_name: v.display_name })));
@@ -107,7 +109,7 @@ export function NotificationsTab() {
                   </span>
                   <button
                     onClick={async () => {
-                      const activeId = accounts.find((a) => a.isActive)?.id;
+                      const activeId = activeAccountId;
                       if (!activeId) return;
                       const { removeVipSender } = await import("@/services/db/notificationVips");
                       await removeVipSender(activeId, vip.email_address);
@@ -129,7 +131,7 @@ export function NotificationsTab() {
                 className="flex-1 px-3 py-1.5 bg-bg-tertiary border border-border-primary rounded-md text-xs text-text-primary outline-none focus:border-accent"
                 onKeyDown={async (e) => {
                   if (e.key !== "Enter" || !newVipEmail.trim()) return;
-                  const activeId = accounts.find((a) => a.isActive)?.id;
+                  const activeId = activeAccountId;
                   if (!activeId) return;
                   const { addVipSender } = await import("@/services/db/notificationVips");
                   await addVipSender(activeId, newVipEmail.trim());
@@ -141,7 +143,7 @@ export function NotificationsTab() {
                 variant="primary"
                 onClick={async () => {
                   if (!newVipEmail.trim()) return;
-                  const activeId = accounts.find((a) => a.isActive)?.id;
+                  const activeId = activeAccountId;
                   if (!activeId) return;
                   const { addVipSender } = await import("@/services/db/notificationVips");
                   await addVipSender(activeId, newVipEmail.trim());

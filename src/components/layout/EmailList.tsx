@@ -58,6 +58,13 @@ import {
 } from "@/services/search/smartFolderQuery";
 import { getDb } from "@/services/db/connection";
 import {
+  getScheduledEmailsForAccount,
+  getScheduledEmailsByAccounts,
+  updateScheduledEmailStatus,
+  type DbScheduledEmail,
+} from "@/services/db/scheduledEmails";
+import { ScheduledEmailPanel } from "./ScheduledEmailPanel";
+import {
   Archive,
   Trash2,
   X,
@@ -75,6 +82,7 @@ import {
   NoSearchResultsIllustration,
   NoAccountIllustration,
   GenericEmptyIllustration,
+  ScheduledEmptyIllustration,
 } from "../ui/illustrations";
 import { scrollTracker } from "@/utils/scrollTracker";
 
@@ -93,7 +101,7 @@ const LABEL_MAP: Record<string, string> = {
 };
 
 const UNIFIED_FOLDER_LABELS = new Set([
-  "starred", "snoozed", "sent", "drafts", "trash", "spam", "all",
+  "starred", "snoozed", "sent", "drafts", "trash", "spam", "all", "scheduled",
 ]);
 
 export function EmailList({
@@ -122,6 +130,7 @@ const selectThread = useThreadStore((s) => s.selectThread);
   const setReadFilter = useUIStore((s) => s.setReadFilter);
   const readingPanePosition = useUIStore((s) => s.readingPanePosition);
   const userLabels = useLabelStore((s) => s.labels);
+  const refreshScheduledCounts = useLabelStore((s) => s.refreshScheduledCounts);
   const smartFolders = useSmartFolderStore((s) => s.folders);
 
   // Detect smart folder mode
@@ -179,6 +188,12 @@ const [hasMore, setHasMore] = useState(true);
 
   const openComposer = useComposerStore((s) => s.openComposer);
   const multiSelectBarRef = useRef<HTMLDivElement>(null);
+  const [selectedScheduledEmail, setSelectedScheduledEmail] = useState<
+    import("@/services/db/scheduledEmails").DbScheduledEmail | null
+  >(null);
+  const scheduledEmailsRef = useRef<
+    Map<string, import("@/services/db/scheduledEmails").DbScheduledEmail>
+  >(new Map());
 
   const handleThreadContextMenu = useCallback(
     (e: React.MouseEvent, threadId: string) => {
@@ -255,6 +270,9 @@ const [hasMore, setHasMore] = useState(true);
       }
       if (activeLabel === "drafts") {
         handleDraftClick(thread);
+      } else if (activeLabel === "scheduled") {
+        const email = scheduledEmailsRef.current.get(thread.id);
+        if (email) setSelectedScheduledEmail(email);
       } else {
         navigateToThread(thread.id);
       }
@@ -564,10 +582,44 @@ const [hasMore, setHasMore] = useState(true);
 
   const isUnifiedInbox = activeLabel === "unified-inbox";
   const isUnifiedFolder = activeAccountId === null && UNIFIED_FOLDER_LABELS.has(activeLabel);
+  const isScheduled = activeLabel === "scheduled";
+  const isUnifiedScheduled = isScheduled && activeAccountId === null;
   const globalAccountIds = useMemo(
     () => accounts.filter((a) => a.includeInGlobal).map((a) => a.id),
     [accounts],
   );
+
+  function mapScheduledToThreads(emails: DbScheduledEmail[]): Thread[] {
+    scheduledEmailsRef.current = new Map(emails.map((e) => [e.id, e]));
+    return emails.map((e) => ({
+      id: e.id,
+      accountId: e.account_id,
+      subject: e.subject,
+      snippet: (() => {
+        const div = document.createElement("div");
+        div.innerHTML = e.body_html;
+        return (div.textContent ?? "").slice(0, 120) || null;
+      })(),
+      lastMessageAt: e.scheduled_at * 1000,
+      messageCount: 1,
+      isRead: true,
+      isStarred: false,
+      isPinned: false,
+      isMuted: false,
+      hasAttachments:
+        !!e.attachment_paths &&
+        (() => {
+          try {
+            return (JSON.parse(e.attachment_paths!) as unknown[]).length > 0;
+          } catch {
+            return false;
+          }
+        })(),
+      labelIds: ["SCHEDULED"],
+      fromName: e.to_addresses.split(",")[0]?.trim() ?? null,
+      fromAddress: e.to_addresses.split(",")[0]?.trim() ?? null,
+    }));
+  }
 
   const loadThreads = useCallback(async (keepSearch = false) => {
     // Unified inbox: load across all opted-in accounts (activeAccountId may be null)
@@ -582,6 +634,29 @@ const [hasMore, setHasMore] = useState(true);
         setHasMore(dbThreads.length === PAGE_SIZE);
       } catch (err) {
         console.error("Failed to load unified inbox threads:", err);
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
+    // Scheduled emails — separate table, no thread_labels join
+    if (isScheduled) {
+      if (!keepSearch) clearSearch();
+      setLoading(true);
+      setHasMore(false);
+      try {
+        let emails: DbScheduledEmail[];
+        if (isUnifiedScheduled) {
+          emails = await getScheduledEmailsByAccounts(globalAccountIds);
+        } else if (activeAccountId) {
+          emails = await getScheduledEmailsForAccount(activeAccountId);
+        } else {
+          emails = [];
+        }
+        setThreads(mapScheduledToThreads(emails));
+      } catch (err) {
+        console.error("Failed to load scheduled emails:", err);
       } finally {
         setLoading(false);
       }
@@ -683,6 +758,8 @@ const [hasMore, setHasMore] = useState(true);
   }, [
     isUnifiedInbox,
     isUnifiedFolder,
+    isScheduled,
+    isUnifiedScheduled,
     globalAccountIds,
     accounts,
     activeAccountId,
@@ -952,6 +1029,7 @@ const [hasMore, setHasMore] = useState(true);
  }, [loadMore]);
 
   return (
+    <>
     <div
       ref={listRef}
       className={`flex flex-col bg-bg-secondary/50 glass-panel ${readingPanePosition === "right"
@@ -1258,6 +1336,62 @@ return (
         )}
       </div>
     </div>
+
+    {selectedScheduledEmail && (
+      <ScheduledEmailPanel
+        email={selectedScheduledEmail}
+        onClose={() => setSelectedScheduledEmail(null)}
+        onEdit={(email) => {
+          setSelectedScheduledEmail(null);
+          const toList = email.to_addresses
+            .split(",")
+            .map((s) => s.trim())
+            .filter(Boolean);
+          const ccList = email.cc_addresses
+            ? email.cc_addresses.split(",").map((s) => s.trim()).filter(Boolean)
+            : [];
+          const bccList = email.bcc_addresses
+            ? email.bcc_addresses.split(",").map((s) => s.trim()).filter(Boolean)
+            : [];
+          updateScheduledEmailStatus(email.id, "cancelled").then(() => {
+            removeThreads([email.id]);
+            scheduledEmailsRef.current.delete(email.id);
+            refreshScheduledCounts(accounts.map((a) => a.id));
+          });
+          openComposer({
+            mode: "new",
+            accountId: email.account_id,
+            to: toList,
+            cc: ccList,
+            bcc: bccList,
+            subject: email.subject ?? "",
+            bodyHtml: email.body_html,
+            threadId: email.thread_id,
+            inReplyToMessageId: email.reply_to_message_id,
+          });
+        }}
+        onCancelled={(id) => {
+          removeThreads([id]);
+          scheduledEmailsRef.current.delete(id);
+          setSelectedScheduledEmail(null);
+          refreshScheduledCounts(accounts.map((a) => a.id));
+        }}
+        onRescheduled={(id, newTime) => {
+          setThreads(
+            threads.map((t) =>
+              t.id === id ? { ...t, lastMessageAt: newTime * 1000 } : t,
+            ),
+          );
+          const existing = scheduledEmailsRef.current.get(id);
+          if (existing) {
+            const updated = { ...existing, scheduled_at: newTime };
+            scheduledEmailsRef.current.set(id, updated);
+            setSelectedScheduledEmail(updated);
+          }
+        }}
+      />
+    )}
+    </>
   );
 }
 
@@ -1370,6 +1504,14 @@ function EmptyStateForContext({
         <EmptyState
           illustration={GenericEmptyIllustration}
           title="No sent messages"
+        />
+      );
+    case "scheduled":
+      return (
+        <EmptyState
+          illustration={ScheduledEmptyIllustration}
+          title="No scheduled emails"
+          subtitle="Emails you schedule from the composer will appear here"
         />
       );
     case "drafts":
