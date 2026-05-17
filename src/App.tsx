@@ -179,6 +179,20 @@ export default function App() {
     };
   }, []);
 
+  // Composer window (separate WebviewWindow) signals that a scheduled email was saved.
+  // Re-broadcast as a DOM event so Sidebar and EmailList refresh counts/list.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    import("@tauri-apps/api/event").then(({ listen }) => {
+      listen("velo-scheduled-saved", () => {
+        window.dispatchEvent(new Event("velo-sync-done"));
+      }).then((fn) => {
+        unlisten = fn;
+      });
+    });
+    return () => { unlisten?.(); };
+  }, []);
+
   // Listen for tray "Check for Mail" button
   useEffect(() => {
     let unlisten: (() => void) | undefined;

@@ -370,16 +370,15 @@ const [hasMore, setHasMore] = useState(true);
   };
 
   const handleBulkMarkAllSpamRead = async () => {
-    if (!activeAccountId || activeLabel !== "spam") return;
+    if (activeLabel !== "spam") return;
+    const targetAccounts = activeAccountId ? [activeAccountId] : accounts.map((a) => a.id);
     try {
-      const allSpamThreadIds = await getThreadIdsForLabel(
-        activeAccountId,
-        "SPAM",
+      const results = await Promise.all(
+        targetAccounts.map((accId) => getThreadIdsForLabel(accId, "SPAM").then((ids) => ({ accId, ids }))),
       );
-      if (allSpamThreadIds.length === 0) return;
       await Promise.all(
-        allSpamThreadIds.map((id) =>
-          markThreadRead(activeAccountId, id, [], true),
+        results.flatMap(({ accId, ids }) =>
+          ids.map((id) => markThreadRead(accId, id, [], true)),
         ),
       );
     } catch (err) {
@@ -388,16 +387,19 @@ const [hasMore, setHasMore] = useState(true);
   };
 
   const handleBulkMoveAllSpamToTrash = async () => {
-    if (!activeAccountId || activeLabel !== "spam") return;
+    if (activeLabel !== "spam") return;
+    const targetAccounts = activeAccountId ? [activeAccountId] : accounts.map((a) => a.id);
     try {
-      const allSpamThreadIds = await getThreadIdsForLabel(
-        activeAccountId,
-        "SPAM",
+      const results = await Promise.all(
+        targetAccounts.map((accId) => getThreadIdsForLabel(accId, "SPAM").then((ids) => ({ accId, ids }))),
       );
-      if (allSpamThreadIds.length === 0) return;
-      removeThreads(allSpamThreadIds);
+      const allIds = results.flatMap(({ ids }) => ids);
+      if (allIds.length === 0) return;
+      removeThreads(allIds);
       await Promise.all(
-        allSpamThreadIds.map((id) => trashThread(activeAccountId, id, [])),
+        results.flatMap(({ accId, ids }) =>
+          ids.map((id) => trashThread(accId, id, [])),
+        ),
       );
     } catch (err) {
       console.error("Bulk move all spam to trash failed:", err);
@@ -405,16 +407,15 @@ const [hasMore, setHasMore] = useState(true);
   };
 
   const handleBulkMarkAllTrashRead = async () => {
-    if (!activeAccountId || activeLabel !== "trash") return;
+    if (activeLabel !== "trash") return;
+    const targetAccounts = activeAccountId ? [activeAccountId] : accounts.map((a) => a.id);
     try {
-      const allTrashThreadIds = await getThreadIdsForLabel(
-        activeAccountId,
-        "TRASH",
+      const results = await Promise.all(
+        targetAccounts.map((accId) => getThreadIdsForLabel(accId, "TRASH").then((ids) => ({ accId, ids }))),
       );
-      if (allTrashThreadIds.length === 0) return;
       await Promise.all(
-        allTrashThreadIds.map((id) =>
-          markThreadRead(activeAccountId, id, [], true),
+        results.flatMap(({ accId, ids }) =>
+          ids.map((id) => markThreadRead(accId, id, [], true)),
         ),
       );
     } catch (err) {
@@ -423,17 +424,18 @@ const [hasMore, setHasMore] = useState(true);
   };
 
   const handleBulkEmptyTrash = async () => {
-    if (!activeAccountId || activeLabel !== "trash") return;
+    if (activeLabel !== "trash") return;
+    const targetAccounts = activeAccountId ? [activeAccountId] : accounts.map((a) => a.id);
     try {
-      const allTrashThreadIds = await getThreadIdsForLabel(
-        activeAccountId,
-        "TRASH",
+      const results = await Promise.all(
+        targetAccounts.map((accId) => getThreadIdsForLabel(accId, "TRASH").then((ids) => ({ accId, ids }))),
       );
-      if (allTrashThreadIds.length === 0) return;
-      removeThreads(allTrashThreadIds);
+      const allIds = results.flatMap(({ ids }) => ids);
+      if (allIds.length === 0) return;
+      removeThreads(allIds);
       await Promise.all(
-        allTrashThreadIds.map((id) =>
-          permanentDeleteThread(activeAccountId, id, []),
+        results.flatMap(({ accId, ids }) =>
+          ids.map((id) => permanentDeleteThread(accId, id, [])),
         ),
       );
     } catch (err) {

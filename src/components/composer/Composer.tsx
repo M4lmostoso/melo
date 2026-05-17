@@ -416,57 +416,61 @@ const getFullHtml = useCallback(() => {
     if (!effectiveAccountId || !activeAccount || !pendingScheduledAt) return;
     const state = useComposerStore.getState();
     if (state.to.length === 0) return;
-    const html = getFullHtml();
-    const attachmentData =
-      state.attachments.length > 0
-        ? JSON.stringify(
-            state.attachments.map((a) => ({
-              filename: a.filename,
-              mimeType: a.mimeType,
-              content: a.content,
-            })),
-          )
-        : null;
-    await insertScheduledEmail({
-      accountId: effectiveAccountId,
-      toAddresses: state.to.join(", "),
-      ccAddresses: state.cc.length > 0 ? state.cc.join(", ") : null,
-      bccAddresses: state.bcc.length > 0 ? state.bcc.join(", ") : null,
-      subject: state.subject,
-      bodyHtml: html,
-      replyToMessageId: state.inReplyToMessageId,
-      threadId: state.threadId,
-      scheduledAt: pendingScheduledAt,
-      signatureId: null,
-    });
-    if (attachmentData) {
-      const { getDb } = await import("@/services/db/connection");
-      const db = await getDb();
-      const rows = await db.select<{ id: string }[]>(
-        "SELECT id FROM scheduled_emails WHERE account_id = $1 ORDER BY created_at DESC LIMIT 1",
-        [effectiveAccountId],
-      );
-      if (rows[0])
+    try {
+      const html = getFullHtml();
+      const scheduledId = await insertScheduledEmail({
+        accountId: effectiveAccountId,
+        toAddresses: state.to.join(", "),
+        ccAddresses: state.cc.length > 0 ? state.cc.join(", ") : null,
+        bccAddresses: state.bcc.length > 0 ? state.bcc.join(", ") : null,
+        subject: state.subject,
+        bodyHtml: html,
+        replyToMessageId: state.inReplyToMessageId,
+        threadId: state.threadId,
+        scheduledAt: pendingScheduledAt,
+        signatureId: null,
+      });
+      if (state.attachments.length > 0) {
+        const attachmentData = JSON.stringify(
+          state.attachments.map((a) => ({
+            filename: a.filename,
+            mimeType: a.mimeType,
+            content: a.content,
+          })),
+        );
+        const { getDb } = await import("@/services/db/connection");
+        const db = await getDb();
         await db.execute(
           "UPDATE scheduled_emails SET attachment_paths = $1 WHERE id = $2",
-          [attachmentData, rows[0].id],
+          [attachmentData, scheduledId],
         );
-    }
-    stopAutoSave();
-    if (state.draftId) {
-      try {
-        await deleteDraftAction(
-          effectiveAccountId,
-          state.draftId,
-          state.threadId ?? undefined,
-        );
-      } catch {
-        /* ignore */
       }
+      stopAutoSave();
+      if (state.draftId) {
+        try {
+          await deleteDraftAction(
+            effectiveAccountId,
+            state.draftId,
+            state.threadId ?? undefined,
+          );
+        } catch {
+          /* ignore */
+        }
+      }
+    } catch (err) {
+      console.error("Failed to schedule email:", err);
+      return;
     }
     setPendingScheduledAt(null);
     closeComposer();
-    window.dispatchEvent(new Event("velo-sync-done"));
+    // Emit a Tauri event so the main window (separate WebviewWindow) can react.
+    // The DOM velo-sync-done only fires within the same window context.
+    import("@tauri-apps/api/event")
+      .then(({ emit }) => emit("velo-scheduled-saved"))
+      .catch(() => {
+        // Fallback for non-Tauri contexts (tests, browser dev)
+        window.dispatchEvent(new Event("velo-sync-done"));
+      });
   }, [effectiveAccountId, activeAccount, pendingScheduledAt, closeComposer, getFullHtml]);
 
   const handleDiscard = useCallback(async () => {
