@@ -69,6 +69,7 @@ import { SHORTCUTS, getDefaultKeyMap } from "@/constants/shortcuts";
 import { SoulEditorDialog } from "./SoulEditorDialog";
 import { EditImapAccount } from "@/components/accounts/EditImapAccount";
 import { EditGmailAccount } from "@/components/accounts/EditGmailAccount";
+import { AddAccount } from "@/components/accounts/AddAccount";
 import { useShortcutStore } from "@/stores/shortcutStore";
 import { COLOR_THEMES } from "@/constants/themes";
 import {
@@ -195,6 +196,7 @@ export function SettingsPage() {
   const [soulEditorOpen, setSoulEditorOpen] = useState(false);
   const [editingImapAccountId, setEditingImapAccountId] = useState<string | null>(null);
   const [editingGmailAccount, setEditingGmailAccount] = useState<{ id: string; email: string; displayName?: string | null; color?: string | null; includeInGlobal?: boolean; label?: string | null } | null>(null);
+  const [showAddAccount, setShowAddAccount] = useState(false);
   const [taskRetentionDeleted, setTaskRetentionDeleted] = useState("7");
   const [taskAutoArchiveHours, setTaskAutoArchiveHours] = useState("24");
   const [taskRetentionCompleted, setTaskRetentionCompleted] = useState("30");
@@ -1046,7 +1048,14 @@ const behaviorEnabledSetting = await getSetting("ai_behavior_enabled");
 
               {activeTab === "accounts" && (
                 <>
-                  <Section title="Mail Accounts">
+                  <Section title="Mail Accounts" action={
+                    <button
+                      onClick={() => setShowAddAccount(true)}
+                      className="text-xs text-accent hover:text-accent-hover transition-colors"
+                    >
+                      + Add Account
+                    </button>
+                  }>
                     {accounts.filter((a) => a.provider !== "caldav").length === 0 ? (
                       <p className="text-sm text-text-tertiary">
                         No mail accounts connected
@@ -2298,6 +2307,13 @@ const behaviorEnabledSetting = await getSetting("ai_behavior_enabled");
         </div>
       </div>
 
+      {showAddAccount && (
+        <AddAccount
+          onClose={() => setShowAddAccount(false)}
+          onSuccess={() => setShowAddAccount(false)}
+        />
+      )}
+
       {editingImapAccountId && (
         <EditImapAccount
           accountId={editingImapAccountId}
@@ -3058,15 +3074,20 @@ function SidebarNavEditor() {
 function Section({
   title,
   children,
+  action,
 }: {
   title: string;
   children: React.ReactNode;
+  action?: React.ReactNode;
 }) {
   return (
     <div>
-      <h3 className="text-xs font-semibold uppercase tracking-wider text-text-tertiary mb-3">
-        {title}
-      </h3>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-text-tertiary">
+          {title}
+        </h3>
+        {action}
+      </div>
       <div className="space-y-3">{children}</div>
     </div>
   );
