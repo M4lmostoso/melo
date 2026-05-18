@@ -44,12 +44,12 @@ export const COLOR_THEMES: ColorTheme[] = [
       sidebarActive: "#1F1F23",
     },
     dark: {
-      accent: "#D4D4D8",
+      accent: "#525252",
       accentHover: "#3B3B3B",
       accentLight: "rgba(212, 212, 216, 0.12)",
       accentLowerBar: "#2C2C2C",
       bgSelected: "rgba(212, 212, 216, 0.10)",
-      sidebarActive: "#D4D4D8",
+      sidebarActive: "#525252",
     },
   },
   {

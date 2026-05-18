@@ -21,6 +21,10 @@ import {
 } from "./services/gmail/syncManager";
 import { initializeClients } from "./services/gmail/tokenManager";
 import {
+  startIdleForAccounts,
+  stopAllIdle,
+} from "./services/imap/imapIdleManager";
+import {
   startSnoozeChecker,
   stopSnoozeChecker,
 } from "./services/snooze/snoozeManager";
@@ -134,9 +138,19 @@ export default function App() {
       triggerQueueFlush();
       const accounts = useAccountStore.getState().accounts;
       const activeIds = accounts.filter((a) => a.isActive).map((a) => a.id);
-      if (activeIds.length > 0) triggerSync(activeIds);
+      if (activeIds.length > 0) {
+        triggerSync(activeIds);
+        startIdleForAccounts(activeIds).catch((e) =>
+          console.warn("[imapIdle] restart on online failed:", e),
+        );
+      }
     };
-    const handleOffline = () => setOnline(false);
+    const handleOffline = () => {
+      setOnline(false);
+      stopAllIdle().catch((e) =>
+        console.warn("[imapIdle] stop on offline failed:", e),
+      );
+    };
 
     window.addEventListener("online", handleOnline);
     window.addEventListener("offline", handleOffline);
@@ -439,6 +453,10 @@ export default function App() {
         // Start background sync for active accounts
         if (activeIds.length > 0) {
           startBackgroundSync(activeIds);
+          // Push-mode IDLE for IMAP accounts (no-op for Gmail-API accounts)
+          startIdleForAccounts(activeIds).catch((e) =>
+            console.warn("[imapIdle] startup failed:", e),
+          );
         }
 
         startSnoozeChecker();
@@ -690,6 +708,9 @@ export default function App() {
     // since we already triggered the new account's sync above.
     const activeIds = mapped.filter((a) => a.isActive).map((a) => a.id);
     startBackgroundSync(activeIds, true);
+    startIdleForAccounts(activeIds).catch((e) =>
+      console.warn("[imapIdle] start after account add failed:", e),
+    );
   }, []);
 
   if (!initialized) {

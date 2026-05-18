@@ -24,6 +24,7 @@ import { RefreshCw, Mail, GripVertical } from "lucide-react";
 import { Section, SettingRow } from "./shared";
 import { Button } from "@/components/ui/Button";
 import { EditImapAccount } from "@/components/accounts/EditImapAccount";
+import { ImapIdleFoldersEditor } from "@/components/settings/ImapIdleFoldersEditor";
 import { EditGmailAccount } from "@/components/accounts/EditGmailAccount";
 import { AddAccount } from "@/components/accounts/AddAccount";
 import {
@@ -435,6 +436,9 @@ export function AccountsTab() {
                             </button>
                           </div>
                         </div>
+                        {account.provider === "imap" && (
+                          <ImapIdleFoldersEditor accountId={account.id} />
+                        )}
                       </div>
                     </SortableAccountRow>
                   );

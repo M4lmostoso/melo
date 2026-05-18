@@ -7,6 +7,13 @@ import type { SidebarNavItem } from "@/stores/uiStore";
 import { Check, ChevronUp, ChevronDown, RotateCcw } from "lucide-react";
 import { Section, SettingRow, ToggleRow } from "./shared";
 import { Button } from "@/components/ui/Button";
+import {
+  isIdleEnabled,
+  setIdleEnabled,
+  stopAllIdle,
+  startIdleForAccounts,
+} from "@/services/imap/imapIdleManager";
+import { useAccountStore } from "@/stores/accountStore";
 
 function SidebarNavEditor() {
   const sidebarNavConfig = useUIStore((s) => s.sidebarNavConfig);
@@ -140,6 +147,7 @@ export function GeneralTab() {
   const [cacheMaxMb, setCacheMaxMb] = useState("500");
   const [cacheSizeMb, setCacheSizeMb] = useState<number | null>(null);
   const [clearingCache, setClearingCache] = useState(false);
+  const [idlePushEnabled, setIdlePushEnabled] = useState(true);
 
   useEffect(() => {
     async function load() {
@@ -156,6 +164,8 @@ export function GeneralTab() {
       } catch {
         // autostart plugin may not be available in dev
       }
+
+      setIdlePushEnabled(await isIdleEnabled());
 
       const cacheMax = await getSetting("attachment_cache_max_mb");
       setCacheMaxMb(cacheMax ?? "500");
@@ -304,6 +314,26 @@ export function GeneralTab() {
           description="Start Melo automatically when you log in (minimized to tray)"
           checked={autostartEnabled}
           onToggle={handleAutostartToggle}
+        />
+      </Section>
+
+      <Section title="Mail sync">
+        <ToggleRow
+          label="IMAP push (IDLE)"
+          description="Use a persistent connection per IMAP folder so new mail arrives in seconds instead of waiting for the next poll. Falls back to polling when the server does not support IDLE."
+          checked={idlePushEnabled}
+          onToggle={async () => {
+            const newVal = !idlePushEnabled;
+            setIdlePushEnabled(newVal);
+            await setIdleEnabled(newVal);
+            const accounts = useAccountStore.getState().accounts;
+            const activeIds = accounts.filter((a) => a.isActive).map((a) => a.id);
+            if (newVal) {
+              await startIdleForAccounts(activeIds);
+            } else {
+              await stopAllIdle();
+            }
+          }}
         />
       </Section>
 

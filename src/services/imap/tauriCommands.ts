@@ -340,6 +340,46 @@ export async function imapSyncFolder(
 }
 
 /**
+ * Start an IMAP IDLE watcher for the given folder.
+ * The Rust side spawns a dedicated long-lived session and emits
+ * `imap-idle-event` Tauri events on activity. Idempotent — calling twice
+ * for the same `(accountId, folder)` is a no-op.
+ */
+export async function imapIdleStart(
+  accountId: string,
+  folder: string,
+  config: ImapConfig,
+): Promise<void> {
+  return invoke<void>('imap_idle_start', { accountId, folder, config });
+}
+
+export async function imapIdleStop(
+  accountId: string,
+  folder: string,
+): Promise<void> {
+  return invoke<void>('imap_idle_stop', { accountId, folder });
+}
+
+export async function imapIdleStopAccount(accountId: string): Promise<void> {
+  return invoke<void>('imap_idle_stop_account', { accountId });
+}
+
+export async function imapIdleStopAll(): Promise<void> {
+  return invoke<void>('imap_idle_stop_all');
+}
+
+export async function imapIdleList(): Promise<string[]> {
+  return invoke<string[]>('imap_idle_list');
+}
+
+export interface ImapIdleEvent {
+  account_id: string;
+  folder: string;
+  /** "started" | "new" | "timeout" | "error" | "unsupported" | "stopped" */
+  kind: string;
+}
+
+/**
  * Search a folder for UIDs without fetching message bodies.
  * Returns UIDs and folder status — lightweight alternative to `imapSyncFolder`
  * for callers that fetch messages in smaller IPC-friendly chunks.

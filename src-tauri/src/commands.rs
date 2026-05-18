@@ -3,7 +3,10 @@ extern crate tikv_jemalloc_sys;
 
 use tauri::Manager;
 
+use std::sync::Arc;
+
 use crate::imap::client as imap_client;
+use crate::imap::idle::ImapIdleRegistry;
 use crate::imap::pool::ImapSessionPool;
 use crate::imap::types::{
     BodyCache, BodyEntry, CidImageRequest, CidImageResult, DeltaCheckRequest, DeltaCheckResult,
@@ -1398,6 +1401,57 @@ pub async fn gmail_store_thread(
         thread_id,
         message_count: messages.len() as u32,
     })
+}
+
+// ---------- IMAP IDLE commands ----------
+
+#[tauri::command]
+pub async fn imap_idle_start(
+    app: tauri::AppHandle,
+    registry: tauri::State<'_, Arc<ImapIdleRegistry>>,
+    account_id: String,
+    folder: String,
+    config: ImapConfig,
+) -> Result<(), String> {
+    registry
+        .inner()
+        .clone()
+        .start(app, account_id, folder, config)
+        .await
+}
+
+#[tauri::command]
+pub async fn imap_idle_stop(
+    registry: tauri::State<'_, Arc<ImapIdleRegistry>>,
+    account_id: String,
+    folder: String,
+) -> Result<(), String> {
+    registry.stop(&account_id, &folder).await;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn imap_idle_stop_account(
+    registry: tauri::State<'_, Arc<ImapIdleRegistry>>,
+    account_id: String,
+) -> Result<(), String> {
+    registry.stop_all_for_account(&account_id).await;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn imap_idle_stop_all(
+    registry: tauri::State<'_, Arc<ImapIdleRegistry>>,
+) -> Result<(), String> {
+    registry.stop_all().await;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn imap_idle_list(
+    registry: tauri::State<'_, Arc<ImapIdleRegistry>>,
+) -> Result<Vec<String>, String> {
+    Ok(registry.list_active().await)
 }
 
 // ---------- SMTP commands ----------

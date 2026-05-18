@@ -428,6 +428,11 @@ pub fn run() {
             commands::imap_flush_bodies,
             commands::imap_fetch_and_store,
             commands::imap_store_threads,
+            commands::imap_idle_start,
+            commands::imap_idle_stop,
+            commands::imap_idle_stop_account,
+            commands::imap_idle_stop_all,
+            commands::imap_idle_list,
             commands::gmail_store_thread,
             commands::smtp_send_email,
             commands::smtp_test_connection,
@@ -438,6 +443,9 @@ pub fn run() {
             app.manage(crate::imap::pool::ImapSessionPool::new());
             app.manage(crate::imap::types::SyncSemaphore::new(3));
             app.manage(crate::imap::types::BodyCache::default());
+            app.manage(std::sync::Arc::new(
+                crate::imap::idle::ImapIdleRegistry::new(),
+            ));
 
             {
                 let level = if cfg!(debug_assertions) {
