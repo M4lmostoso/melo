@@ -151,19 +151,26 @@ export function EmailRenderer({
     // 2. Height request from parent (sent once on load for initial sizing)
     window.addEventListener('message', function(e) {
       if (e.data && e.data.type === 'getHeight') {
-        window.parent.postMessage({ type: 'height', h: document.documentElement.scrollHeight }, '*');
+        sendHeight();
       }
     });
 
-    // 3. Height tracking via ResizeObserver — only sends when height actually
-    //    changes to avoid flooding the parent during text selection.
+    // 3. Height tracking via ResizeObserver — observes both html and body
+    //    because email tables / absolute-positioned elements may only affect
+    //    one of them. Math.max covers all sources for most robust measurement.
     var lastH = 0;
-    new ResizeObserver(function() {
-      var h = document.documentElement.scrollHeight;
+    function sendHeight() {
+      var h = Math.max(
+        document.body.scrollHeight, document.body.offsetHeight,
+        document.documentElement.scrollHeight, document.documentElement.offsetHeight
+      );
       if (h === lastH) return;
       lastH = h;
       window.parent.postMessage({ type: 'height', h: h }, '*');
-    }).observe(document.documentElement);
+    }
+    var ro = new ResizeObserver(sendHeight);
+    ro.observe(document.documentElement);
+    ro.observe(document.body);
   })();</script>
 </head>
 <body>${bodyHtml}</body>
