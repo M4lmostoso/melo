@@ -151,37 +151,35 @@ export function EmailRenderer({
   </style>
   <script>(function() {
     var NONCE = '${nonce}';
-
-    // 1. Link clicks — forward to parent for openUrl / openComposer
     document.addEventListener('click', function(e) {
       var a = e.target && e.target.closest ? e.target.closest('a[data-link]') : null;
       if (!a) return;
       e.preventDefault();
       window.parent.postMessage({ type: 'link', nonce: NONCE, href: a.getAttribute('data-link') || '' }, '*');
     });
-
-    // 2. Height request from parent (keyed by nonce to avoid cross-iframe confusion)
     window.addEventListener('message', function(e) {
-      if (e.data && e.data.type === 'getHeight' && e.data.nonce === NONCE) {
-        sendHeight();
-      }
+      if (e.data && e.data.type === 'getHeight' && e.data.nonce === NONCE) sendHeight();
     });
-
-    // 3. Height tracking — observes both html and body because email tables /
-    //    absolute-positioned elements may only affect one of them.
     var lastH = 0;
     function sendHeight() {
       var h = Math.max(
-        document.body.scrollHeight, document.body.offsetHeight,
-        document.documentElement.scrollHeight, document.documentElement.offsetHeight
+        document.body ? document.body.scrollHeight : 0,
+        document.body ? document.body.offsetHeight : 0,
+        document.documentElement.scrollHeight,
+        document.documentElement.offsetHeight
       );
       if (h === lastH) return;
       lastH = h;
       window.parent.postMessage({ type: 'height', nonce: NONCE, h: h }, '*');
     }
-    var ro = new ResizeObserver(sendHeight);
-    ro.observe(document.documentElement);
-    ro.observe(document.body);
+    function init() {
+      var ro = new ResizeObserver(sendHeight);
+      ro.observe(document.documentElement);
+      if (document.body) ro.observe(document.body);
+      sendHeight();
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+    else init();
   })();</script>
 </head>
 <body>${bodyHtml}</body>
@@ -217,8 +215,6 @@ export function EmailRenderer({
     const instanceNonce = nonceRef.current;
     const onMessage = (e: MessageEvent) => {
       const msg = e.data as { type: string; nonce?: string; h?: number; href?: string } | null;
-      // Use nonce instead of e.source: WKWebView returns an opaque proxy for
-      // sandboxed null-origin iframes, so e.source !== iframe.contentWindow always.
       if (!msg?.type || msg.nonce !== instanceNonce) return;
 
       if (msg.type === "height" && typeof msg.h === "number" && msg.h > 0) {
