@@ -31,9 +31,11 @@ export function EmailRenderer({
 }: EmailRendererProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const rafRef = useRef<number>(0);
-  // Tracks the active Blob URL for the iframe document so we can revoke it
-  // deterministically on unmount (instead of waiting for JS GC).
   const blobUrlRef = useRef<string | null>(null);
+  // Per-instance nonce so the parent can identify messages from THIS iframe
+  // without relying on e.source, which WKWebView returns as an opaque proxy
+  // object for sandboxed null-origin iframes (never === contentWindow).
+  const nonceRef = useRef<string>(Math.random().toString(36).slice(2));
   const [overrideShow, setOverrideShow] = useState(false);
 
   const theme = useUIStore((s) => s.theme);
@@ -104,17 +106,22 @@ export function EmailRenderer({
     return hasBlockedImages(stripRemoteImages(sanitizedBody));
   }, [shouldBlock, sanitizedBody]);
 
+  const nonce = nonceRef.current;
   const srcdoc = useMemo(() => {
     const plainTextDark = isDark && isPlainText;
     const htmlDark = isDark && !isPlainText;
-    // Inline script handles three responsibilities so the iframe can run with
-    // sandbox="allow-scripts" only (no allow-same-origin), which prevents the
-    // parent's Tauri CSP from blocking remote images in email signatures.
     return `<!DOCTYPE html>
 <html>
 <head>
   <meta name="format-detection" content="telephone=no, date=no, address=no, email=no, url=no">
   <style>
+    /* WKWebView quirk: without explicit height:auto, the body collapses to the
+       iframe's initial viewport height when overflow:hidden is set, causing
+       scrollHeight to report the wrong (clamped) value. */
+    html {
+      height: auto !important;
+      min-height: 0 !important;
+    }
     body {
       margin: 0;
       padding: 16px;
@@ -125,7 +132,10 @@ export function EmailRenderer({
       background: ${htmlDark ? "#f8f9fa" : "transparent"};
       word-wrap: break-word;
       overflow-wrap: break-word;
-      overflow: hidden;
+      overflow-x: hidden;
+      overflow-y: visible;
+      height: auto !important;
+      min-height: 0 !important;
     }
     img { max-width: 100%; height: auto; }
     a { color: ${plainTextDark ? "#60a5fa" : "#3b82f6"}; }
@@ -140,24 +150,25 @@ export function EmailRenderer({
     table { max-width: 100%; }
   </style>
   <script>(function() {
+    var NONCE = '${nonce}';
+
     // 1. Link clicks — forward to parent for openUrl / openComposer
     document.addEventListener('click', function(e) {
       var a = e.target && e.target.closest ? e.target.closest('a[data-link]') : null;
       if (!a) return;
       e.preventDefault();
-      window.parent.postMessage({ type: 'link', href: a.getAttribute('data-link') || '' }, '*');
+      window.parent.postMessage({ type: 'link', nonce: NONCE, href: a.getAttribute('data-link') || '' }, '*');
     });
 
-    // 2. Height request from parent (sent once on load for initial sizing)
+    // 2. Height request from parent (keyed by nonce to avoid cross-iframe confusion)
     window.addEventListener('message', function(e) {
-      if (e.data && e.data.type === 'getHeight') {
+      if (e.data && e.data.type === 'getHeight' && e.data.nonce === NONCE) {
         sendHeight();
       }
     });
 
-    // 3. Height tracking via ResizeObserver — observes both html and body
-    //    because email tables / absolute-positioned elements may only affect
-    //    one of them. Math.max covers all sources for most robust measurement.
+    // 3. Height tracking — observes both html and body because email tables /
+    //    absolute-positioned elements may only affect one of them.
     var lastH = 0;
     function sendHeight() {
       var h = Math.max(
@@ -166,7 +177,7 @@ export function EmailRenderer({
       );
       if (h === lastH) return;
       lastH = h;
-      window.parent.postMessage({ type: 'height', h: h }, '*');
+      window.parent.postMessage({ type: 'height', nonce: NONCE, h: h }, '*');
     }
     var ro = new ResizeObserver(sendHeight);
     ro.observe(document.documentElement);
@@ -203,10 +214,12 @@ export function EmailRenderer({
       URL.revokeObjectURL(blobUrlRef.current);
     }
 
+    const instanceNonce = nonceRef.current;
     const onMessage = (e: MessageEvent) => {
-      if (e.source !== iframe.contentWindow) return;
-      const msg = e.data as { type: string; h?: number; href?: string } | null;
-      if (!msg?.type) return;
+      const msg = e.data as { type: string; nonce?: string; h?: number; href?: string } | null;
+      // Use nonce instead of e.source: WKWebView returns an opaque proxy for
+      // sandboxed null-origin iframes, so e.source !== iframe.contentWindow always.
+      if (!msg?.type || msg.nonce !== instanceNonce) return;
 
       if (msg.type === "height" && typeof msg.h === "number" && msg.h > 0) {
         cancelAnimationFrame(rafRef.current);
@@ -230,7 +243,7 @@ export function EmailRenderer({
     // Belt-and-suspenders: explicitly request height after load in case the
     // ResizeObserver message arrived before the listener was ready
     const onLoad = () => {
-      iframe.contentWindow?.postMessage({ type: "getHeight" }, "*");
+      iframe.contentWindow?.postMessage({ type: "getHeight", nonce: instanceNonce }, "*");
     };
     iframe.addEventListener("load", onLoad);
 
