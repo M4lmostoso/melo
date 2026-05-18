@@ -586,7 +586,12 @@ export async function getGlobalUnreadCounts(
      INNER JOIN threads t ON t.id = tl.thread_id AND t.account_id = tl.account_id
      WHERE tl.account_id IN (${placeholders})
        AND t.is_read = 0
-       AND t.is_archived = 0
+       AND EXISTS (
+         SELECT 1 FROM thread_labels inbox
+         WHERE inbox.thread_id = tl.thread_id
+           AND inbox.account_id = tl.account_id
+           AND inbox.label_id = 'INBOX'
+       )
      GROUP BY tl.account_id, tl.label_id`,
     accountIds,
   );

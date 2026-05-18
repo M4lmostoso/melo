@@ -11,12 +11,60 @@ function b64(username: string, password: string): string {
   return btoa(`${username}:${password}`);
 }
 
+function resolveHref(href: string, baseUrl: string): string {
+  return href.startsWith("http") ? href : new URL(href, baseUrl).href;
+}
+
+/**
+ * Resolve the calendar-home-set URL via the standard CalDAV discovery flow
+ * (RFC 4791 §6.2.1): PROPFIND on base URL → current-user-principal →
+ * calendar-home-set. Falls back to the original URL on any error.
+ */
+async function resolveCalendarHomeUrl(url: string, username: string, password: string): Promise<string> {
+  const headers = {
+    Authorization: `Basic ${b64(username, password)}`,
+    Depth: "0",
+    "Content-Type": "application/xml; charset=utf-8",
+  };
+  const body = `<?xml version="1.0" encoding="utf-8"?><D:propfind xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav"><D:prop><D:current-user-principal/><C:calendar-home-set/></D:prop></D:propfind>`;
+
+  try {
+    const res = await tauriFetch(url, { method: "PROPFIND", headers, body });
+    if (res.status !== 207 && !res.ok) return url;
+
+    const doc = new DOMParser().parseFromString(await res.text(), "application/xml");
+
+    // Some servers return calendar-home-set directly on the base URL
+    const homeHref = doc.getElementsByTagNameNS(CALDAV_NS, "calendar-home-set")[0]
+      ?.getElementsByTagNameNS(DAV_NS, "href")[0]?.textContent?.trim();
+    if (homeHref) return resolveHref(homeHref, url);
+
+    // Otherwise follow current-user-principal
+    const principalHref = doc.getElementsByTagNameNS(DAV_NS, "current-user-principal")[0]
+      ?.getElementsByTagNameNS(DAV_NS, "href")[0]?.textContent?.trim();
+    if (!principalHref) return url;
+
+    const principalUrl = resolveHref(principalHref, url);
+    const principalRes = await tauriFetch(principalUrl, { method: "PROPFIND", headers, body });
+    if (principalRes.status !== 207 && !principalRes.ok) return url;
+
+    const principalDoc = new DOMParser().parseFromString(await principalRes.text(), "application/xml");
+    const homeHref2 = principalDoc.getElementsByTagNameNS(CALDAV_NS, "calendar-home-set")[0]
+      ?.getElementsByTagNameNS(DAV_NS, "href")[0]?.textContent?.trim();
+    return homeHref2 ? resolveHref(homeHref2, url) : url;
+  } catch {
+    return url;
+  }
+}
+
 export async function listCalDavCalendars(
   url: string,
   username: string,
   password: string,
 ): Promise<Array<{ remoteId: string; displayName: string; color: string | null; isPrimary: boolean }>> {
-  const response = await tauriFetch(url, {
+  const homeUrl = await resolveCalendarHomeUrl(url, username, password);
+
+  const response = await tauriFetch(homeUrl, {
     method: "PROPFIND",
     headers: {
       Authorization: `Basic ${b64(username, password)}`,
@@ -44,7 +92,7 @@ export async function listCalDavCalendars(
     const displayName = resp.getElementsByTagNameNS(DAV_NS, "displayname")[0]?.textContent?.trim() || "Calendar";
     const rawColor = resp.getElementsByTagNameNS(APPLE_CAL_NS, "calendar-color")[0]?.textContent?.trim() ?? null;
     const color = rawColor ? rawColor.replace(/^(#[0-9A-Fa-f]{6})[0-9A-Fa-f]{2}$/, "$1") : null;
-    const remoteId = href.startsWith("http") ? href : new URL(href, url).href;
+    const remoteId = resolveHref(href, homeUrl);
 
     calendars.push({ remoteId, displayName, color, isPrimary: calendars.length === 0 });
   }

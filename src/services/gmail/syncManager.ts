@@ -156,17 +156,22 @@ async function syncCalendarForAccount(accountId: string): Promise<void> {
 
     const provider = await getCalendarProvider(accountId);
 
-    // Discover/update calendars
-    const calendarInfos = await provider.listCalendars();
-    for (const cal of calendarInfos) {
-      await upsertCalendar({
-        accountId,
-        provider: provider.type,
-        remoteId: cal.remoteId,
-        displayName: cal.displayName,
-        color: cal.color,
-        isPrimary: cal.isPrimary,
-      });
+    // Discover/update calendars — best-effort: if the base URL returns 404
+    // (e.g. server requires username in path) we fall back to calendars already in DB.
+    try {
+      const calendarInfos = await provider.listCalendars();
+      for (const cal of calendarInfos) {
+        await upsertCalendar({
+          accountId,
+          provider: provider.type,
+          remoteId: cal.remoteId,
+          displayName: cal.displayName,
+          color: cal.color,
+          isPrimary: cal.isPrimary,
+        });
+      }
+    } catch (err) {
+      console.warn(`[syncManager] Calendar discovery failed for account ${accountId} (syncing cached calendars):`, err);
     }
 
     // Sync events for each visible calendar

@@ -96,6 +96,23 @@ export async function getCalendarEventsInRangeMulti(
   );
 }
 
+export async function getCalendarEventsInRangeForCalendars(
+  calendarIds: string[],
+  startTime: number,
+  endTime: number,
+): Promise<DbCalendarEvent[]> {
+  if (calendarIds.length === 0) return [];
+  const db = await getDb();
+  const placeholders = calendarIds.map((_, i) => `$${i + 3}`).join(", ");
+  return db.select<DbCalendarEvent[]>(
+    `SELECT * FROM calendar_events
+     WHERE start_time < $2 AND end_time > $1
+       AND calendar_id IN (${placeholders})
+     ORDER BY start_time ASC`,
+    [startTime, endTime, ...calendarIds],
+  );
+}
+
 export async function deleteEventsForCalendar(calendarId: string): Promise<void> {
   const db = await getDb();
   await db.execute("DELETE FROM calendar_events WHERE calendar_id = $1", [calendarId]);
