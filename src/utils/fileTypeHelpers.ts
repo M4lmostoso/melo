@@ -44,6 +44,12 @@ export function isArchive(mimeType: string | null): boolean {
   return mimeType.includes("zip") || mimeType.includes("compressed") || mimeType.includes("archive") || mimeType.includes("tar") || mimeType === "application/gzip" || mimeType === "application/x-gzip";
 }
 
+export function isCalendarInvite(mimeType: string | null, filename?: string | null): boolean {
+  if (mimeType && (mimeType.includes("text/calendar") || mimeType.includes("application/ics") || mimeType.includes("text/x-vcalendar"))) return true;
+  const ext = filename?.toLowerCase();
+  return ext?.endsWith(".ics") || ext?.endsWith(".ical") || false;
+}
+
 export function getFileIcon(mimeType: string | null): string {
   if (!mimeType) return "\u{1F4CE}";
   if (mimeType.startsWith("image/")) return "\u{1F5BC}";

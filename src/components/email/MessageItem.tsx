@@ -3,11 +3,14 @@ import { formatFullDate } from "@/utils/date";
 import { EmailRenderer } from "./EmailRenderer";
 import { InlineAttachmentPreview } from "./InlineAttachmentPreview";
 import { AttachmentList, getAttachmentsForMessage } from "./AttachmentList";
+import { CalendarInviteWidget } from "./CalendarInviteWidget";
 import type { DbMessage } from "@/services/db/messages";
 import type { DbAttachment } from "@/services/db/attachments";
 import { MailMinus } from "lucide-react";
 import { AuthBadge } from "./AuthBadge";
 import { AuthWarningBanner } from "./AuthWarningBanner";
+import { isCalendarInvite } from "@/utils/fileTypeHelpers";
+import { useAccountStore } from "@/stores/accountStore";
 
 // ---------------------------------------------------------------------------
 // Module-level semaphore — caps concurrent Gmail CID fetches.
@@ -55,6 +58,7 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
   const [cidMap, setCidMap] = useState<Map<string, string>>(new Map());
   const [cidFailed, setCidFailed] = useState<Set<string>>(new Set());
   const attachmentsLoadedRef = useRef(false);
+  const account = useAccountStore((s) => s.accounts.find((a) => a.id === (accountId ?? message.account_id)));
 
   const resolveCidImages = async (atts: DbAttachment[]) => {
     const html = message.body_html;
@@ -211,6 +215,11 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
     }
   };
 
+  const calendarAttachment = useMemo(
+    () => attachments.find((a) => isCalendarInvite(a.mime_type, a.filename)),
+    [attachments],
+  );
+
   // Scan HTML body for cid: references — these images are already rendered inline
   const referencedCids = useMemo(() => {
     const cids = new Set<string>();
@@ -284,6 +293,15 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
             />
           )}
 
+          {calendarAttachment && account && (
+            <CalendarInviteWidget
+              attachment={calendarAttachment}
+              messageId={message.id}
+              threadId={threadId ?? message.thread_id}
+              account={account}
+            />
+          )}
+
           {blockImages != null ? (
             <EmailRenderer
               key={message.id}
@@ -313,6 +331,7 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
             messageId={message.id}
             attachments={attachments}
             referencedCids={referencedCids}
+            excludeIds={calendarAttachment ? [calendarAttachment.id] : undefined}
           />
         </div>
       )}

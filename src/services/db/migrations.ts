@@ -1039,6 +1039,16 @@ const MIGRATIONS = [
       ALTER TABLE calendars ADD COLUMN user_color TEXT DEFAULT NULL;
     `,
   },
+  {
+    version: 45,
+    description: "Add source_message_id, rsvp_status and last_notified_at to calendar_events for email invite tracking",
+    sql: `
+      ALTER TABLE calendar_events ADD COLUMN source_message_id TEXT DEFAULT NULL;
+      ALTER TABLE calendar_events ADD COLUMN rsvp_status TEXT DEFAULT NULL;
+      ALTER TABLE calendar_events ADD COLUMN last_notified_at INTEGER DEFAULT NULL;
+      CREATE INDEX IF NOT EXISTS idx_calendar_events_message ON calendar_events(source_message_id);
+    `,
+  },
 ];
 
 /**

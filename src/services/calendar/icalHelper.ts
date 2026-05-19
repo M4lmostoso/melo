@@ -145,6 +145,64 @@ export function parseVEvent(icalData: string, href?: string): CalendarEventData 
   };
 }
 
+/** Extract the METHOD property from iCalendar data (REQUEST, REPLY, CANCEL, etc.) */
+export function extractIcsMethod(icalData: string): string {
+  const match = icalData.match(/^METHOD:(.+)$/im);
+  return match?.[1] ? match[1].trim().toUpperCase() : "REQUEST";
+}
+
+/** Extract a meeting URL (Teams/Zoom/Meet/Webex) from iCalendar DESCRIPTION or LOCATION */
+export function extractMeetingUrl(icalData: string): string | null {
+  const meetingPatterns = [
+    /https?:\/\/[^\s"<>]+\.zoom\.us\/[^\s"<>]+/i,
+    /https?:\/\/teams\.microsoft\.com\/[^\s"<>]+/i,
+    /https?:\/\/meet\.google\.com\/[a-z\-]+/i,
+    /https?:\/\/[^\s"<>]+\.webex\.com\/[^\s"<>]+/i,
+    /https?:\/\/[^\s"<>]+\.gotomeeting\.com\/[^\s"<>]+/i,
+  ];
+  const text = icalData.replace(/\r\n[ \t]/g, "").replace(/\\n/gi, " ");
+  for (const pattern of meetingPatterns) {
+    const m = text.match(pattern);
+    if (m) return m[0].replace(/\\$/, "");
+  }
+  return null;
+}
+
+export interface RsvpReplyParams {
+  uid: string;
+  summary: string;
+  dtstart: string;
+  dtend: string;
+  organizerEmail: string;
+  attendeeEmail: string;
+  attendeeName?: string;
+  partstat: "ACCEPTED" | "DECLINED" | "TENTATIVE";
+}
+
+/** Generate a METHOD:REPLY iCalendar string for responding to an invite */
+export function generateRsvpReply(params: RsvpReplyParams): string {
+  const { uid, summary, dtstart, dtend, organizerEmail, attendeeEmail, attendeeName, partstat } = params;
+  const now = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "") + "Z";
+  const cn = attendeeName ? `CN=${attendeeName};` : "";
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//Velo Mail//Calendar//EN",
+    "METHOD:REPLY",
+    "BEGIN:VEVENT",
+    `UID:${uid}`,
+    `DTSTAMP:${now}`,
+    `DTSTART:${dtstart}`,
+    `DTEND:${dtend}`,
+    `SUMMARY:${escapeICalText(summary)}`,
+    `ORGANIZER:mailto:${organizerEmail}`,
+    `ATTENDEE;${cn}PARTSTAT=${partstat};RSVP=FALSE:mailto:${attendeeEmail}`,
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ];
+  return lines.join("\r\n");
+}
+
 /** Unfold continuation lines (RFC 5545 §3.1) */
 function unfoldLines(icalData: string): string[] {
   const raw = icalData.replace(/\r\n[ \t]/g, "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");

@@ -73,6 +73,7 @@ interface AttachmentListProps {
   messageId: string;
   attachments: DbAttachment[];
   referencedCids?: Set<string>;
+  excludeIds?: string[];
 }
 
 export function AttachmentList({
@@ -80,6 +81,7 @@ export function AttachmentList({
   messageId,
   attachments,
   referencedCids,
+  excludeIds,
 }: AttachmentListProps) {
   const [preview, setPreview] = useState<DbAttachment | null>(null);
 
@@ -90,6 +92,8 @@ export function AttachmentList({
       if (a.content_id && referencedCids?.has(a.content_id)) return false;
       // True inline: marked inline with no filename
       if (a.is_inline && !a.filename) return false;
+      // Skip attachments handled by a dedicated widget (e.g. CalendarInviteWidget)
+      if (excludeIds?.includes(a.id)) return false;
       return true;
     }),
   );
