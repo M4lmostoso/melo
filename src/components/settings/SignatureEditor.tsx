@@ -3,7 +3,6 @@ import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { TextStyle } from "@tiptap/extension-text-style";
 import { Color } from "@tiptap/extension-color";
-import Underline from "@tiptap/extension-underline";
 import Placeholder from "@tiptap/extension-placeholder";
 import Image from "@tiptap/extension-image";
 import { ChevronDown, Check, Trash2, Pencil, Code, AlertCircle, Download } from "lucide-react";
@@ -69,7 +68,6 @@ export function SignatureEditor() {
       StarterKit.configure({ heading: { levels: [1, 2, 3] }, link: { openOnClick: false } }),
       TextStyle,
       Color,
-      Underline,
       Image.configure({ inline: true, allowBase64: true }),
       Placeholder.configure({ placeholder: "Write your signature..." }),
       FontFamily,

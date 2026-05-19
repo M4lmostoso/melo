@@ -459,6 +459,23 @@ export default function App() {
           );
         }
 
+        // If the date-repair ran this startup, force an immediate re-sync of the
+        // affected accounts so re-fetched messages appear without waiting 60s.
+        const pendingSyncRaw = await getSetting("imap_date_repair_v1_pending_sync");
+        if (pendingSyncRaw) {
+          try {
+            const pendingIds: string[] = JSON.parse(pendingSyncRaw);
+            const toSync = pendingIds.filter((id) => activeIds.includes(id));
+            if (toSync.length > 0) {
+              console.log("[repair] Forcing re-sync for date-repaired accounts:", toSync);
+              for (const id of toSync) syncAccount(id).catch(console.warn);
+            }
+          } catch { /* malformed JSON — ignore */ }
+          // Clear the flag so it doesn't fire again on next startup
+          const { deleteSetting } = await import("./services/db/settings");
+          deleteSetting("imap_date_repair_v1_pending_sync").catch(() => {});
+        }
+
         startSnoozeChecker();
         startScheduledSendChecker();
         startFollowUpChecker();

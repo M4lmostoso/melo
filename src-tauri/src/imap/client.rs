@@ -1867,8 +1867,14 @@ fn parse_message(
     let date = message
         .date()
         .map(|d| d.to_timestamp())
-        .or(internal_date)
-        .unwrap_or(0);
+        .filter(|&ts| ts > 0)
+        .or_else(|| internal_date.filter(|&ts| ts > 0))
+        .unwrap_or_else(|| {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs() as i64)
+                .unwrap_or(0)
+        });
 
     // In-Reply-To
     let in_reply_to = match message.in_reply_to() {

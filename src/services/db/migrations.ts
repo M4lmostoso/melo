@@ -1242,6 +1242,73 @@ export async function runMigrations(): Promise<void> {
 
   console.log("All migrations applied.");
 
+  // One-time repair: fix IMAP messages stored with date=0 (Unix epoch / January 1970).
+  // Root cause: mail-parser's to_timestamp() returned 0 for malformed Date headers and
+  // the internal_date fallback was not applied because Some(0) is not None.
+  // Fix: delete affected messages, roll back last_uid in folder_sync_state so the next
+  // delta sync re-fetches only the broken UIDs with the corrected parsing logic.
+  const dateRepairFlag = await db.select<{ value: string }[]>(
+    "SELECT value FROM settings WHERE key = 'imap_date_repair_v1'",
+  );
+  if (dateRepairFlag.length === 0) {
+    const broken = await db.select<{ id: string; account_id: string }[]>(
+      "SELECT id, account_id FROM messages WHERE date = 0 AND id LIKE 'imap-%'",
+    );
+    if (broken.length > 0) {
+      console.log(`[repair] Found ${broken.length} IMAP messages with date=0 — fixing...`);
+
+      // Group by (account_id, folder), track minimum UID per folder so we can
+      // roll back last_uid just enough to re-fetch only the affected messages.
+      const folderMinUid = new Map<string, { accountId: string; folder: string; minUid: number }>();
+      for (const msg of broken) {
+        // id format: "imap-{account_id}-{folder}-{uid}"
+        // account_id is known from the row — strip prefix + account_id to isolate "{folder}-{uid}"
+        const prefix = `imap-${msg.account_id}-`;
+        const rest = msg.id.slice(prefix.length);
+        const lastDash = rest.lastIndexOf("-");
+        if (lastDash < 0) continue;
+        const folder = rest.slice(0, lastDash);
+        const uid = parseInt(rest.slice(lastDash + 1), 10);
+        if (isNaN(uid)) continue;
+
+        const key = `${msg.account_id}::${folder}`;
+        const existing = folderMinUid.get(key);
+        if (!existing || uid < existing.minUid) {
+          folderMinUid.set(key, { accountId: msg.account_id, folder, minUid: uid });
+        }
+      }
+
+      // Roll back last_uid so delta sync re-fetches from just before the first broken UID.
+      for (const { accountId, folder, minUid } of folderMinUid.values()) {
+        await db.execute(
+          "UPDATE folder_sync_state SET last_uid = $1 WHERE account_id = $2 AND folder_path = $3",
+          [Math.max(0, minUid - 1), accountId, folder],
+        );
+      }
+
+      // Delete broken messages and orphaned threads.
+      await db.execute("DELETE FROM messages WHERE date = 0 AND id LIKE 'imap-%'");
+      await db.execute(`
+        DELETE FROM threads
+        WHERE (account_id, id) NOT IN (SELECT account_id, thread_id FROM messages)
+        AND account_id IN (SELECT id FROM accounts WHERE provider = 'imap')
+      `);
+
+      // Record the affected account IDs so App.tsx can trigger an explicit sync
+      // immediately after startup (before the 60s background timer fires).
+      const affectedAccountIds = [...new Set(broken.map((m) => m.account_id))];
+      await db.execute(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES ('imap_date_repair_v1_pending_sync', $1)",
+        [JSON.stringify(affectedAccountIds)],
+      );
+
+      console.log("[repair] IMAP date repair complete — affected folders will be re-synced.");
+    }
+    await db.execute(
+      "INSERT OR REPLACE INTO settings (key, value) VALUES ('imap_date_repair_v1', '1')",
+    );
+  }
+
   // One-time repair: force IMAP attachment resync with corrected Rust binary.
   // Migrations 20/21 may have run before the Rust fix was compiled in.
   // This uses a settings flag so it only runs once.

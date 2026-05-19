@@ -990,6 +990,17 @@ const [hasMore, setHasMore] = useState(true);
     }
   }, [selectedThreadId]);
 
+  // Clear selection when the selected thread no longer exists in the loaded list.
+  // This happens after a repair or deletion removes messages that were being viewed
+  // (e.g. date-0 messages deleted by imap_date_repair_v1).
+  useEffect(() => {
+    if (!selectedThreadId || isLoading || threads.length === 0) return;
+    const stillExists = threads.some((t) => t.id === selectedThreadId);
+    if (!stillExists) {
+      selectThread(null);
+    }
+  }, [threads, selectedThreadId, isLoading, selectThread]);
+
   // Listen for sync completion to reload (debounced to avoid waterfall from multiple emitters)
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
