@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { useDroppable } from "@dnd-kit/core";
 import { AccountSwitcher } from "../accounts/AccountSwitcher";
 import { LabelForm } from "../labels/LabelForm";
@@ -414,6 +414,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
 
   const [labelsExpanded, setLabelsExpanded] = useState(false);
   const [collapsedLabelGroups, setCollapsedLabelGroups] = useState<Set<string>>(new Set());
+  const labelGroupsInitialized = useRef(false);
 
   const toggleLabelGroup = useCallback((accountId: string) => {
     setCollapsedLabelGroups((prev) => {
@@ -460,6 +461,14 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
     const allIds = accounts.map((a) => a.id);
     if (allIds.length > 0) loadAllAccountLabels(allIds);
   }, [accounts, loadAllAccountLabels]);
+
+  // Collapse all account label groups on first load
+  useEffect(() => {
+    if (!labelGroupsInitialized.current && accounts.length > 0) {
+      setCollapsedLabelGroups(new Set(accounts.map((a) => a.id)));
+      labelGroupsInitialized.current = true;
+    }
+  }, [accounts]);
 
   // Load global unread counts for all accounts (for per-account sidebar sections)
   useEffect(() => {

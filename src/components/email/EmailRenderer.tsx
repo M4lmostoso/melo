@@ -3,7 +3,8 @@ import { ImageOff } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { stripRemoteImages, hasBlockedImages } from "@/utils/imageBlocker";
 import { addToAllowlist } from "@/services/db/imageAllowlist";
-import { escapeHtml, sanitizeHtml } from "@/utils/sanitize";
+import { sanitizeHtml } from "@/utils/sanitize";
+import { transformPlainText, transformHtml, FW_CSS, FW_DARK_CSS, FW_JS } from "@/utils/forwardedMessage";
 import { useUIStore } from "@/stores/uiStore";
 import { useComposerStore } from "@/stores/composerStore";
 import { parseMailtoUrl } from "@/utils/mailtoParser";
@@ -58,7 +59,8 @@ export function EmailRenderer({
 
   const bodyHtml = useMemo(() => {
     let body = sanitizedBody
-      ?? `<pre style="white-space: pre-wrap; font-family: inherit;">${escapeHtml(text ?? "")}</pre>`;
+      ? transformHtml(sanitizedBody)
+      : transformPlainText(text ?? "");
 
     if (shouldBlock && sanitizedBody) {
       body = stripRemoteImages(body);
@@ -150,6 +152,8 @@ export function EmailRenderer({
     }
     pre { overflow-x: auto; }
     table { max-width: 100%; }
+    ${FW_CSS}
+    ${isDark ? FW_DARK_CSS : ""}
   </style>
   <script>(function() {
     var NONCE = '${nonce}';
@@ -179,6 +183,7 @@ export function EmailRenderer({
       ro.observe(document.documentElement);
       if (document.body) ro.observe(document.body);
       sendHeight();
+      ${FW_JS}
     }
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
     else init();

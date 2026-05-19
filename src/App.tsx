@@ -70,6 +70,7 @@ import { getIncompleteTaskCount } from "./services/db/tasks";
 import { useTaskStore } from "./stores/taskStore";
 import { purgeOldDeletedTasks, purgeOldCompletedTasks } from "./services/tasks/taskManager";
 import { ContextMenuPortal } from "./components/ui/ContextMenuPortal";
+import { LocalFilePreview } from "./components/ui/LocalFilePreview";
 import { MoveToFolderDialog } from "./components/email/MoveToFolderDialog";
 import { OfflineBanner } from "./components/ui/OfflineBanner";
 import { UpdateToast } from "./components/ui/UpdateToast";
@@ -116,6 +117,7 @@ export default function App() {
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
   const [showAskInbox, setShowAskInbox] = useState(false);
+  const [localFilePreview, setLocalFilePreview] = useState<File | null>(null);
   const [moveToFolderState, setMoveToFolderState] = useState<{
     open: boolean;
     threadIds: string[];
@@ -170,6 +172,25 @@ export default function App() {
     };
     document.addEventListener("contextmenu", handler);
     return () => document.removeEventListener("contextmenu", handler);
+  }, []);
+
+  // Prevent WKWebView from navigating to dropped files (replacing the entire app UI).
+  // Files dropped outside the composer are shown in a local preview modal instead.
+  useEffect(() => {
+    const onDragOver = (e: DragEvent) => e.preventDefault();
+    const onDrop = (e: DragEvent) => {
+      e.preventDefault();
+      // The composer stops propagation when it handles files; anything reaching
+      // document is a drop outside the composer.
+      const file = e.dataTransfer?.files?.[0];
+      if (file) setLocalFilePreview(file);
+    };
+    document.addEventListener("dragover", onDragOver);
+    document.addEventListener("drop", onDrop);
+    return () => {
+      document.removeEventListener("dragover", onDragOver);
+      document.removeEventListener("drop", onDrop);
+    };
   }, []);
 
 
@@ -808,6 +829,12 @@ export default function App() {
         threadIds={moveToFolderState.threadIds}
         onClose={() => setMoveToFolderState({ open: false, threadIds: [] })}
       />
+      {localFilePreview && (
+        <LocalFilePreview
+          file={localFilePreview}
+          onClose={() => setLocalFilePreview(null)}
+        />
+      )}
     </div>
   );
 }

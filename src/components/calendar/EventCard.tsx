@@ -18,7 +18,7 @@ export function EventCard({ event, color, compact, onClick }: EventCardProps) {
     return (
       <button
         onClick={onClick}
-        className={`w-full text-left text-[0.625rem] px-1 py-0.5 rounded truncate transition-opacity hover:opacity-80 ${
+        className={`block w-[calc(100%-8px)] mx-1 text-left text-[0.625rem] px-1 py-0.5 rounded line-clamp-2 break-words transition-opacity hover:opacity-80 ${
           color ? "" : "bg-accent/10 text-accent"
         }`}
         style={color ? chipStyle(color) : undefined}

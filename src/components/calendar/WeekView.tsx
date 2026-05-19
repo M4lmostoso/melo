@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { DbCalendarEvent } from "@/services/db/calendarEvents";
 import { chipStyle } from "./calendarColors";
+import { layoutDayEvents } from "./calendarLayout";
 
 interface WeekViewProps {
   currentDate: Date;
@@ -11,54 +12,46 @@ interface WeekViewProps {
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const HOUR_HEIGHT = 48; // px — matches h-12
 
 export function WeekView({ currentDate, events, colorMap, onEventClick }: WeekViewProps) {
-  const weekStart = new Date(currentDate);
-  weekStart.setDate(weekStart.getDate() - weekStart.getDay());
-  weekStart.setHours(0, 0, 0, 0);
-
-  const days = Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(weekStart);
-    d.setDate(d.getDate() + i);
-    return d;
-  });
+  const days = useMemo(() => {
+    const start = new Date(currentDate);
+    start.setDate(start.getDate() - start.getDay());
+    start.setHours(0, 0, 0, 0);
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(start);
+      d.setDate(d.getDate() + i);
+      return d;
+    });
+  }, [currentDate]);
 
   const today = new Date();
   const todayStr = today.toDateString();
 
-  // Pre-bucket events by day+hour and all-day per day (O(E) instead of O(168×E))
-  const { dayHourEvents, allDayByDay } = useMemo(() => {
-    const dhMap = new Map<string, DbCalendarEvent[]>();
+  const { allDayByDay, weekLayouts } = useMemo(() => {
     const adMap = new Map<number, DbCalendarEvent[]>();
+    const layouts: ReturnType<typeof layoutDayEvents>[] = [];
 
     for (const day of days) {
-      const dayTs = day.getTime() / 1000;
+      const dayStartTs = day.getTime() / 1000;
+      const dayEndTs = dayStartTs + 86400;
       const dayKey = day.getDate();
 
+      const allDay: DbCalendarEvent[] = [];
+      const timed: DbCalendarEvent[] = [];
+
       for (const e of events) {
-        if (e.is_all_day) {
-          const dayEnd = dayTs + 86400;
-          if (e.start_time < dayEnd && e.end_time > dayTs) {
-            const list = adMap.get(dayKey);
-            if (list) list.push(e);
-            else adMap.set(dayKey, [e]);
-          }
-        } else {
-          for (const hour of HOURS) {
-            const hStart = dayTs + hour * 3600;
-            const hEnd = hStart + 3600;
-            if (e.start_time < hEnd && e.end_time > hStart) {
-              const key = `${dayKey}-${hour}`;
-              const list = dhMap.get(key);
-              if (list) list.push(e);
-              else dhMap.set(key, [e]);
-            }
-          }
-        }
+        if (e.start_time >= dayEndTs || e.end_time <= dayStartTs) continue;
+        if (e.is_all_day) allDay.push(e);
+        else timed.push(e);
       }
+
+      if (allDay.length) adMap.set(dayKey, allDay);
+      layouts.push(layoutDayEvents(timed, dayStartTs, HOUR_HEIGHT));
     }
 
-    return { dayHourEvents: dhMap, allDayByDay: adMap };
+    return { allDayByDay: adMap, weekLayouts: layouts };
   }, [events, days]);
 
   return (
@@ -71,9 +64,11 @@ export function WeekView({ currentDate, events, colorMap, onEventClick }: WeekVi
           return (
             <div key={i} className="px-2 py-2 text-center border-r border-border-secondary">
               <div className="text-xs text-text-tertiary">{DAY_NAMES[day.getDay()]}</div>
-              <div className={`text-sm font-medium mt-0.5 w-7 h-7 flex items-center justify-center mx-auto rounded-full ${
-                isToday ? "bg-accent text-white" : "text-text-primary"
-              }`}>
+              <div
+                className={`text-sm font-medium mt-0.5 w-7 h-7 flex items-center justify-center mx-auto rounded-full ${
+                  isToday ? "bg-accent text-white" : "text-text-primary"
+                }`}
+              >
                 {day.getDate()}
               </div>
             </div>
@@ -81,9 +76,11 @@ export function WeekView({ currentDate, events, colorMap, onEventClick }: WeekVi
         })}
       </div>
 
-      {/* All-day events row */}
+      {/* All-day events row (unchanged style) */}
       <div className="grid grid-cols-[60px_repeat(7,1fr)] border-b border-border-primary shrink-0">
-        <div className="border-r border-border-secondary px-1 py-1 text-[0.625rem] text-text-tertiary">all-day</div>
+        <div className="border-r border-border-secondary px-1 py-1 text-[0.625rem] text-text-tertiary">
+          all-day
+        </div>
         {days.map((day, i) => {
           const allDay = allDayByDay.get(day.getDate()) ?? [];
           return (
@@ -94,7 +91,7 @@ export function WeekView({ currentDate, events, colorMap, onEventClick }: WeekVi
                   <button
                     key={e.id}
                     onClick={() => onEventClick(e)}
-                    className={`w-full text-left text-[0.625rem] px-1 py-0.5 rounded truncate transition-opacity hover:opacity-80 ${
+                    className={`block w-[calc(100%-8px)] mx-1 text-left text-[0.625rem] px-1 py-0.5 rounded truncate transition-opacity hover:opacity-80 ${
                       color ? "" : "bg-accent/10 text-accent"
                     }`}
                     style={color ? chipStyle(color) : undefined}
@@ -110,39 +107,91 @@ export function WeekView({ currentDate, events, colorMap, onEventClick }: WeekVi
 
       {/* Time grid */}
       <div className="flex-1 overflow-y-auto">
-        <div className="grid grid-cols-[60px_repeat(7,1fr)]">
-          {HOURS.map((hour) => (
-            <div key={hour} className="contents">
-              <div className="border-r border-b border-border-secondary h-12 px-1 flex items-start justify-end">
-                <span className="text-[0.625rem] text-text-tertiary -mt-1.5">
-                  {hour === 0 ? "" : `${hour % 12 || 12}${hour < 12 ? "am" : "pm"}`}
+        <div className="flex" style={{ height: 24 * HOUR_HEIGHT }}>
+          {/* Hour labels */}
+          <div className="w-[60px] shrink-0">
+            {HOURS.map((hour) => (
+              <div
+                key={hour}
+                className="border-r border-b border-border-secondary flex items-start justify-end px-1"
+                style={{ height: HOUR_HEIGHT }}
+              >
+                <span className="text-[0.625rem] text-text-tertiary -mt-2">
+                  {hour === 0
+                    ? ""
+                    : `${hour % 12 || 12}${hour < 12 ? "am" : "pm"}`}
                 </span>
               </div>
-              {days.map((day, di) => {
-                const hourEvents = dayHourEvents.get(`${day.getDate()}-${hour}`) ?? [];
-                return (
-                  <div key={di} className="border-r border-b border-border-secondary h-12 relative px-0.5">
-                    {hourEvents.map((e) => {
-                      const color = e.calendar_id ? colorMap[e.calendar_id] : undefined;
-                      return (
-                        <button
-                          key={e.id}
-                          onClick={() => onEventClick(e)}
-                          className={`absolute inset-x-0.5 text-[0.625rem] px-1 py-0.5 rounded truncate transition-opacity hover:opacity-80 ${
-                            color ? "" : "bg-accent/15 text-accent"
-                          }`}
-                          style={color ? chipStyle(color) : undefined}
-                          title={e.summary ?? "Event"}
-                        >
-                          {e.summary ?? "Event"}
-                        </button>
-                      );
-                    })}
-                  </div>
-                );
-              })}
-            </div>
-          ))}
+            ))}
+          </div>
+
+          {/* One column per day */}
+          {days.map((day, di) => {
+            const dayStartTs = day.getTime() / 1000;
+            const layout = weekLayouts[di] ?? [];
+
+            return (
+              <div
+                key={di}
+                className="flex-1 relative border-r border-border-secondary"
+                style={{ height: 24 * HOUR_HEIGHT }}
+              >
+                {/* Hour lines */}
+                {HOURS.map((hour) => (
+                  <div
+                    key={hour}
+                    className="absolute left-0 right-0 border-b border-border-secondary pointer-events-none"
+                    style={{ top: hour * HOUR_HEIGHT, height: HOUR_HEIGHT }}
+                  />
+                ))}
+
+                {/* Positioned timed events */}
+                {layout.map(({ event, colIndex, colCount, top, height }) => {
+                  const color = event.calendar_id ? colorMap[event.calendar_id] : undefined;
+                  const clampedStart = Math.max(event.start_time, dayStartTs);
+                  const clampedEnd = Math.min(event.end_time, dayStartTs + 86400);
+                  const startDate = new Date(clampedStart * 1000);
+                  const endDate = new Date(clampedEnd * 1000);
+                  const timeStr = `${startDate.toLocaleTimeString([], {
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })} – ${endDate.toLocaleTimeString([], {
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })}`;
+
+                  return (
+                    <button
+                      key={event.id}
+                      onClick={() => onEventClick(event)}
+                      className={`absolute text-left rounded overflow-hidden transition-opacity hover:opacity-90 ${
+                        color ? "" : "bg-accent/15 text-accent"
+                      }`}
+                      style={{
+                        top,
+                        height,
+                        left: `calc(${(colIndex / colCount) * 100}% + 2px)`,
+                        width: `calc(${(1 / colCount) * 100}% - 4px)`,
+                        ...(color ? chipStyle(color) : {}),
+                      }}
+                      title={`${event.summary ?? "Event"} · ${timeStr}`}
+                    >
+                      <div className="px-1 py-0.5 h-full flex flex-col overflow-hidden">
+                        <span className="text-[0.625rem] font-semibold leading-tight truncate">
+                          {event.summary ?? "Event"}
+                        </span>
+                        {height >= 32 && (
+                          <span className="text-[0.5rem] opacity-75 leading-tight truncate mt-0.5">
+                            {timeStr}
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>

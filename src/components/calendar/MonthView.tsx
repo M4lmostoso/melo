@@ -64,10 +64,12 @@ export function MonthView({ currentDate, events, colorMap, onEventClick }: Month
               key={day}
               className="border-b border-r border-border-secondary p-1 min-h-[80px]"
             >
-              <div className={`text-xs font-medium mb-0.5 w-6 h-6 flex items-center justify-center rounded-full ${
-                isToday ? "bg-accent text-white" : "text-text-secondary"
-              }`}>
-                {day}
+              <div className="flex justify-end mb-1">
+                <div className={`text-xs font-medium w-6 h-6 flex items-center justify-center rounded-full ${
+                  isToday ? "bg-accent text-white" : "text-text-secondary"
+                }`}>
+                  {day}
+                </div>
               </div>
               <div className="space-y-0.5">
                 {dayEvents.slice(0, 3).map((event) => (

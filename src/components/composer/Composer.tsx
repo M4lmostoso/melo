@@ -301,6 +301,7 @@ export function Composer() {
       // Only intercept if we have actual local files to attach
       if (files && files.length > 0) {
         e.preventDefault();
+        e.stopPropagation(); // prevent document-level handler from also opening LocalFilePreview
         dragCounterRef.current = 0;
         setIsDragging(false);
         for (const file of Array.from(files)) {

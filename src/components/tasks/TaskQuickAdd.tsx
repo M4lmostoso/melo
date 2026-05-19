@@ -33,7 +33,7 @@ export function TaskQuickAdd({ onAdd, placeholder = "Add a task..." }: TaskQuick
           }
         }}
         placeholder={placeholder}
-        className="flex-1 bg-transparent text-sm text-text-primary placeholder:text-text-tertiary outline-none"
+        className="flex-1 bg-transparent text-sm leading-none text-text-primary placeholder:text-text-tertiary outline-none"
       />
     </div>
   );
