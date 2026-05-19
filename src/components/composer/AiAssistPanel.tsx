@@ -134,6 +134,9 @@ export function AiAssistPanel({ editor, isReplyMode, threadMessages }: AiAssistP
     const cleaned = html.replace(/^```html\s*/i, "").replace(/```$/gm, "").trim();
     editor.chain().focus().setContent(cleaned).run();
     setBodyHtml(editor.getHTML());
+    const el = editor.view.dom as HTMLElement;
+    el.classList.add("ai-inserting");
+    setTimeout(() => el.classList.remove("ai-inserting"), 900);
   };
 
   const addAiMessage = (content: string, insertable = false) => {

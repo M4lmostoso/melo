@@ -100,9 +100,17 @@ export function AskInbox({ isOpen, onClose }: AskInboxProps) {
         {/* Results */}
         <div className="flex-1 overflow-y-auto">
           {loading && (
-            <div className="flex items-center gap-2 px-4 py-6 text-text-tertiary justify-center">
-              <div className="w-4 h-4 border-2 border-accent/30 border-t-accent rounded-full animate-spin" />
-              <span className="text-sm">Searching your inbox...</span>
+            <div className="p-4 space-y-4">
+              <div className="space-y-2.5">
+                <div className="h-3 rounded-full bg-bg-tertiary animate-shimmer" />
+                <div className="h-3 rounded-full bg-bg-tertiary animate-shimmer w-[88%]" />
+                <div className="h-3 rounded-full bg-bg-tertiary animate-shimmer w-[72%]" />
+              </div>
+              <div className="space-y-2 pt-1">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="h-10 rounded-lg bg-bg-secondary animate-shimmer" />
+                ))}
+              </div>
             </div>
           )}
 

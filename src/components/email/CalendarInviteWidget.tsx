@@ -146,9 +146,9 @@ export function CalendarInviteWidget({ attachment, messageId, threadId, account 
             href={meetingUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className={`flex-shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-lg text-white text-xs font-medium transition-opacity ${
+            className={`flex-shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-lg text-white text-xs font-medium transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] ${
               startingSoon
-                ? "bg-green-500 hover:bg-green-600 animate-pulse"
+                ? "bg-green-500 hover:bg-green-600 animate-breathe-glow"
                 : "bg-accent hover:opacity-90"
             }`}
           >

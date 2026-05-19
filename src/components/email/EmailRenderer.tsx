@@ -121,6 +121,7 @@ export function EmailRenderer({
     html {
       height: auto !important;
       min-height: 0 !important;
+      ${htmlDark ? "filter: invert(1) hue-rotate(180deg);" : ""}
     }
     body {
       margin: 0;
@@ -129,7 +130,7 @@ export function EmailRenderer({
       font-size: 14px;
       line-height: 1.6;
       color: ${plainTextDark ? "#e5e7eb" : "#1f2937"};
-      background: ${htmlDark ? "#f8f9fa" : "transparent"};
+      background: ${plainTextDark ? "#1e1e2e" : "transparent"};
       word-wrap: break-word;
       overflow-wrap: break-word;
       overflow-x: hidden;
@@ -137,7 +138,8 @@ export function EmailRenderer({
       height: auto !important;
       min-height: 0 !important;
     }
-    img { max-width: 100%; height: auto; }
+    img { max-width: 100%; height: auto; ${htmlDark ? "filter: invert(1) hue-rotate(180deg);" : ""} }
+    video, canvas, svg image { ${htmlDark ? "filter: invert(1) hue-rotate(180deg);" : ""} }
     a { color: ${plainTextDark ? "#60a5fa" : "#3b82f6"}; }
     a[data-link] { cursor: pointer; }
     blockquote {
@@ -296,7 +298,7 @@ export function EmailRenderer({
       <iframe
         ref={iframeRef}
         sandbox="allow-scripts"
-        className={`w-full border-0 ${isDark && !isPlainText ? "rounded-md" : ""}`}
+        className={`w-full border-0 ${isDark && !isPlainText ? "rounded-lg ring-1 ring-inset ring-black/10" : ""}`}
         style={{ overflow: "hidden", minHeight: "120px" }}
         title="Email content"
       />

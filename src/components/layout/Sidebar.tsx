@@ -249,7 +249,7 @@ function DroppableLabelItem({
           )}
           <span className="flex-1 truncate">{label.name}</span>
           {unreadCount !== undefined && unreadCount > 0 && (
-            <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 rounded-full leading-normal">
+            <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 min-w-[1.25rem] h-[1.125rem] rounded-full inline-flex items-center justify-center tabular-nums">
               {unreadCount}
             </span>
           )}
@@ -616,7 +616,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                       0,
                     );
                     return total > 0 ? (
-                      <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 rounded-full leading-normal">
+                      <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 min-w-[1.25rem] h-[1.125rem] rounded-full inline-flex items-center justify-center tabular-nums">
                         {total}
                       </span>
                     ) : null;
@@ -655,7 +655,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                         />
                         <span className="flex-1 truncate">{displayName}</span>
                         {unread > 0 && (
-                          <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 rounded-full leading-normal">
+                          <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 min-w-[1.25rem] h-[1.125rem] rounded-full inline-flex items-center justify-center tabular-nums">
                             {unread}
                           </span>
                         )}
@@ -698,7 +698,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                       <>
                         <span className="flex-1 truncate">{gi.label}</span>
                         {globalTotal > 0 && (
-                          <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 rounded-full leading-normal">
+                          <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 min-w-[1.25rem] h-[1.125rem] rounded-full inline-flex items-center justify-center tabular-nums">
                             {globalTotal}
                           </span>
                         )}
@@ -737,7 +737,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                               />
                               <span className="flex-1 truncate">{displayName}</span>
                               {unread > 0 && (
-                                <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 rounded-full leading-normal">
+                                <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 min-w-[1.25rem] h-[1.125rem] rounded-full inline-flex items-center justify-center tabular-nums">
                                   {unread}
                                 </span>
                               )}
@@ -781,7 +781,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                       <>
                         <span className="flex-1 truncate">{folder.name}</span>
                         {count > 0 && (
-                          <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 rounded-full leading-normal">
+                          <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 min-w-[1.25rem] h-[1.125rem] rounded-full inline-flex items-center justify-center tabular-nums">
                             {count}
                           </span>
                         )}
@@ -903,12 +903,12 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                     {item.id === "tasks" &&
                       taskIncompleteCount > 0 &&
                       !collapsed && (
-                        <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 rounded-full leading-normal">
+                        <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 min-w-[1.25rem] h-[1.125rem] rounded-full inline-flex items-center justify-center tabular-nums">
                           {taskIncompleteCount}
                         </span>
                       )}
                     {unreadCount > 0 && !collapsed && item.id !== "tasks" && (
-                      <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 rounded-full leading-normal">
+                      <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 min-w-[1.25rem] h-[1.125rem] rounded-full inline-flex items-center justify-center tabular-nums">
                         {unreadCount}
                       </span>
                     )}
@@ -968,7 +968,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                         <CatIcon size={14} className="shrink-0" />
                         <span className="flex-1 truncate">{cat.label}</span>
                         {(categoryUnreadCounts[cat.id] ?? 0) > 0 && (
-                          <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 rounded-full leading-normal">
+                          <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 min-w-[1.25rem] h-[1.125rem] rounded-full inline-flex items-center justify-center tabular-nums">
                             {categoryUnreadCounts[cat.id]}
                           </span>
                         )}
@@ -1022,7 +1022,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                     <>
                       <span className="flex-1 truncate">{folder.name}</span>
                       {count > 0 && (
-                        <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 rounded-full leading-normal">
+                        <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 min-w-[1.25rem] h-[1.125rem] rounded-full inline-flex items-center justify-center tabular-nums">
                           {count}
                         </span>
                       )}
