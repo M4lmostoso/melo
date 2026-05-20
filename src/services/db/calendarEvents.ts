@@ -204,3 +204,31 @@ export async function updateCalendarEventRsvp(
     [rsvpStatus, sourceMessageId],
   );
 }
+
+/**
+ * Return events that start within [windowStartSec, windowEndSec] (unix timestamps),
+ * are not all-day, not cancelled, and have not yet been notified.
+ */
+export async function getUpcomingEventsToNotify(
+  windowStartSec: number,
+  windowEndSec: number,
+): Promise<DbCalendarEvent[]> {
+  const db = await getDb();
+  return db.select<DbCalendarEvent[]>(
+    `SELECT * FROM calendar_events
+     WHERE is_all_day = 0
+       AND status != 'cancelled'
+       AND start_time >= $1
+       AND start_time <= $2
+       AND last_notified_at IS NULL`,
+    [windowStartSec, windowEndSec],
+  );
+}
+
+export async function markCalendarEventNotified(eventId: string, notifiedAt: number): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    "UPDATE calendar_events SET last_notified_at = $1 WHERE id = $2",
+    [notifiedAt, eventId],
+  );
+}

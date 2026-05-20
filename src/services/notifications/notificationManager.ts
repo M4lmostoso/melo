@@ -5,6 +5,7 @@ import {
   registerActionTypes,
   onAction,
 } from "@tauri-apps/plugin-notification";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { getSetting } from "../db/settings";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { useComposerStore } from "../../stores/composerStore";
@@ -19,6 +20,7 @@ interface NotificationContext {
   accountId?: string;
   fromAddress?: string;
   subject?: string;
+  meetingUrl?: string;
 }
 
 let lastNotificationContext: NotificationContext | null = null;
@@ -69,13 +71,27 @@ export async function initNotifications(): Promise<void> {
           { id: "archive", title: "Archive" },
         ],
       },
+      {
+        id: "calendar",
+        actions: [
+          { id: "join", title: "Join" },
+        ],
+      },
+      {
+        id: "calendar-no-join",
+        actions: [],
+      },
     ]);
 
     await onAction(async (event) => {
       const actionId = event.actionTypeId;
       const ctx = lastNotificationContext;
 
-      if (actionId === "reply" && ctx?.threadId && ctx?.accountId) {
+      if (actionId === "join" && ctx?.meetingUrl) {
+        openUrl(ctx.meetingUrl).catch((err) =>
+          console.error("Failed to open meeting URL:", err),
+        );
+      } else if (actionId === "reply" && ctx?.threadId && ctx?.accountId) {
         await showAndFocusMainWindow();
         useComposerStore.getState().openComposer({
           mode: "reply",
@@ -191,5 +207,23 @@ export function notifySnoozeReturn(subject: string): void {
     title: "Snoozed email returned",
     body: subject || "(No subject)",
     actionTypeId: "default",
+  });
+}
+
+/**
+ * Show a notification for an upcoming calendar event (5 minutes before start).
+ * If a meeting URL is present, shows a "Join" action button.
+ */
+export function notifyUpcomingCalendarEvent(
+  summary: string,
+  meetingUrl: string | null,
+): void {
+  if (!notificationsEnabled) return;
+  const ctx: NotificationContext = { subject: summary, meetingUrl: meetingUrl ?? undefined };
+  lastNotificationContext = ctx;
+  sendNotification({
+    title: summary || "Upcoming event",
+    body: meetingUrl ? "Starting in 5 minutes — tap Join to connect." : "Starting in 5 minutes.",
+    actionTypeId: meetingUrl ? "calendar" : "calendar-no-join",
   });
 }

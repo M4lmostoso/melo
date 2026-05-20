@@ -31,6 +31,10 @@ import {
 } from "../threading/threadBuilder";
 import { getPendingOpResourceIds } from "../db/pendingOperations";
 import { processThreadUrgency, type ThreadUrgencyParams } from "@/services/ai/urgencyPipeline";
+import { getSetting } from "../db/settings";
+import { getVipSenders } from "../db/notificationVips";
+import { getThreadCategory } from "../db/threadCategories";
+import { shouldNotifyForMessage, queueNewEmailNotification } from "../notifications/notificationManager";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -817,6 +821,30 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
 
   for (const params of urgencyQueue) {
     processThreadUrgency({ ...params, accountId }).catch(() => {});
+  }
+
+  // Desktop notifications for new unread INBOX messages (same smart-filter logic as Gmail)
+  const smartNotifications = (await getSetting("smart_notifications")) !== "false";
+  const notifyCategories = new Set(
+    ((await getSetting("notify_categories")) ?? "Primary").split(",").map((s) => s.trim()).filter(Boolean),
+  );
+  const vipSenders = smartNotifications ? await getVipSenders(accountId) : new Set<string>();
+
+  // urgencyQueue[i] corresponds to updates[i] — zip them for notification purposes
+  for (let i = 0; i < updates.length; i++) {
+    const update = updates[i]!;
+    const uq = urgencyQueue[i]!;
+    if (!update.label_ids.includes("INBOX") || update.is_read) continue;
+    const fromAddr = uq.fromAddress ?? undefined;
+    if (shouldNotifyForMessage(smartNotifications, notifyCategories, vipSenders, await getThreadCategory(accountId, update.thread_id), fromAddr)) {
+      queueNewEmailNotification(
+        uq.fromName ?? uq.fromAddress ?? "Unknown",
+        update.subject ?? "",
+        update.thread_id,
+        accountId,
+        fromAddr,
+      );
+    }
   }
 
   await updateAccountSyncState(accountId, `imap-synced-${Date.now()}`);

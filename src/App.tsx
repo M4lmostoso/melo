@@ -40,6 +40,10 @@ import {
   startBundleChecker,
   stopBundleChecker,
 } from "./services/bundles/bundleManager";
+import {
+  startCalendarReminderChecker,
+  stopCalendarReminderChecker,
+} from "./services/calendar/calendarReminderManager";
 import { initNotifications } from "./services/notifications/notificationManager";
 import {
   initGlobalShortcut,
@@ -501,6 +505,7 @@ export default function App() {
         startScheduledSendChecker();
         startFollowUpChecker();
         startBundleChecker();
+        startCalendarReminderChecker();
         startQueueProcessor();
         startPreCacheManager();
 
@@ -546,6 +551,7 @@ export default function App() {
       stopScheduledSendChecker();
       stopFollowUpChecker();
       stopBundleChecker();
+      stopCalendarReminderChecker();
       stopQueueProcessor();
       stopPreCacheManager();
       stopUpdateChecker();
