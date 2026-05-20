@@ -14,6 +14,11 @@ import { normalizeEmail } from "@/utils/emailUtils";
 
 let initialized = false;
 let notificationsEnabled = true;
+// Tracks whether custom action types (Reply/Archive buttons) were successfully
+// registered. On macOS, action buttons require "Alert" notification style; if
+// registerActionTypes fails or the style isn't Alerts, fall back to "default"
+// so the banner actually appears on the desktop instead of going to NC silently.
+let actionTypesRegistered = false;
 
 interface NotificationContext {
   threadId?: string;
@@ -57,7 +62,10 @@ export async function initNotifications(): Promise<void> {
     return;
   }
 
-  // Register action types and handlers (not available on all platforms)
+  // Register action types and handlers (not available on all platforms).
+  // On macOS, action buttons (Reply/Archive) only appear with "Alerts" notification
+  // style. If registration succeeds we use actionTypeId "email"; otherwise we fall
+  // back to "default" so the notification still shows as a banner.
   try {
     await registerActionTypes([
       {
@@ -82,6 +90,7 @@ export async function initNotifications(): Promise<void> {
         actions: [],
       },
     ]);
+    actionTypesRegistered = true;
 
     await onAction(async (event) => {
       const actionId = event.actionTypeId;
@@ -144,17 +153,18 @@ export function queueNewEmailNotification(
   // Debounce: wait 2s before showing, to batch during sync
   if (notifyTimer) clearTimeout(notifyTimer);
   notifyTimer = setTimeout(() => {
+    const emailActionTypeId = actionTypesRegistered ? "email" : "default";
     if (pendingCount === 1) {
       sendNotification({
         title: from,
         body: subject || "(No subject)",
-        actionTypeId: "email",
+        actionTypeId: emailActionTypeId,
       });
     } else if (pendingCount > 1) {
       sendNotification({
         title: "Melo",
         body: `${pendingCount} new emails`,
-        actionTypeId: "email",
+        actionTypeId: emailActionTypeId,
       });
     }
     pendingCount = 0;

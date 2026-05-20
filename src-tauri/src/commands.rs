@@ -968,7 +968,19 @@ pub async fn imap_fetch_and_store(
 
         let is_read = msg.is_read || msg.is_draft || label_id == "TRASH";
         let snippet = msg.snippet.unwrap_or_default();
-        let has_attachments = !msg.attachments.is_empty();
+        let has_attachments = msg.attachments.iter().any(|a| {
+            !a.is_inline
+                && !matches!(
+                    a.mime_type.as_str(),
+                    "application/pkcs7-signature"
+                        | "application/pgp-signature"
+                        | "application/pkcs7-mime"
+                        | "application/x-pkcs7-signature"
+                        | "application/x-pkcs7-mime"
+                        | "application/pgp-encrypted"
+                        | "application/pgp-keys"
+                )
+        });
         let local_id = format!("imap-{account_id}-{}-{}", msg.folder, msg.uid);
         let synthetic_rfc_id = || {
             format!(

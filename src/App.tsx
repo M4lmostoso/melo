@@ -80,6 +80,13 @@ import { OfflineBanner } from "./components/ui/OfflineBanner";
 import { UpdateToast } from "./components/ui/UpdateToast";
 import { ErrorBoundary } from "./components/ui/ErrorBoundary";
 import { formatSyncError } from "./utils/networkErrors";
+import {
+  sendEmail,
+  deleteDraft as deleteDraftAction,
+  archiveThread,
+} from "./services/emailActions";
+import { upsertContact } from "./services/db/contacts";
+import { useOutgoingStore } from "./stores/outgoingStore";
 import { getThemeById, COLOR_THEMES } from "./constants/themes";
 import type { ColorThemeId } from "./constants/themes";
 import { router } from "./router";
@@ -229,6 +236,69 @@ export default function App() {
       }).then((fn) => {
         unlisten = fn;
       });
+    });
+    return () => { unlisten?.(); };
+  }, []);
+
+  // Composer window hands off SMTP to main window via this event so the composer
+  // can close immediately after the UNDO period without waiting for SMTP to complete.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    import("@tauri-apps/api/event").then(({ listen }) => {
+      listen("velo-execute-send", async (event) => {
+        const p = event.payload as {
+          outgoingId: string;
+          accountId: string;
+          raw: string;
+          threadId: string | null;
+          currentDraftId: string | null;
+          sendAndArchive: boolean;
+          contacts: string[];
+          to: string[];
+          cc: string[];
+          bcc: string[];
+          subject: string;
+          bodyHtml: string;
+          inReplyToMessageId: string | null;
+        };
+
+        useOutgoingStore.getState().addEmail({
+          id: p.outgoingId,
+          accountId: p.accountId,
+          to: p.to,
+          cc: p.cc,
+          bcc: p.bcc,
+          subject: p.subject,
+          bodyHtml: p.bodyHtml,
+          threadId: p.threadId,
+          inReplyToMessageId: p.inReplyToMessageId,
+          raw: p.raw,
+          status: "sending",
+          createdAt: Date.now(),
+          timerId: null,
+        });
+
+        try {
+          await sendEmail(p.accountId, p.raw, p.threadId ?? undefined);
+          if (p.currentDraftId) {
+            await deleteDraftAction(
+              p.accountId,
+              p.currentDraftId,
+              p.threadId ?? undefined,
+            ).catch(() => {});
+          }
+          if (p.sendAndArchive && p.threadId) {
+            await archiveThread(p.accountId, p.threadId, []).catch(() => {});
+          }
+          for (const addr of p.contacts) {
+            await upsertContact(addr, null);
+          }
+        } catch (err) {
+          console.error("[App] velo-execute-send failed:", err);
+        } finally {
+          useOutgoingStore.getState().removeEmail(p.outgoingId);
+        }
+      }).then((fn) => { unlisten = fn; });
     });
     return () => { unlisten?.(); };
   }, []);

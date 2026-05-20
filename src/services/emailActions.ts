@@ -121,7 +121,8 @@ function applyOptimisticUpdate(action: EmailAction): void {
       // No universal optimistic update for these
       break;
     case "deleteDraft":
-      // Remove thread from local store if threadId is available
+      // Remove from the current in-memory view (e.g. Drafts list).
+      // This only affects the loaded thread list — navigating to INBOX reloads from DB.
       if (action.threadId) {
         store.removeThread(action.threadId);
       }
@@ -284,10 +285,9 @@ async function applyLocalDbUpdate(
       );
       break;
     case "deleteDraft": {
-      // Clean up local DB: remove thread and its labels/messages
+      // Resolve the thread ID for this draft
       let tid = action.threadId;
       if (!tid) {
-        // If no threadId provided, try to find it from the message ID (draftId)
         const row = await db.select<{ thread_id: string }[]>(
           "SELECT thread_id FROM messages WHERE account_id = $1 AND id = $2",
           [accountId, action.draftId],
@@ -295,25 +295,46 @@ async function applyLocalDbUpdate(
         if (row[0]) tid = row[0].thread_id;
       }
 
+      // Delete only the specific draft message, not the whole thread
+      await db.execute(
+        "DELETE FROM message_embeddings WHERE account_id = $1 AND message_id = $2",
+        [accountId, action.draftId],
+      );
+      await db.execute(
+        "DELETE FROM messages WHERE account_id = $1 AND id = $2",
+        [accountId, action.draftId],
+      );
+
       if (tid) {
-        await db.execute(
-          "DELETE FROM thread_labels WHERE account_id = $1 AND thread_id = $2",
+        // Check whether any messages remain in this thread
+        const remaining = await db.select<{ id: string }[]>(
+          "SELECT id FROM messages WHERE account_id = $1 AND thread_id = $2 LIMIT 1",
           [accountId, tid],
         );
-        await db.execute(
-          `DELETE FROM message_embeddings WHERE account_id = $1 AND message_id IN (
-            SELECT id FROM messages WHERE account_id = $1 AND thread_id = $2
-          )`,
-          [accountId, tid],
-        );
-        await db.execute(
-          "DELETE FROM messages WHERE account_id = $1 AND thread_id = $2",
-          [accountId, tid],
-        );
-        await db.execute(
-          "DELETE FROM threads WHERE account_id = $1 AND id = $2",
-          [accountId, tid],
-        );
+
+        if (remaining.length === 0) {
+          // Thread is now empty: remove it completely
+          await db.execute(
+            "DELETE FROM thread_labels WHERE account_id = $1 AND thread_id = $2",
+            [accountId, tid],
+          );
+          await db.execute(
+            "DELETE FROM threads WHERE account_id = $1 AND id = $2",
+            [accountId, tid],
+          );
+        } else {
+          // Thread still has messages: only remove DRAFT label if no draft messages remain
+          const moreDrafts = await db.select<{ id: string }[]>(
+            "SELECT id FROM messages WHERE account_id = $1 AND thread_id = $2 AND is_draft = 1 LIMIT 1",
+            [accountId, tid],
+          );
+          if (moreDrafts.length === 0) {
+            await db.execute(
+              "DELETE FROM thread_labels WHERE account_id = $1 AND thread_id = $2 AND label_id = 'DRAFT'",
+              [accountId, tid],
+            );
+          }
+        }
       }
       break;
     }
@@ -753,14 +774,28 @@ export async function deleteSingleMessage(
 
   // 3. Optimistic UI
   if (remaining.length === 0) {
-    await db.execute(
-      "DELETE FROM thread_labels WHERE account_id = $1 AND thread_id = $2",
-      [accountId, threadId],
-    );
-    await db.execute("DELETE FROM threads WHERE account_id = $1 AND id = $2", [
-      accountId,
-      threadId,
-    ]);
+    if (permanent) {
+      // Hard-delete: thread is gone permanently
+      await db.execute(
+        "DELETE FROM thread_labels WHERE account_id = $1 AND thread_id = $2",
+        [accountId, threadId],
+      );
+      await db.execute("DELETE FROM threads WHERE account_id = $1 AND id = $2", [
+        accountId,
+        threadId,
+      ]);
+    } else {
+      // Soft-trash: move thread to TRASH so it appears in Trash view
+      // and the next IMAP sync won't re-import it to INBOX
+      await db.execute(
+        "DELETE FROM thread_labels WHERE account_id = $1 AND thread_id = $2 AND label_id IN ('INBOX', 'DRAFT', 'SPAM')",
+        [accountId, threadId],
+      );
+      await db.execute(
+        "INSERT OR IGNORE INTO thread_labels (account_id, thread_id, label_id) VALUES ($1, $2, 'TRASH')",
+        [accountId, threadId],
+      );
+    }
     const nextId = getNextThreadId(threadId);
     useThreadStore.getState().removeThread(threadId);
     if (nextId) navigateToThread(nextId);
@@ -808,7 +843,8 @@ export async function deleteSingleMessage(
 
 /**
  * Trash (or permanently delete) only the most recent message in a thread.
- * If it's the last message, the thread itself is removed from the DB and UI.
+ * If it's the last message and non-permanent, the thread is soft-trashed (labels updated to TRASH).
+ * If permanent, the thread is hard-deleted from DB.
  */
 export async function trashLatestMessage(
   accountId: string,

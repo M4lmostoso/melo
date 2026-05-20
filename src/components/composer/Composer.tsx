@@ -328,9 +328,11 @@ export function Composer() {
 const getFullHtml = useCallback(() => {
     const editorHtml = editor?.getHTML() ?? "";
     const quotedHtml = useComposerStore.getState().quotedHtml;
-    let html = editorHtml;
+    // Tiptap always appends a trailing <p></p>; strip it before joining with
+    // the signature or quoted block so no spurious blank line appears in the sent email.
+    let html = editorHtml.replace(/(<p[^>]*>\s*<\/p>\s*)+$/, "");
     if (signatureHtml) {
-      const signatureDiv = `<div style="margin-top:16px;border-top:1px solid #e5e5e5;padding-top:12px">${sanitizeHtml(signatureHtml)}</div>`;
+      const signatureDiv = `<div style="margin-top:16px">${sanitizeHtml(signatureHtml)}</div>`;
       html = `${html}${signatureDiv}`;
     }
     if (quotedHtml) html = `${html}${quotedHtml}`;
@@ -346,8 +348,10 @@ const getFullHtml = useCallback(() => {
     // Use startDiscard+waitForSave (not stopAutoSave) so any in-flight IMAP autosave
     // completes before we capture currentDraftId — stopAutoSave nullifies savePromise,
     // causing waitForSave to return early and leaving the new UID uncleaned.
+    // Cap at 2s: if the IMAP save is still running, startDiscard() already set
+    // isDiscarding=true so the save will tombstone itself on completion.
     startDiscard();
-    await waitForSave();
+    await Promise.race([waitForSave(), new Promise<void>((r) => setTimeout(r, 2000))]);
     const html = getFullHtml();
     const senderEmail = state.fromEmail ?? activeAccount.email;
     const raw = buildRawEmail({
@@ -391,39 +395,68 @@ const getFullHtml = useCallback(() => {
 
     state.setUndoSendVisible(true);
     const timer = setTimeout(() => {
-      useOutgoingStore.getState().updateStatus(outgoingId, "sending");
-      useComposerStore.getState().setUndoSendVisible(false);
-      useComposerStore.getState().setIsSending(false);
-      sendingRef.current = false;
-      closeComposer();
+      void (async () => {
+        useOutgoingStore.getState().updateStatus(outgoingId, "sending");
+        useComposerStore.getState().setUndoSendVisible(false);
 
-      (async () => {
+        // Hand off the actual SMTP send to the main window via Tauri event.
+        // The main window's JS context is persistent — it handles SMTP, draft
+        // cleanup, archive, and contact upsert while this composer window closes.
+        let handedOff = false;
         try {
-          await sendEmail(effectiveAccountId, raw, state.threadId ?? undefined);
-          if (currentDraftId) {
-            try {
-              await deleteDraftAction(
-                effectiveAccountId,
-                currentDraftId,
-                state.threadId ?? undefined,
-              );
-            } catch {
-              /* ignore */
-            }
-          }
-          if (useUIStore.getState().sendAndArchive && state.threadId) {
-            try {
-              await archiveThread(effectiveAccountId, state.threadId, []);
-            } catch {
-              /* ignore */
-            }
-          }
-          for (const addr of [...state.to, ...state.cc, ...state.bcc])
-            await upsertContact(addr, null);
-        } catch (err) {
-          console.error("Failed to send email:", err);
-        } finally {
+          const { emit } = await import("@tauri-apps/api/event");
+          await emit("velo-execute-send", {
+            outgoingId,
+            accountId: effectiveAccountId,
+            raw,
+            threadId: state.threadId ?? null,
+            currentDraftId: currentDraftId ?? null,
+            sendAndArchive: useUIStore.getState().sendAndArchive,
+            contacts: [...state.to, ...state.cc, ...state.bcc],
+            to: [...state.to],
+            cc: [...state.cc],
+            bcc: [...state.bcc],
+            subject: state.subject,
+            bodyHtml: html,
+            inReplyToMessageId: state.inReplyToMessageId ?? null,
+          });
+          handedOff = true;
+        } catch {
+          // Tauri not available (tests / browser preview) — fall back to inline send
+        }
+
+        if (handedOff) {
+          // Main window owns the send from here — close the composer immediately.
           useOutgoingStore.getState().removeEmail(outgoingId);
+          sendingRef.current = false;
+          useComposerStore.getState().setIsSending(false);
+          closeComposer();
+        } else {
+          // Fallback inline send (non-Tauri contexts only)
+          void (async () => {
+            try {
+              await sendEmail(effectiveAccountId, raw, state.threadId ?? undefined);
+              if (currentDraftId) {
+                await deleteDraftAction(
+                  effectiveAccountId,
+                  currentDraftId,
+                  state.threadId ?? undefined,
+                ).catch(() => {});
+              }
+              if (useUIStore.getState().sendAndArchive && state.threadId) {
+                await archiveThread(effectiveAccountId, state.threadId, []).catch(() => {});
+              }
+              for (const addr of [...state.to, ...state.cc, ...state.bcc])
+                await upsertContact(addr, null);
+            } catch (err) {
+              console.error("Failed to send email:", err);
+            } finally {
+              useOutgoingStore.getState().removeEmail(outgoingId);
+              sendingRef.current = false;
+              useComposerStore.getState().setIsSending(false);
+              closeComposer();
+            }
+          })();
         }
       })();
     }, delay);

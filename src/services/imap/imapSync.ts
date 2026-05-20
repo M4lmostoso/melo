@@ -179,8 +179,8 @@ function computeThreadLabels(
     allLabels.add("SENT");
   }
 
-  // INBOX: at least one message in the thread is from someone else
-  if (messages.some((m) => !isFromMe(m.from_address))) {
+  // INBOX: at least one non-trash/spam message in the thread is from someone else
+  if (messages.some((m) => !isFromMe(m.from_address) && m.label_id !== "TRASH" && m.label_id !== "SPAM")) {
     allLabels.add("INBOX");
   }
 
