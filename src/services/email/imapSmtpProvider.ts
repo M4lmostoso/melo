@@ -106,6 +106,50 @@ function extractSnippet(raw: string, maxLen = 200): string {
 }
 
 /**
+ * Extract the text/html part from a raw RFC 2822 email, handling nested
+ * multipart/related and multipart/alternative structures recursively.
+ * Returns null when no HTML part is found (plain-text-only emails).
+ */
+function extractHtmlBody(raw: string): string | null {
+  const bodyStart = raw.indexOf("\r\n\r\n");
+  if (bodyStart === -1) return null;
+
+  const body = raw.slice(bodyStart + 4);
+  const contentType = parseBasicHeaders(raw).get("content-type") ?? "";
+
+  // Non-multipart — if it IS text/html return as-is, otherwise no HTML
+  if (!contentType.toLowerCase().startsWith("multipart/")) {
+    return contentType.toLowerCase().startsWith("text/html") ? body : null;
+  }
+
+  const boundaryMatch = contentType.match(/boundary="?([^";\s]+)"?/i);
+  if (!boundaryMatch) return null;
+  const boundary = boundaryMatch[1]!;
+
+  const parts = body.split(`--${boundary}`);
+  for (const part of parts) {
+    if (part === "--" || part.trim() === "") continue;
+    const partHeaderEnd = part.indexOf("\r\n\r\n");
+    if (partHeaderEnd === -1) continue;
+    const partHeaders = part.slice(0, partHeaderEnd);
+    const partBody = part.slice(partHeaderEnd + 4);
+    const partCT = (partHeaders.match(/content-type:\s*([^\r\n]+)/i)?.[1] ?? "").toLowerCase();
+
+    if (partCT.startsWith("text/html")) {
+      // Strip trailing MIME boundary marker (--boundary or --boundary--)
+      return partBody.replace(/\r\n--[^\r\n]+(--)?\s*$/, "").trim();
+    }
+    if (partCT.startsWith("multipart/")) {
+      // Recurse into nested multipart (e.g. multipart/related → multipart/alternative).
+      // `part` already has the sub-message headers + body in RFC 2822 format.
+      const nested = extractHtmlBody(part.replace(/^\r\n/, ""));
+      if (nested) return nested;
+    }
+  }
+  return null;
+}
+
+/**
  * EmailProvider adapter for IMAP/SMTP accounts.
  * Delegates to Tauri IMAP/SMTP commands via the imapSync engine.
  */
@@ -614,9 +658,7 @@ export class ImapSmtpProvider implements EmailProvider {
     const fromName = fromNameMatch ? fromNameMatch[1]!.trim() : null;
     const fromAddress = from.replace(/.*<([^>]+)>.*/, "$1").trim();
 
-    // Parse body for HTML and text
-    const bodyStart = raw.indexOf("\r\n\r\n");
-    const bodyHtml = bodyStart !== -1 ? raw.slice(bodyStart + 4) : null;
+    const bodyHtml = extractHtmlBody(raw);
 
     await upsertMessage({
       id: messageId,
