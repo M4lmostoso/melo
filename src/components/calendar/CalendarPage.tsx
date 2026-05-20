@@ -429,13 +429,7 @@ export function CalendarPage() {
         </div>
       )}
 
-      {loading && events.length === 0 && (
-        <div className="flex-1 flex items-center justify-center text-text-tertiary text-sm">
-          Loading calendar...
-        </div>
-      )}
-
-      <div className="flex flex-1 min-h-0">
+      <div className="flex flex-1 min-h-0 relative">
         <div className="flex-1 min-w-0 flex flex-col overflow-hidden">
           {view === "month" && (
             <MonthView
@@ -475,6 +469,12 @@ export function CalendarPage() {
               loadEvents();
             }}
           />
+        )}
+
+        {loading && (
+          <div className="absolute bottom-3 right-4 text-[0.625rem] text-text-tertiary pointer-events-none select-none">
+            Loading…
+          </div>
         )}
       </div>
 

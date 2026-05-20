@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { DbCalendarEvent } from "@/services/db/calendarEvents";
 import { chipStyle } from "./calendarColors";
 import { layoutDayEvents } from "./calendarLayout";
@@ -14,6 +14,23 @@ const HOURS = Array.from({ length: 24 }, (_, i) => i);
 const HOUR_HEIGHT = 56; // px — matches h-14
 
 export function DayView({ currentDate, events, colorMap, onEventClick }: DayViewProps) {
+  const [now, setNow] = useState(() => new Date());
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 30_000);
+    return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const isTodayView = new Date().toDateString() === currentDate.toDateString();
+    const n = new Date();
+    const startHour = isTodayView ? Math.max(0, n.getHours() - 2) : 8;
+    el.scrollTop = startHour * HOUR_HEIGHT;
+  }, [currentDate]);
+
   const dayStart = useMemo(() => {
     const d = new Date(currentDate);
     d.setHours(0, 0, 0, 0);
@@ -24,8 +41,11 @@ export function DayView({ currentDate, events, colorMap, onEventClick }: DayView
   const isToday = new Date().toDateString() === currentDate.toDateString();
 
   const allDayEvents = useMemo(
-    () => events.filter((e) => e.is_all_day),
-    [events],
+    () =>
+      events.filter(
+        (e) => e.is_all_day && e.start_time < dayStartTs + 86400 && e.end_time > dayStartTs,
+      ),
+    [events, dayStartTs],
   );
 
   const layout = useMemo(() => {
@@ -73,7 +93,7 @@ export function DayView({ currentDate, events, colorMap, onEventClick }: DayView
       )}
 
       {/* Time grid */}
-      <div className="flex-1 overflow-y-auto">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto">
         <div className="flex" style={{ height: 24 * HOUR_HEIGHT }}>
           {/* Hour labels */}
           <div className="w-16 shrink-0">
@@ -102,6 +122,23 @@ export function DayView({ currentDate, events, colorMap, onEventClick }: DayView
                 style={{ top: hour * HOUR_HEIGHT, height: HOUR_HEIGHT }}
               />
             ))}
+
+            {/* Time indicator */}
+            {isToday && (() => {
+              const topPx = (now.getHours() * 60 + now.getMinutes()) / 60 * HOUR_HEIGHT;
+              return (
+                <div
+                  className="absolute left-0 right-0 z-10 pointer-events-none"
+                  style={{ top: topPx, willChange: "top" }}
+                >
+                  <div
+                    className="absolute w-2.5 h-2.5 rounded-full bg-accent"
+                    style={{ left: -5, transform: "translateY(-50%)" }}
+                  />
+                  <div className="h-px bg-accent" />
+                </div>
+              );
+            })()}
 
             {/* Positioned timed events */}
             {layout.map(({ event, colIndex, colCount, top, height }) => {
