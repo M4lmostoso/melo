@@ -867,7 +867,10 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
             )}
             {showSmartFolders && smartFolders.map((folder) => {
               const GIcon = getSmartFolderIcon(folder.icon);
-              const count = smartFolderCounts[folder.id] ?? 0;
+              const count = globalAccounts.reduce(
+                (sum, a) => sum + (smartFolderPerAccountCounts[`${folder.id}:${a.id}`] ?? 0),
+                0,
+              );
               return (
                 <div key={`global-smart-${folder.id}`}>
                   <ExpandableNavItem
