@@ -689,10 +689,11 @@ const [hasMore, setHasMore] = useState(true);
       return;
     }
 
-    // Outgoing — combines in-memory (undo window + sending) with DB pending ops
+    // Outgoing — combines in-memory (undo window + sending) with DB pending ops.
+    // No setLoading here: keeping existing cards visible during the async DB read
+    // prevents the skeleton flash that would otherwise appear at the memory→DB handoff.
     if (isOutgoing) {
       if (!keepSearch) clearSearch();
-      setLoading(true);
       setHasMore(false);
       try {
         const memEmails = useOutgoingStore.getState().emails.filter(
@@ -736,8 +737,6 @@ const [hasMore, setHasMore] = useState(true);
         setThreads(threads);
       } catch (err) {
         console.error("Failed to load outgoing emails:", err);
-      } finally {
-        setLoading(false);
       }
       return;
     }
@@ -889,7 +888,6 @@ const [hasMore, setHasMore] = useState(true);
     isScheduled,
     isUnifiedScheduled,
     isOutgoing,
-    outgoingEmails,
     globalAccountIds,
     accounts,
     activeAccountId,
@@ -993,6 +991,14 @@ const [hasMore, setHasMore] = useState(true);
   useEffect(() => {
     loadThreads();
   }, [loadThreads]);
+
+  // Refresh outgoing list whenever the in-memory store changes, but only while in the
+  // outgoing view. Kept separate so that sending an email doesn't inadvertently
+  // re-trigger loadThreads (and thus reload inbox/sent/etc) when another folder is active.
+  useEffect(() => {
+    if (isOutgoing) loadThreads();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [outgoingEmails]);
 
   // Stable thread ID key — only changes when the actual set of thread IDs changes, not on every array reference
   const threadIdKey = useMemo(
