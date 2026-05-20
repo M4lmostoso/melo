@@ -22,6 +22,7 @@ import { getAccount, updateAccountSyncState } from "../db/accounts";
 import {
   upsertFolderSyncState,
   getAllFolderSyncStates,
+  type FolderSyncState,
 } from "../db/folderSyncState";
 import { clearDeletedImapUidsForFolder } from "../db/deletedImapUids";
 import {
@@ -142,27 +143,47 @@ function headerToThreadable(h: ImapSyncHeader): ThreadableMessage {
 function computeThreadLabels(
   messages: ImapSyncHeader[],
   labelsByRfcId: Map<string, Set<string>>,
+  accountEmail: string,
 ): string[] {
   const allLabels = new Set<string>();
+  const lowerAccountEmail = accountEmail.toLowerCase();
+
   for (const msg of messages) {
-    // Primary folder label
-    allLabels.add(msg.label_id);
+    // Non-INBOX/SENT folder labels (TRASH, SPAM, DRAFT, ARCHIVE, user folders)
+    if (msg.label_id !== "INBOX" && msg.label_id !== "SENT") {
+      allLabels.add(msg.label_id);
+    }
     // Pseudo-labels
     if (!msg.is_read) allLabels.add("UNREAD");
     if (msg.is_starred) allLabels.add("STARRED");
     if (msg.is_draft) allLabels.add("DRAFT");
-    // Cross-folder labels from duplicate copies (e.g., INBOX + SENT)
+    // Cross-folder labels — only non-INBOX/SENT system/user labels
     if (msg.message_id) {
       const extra = labelsByRfcId.get(msg.message_id);
       if (extra) {
-        const hasSent = extra.has("SENT");
         for (const lid of extra) {
-          if (lid === "INBOX" && hasSent) continue; // suppress INBOX for sent messages
+          if (lid === "INBOX" || lid === "SENT" || lid === "UNREAD" || lid === "STARRED" || lid === "DRAFT") continue;
           allLabels.add(lid);
         }
       }
     }
   }
+
+  // messages are already sorted by date ascending (caller guarantees this)
+  const last = messages[messages.length - 1]!;
+  const isFromMe = (addr: string | null) =>
+    !!addr && addr.toLowerCase() === lowerAccountEmail;
+
+  // SENT: last message in the thread was sent by me
+  if (isFromMe(last.from_address)) {
+    allLabels.add("SENT");
+  }
+
+  // INBOX: at least one message in the thread is from someone else
+  if (messages.some((m) => !isFromMe(m.from_address))) {
+    allLabels.add("INBOX");
+  }
+
   return [...allLabels];
 }
 
@@ -175,6 +196,7 @@ function buildThreadUpdates(
   headerById: Map<string, ImapSyncHeader>,
   labelsByRfcId: Map<string, Set<string>>,
   skipThreadIds: Set<string>,
+  accountEmail: string,
 ): { updates: ImapThreadUpdate[]; urgencyQueue: ThreadUrgencyParams[] } {
   const updates: ImapThreadUpdate[] = [];
   const urgencyQueue: ThreadUrgencyParams[] = [];
@@ -195,7 +217,7 @@ function buildThreadUpdates(
     const isRead = messages.every((m) => m.is_read);
     const isStarred = messages.some((m) => m.is_starred);
     const hasAttachments = messages.some((m) => m.has_attachments);
-    const labelIds = computeThreadLabels(messages, labelsByRfcId);
+    const labelIds = computeThreadLabels(messages, labelsByRfcId, accountEmail);
 
     updates.push({
       thread_id: group.threadId,
@@ -416,6 +438,8 @@ export async function imapInitialSync(
   const allHeaders: ImapSyncHeader[] = [];
   // RFC Message-ID → accumulated labels from all folders (for cross-folder merging)
   const labelsByRfcId = new Map<string, Set<string>>();
+  // Folder state updates to persist only after imapStoreThreads succeeds
+  const pendingFolderStates: FolderSyncState[] = [];
 
   let totalEstimate = syncableFolders.reduce((s, f) => s + f.exists, 0);
   let fetchedTotal = 0;
@@ -493,7 +517,7 @@ export async function imapInitialSync(
 
       console.log(`[imapSync] Folder ${folder.path}: ${uidsToFetch.length} UIDs, ${folderStored} stored`);
 
-      await upsertFolderSyncState({
+      pendingFolderStates.push({
         account_id: accountId,
         folder_path: folder.raw_path,
         uidvalidity,
@@ -536,11 +560,13 @@ export async function imapInitialSync(
   const skipThreadIds = new Set(threadGroups.map((g) => g.threadId).filter((id) => pendingOpIds.has(id)));
 
   const { updates, urgencyQueue } = buildThreadUpdates(
-    threadGroups, headerById, labelsByRfcId, skipThreadIds,
+    threadGroups, headerById, labelsByRfcId, skipThreadIds, account.email,
   );
 
   const allLocalIds = storedHeaders.map((h) => h.local_id);
   await imapStoreThreads(accountId, updates, allLocalIds);
+  // Persist folder sync states only after thread storage succeeds to prevent stuck messages
+  await Promise.all(pendingFolderStates.map(upsertFolderSyncState));
 
   onProgress?.({ phase: "storing_threads", current: threadGroups.length, total: threadGroups.length });
 
@@ -594,6 +620,9 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
   if (isMaintenanceCycle) {
     const dupeCount = await purgeImapDuplicates(accountId).catch(() => 0);
     if (dupeCount > 0) console.log(`[imapSync] Purged ${dupeCount} duplicates for ${accountId}`);
+    await reconcileOrphanMessages(accountId).catch((err) =>
+      console.error(`[imapSync] reconcileOrphanMessages error:`, err),
+    );
   }
 
   const syncStateMap = new Map(syncStates.map((s) => [s.folder_path, s]));
@@ -603,6 +632,8 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
   // All headers from new messages across all folders (stored + skipped duplicates)
   const allHeaders: ImapSyncHeader[] = [];
   const labelsByRfcId = new Map<string, Set<string>>();
+  // Folder state updates to persist only after imapStoreThreads succeeds
+  const pendingFolderStates: FolderSyncState[] = [];
 
   let consecutiveFailures = 0;
   const deltaFolderErrors: string[] = [];
@@ -638,7 +669,7 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
       _accumLabels(headers, labelsByRfcId);
       allHeaders.push(...headers);
 
-      await upsertFolderSyncState({
+      pendingFolderStates.push({
         account_id: accountId,
         folder_path: folder.raw_path,
         uidvalidity,
@@ -738,7 +769,7 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
             );
             _accumLabels(headers, labelsByRfcId);
             allHeaders.push(...headers);
-            await upsertFolderSyncState({
+            pendingFolderStates.push({
               account_id: accountId,
               folder_path: folder.raw_path,
               uidvalidity: uidvalidityVal,
@@ -774,7 +805,7 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
         _accumLabels(headers, labelsByRfcId);
         allHeaders.push(...headers);
 
-        await upsertFolderSyncState({
+        pendingFolderStates.push({
           account_id: accountId,
           folder_path: folder.raw_path,
           uidvalidity: deltaResult.uidvalidity,
@@ -800,6 +831,8 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
 
   const storedHeaders = allHeaders.filter((h) => h.stored);
   if (storedHeaders.length === 0) {
+    // No new messages, but still persist folder states (records last_uid / last_sync_at)
+    await Promise.all(pendingFolderStates.map(upsertFolderSyncState));
     return { messages: [], storedCount: 0 };
   }
 
@@ -813,11 +846,13 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
   const skipThreadIds = new Set(threadGroups.map((g) => g.threadId).filter((id) => pendingOpIds.has(id)));
 
   const { updates, urgencyQueue } = buildThreadUpdates(
-    threadGroups, headerById, labelsByRfcId, skipThreadIds,
+    threadGroups, headerById, labelsByRfcId, skipThreadIds, account.email,
   );
 
   const allLocalIds = storedHeaders.map((h) => h.local_id);
   await imapStoreThreads(accountId, updates, allLocalIds);
+  // Persist folder sync states only after thread storage succeeds to prevent stuck messages
+  await Promise.all(pendingFolderStates.map(upsertFolderSyncState));
 
   for (const params of urgencyQueue) {
     processThreadUrgency({ ...params, accountId }).catch(() => {});
@@ -855,6 +890,115 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Recovery: find messages stored in the DB without corresponding thread_labels entries
+ * (e.g. due to a previous imapStoreThreads failure) and re-thread them.
+ * Called during maintenance cycles.
+ */
+async function reconcileOrphanMessages(accountId: string): Promise<void> {
+  const { getDb } = await import("../db/connection");
+  const db = await getDb();
+
+  type OrphanRow = {
+    thread_id: string;
+    msg_id: string;
+    subject: string | null;
+    snippet: string | null;
+    date: number;
+    is_read: number;
+    is_starred: number;
+    imap_folder: string | null;
+    label_id: string | null;
+  };
+
+  const rows = await db.select<OrphanRow[]>(
+    `SELECT
+       m.thread_id,
+       m.id          AS msg_id,
+       m.subject,
+       m.snippet,
+       m.date,
+       m.is_read,
+       m.is_starred,
+       m.imap_folder,
+       l.id          AS label_id
+     FROM messages m
+     LEFT JOIN labels l
+       ON l.account_id = m.account_id AND l.imap_folder_path = m.imap_folder
+     WHERE m.account_id = $1
+       AND NOT EXISTS (
+         SELECT 1 FROM thread_labels tl
+         WHERE tl.account_id = m.account_id AND tl.thread_id = m.thread_id
+       )
+     ORDER BY m.thread_id, m.date`,
+    [accountId],
+  );
+
+  if (rows.length === 0) return;
+
+  // Group by thread_id
+  const byThread = new Map<string, OrphanRow[]>();
+  for (const row of rows) {
+    let msgs = byThread.get(row.thread_id);
+    if (!msgs) { msgs = []; byThread.set(row.thread_id, msgs); }
+    msgs.push(row);
+  }
+
+  // Check which orphan threads have attachments
+  const orphanThreadIds = [...byThread.keys()];
+  const phT = orphanThreadIds.map((_, i) => `$${i + 2}`).join(", ");
+  const attachRows = await db.select<{ thread_id: string }[]>(
+    `SELECT DISTINCT m.thread_id
+     FROM attachments a
+     INNER JOIN messages m ON m.account_id = a.account_id AND m.id = a.message_id
+     WHERE a.account_id = $1 AND m.thread_id IN (${phT})`,
+    [accountId, ...orphanThreadIds],
+  );
+  const threadsWithAttachments = new Set(attachRows.map((r) => r.thread_id));
+
+  const updates: ImapThreadUpdate[] = [];
+  const allMsgIds: string[] = [];
+
+  for (const [threadId, msgs] of byThread) {
+    const first = msgs[0]!;
+    const last = msgs[msgs.length - 1]!;
+
+    const isRead = msgs.every((m) => m.is_read === 1);
+    const isStarred = msgs.some((m) => m.is_starred === 1);
+    const hasAttachments = threadsWithAttachments.has(threadId);
+
+    // Derive label_ids from folder mappings + pseudo-labels
+    const labelSet = new Set<string>();
+    for (const m of msgs) {
+      if (m.label_id) labelSet.add(m.label_id);
+      if (m.is_read === 0) labelSet.add("UNREAD");
+      if (m.is_starred === 1) labelSet.add("STARRED");
+    }
+
+    updates.push({
+      thread_id: threadId,
+      message_ids: msgs.map((m) => m.msg_id),
+      subject: first.subject,
+      snippet: last.snippet,
+      last_message_at: last.date * 1000,
+      is_read: isRead,
+      is_starred: isStarred,
+      has_attachments: hasAttachments,
+      label_ids: [...labelSet],
+    });
+    allMsgIds.push(...msgs.map((m) => m.msg_id));
+  }
+
+  if (updates.length === 0) return;
+
+  console.log(`[imapSync] reconcileOrphanMessages: re-threading ${updates.length} orphan thread(s) for ${accountId}`);
+  try {
+    await imapStoreThreads(accountId, updates, allMsgIds);
+  } catch (err) {
+    console.error(`[imapSync] reconcileOrphanMessages failed:`, err);
+  }
+}
 
 /** Accumulate cross-folder label data from a batch of headers. */
 function _accumLabels(

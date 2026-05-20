@@ -241,6 +241,27 @@ export async function getThreadLabelIds(
   return rows.map((r) => r.label_id);
 }
 
+export async function getThreadsByIds(
+  pairs: Array<{ accountId: string; threadId: string }>,
+): Promise<DbThread[]> {
+  if (pairs.length === 0) return [];
+  const db = await getDb();
+  const results: DbThread[] = [];
+  // Fetch in batches to avoid very long IN clauses
+  for (const { accountId, threadId } of pairs) {
+    const rows = await db.select<DbThread[]>(
+      `SELECT t.*, m.from_name, m.from_address FROM threads t
+       LEFT JOIN messages m ON m.account_id = t.account_id AND m.thread_id = t.id
+         AND m.date = (SELECT MAX(m2.date) FROM messages m2 WHERE m2.account_id = t.account_id AND m2.thread_id = t.id)
+       WHERE t.account_id = $1 AND t.id = $2
+       LIMIT 1`,
+      [accountId, threadId],
+    );
+    if (rows[0]) results.push(rows[0]);
+  }
+  return results;
+}
+
 export async function getThreadById(
   accountId: string,
   threadId: string,

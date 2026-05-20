@@ -1,5 +1,6 @@
 import { useState, useRef, useCallback } from "react";
 import { searchMessages } from "@/services/db/search";
+import { getThreadsByIds, getThreadLabelIds } from "@/services/db/threads";
 import { useAccountStore } from "@/stores/accountStore";
 import { useThreadStore } from "@/stores/threadStore";
 import { useSmartFolderStore } from "@/stores/smartFolderStore";
@@ -44,10 +45,45 @@ export function SearchBar() {
           const hits = await searchMessages(
             value,
             activeAccountId ?? undefined,
-            100,
+            200,
           );
           const threadIds = new Set(hits.map((h) => h.thread_id));
           useThreadStore.getState().setSearch(value, threadIds);
+
+          // Load threads not yet in the store (beyond the initial 50)
+          const { threadMap } = useThreadStore.getState();
+          const missingPairs = hits
+            .filter((h) => !threadMap.has(h.thread_id))
+            .map((h) => ({ accountId: h.account_id, threadId: h.thread_id }));
+
+          if (missingPairs.length > 0) {
+            const dbThreads = await getThreadsByIds(missingPairs);
+            const mapped = await Promise.all(
+              dbThreads.map(async (t) => {
+                const labelIds = await getThreadLabelIds(t.account_id, t.id);
+                return {
+                  id: t.id,
+                  accountId: t.account_id,
+                  subject: t.subject,
+                  snippet: t.snippet,
+                  lastMessageAt: t.last_message_at ?? 0,
+                  messageCount: t.message_count,
+                  isRead: t.is_read === 1,
+                  isStarred: t.is_starred === 1,
+                  isPinned: t.is_pinned === 1,
+                  isMuted: t.is_muted === 1,
+                  hasAttachments: t.has_attachments === 1,
+                  labelIds,
+                  fromName: t.from_name,
+                  fromAddress: t.from_address,
+                  urgencyScore: t.urgency_score ?? undefined,
+                  sentimentScore: t.sentiment_score ?? undefined,
+                  isHeatExtinguished: t.is_heat_extinguished === 1,
+                };
+              }),
+            );
+            useThreadStore.getState().addThreads(mapped);
+          }
         } catch {
           useThreadStore.getState().setSearch(value, null);
         }

@@ -146,6 +146,39 @@ function revertOptimisticUpdate(action: EmailAction): void {
 }
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Compute the correct INBOX/SENT labels for a thread based on from_address.
+ * Used when restoring a thread from TRASH/SPAM/ARCHIVE so the result
+ * matches the same logic applied during IMAP sync.
+ */
+async function resolveInboxSentLabels(
+  accountId: string,
+  threadId: string,
+): Promise<{ inbox: boolean; sent: boolean }> {
+  const account = await getAccount(accountId);
+  if (!account) return { inbox: true, sent: false };
+
+  const db = await getDb();
+  const rows = await db.select<{ from_address: string | null; date: number }[]>(
+    "SELECT from_address, date FROM messages WHERE account_id = $1 AND thread_id = $2 ORDER BY date ASC",
+    [accountId, threadId],
+  );
+  if (rows.length === 0) return { inbox: true, sent: false };
+
+  const lowerEmail = account.email.toLowerCase();
+  const isFromMe = (addr: string | null) => !!addr && addr.toLowerCase() === lowerEmail;
+  const last = rows[rows.length - 1]!;
+
+  return {
+    sent: isFromMe(last.from_address),
+    inbox: rows.some((r) => !isFromMe(r.from_address)),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Local DB updates (so offline reads reflect changes)
 // ---------------------------------------------------------------------------
 
@@ -223,10 +256,19 @@ async function applyLocalDbUpdate(
           "DELETE FROM thread_labels WHERE account_id = $1 AND thread_id = $2 AND label_id = 'SPAM'",
           [accountId, action.threadId],
         );
-        await db.execute(
-          "INSERT OR IGNORE INTO thread_labels (account_id, thread_id, label_id) VALUES ($1, $2, 'INBOX')",
-          [accountId, action.threadId],
-        );
+        const { inbox, sent } = await resolveInboxSentLabels(accountId, action.threadId);
+        if (inbox) {
+          await db.execute(
+            "INSERT OR IGNORE INTO thread_labels (account_id, thread_id, label_id) VALUES ($1, $2, 'INBOX')",
+            [accountId, action.threadId],
+          );
+        }
+        if (sent) {
+          await db.execute(
+            "INSERT OR IGNORE INTO thread_labels (account_id, thread_id, label_id) VALUES ($1, $2, 'SENT')",
+            [accountId, action.threadId],
+          );
+        }
       }
       break;
     case "addLabel":

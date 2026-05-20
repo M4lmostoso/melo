@@ -366,9 +366,13 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   const deleteLabel = useLabelStore((s) => s.deleteLabel);
   const smartFolders = useSmartFolderStore((s) => s.folders);
   const smartFolderCounts = useSmartFolderStore((s) => s.unreadCounts);
+  const smartFolderPerAccountCounts = useSmartFolderStore((s) => s.perAccountCounts);
   const loadSmartFolders = useSmartFolderStore((s) => s.loadFolders);
   const refreshSmartFolderCounts = useSmartFolderStore(
     (s) => s.refreshUnreadCounts,
+  );
+  const refreshSmartFolderGlobalCounts = useSmartFolderStore(
+    (s) => s.refreshGlobalUnreadCounts,
   );
   const createSmartFolder = useSmartFolderStore((s) => s.createFolder);
   const SECTION_IDS = new Set(["smart-folders", "labels"]);
@@ -476,8 +480,9 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
     if (allIds.length > 0) {
       refreshGlobalUnreadCounts(allIds);
       refreshScheduledCounts(allIds);
+      refreshSmartFolderGlobalCounts(allIds);
     }
-  }, [accounts, refreshGlobalUnreadCounts, refreshScheduledCounts]);
+  }, [accounts, refreshGlobalUnreadCounts, refreshScheduledCounts, refreshSmartFolderGlobalCounts]);
 
   // Load smart folders when active account changes
   useEffect(() => {
@@ -503,6 +508,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
           refreshGlobalUnreadCounts(allIds);
           refreshScheduledCounts(allIds);
           loadAllAccountLabels(allIds);
+          refreshSmartFolderGlobalCounts(allIds);
         }
         useUIStore.getState().setSyncingFolder(null);
       }, 500);
@@ -512,7 +518,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
       window.removeEventListener("velo-sync-done", handler);
       if (timer) clearTimeout(timer);
     };
-  }, [activeAccountId, loadLabels, loadAllAccountLabels, refreshSmartFolderCounts, refreshGlobalUnreadCounts, refreshScheduledCounts]);
+  }, [activeAccountId, loadLabels, loadAllAccountLabels, refreshSmartFolderCounts, refreshSmartFolderGlobalCounts, refreshGlobalUnreadCounts, refreshScheduledCounts]);
 
   const handleDeleteLabel = useCallback(
     async (labelId: string) => {
@@ -807,6 +813,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                           const displayName = account.label ?? account.displayName ?? account.email;
                           const isAccountActive =
                             activeLabel === `smart-folder:${folder.id}` && activeAccountId === account.id;
+                          const perAccountCount = smartFolderPerAccountCounts[`${folder.id}:${account.id}`] ?? 0;
                           return (
                             <button
                               key={account.id}
@@ -825,6 +832,11 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                                 style={{ backgroundColor: color }}
                               />
                               <span className="flex-1 truncate">{displayName}</span>
+                              {perAccountCount > 0 && (
+                                <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 min-w-[1.25rem] h-[1.125rem] rounded-full inline-flex items-center justify-center tabular-nums">
+                                  {perAccountCount}
+                                </span>
+                              )}
                             </button>
                           );
                         })}

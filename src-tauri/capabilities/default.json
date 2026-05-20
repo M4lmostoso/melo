@@ -27,6 +27,7 @@
     "notification:allow-request-permission",
     "notification:allow-notify",
     "notification:allow-register-action-types",
+    "notification:allow-register-listener",
     "core:event:default",
     "core:event:allow-listen",
     "core:event:allow-emit",

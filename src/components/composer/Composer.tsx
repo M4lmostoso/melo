@@ -371,37 +371,39 @@ const getFullHtml = useCallback(() => {
     const delay = parseInt(delaySetting ?? "5", 10) * 1000;
     const currentDraftId = useComposerStore.getState().draftId;
     state.setUndoSendVisible(true);
-    const timer = setTimeout(async () => {
-      try {
-        await sendEmail(effectiveAccountId, raw, state.threadId ?? undefined);
-        if (currentDraftId) {
-          try {
-            await deleteDraftAction(
-              effectiveAccountId,
-              currentDraftId,
-              state.threadId ?? undefined,
-            );
-          } catch {
-            /* ignore */
+    const timer = setTimeout(() => {
+      useComposerStore.getState().setUndoSendVisible(false);
+      useComposerStore.getState().setIsSending(false);
+      sendingRef.current = false;
+      closeComposer();
+
+      (async () => {
+        try {
+          await sendEmail(effectiveAccountId, raw, state.threadId ?? undefined);
+          if (currentDraftId) {
+            try {
+              await deleteDraftAction(
+                effectiveAccountId,
+                currentDraftId,
+                state.threadId ?? undefined,
+              );
+            } catch {
+              /* ignore */
+            }
           }
-        }
-        if (useUIStore.getState().sendAndArchive && state.threadId) {
-          try {
-            await archiveThread(effectiveAccountId, state.threadId, []);
-          } catch {
-            /* ignore */
+          if (useUIStore.getState().sendAndArchive && state.threadId) {
+            try {
+              await archiveThread(effectiveAccountId, state.threadId, []);
+            } catch {
+              /* ignore */
+            }
           }
+          for (const addr of [...state.to, ...state.cc, ...state.bcc])
+            await upsertContact(addr, null);
+        } catch (err) {
+          console.error("Failed to send email:", err);
         }
-        for (const addr of [...state.to, ...state.cc, ...state.bcc])
-          await upsertContact(addr, null);
-      } catch (err) {
-        console.error("Failed to send email:", err);
-      } finally {
-        useComposerStore.getState().setUndoSendVisible(false);
-        useComposerStore.getState().setIsSending(false);
-        sendingRef.current = false;
-        closeComposer();
-      }
+      })();
     }, delay);
     state.setUndoSendTimer(timer);
   }, [effectiveAccountId, activeAccount, closeComposer, getFullHtml]);

@@ -155,6 +155,10 @@ const selectThread = useThreadStore((s) => s.selectThread);
 const [hasMore, setHasMore] = useState(true);
    const [loadingMore, setLoadingMore] = useState(false);
    const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  // Tracks thread IDs loaded when entering a smart folder — prevents threads from disappearing
+  // when marked as read (which fires velo-sync-done and re-runs the smart folder query).
+  // Cleared on folder navigation.
+  const pinnedSmartFolderIds = useRef<Set<string>>(new Set());
    const [isScrolling, setIsScrolling] = useState(false);
   const [categoryMap, setCategoryMap] = useState<Map<string, string>>(
     () => new Map(),
@@ -698,7 +702,20 @@ const [hasMore, setHasMore] = useState(true);
         const db = await getDb();
         const rows = await db.select<SmartFolderRow[]>(sql, params);
         const mapped = await mapSmartFolderRows(rows);
-        setThreads(mapped);
+        if (!keepSearch) {
+          pinnedSmartFolderIds.current = new Set(mapped.map((t) => t.id));
+          setThreads(mapped);
+        } else {
+          const currentThreads = useThreadStore.getState().threads;
+          const currentThreadMap = new Map(currentThreads.map((t) => [t.id, t]));
+          const newIds = new Set(mapped.map((t) => t.id));
+          const pinnedToKeep = [...pinnedSmartFolderIds.current]
+            .filter((id) => !newIds.has(id) && currentThreadMap.has(id))
+            .map((id) => currentThreadMap.get(id)!);
+          setThreads(
+            [...mapped, ...pinnedToKeep].sort((a, b) => b.lastMessageAt - a.lastMessageAt),
+          );
+        }
       } catch (err) {
         console.error("Failed to load unified smart folder threads:", err);
       } finally {
@@ -726,7 +743,20 @@ const [hasMore, setHasMore] = useState(true);
         const db = await getDb();
         const rows = await db.select<SmartFolderRow[]>(sql, params);
         const mapped = await mapSmartFolderRows(rows);
-        setThreads(mapped);
+        if (!keepSearch) {
+          pinnedSmartFolderIds.current = new Set(mapped.map((t) => t.id));
+          setThreads(mapped);
+        } else {
+          const currentThreads = useThreadStore.getState().threads;
+          const currentThreadMap = new Map(currentThreads.map((t) => [t.id, t]));
+          const newIds = new Set(mapped.map((t) => t.id));
+          const pinnedToKeep = [...pinnedSmartFolderIds.current]
+            .filter((id) => !newIds.has(id) && currentThreadMap.has(id))
+            .map((id) => currentThreadMap.get(id)!);
+          setThreads(
+            [...mapped, ...pinnedToKeep].sort((a, b) => b.lastMessageAt - a.lastMessageAt),
+          );
+        }
         setHasMore(false); // Smart folders load all at once
       } else {
         let dbThreads;
@@ -856,6 +886,11 @@ const [hasMore, setHasMore] = useState(true);
     setThreads,
     mapDbThreads,
   ]);
+
+  // Clear pinned smart-folder threads whenever the user navigates to a different folder
+  useEffect(() => {
+    pinnedSmartFolderIds.current = new Set();
+  }, [activeLabel]);
 
   useEffect(() => {
     loadThreads();
