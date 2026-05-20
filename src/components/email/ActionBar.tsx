@@ -159,18 +159,15 @@ export function ActionBar({ thread, messages, noReply, defaultReplyMode = "reply
     if (!activeAccountId) return;
     const newMuted = !thread.isMuted;
     if (newMuted) {
-      // Mute: mark as muted and archive
-      updateThread(thread.id, { isMuted: true });
+      updateThread(thread.id, { isMuted: true, urgencyScore: 0.05 });
       try {
         await muteThreadDb(activeAccountId, thread.id);
-        await archiveThread(activeAccountId, thread.id, []);
       } catch (err) {
         console.error("Failed to mute:", err);
         await unmuteThreadDb(activeAccountId, thread.id);
         updateThread(thread.id, { isMuted: false });
       }
     } else {
-      // Unmute
       updateThread(thread.id, { isMuted: false });
       try {
         await unmuteThreadDb(activeAccountId, thread.id);

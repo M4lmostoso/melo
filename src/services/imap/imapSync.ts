@@ -878,6 +878,7 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
         update.thread_id,
         accountId,
         fromAddr,
+        uq.bodyText ?? undefined,
       );
     }
   }

@@ -70,7 +70,7 @@ export function AccountSection({
           {account.label ?? account.displayName ?? account.email}
         </span>
         {!expanded && (unreadCounts["INBOX"] ?? 0) > 0 && (
-          <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 rounded-full leading-normal">
+          <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 min-w-[1.25rem] h-[1.125rem] rounded-full inline-flex items-center justify-center tabular-nums">
             {unreadCounts["INBOX"]}
           </span>
         )}
@@ -105,7 +105,7 @@ export function AccountSection({
                 <Icon size={14} className="shrink-0" />
                 <span className="flex-1 truncate">{label}</span>
                 {count > 0 && id === "inbox" && (
-                  <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 rounded-full leading-normal">
+                  <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 min-w-[1.25rem] h-[1.125rem] rounded-full inline-flex items-center justify-center tabular-nums">
                     {count}
                   </span>
                 )}

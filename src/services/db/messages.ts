@@ -152,11 +152,12 @@ export async function upsertMessage(msg: {
   inReplyToHeader?: string | null;
   imapUid?: number | null;
   imapFolder?: string | null;
+  isDraft?: boolean;
 }): Promise<void> {
   await withTransaction(async (db) => {
     await db.execute(
-      `INSERT INTO messages (id, account_id, thread_id, from_address, from_name, to_addresses, cc_addresses, bcc_addresses, reply_to, subject, snippet, date, is_read, is_starred, body_html, body_text, body_cached, raw_size, internal_date, list_unsubscribe, list_unsubscribe_post, auth_results, message_id_header, references_header, in_reply_to_header, imap_uid, imap_folder)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)
+      `INSERT INTO messages (id, account_id, thread_id, from_address, from_name, to_addresses, cc_addresses, bcc_addresses, reply_to, subject, snippet, date, is_read, is_starred, body_html, body_text, body_cached, raw_size, internal_date, list_unsubscribe, list_unsubscribe_post, auth_results, message_id_header, references_header, in_reply_to_header, imap_uid, imap_folder, is_draft)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)
        ON CONFLICT(account_id, id) DO UPDATE SET
          from_address = $4, from_name = $5, to_addresses = $6, cc_addresses = $7,
          bcc_addresses = $8, reply_to = $9, subject = $10, snippet = $11,
@@ -167,7 +168,8 @@ export async function upsertMessage(msg: {
          auth_results = $22, message_id_header = COALESCE($23, message_id_header),
          references_header = COALESCE($24, references_header),
          in_reply_to_header = COALESCE($25, in_reply_to_header),
-         imap_uid = COALESCE($26, imap_uid), imap_folder = COALESCE($27, imap_folder)`,
+         imap_uid = COALESCE($26, imap_uid), imap_folder = COALESCE($27, imap_folder),
+         is_draft = $28`,
       [
         msg.id,
         msg.accountId,
@@ -196,6 +198,7 @@ export async function upsertMessage(msg: {
         msg.inReplyToHeader ?? null,
         msg.imapUid ?? null,
         msg.imapFolder ?? null,
+        msg.isDraft ? 1 : 0,
       ],
     );
   });

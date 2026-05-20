@@ -419,21 +419,6 @@ export async function deltaSync(
             await markThreadUnreadInDb(accountId, threadId);
           }
 
-          // Auto-archive muted threads that reappear in INBOX
-          if (mutedThreadIds.has(threadId)) {
-            const hasInbox = parsedMessages.some((m) => m.labelIds.includes("INBOX"));
-            if (hasInbox) {
-              try {
-                await client.modifyThread(threadId, undefined, ["INBOX"]);
-                await setThreadLabels(accountId, threadId,
-                  [...new Set(parsedMessages.flatMap((m) => m.labelIds))].filter((l) => l !== "INBOX"),
-                );
-              } catch (err) {
-                console.error(`Failed to auto-archive muted thread ${threadId}:`, err);
-              }
-            }
-          }
-
           // Send desktop notifications for new unread inbox messages (smart-filtered)
           // Skip notifications for muted threads
           for (const parsed of parsedMessages) {
@@ -447,6 +432,7 @@ export async function deltaSync(
                   parsed.threadId,
                   accountId,
                   fromAddr,
+                  parsed.snippet ?? undefined,
                 );
               }
             }

@@ -527,7 +527,7 @@ case "action.reply": {
             useThreadStore.getState().updateThread(id, { isMuted: false });
           } else {
             await muteThreadDb(activeAccountId, id);
-            await archiveThread(activeAccountId, id, []);
+            useThreadStore.getState().updateThread(id, { isMuted: true, urgencyScore: 0.05 });
           }
         }
       } else if (selectedId && activeAccountId) {
@@ -538,7 +538,7 @@ case "action.reply": {
             useThreadStore.getState().updateThread(selectedId, { isMuted: false });
           } else {
             await muteThreadDb(activeAccountId, selectedId);
-            await archiveThread(activeAccountId, selectedId, []);
+            useThreadStore.getState().updateThread(selectedId, { isMuted: true, urgencyScore: 0.05 });
           }
         }
       }

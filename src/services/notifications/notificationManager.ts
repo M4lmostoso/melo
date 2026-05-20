@@ -140,6 +140,7 @@ export function queueNewEmailNotification(
   threadId?: string,
   accountId?: string,
   fromAddress?: string,
+  snippet?: string,
 ): void {
   if (!notificationsEnabled) return;
 
@@ -155,9 +156,15 @@ export function queueNewEmailNotification(
   notifyTimer = setTimeout(() => {
     const emailActionTypeId = actionTypesRegistered ? "email" : "default";
     if (pendingCount === 1) {
+      // Title = subject (shown bold on macOS); body = sender + first ~3 lines of snippet
+      const bodyParts: string[] = [`From: ${from}`];
+      if (snippet) {
+        const preview = snippet.trim().slice(0, 200);
+        bodyParts.push(preview);
+      }
       sendNotification({
-        title: from,
-        body: subject || "(No subject)",
+        title: subject || "(No subject)",
+        body: bodyParts.join("\n"),
         actionTypeId: emailActionTypeId,
       });
     } else if (pendingCount > 1) {

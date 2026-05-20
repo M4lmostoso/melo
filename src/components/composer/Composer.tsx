@@ -47,6 +47,9 @@ import {
   startDiscard,
   waitForSave,
   saveNow,
+  getActiveDraftId,
+  getServerDraftId,
+  deleteLocalImapDraft,
 } from "@/services/composer/draftAutoSave";
 import {
   getTemplatesForAccount,
@@ -374,7 +377,10 @@ const getFullHtml = useCallback(() => {
     });
     const delaySetting = await getSetting("undo_send_delay_seconds");
     const delay = parseInt(delaySetting ?? "5", 10) * 1000;
-    const currentDraftId = useComposerStore.getState().draftId;
+    // For IMAP: server UID-based ID (tracked in draftAutoSave module vars).
+    // For Gmail: composerStore.draftId (the Gmail draft API ID).
+    // Must be captured BEFORE closeComposer() resets the store.
+    const currentDraftId = getActiveDraftId();
 
     const outgoingId = crypto.randomUUID();
     useOutgoingStore.getState().addEmail({
@@ -411,6 +417,11 @@ const getFullHtml = useCallback(() => {
             raw,
             threadId: state.threadId ?? null,
             currentDraftId: currentDraftId ?? null,
+            // localDraftId: stable UUID row to clean up from SQLite after send.
+            // For IMAP: the applyLocalDbUpdate deleteDraft path uses is_draft=1 query
+            // on the thread to find and remove this row.
+            // For Gmail: null (no local row was created).
+            localDraftId: state.localDraftId ?? null,
             sendAndArchive: useUIStore.getState().sendAndArchive,
             contacts: [...state.to, ...state.cc, ...state.bcc],
             to: [...state.to],
@@ -426,6 +437,15 @@ const getFullHtml = useCallback(() => {
         }
 
         if (handedOff) {
+          // Tombstone the IMAP server draft — fast SQLite write (< 50ms) before window dies.
+          // currentDraftId is the server UID-based ID for IMAP (or null/Gmail draft ID for Gmail).
+          // tombstoneImapDraft is a no-op for non-IMAP IDs.
+          const serverDraftId = getServerDraftId();
+          if (serverDraftId) {
+            await tombstoneImapDraft(effectiveAccountId, serverDraftId);
+          } else if (currentDraftId && currentDraftId.startsWith("imap-")) {
+            await tombstoneImapDraft(effectiveAccountId, currentDraftId);
+          }
           // Main window owns the send from here — close the composer immediately.
           useOutgoingStore.getState().removeEmail(outgoingId);
           sendingRef.current = false;
@@ -504,11 +524,12 @@ const getFullHtml = useCallback(() => {
         );
       }
       stopAutoSave();
-      if (state.draftId) {
+      const activeDraftId = getActiveDraftId();
+      if (activeDraftId) {
         try {
           await deleteDraftAction(
             effectiveAccountId,
-            state.draftId,
+            activeDraftId,
             state.threadId ?? undefined,
           );
         } catch {
@@ -532,50 +553,61 @@ const getFullHtml = useCallback(() => {
   }, [effectiveAccountId, activeAccount, pendingScheduledAt, closeComposer, getFullHtml]);
 
   const handleDiscard = useCallback(async () => {
-    // Guard against double-clicks
     if (isDiscardingRef.current) return;
     isDiscardingRef.current = true;
 
-    // 1. Signal discard — cancels the debounce and marks isDiscarding=true so no new
-    //    saves are triggered. Any already in-flight IMAP save will still complete and
-    //    write the new UID to state.draftId (and pre-tombstone it — see draftAutoSave.ts).
+    // 1. Signal discard — cancels both debounce timers and marks isDiscarding=true.
+    //    Any in-flight IMAP server save will see this flag and pre-tombstone the new UID.
     startDiscard();
     useComposerStore.getState().setIsSaving(false);
 
-    // 2. Snapshot IDs before closeComposer() resets the store.
+    // 2. Snapshot before closeComposer() resets the store.
     const accountId = effectiveAccountId;
-    const preDraftId = useComposerStore.getState().draftId;
+    const serverDraftId = getServerDraftId(); // IMAP UID-based (or null)
+    const preLocalId = useComposerStore.getState().localDraftId; // stable UUID
+    const preGmailDraftId = useComposerStore.getState().draftId; // Gmail API draft ID
     const preThreadId = useComposerStore.getState().threadId;
+    const account = useAccountStore.getState().accounts.find((a) => a.id === accountId);
+    const isImapAccount = !!account && account.provider !== "gmail_api";
 
-    // 3. Write tombstone BEFORE closing — this is a fast SQLite write (< 50ms),
-    //    imperceptible to the user but guaranteed to complete while the JS context
-    //    is still alive. This is the critical step: once closeComposer() triggers
-    //    window destruction, any pending async code may be killed.
-    if (accountId && preDraftId) {
-      await tombstoneImapDraft(accountId, preDraftId);
+    // 3. Tombstone the IMAP server draft synchronously — fast SQLite write (< 50ms).
+    //    The tombstone prevents re-import even if the subsequent EXPUNGE is killed.
+    if (accountId && serverDraftId) {
+      await tombstoneImapDraft(accountId, serverDraftId);
     }
 
-    // 4. Close immediately after tombstone is written.
+    // 4. Close immediately — window may be destroyed shortly after.
     closeComposer();
     stopAutoSave();
     isDiscardingRef.current = false;
 
-    // 5. Fire-and-forget IMAP cleanup (APPEND delete on server). The tombstone above
-    //    already prevents re-import, so this is best-effort — it's fine if the WebView
-    //    dies before it completes.
     if (!accountId) return;
+
+    // 5. Best-effort async cleanup — the tombstone above already guards re-import.
     void (async () => {
       try {
+        // Wait for any in-flight server save (it will pre-tombstone itself if isDiscarding)
         await Promise.race([waitForSave(), new Promise<void>((r) => setTimeout(r, 3000))]);
-        const postDraftId = useComposerStore.getState().draftId;
-        const draftId = postDraftId ?? preDraftId;
-        const threadId = postDraftId
-          ? (useComposerStore.getState().threadId ?? preThreadId)
-          : preThreadId;
-        if (draftId) {
-          await deleteDraftAction(accountId, draftId, threadId ?? undefined).catch(() => {});
-        } else if (threadId) {
-          await deleteDraftThread(accountId, threadId).catch(() => {});
+
+        // Capture the final server UID (may have changed if a save was in-flight)
+        const finalServerDraftId = serverDraftId ?? getServerDraftId();
+        const gmailDraftId = preGmailDraftId;
+
+        if (finalServerDraftId) {
+          // Server draft exists: provider.deleteDraft will EXPUNGE it + applyLocalDbUpdate
+          // will clean the local stable-UUID row via is_draft=1 query on the thread.
+          await deleteDraftAction(accountId, finalServerDraftId, preThreadId ?? undefined).catch(() => {});
+        } else if (isImapAccount && preLocalId) {
+          // No server draft (user discarded within the 18s server debounce window):
+          // only a local SQLite row exists — delete it directly without touching IMAP.
+          await deleteLocalImapDraft(accountId, preLocalId).catch(() => {});
+        } else if (!isImapAccount) {
+          // Gmail: use the Gmail draft API ID if one was created.
+          if (gmailDraftId) {
+            await deleteDraftAction(accountId, gmailDraftId, preThreadId ?? undefined).catch(() => {});
+          } else if (preThreadId) {
+            await deleteDraftThread(accountId, preThreadId).catch(() => {});
+          }
         }
       } catch { /* ignore */ }
     })();

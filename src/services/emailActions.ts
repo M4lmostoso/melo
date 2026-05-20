@@ -295,7 +295,10 @@ async function applyLocalDbUpdate(
         if (row[0]) tid = row[0].thread_id;
       }
 
-      // Delete only the specific draft message, not the whole thread
+      // Delete the specific draft message by its stored ID.
+      // For IMAP: draftId matches the message ID → this deletes it.
+      // For Gmail: draftId is a Gmail draft API ID ("r..."), NOT the message ID stored in the DB
+      //   → DELETE finds nothing, but the thread-level cleanup below handles it.
       await db.execute(
         "DELETE FROM message_embeddings WHERE account_id = $1 AND message_id = $2",
         [accountId, action.draftId],
@@ -306,7 +309,25 @@ async function applyLocalDbUpdate(
       );
 
       if (tid) {
-        // Check whether any messages remain in this thread
+        // Gmail draft IDs do not match local message IDs, so the DELETE above is a no-op.
+        // Delete ALL draft messages in this thread so the Gmail Drafts view is immediately clean.
+        // For IMAP this is a no-op (tombstoneImapDraft already removed the row).
+        const draftMsgs = await db.select<{ id: string }[]>(
+          "SELECT id FROM messages WHERE account_id = $1 AND thread_id = $2 AND is_draft = 1",
+          [accountId, tid],
+        );
+        for (const msg of draftMsgs) {
+          await db.execute(
+            "DELETE FROM message_embeddings WHERE account_id = $1 AND message_id = $2",
+            [accountId, msg.id],
+          );
+          await db.execute(
+            "DELETE FROM messages WHERE account_id = $1 AND id = $2",
+            [accountId, msg.id],
+          );
+        }
+
+        // Check whether any non-draft messages remain in this thread
         const remaining = await db.select<{ id: string }[]>(
           "SELECT id FROM messages WHERE account_id = $1 AND thread_id = $2 LIMIT 1",
           [accountId, tid],
@@ -323,17 +344,11 @@ async function applyLocalDbUpdate(
             [accountId, tid],
           );
         } else {
-          // Thread still has messages: only remove DRAFT label if no draft messages remain
-          const moreDrafts = await db.select<{ id: string }[]>(
-            "SELECT id FROM messages WHERE account_id = $1 AND thread_id = $2 AND is_draft = 1 LIMIT 1",
+          // Thread still has messages (e.g. reply draft on existing thread): remove DRAFT label
+          await db.execute(
+            "DELETE FROM thread_labels WHERE account_id = $1 AND thread_id = $2 AND label_id = 'DRAFT'",
             [accountId, tid],
           );
-          if (moreDrafts.length === 0) {
-            await db.execute(
-              "DELETE FROM thread_labels WHERE account_id = $1 AND thread_id = $2 AND label_id = 'DRAFT'",
-              [accountId, tid],
-            );
-          }
         }
       }
       break;
@@ -729,7 +744,7 @@ export async function tombstoneImapDraft(
   }
 }
 
-export function deleteDraft(
+export async function deleteDraft(
   accountId: string,
   draftId: string,
   threadId?: string,
@@ -738,6 +753,11 @@ export function deleteDraft(
   // caused a mismatch (openComposer called without accountId param), recover here so
   // the tombstone is always written against the correct account.
   const resolvedAccountId = extractImapDraftAccountId(draftId) ?? accountId;
+  // Tombstone IMAP drafts before the provider delete so background sync cannot
+  // re-import the UID between the local DB removal and the server EXPUNGE.
+  if (draftId.startsWith("imap-")) {
+    await tombstoneImapDraft(resolvedAccountId, draftId);
+  }
   return executeEmailAction(resolvedAccountId, {
     type: "deleteDraft",
     draftId,

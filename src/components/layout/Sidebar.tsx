@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback, useMemo } from "react";
+import { useEffect, useRef, useState, useCallback, useMemo, Fragment } from "react";
 import { useDroppable } from "@dnd-kit/core";
 import { AccountSwitcher } from "../accounts/AccountSwitcher";
 import { LabelForm } from "../labels/LabelForm";
@@ -42,6 +42,7 @@ import {
   Paperclip,
   FolderSearch,
   Loader2,
+  Rocket,
   type LucideIcon,
 } from "lucide-react";
 
@@ -694,7 +695,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                           setActiveAccount(account.id);
                           navigateToLabel("inbox");
                         }}
-                        className={`flex items-center gap-2 w-full py-1.5 pl-7 pr-3 text-left text-[0.8125rem] transition-colors ${
+                        className={`flex items-center gap-2 w-full py-1.5 pl-7 pr-8 text-left text-[0.8125rem] transition-colors ${
                           isAccountActive
                             ? "text-accent font-medium bg-accent/10"
                             : "text-sidebar-text/80 hover:text-sidebar-text hover:bg-sidebar-hover"
@@ -716,62 +717,6 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                 </div>
               </div>
             )}
-            {/* ─── Outgoing (shown only when there are pending sends) ─── */}
-            {outgoingTotal > 0 && (
-              <div>
-                <ExpandableNavItem
-                  id="global-outgoing"
-                  label="Outgoing"
-                  isActive={activeLabel === "outgoing" && activeAccountId === null}
-                  collapsed={collapsed}
-                  expanded={!!expandedGlobalItems["global-outgoing"]}
-                  onNavigate={() => { setActiveAccount(null); navigateToLabel("outgoing"); }}
-                  onToggleExpand={() => toggleGlobalItem("global-outgoing")}
-                >
-                  <Send size={18} className="shrink-0 text-amber-500" />
-                  {!collapsed && (
-                    <>
-                      <span className="flex-1 truncate">Outgoing</span>
-                      <span className="text-[0.625rem] bg-amber-500/15 text-amber-500 px-1.5 min-w-[1.25rem] h-[1.125rem] rounded-full inline-flex items-center justify-center tabular-nums">
-                        {outgoingTotal}
-                      </span>
-                    </>
-                  )}
-                </ExpandableNavItem>
-                {!collapsed && (
-                  <div
-                    className={`grid transition-[grid-template-rows] duration-200 ease-out ${expandedGlobalItems["global-outgoing"] ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}
-                  >
-                    <div className="overflow-hidden">
-                      {globalAccounts.map((account) => {
-                        const count = outgoingByAccount[account.id] ?? 0;
-                        if (count === 0) return null;
-                        const color = account.color ?? "#3182CE";
-                        const displayName = account.label ?? account.displayName ?? account.email;
-                        const isAccountActive = activeLabel === "outgoing" && activeAccountId === account.id;
-                        return (
-                          <button
-                            key={account.id}
-                            onClick={() => { setActiveAccount(account.id); navigateToLabel("outgoing"); }}
-                            className={`flex items-center gap-2 w-full py-1.5 pl-7 pr-3 text-left text-[0.8125rem] transition-colors ${
-                              isAccountActive
-                                ? "text-accent font-medium bg-accent/10"
-                                : "text-sidebar-text/80 hover:text-sidebar-text hover:bg-sidebar-hover"
-                            }`}
-                          >
-                            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
-                            <span className="flex-1 truncate">{displayName}</span>
-                            <span className="text-[0.625rem] bg-amber-500/15 text-amber-500 px-1.5 min-w-[1.25rem] h-[1.125rem] rounded-full inline-flex items-center justify-center tabular-nums">
-                              {count}
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
             {/* ─── Other global folder items ─── */}
             {GLOBAL_FOLDER_ITEMS.filter((gi) =>
               visibleNavItems.some((vi) => vi.id === gi.id)
@@ -787,74 +732,132 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                     )
                   : 0;
               return (
-                <div key={`global-${gi.id}`}>
-                  <ExpandableNavItem
-                    id={`global-${gi.id}`}
-                    label={gi.label}
-                    isActive={activeLabel === gi.id && activeAccountId === null}
-                    collapsed={collapsed}
-                    expanded={!!expandedGlobalItems[`global-${gi.id}`]}
-                    onNavigate={() => {
-                      setActiveAccount(null);
-                      navigateToLabel(gi.id);
-                    }}
-                    onToggleExpand={() => toggleGlobalItem(`global-${gi.id}`)}
-                  >
-                    <GIcon size={18} className="shrink-0" />
-                    {!collapsed && (
-                      <>
-                        <span className="flex-1 truncate">{gi.label}</span>
-                        {globalTotal > 0 && (
-                          <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 min-w-[1.25rem] h-[1.125rem] rounded-full inline-flex items-center justify-center tabular-nums">
-                            {globalTotal}
-                          </span>
-                        )}
-                      </>
-                    )}
-                  </ExpandableNavItem>
-                  {!collapsed && (
-                    <div
-                      className={`grid transition-[grid-template-rows] duration-200 ease-out ${expandedGlobalItems[`global-${gi.id}`] ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}
+                <Fragment key={`global-${gi.id}`}>
+                  <div>
+                    <ExpandableNavItem
+                      id={`global-${gi.id}`}
+                      label={gi.label}
+                      isActive={activeLabel === gi.id && activeAccountId === null}
+                      collapsed={collapsed}
+                      expanded={!!expandedGlobalItems[`global-${gi.id}`]}
+                      onNavigate={() => {
+                        setActiveAccount(null);
+                        navigateToLabel(gi.id);
+                      }}
+                      onToggleExpand={() => toggleGlobalItem(`global-${gi.id}`)}
                     >
-                      <div className="overflow-hidden">
-                        {globalAccounts.map((account) => {
-                          const color = account.color ?? "#3182CE";
-                          const displayName = account.label ?? account.displayName ?? account.email;
-                          const unread = gi.id === "scheduled"
-                            ? (scheduledCounts[account.id] ?? 0)
-                            : unreadKey ? (globalUnreadCounts[account.id]?.[unreadKey] ?? 0) : 0;
-                          const isAccountActive =
-                            activeLabel === gi.id && activeAccountId === account.id;
-                          return (
-                            <button
-                              key={account.id}
-                              onClick={() => {
-                                setActiveAccount(account.id);
-                                navigateToLabel(gi.id);
-                              }}
-                              className={`flex items-center gap-2 w-full py-1.5 pl-7 pr-3 text-left text-[0.8125rem] transition-colors ${
-                                isAccountActive
-                                  ? "text-accent font-medium bg-accent/10"
-                                  : "text-sidebar-text/80 hover:text-sidebar-text hover:bg-sidebar-hover"
-                              }`}
-                            >
-                              <span
-                                className="w-2.5 h-2.5 rounded-full shrink-0"
-                                style={{ backgroundColor: color }}
-                              />
-                              <span className="flex-1 truncate">{displayName}</span>
-                              {unread > 0 && (
-                                <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 min-w-[1.25rem] h-[1.125rem] rounded-full inline-flex items-center justify-center tabular-nums">
-                                  {unread}
-                                </span>
-                              )}
-                            </button>
-                          );
-                        })}
+                      <GIcon size={18} className="shrink-0" />
+                      {!collapsed && (
+                        <>
+                          <span className="flex-1 truncate">{gi.label}</span>
+                          {globalTotal > 0 && (
+                            <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 min-w-[1.25rem] h-[1.125rem] rounded-full inline-flex items-center justify-center tabular-nums">
+                              {globalTotal}
+                            </span>
+                          )}
+                        </>
+                      )}
+                    </ExpandableNavItem>
+                    {!collapsed && (
+                      <div
+                        className={`grid transition-[grid-template-rows] duration-200 ease-out ${expandedGlobalItems[`global-${gi.id}`] ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}
+                      >
+                        <div className="overflow-hidden">
+                          {globalAccounts.map((account) => {
+                            const color = account.color ?? "#3182CE";
+                            const displayName = account.label ?? account.displayName ?? account.email;
+                            const unread = gi.id === "scheduled"
+                              ? (scheduledCounts[account.id] ?? 0)
+                              : unreadKey ? (globalUnreadCounts[account.id]?.[unreadKey] ?? 0) : 0;
+                            const isAccountActive =
+                              activeLabel === gi.id && activeAccountId === account.id;
+                            return (
+                              <button
+                                key={account.id}
+                                onClick={() => {
+                                  setActiveAccount(account.id);
+                                  navigateToLabel(gi.id);
+                                }}
+                                className={`flex items-center gap-2 w-full py-1.5 pl-7 pr-8 text-left text-[0.8125rem] transition-colors ${
+                                  isAccountActive
+                                    ? "text-accent font-medium bg-accent/10"
+                                    : "text-sidebar-text/80 hover:text-sidebar-text hover:bg-sidebar-hover"
+                                }`}
+                              >
+                                <span
+                                  className="w-2.5 h-2.5 rounded-full shrink-0"
+                                  style={{ backgroundColor: color }}
+                                />
+                                <span className="flex-1 truncate">{displayName}</span>
+                                {unread > 0 && (
+                                  <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 min-w-[1.25rem] h-[1.125rem] rounded-full inline-flex items-center justify-center tabular-nums">
+                                    {unread}
+                                  </span>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
+                    )}
+                  </div>
+                  {/* ─── Outgoing (shown only when there are pending sends, positioned below Scheduled) ─── */}
+                  {gi.id === "scheduled" && outgoingTotal > 0 && (
+                    <div>
+                      <ExpandableNavItem
+                        id="global-outgoing"
+                        label="Outgoing"
+                        isActive={activeLabel === "outgoing" && activeAccountId === null}
+                        collapsed={collapsed}
+                        expanded={!!expandedGlobalItems["global-outgoing"]}
+                        onNavigate={() => { setActiveAccount(null); navigateToLabel("outgoing"); }}
+                        onToggleExpand={() => toggleGlobalItem("global-outgoing")}
+                      >
+                        <Rocket size={18} className="shrink-0 text-amber-500" />
+                        {!collapsed && (
+                          <>
+                            <span className="flex-1 truncate">Outgoing</span>
+                            <span className="text-[0.625rem] bg-amber-500/15 text-amber-500 px-1.5 min-w-[1.25rem] h-[1.125rem] rounded-full inline-flex items-center justify-center tabular-nums">
+                              {outgoingTotal}
+                            </span>
+                          </>
+                        )}
+                      </ExpandableNavItem>
+                      {!collapsed && (
+                        <div
+                          className={`grid transition-[grid-template-rows] duration-200 ease-out ${expandedGlobalItems["global-outgoing"] ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}
+                        >
+                          <div className="overflow-hidden">
+                            {globalAccounts.map((account) => {
+                              const count = outgoingByAccount[account.id] ?? 0;
+                              if (count === 0) return null;
+                              const color = account.color ?? "#3182CE";
+                              const displayName = account.label ?? account.displayName ?? account.email;
+                              const isAccountActive = activeLabel === "outgoing" && activeAccountId === account.id;
+                              return (
+                                <button
+                                  key={account.id}
+                                  onClick={() => { setActiveAccount(account.id); navigateToLabel("outgoing"); }}
+                                  className={`flex items-center gap-2 w-full py-1.5 pl-7 pr-8 text-left text-[0.8125rem] transition-colors ${
+                                    isAccountActive
+                                      ? "text-accent font-medium bg-accent/10"
+                                      : "text-sidebar-text/80 hover:text-sidebar-text hover:bg-sidebar-hover"
+                                  }`}
+                                >
+                                  <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                                  <span className="flex-1 truncate">{displayName}</span>
+                                  <span className="text-[0.625rem] bg-amber-500/15 text-amber-500 px-1.5 min-w-[1.25rem] h-[1.125rem] rounded-full inline-flex items-center justify-center tabular-nums">
+                                    {count}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
-                </div>
+                </Fragment>
               );
             })}
             {/* ─── Smart folders in Global section ─── */}
@@ -916,7 +919,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                                 setActiveAccount(account.id);
                                 navigateToLabel(`smart-folder:${folder.id}`);
                               }}
-                              className={`flex items-center gap-2 w-full py-1.5 pl-7 pr-3 text-left text-[0.8125rem] transition-colors ${
+                              className={`flex items-center gap-2 w-full py-1.5 pl-7 pr-8 text-left text-[0.8125rem] transition-colors ${
                                 isAccountActive
                                   ? "text-accent font-medium bg-accent/10"
                                   : "text-sidebar-text/80 hover:text-sidebar-text hover:bg-sidebar-hover"

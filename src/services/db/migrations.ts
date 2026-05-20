@@ -1049,6 +1049,11 @@ const MIGRATIONS = [
       CREATE INDEX IF NOT EXISTS idx_calendar_events_message ON calendar_events(source_message_id);
     `,
   },
+  {
+    version: 46,
+    description: "Add is_draft flag to messages table for stable local draft tracking",
+    sql: `ALTER TABLE messages ADD COLUMN is_draft INTEGER DEFAULT 0;`,
+  },
 ];
 
 /**

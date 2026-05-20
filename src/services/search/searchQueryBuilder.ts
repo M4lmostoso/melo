@@ -116,10 +116,15 @@ export function buildSearchQuery(
     paramIdx++;
   }
 
-  // Exclude TRASH and SPAM unless the query explicitly targets those labels
+  // Exclude TRASH and SPAM unless the query explicitly targets those labels.
+  // DRAFT is excluded only for pure-draft threads (DRAFT without INBOX) — threads
+  // with a draft reply in progress (DRAFT + INBOX) should still appear in smart folders.
   if (excludeSystemLabels && !parsed.label) {
     whereClauses.push(
-      `NOT EXISTS (SELECT 1 FROM thread_labels tl2 WHERE tl2.account_id = m.account_id AND tl2.thread_id = m.thread_id AND tl2.label_id IN ('TRASH', 'SPAM', 'DRAFT'))`,
+      `NOT EXISTS (SELECT 1 FROM thread_labels tl2 WHERE tl2.account_id = m.account_id AND tl2.thread_id = m.thread_id AND tl2.label_id IN ('TRASH', 'SPAM'))`,
+    );
+    whereClauses.push(
+      `NOT (EXISTS (SELECT 1 FROM thread_labels tl3 WHERE tl3.account_id = m.account_id AND tl3.thread_id = m.thread_id AND tl3.label_id = 'DRAFT') AND NOT EXISTS (SELECT 1 FROM thread_labels tl4 WHERE tl4.account_id = m.account_id AND tl4.thread_id = m.thread_id AND tl4.label_id = 'INBOX'))`,
     );
   }
 

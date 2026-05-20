@@ -11,7 +11,7 @@ import { useAccountStore } from "./stores/accountStore";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { runMigrations } from "./services/db/migrations";
 import { getAllAccounts } from "./services/db/accounts";
-import { getSetting } from "./services/db/settings";
+import { getSetting, deleteSetting } from "./services/db/settings";
 import {
   startBackgroundSync,
   stopBackgroundSync,
@@ -252,6 +252,7 @@ export default function App() {
           raw: string;
           threadId: string | null;
           currentDraftId: string | null;
+          localDraftId: string | null;
           sendAndArchive: boolean;
           contacts: string[];
           to: string[];
@@ -281,12 +282,45 @@ export default function App() {
         try {
           await sendEmail(p.accountId, p.raw, p.threadId ?? undefined);
           if (p.currentDraftId) {
+            // currentDraftId = server UID-based IMAP ID (or Gmail API ID).
+            // deleteDraftAction tombstones + EXPUNGEs the server draft and cleans
+            // up the local stable-UUID row via is_draft=1 query on the thread.
             await deleteDraftAction(
               p.accountId,
               p.currentDraftId,
               p.threadId ?? undefined,
             ).catch(() => {});
+          } else if (p.localDraftId) {
+            // No server draft (sent within the 18s server debounce window):
+            // only a local SQLite row exists — delete it directly.
+            const { getDb } = await import("./services/db/connection");
+            const db = await getDb();
+            const rows = await db.select<{ thread_id: string }[]>(
+              "SELECT thread_id FROM messages WHERE account_id=$1 AND id=$2",
+              [p.accountId, p.localDraftId],
+            );
+            if (rows[0]) {
+              const tid = rows[0].thread_id;
+              await db.execute("DELETE FROM messages WHERE account_id=$1 AND id=$2", [p.accountId, p.localDraftId]);
+              const remaining = await db.select<{ id: string }[]>(
+                "SELECT id FROM messages WHERE account_id=$1 AND thread_id=$2 LIMIT 1",
+                [p.accountId, tid],
+              );
+              if (remaining.length === 0) {
+                await db.execute("DELETE FROM thread_labels WHERE account_id=$1 AND thread_id=$2", [p.accountId, tid]);
+                await db.execute("DELETE FROM threads WHERE account_id=$1 AND id=$2", [p.accountId, tid]);
+              } else {
+                await db.execute(
+                  "DELETE FROM thread_labels WHERE account_id=$1 AND thread_id=$2 AND label_id='DRAFT'",
+                  [p.accountId, tid],
+                );
+              }
+            }
           }
+          // Remove the SQLite persistence key so the composer doesn't restore a stale
+          // draft on the next open. The key encodes threadId (for replies) or "new".
+          const persistKey = `v_draft_${p.accountId}_${p.threadId ?? "new"}`;
+          await deleteSetting(persistKey).catch(() => {});
           if (p.sendAndArchive && p.threadId) {
             await archiveThread(p.accountId, p.threadId, []).catch(() => {});
           }

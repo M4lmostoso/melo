@@ -25,6 +25,7 @@ export interface ComposerState {
   inReplyToMessageId: string | null;
   showCcBcc: boolean;
   draftId: string | null;
+  localDraftId: string | null; // Stable UUID for the lifetime of one composer session (IMAP two-tier save)
   undoSendTimer: ReturnType<typeof setTimeout> | null;
   undoSendVisible: boolean;
   attachments: ComposerAttachment[];
@@ -60,6 +61,7 @@ export interface ComposerState {
   setBodyHtml: (bodyHtml: string) => void;
   setShowCcBcc: (show: boolean) => void;
   setDraftId: (id: string | null) => void;
+  setLocalDraftId: (id: string | null) => void;
   setUndoSendTimer: (timer: ReturnType<typeof setTimeout> | null) => void;
   setUndoSendVisible: (visible: boolean) => void;
   addAttachment: (attachment: ComposerAttachment) => void;
@@ -90,6 +92,7 @@ export const useComposerStore = create<ComposerState>()((set) => ({
   inReplyToMessageId: null,
   showCcBcc: false,
   draftId: null,
+  localDraftId: null,
   undoSendTimer: null,
   undoSendVisible: false,
   attachments: [],
@@ -126,6 +129,7 @@ openComposer: (opts) => {
         inReplyToMessageId: opts?.inReplyToMessageId ?? null,
         showCcBcc: (opts?.cc?.length ?? 0) > 0 || (opts?.bcc?.length ?? 0) > 0,
         draftId: opts?.draftId ?? null,
+        localDraftId: crypto.randomUUID(),
         undoSendTimer: null,
         undoSendVisible: false,
         // Thread window uses modal (no drag region / pt-7), compose window uses fullpage
@@ -203,6 +207,7 @@ openComposer: (opts) => {
       inReplyToMessageId: null,
       showCcBcc: false,
       draftId: null,
+      localDraftId: null,
       undoSendTimer: null,
       undoSendVisible: false,
       viewMode: "modal",
@@ -223,6 +228,7 @@ openComposer: (opts) => {
   setBodyHtml: (bodyHtml) => set({ bodyHtml }),
   setShowCcBcc: (showCcBcc) => set({ showCcBcc }),
   setDraftId: (draftId) => set({ draftId }),
+  setLocalDraftId: (localDraftId) => set({ localDraftId }),
   setUndoSendTimer: (undoSendTimer) => set({ undoSendTimer }),
   setUndoSendVisible: (undoSendVisible) => set({ undoSendVisible }),
   addAttachment: (attachment) =>

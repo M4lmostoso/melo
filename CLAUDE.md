@@ -99,7 +99,7 @@ Vitest + jsdom. `globals: true`. Tests colocated with source. Zustand pattern: `
 - **Gmail History API**: Expires ~30 days → automatic full sync fallback
 - **CSP**: Allows googleapis.com, anthropic.com, openai.com, generativelanguage.googleapis.com, gravatar.com, googleusercontent.com
 - **Phishing detection**: 10 heuristic rules, sensitivity configurable (low/default/high), cached in `link_scan_results`
-- **Mute threads**: Sets `is_muted`, auto-archives. Suppressed from notifications during delta sync
+- **Mute threads**: Sets `is_muted` and drops `urgency_score` to 0.05. Does NOT archive. Suppressed from notifications during delta sync
 - **Smart folders**: Dynamic tokens `__LAST_7_DAYS__`, `__LAST_30_DAYS__`, `__TODAY__` in saved searches
 - **Help page**: In-app at `/help/$topic`. Content in `src/constants/helpContent.ts`. After adding a new feature, run `/document-feature`
 - **Cross-component events**: `velo-sync-done`, `velo-toggle-command-palette`, `velo-toggle-shortcuts-help`, `velo-toggle-ask-inbox`, `velo-move-to-folder`. Tray emits `tray-check-mail` via Tauri event system

@@ -717,6 +717,7 @@ export class ImapSmtpProvider implements EmailProvider {
       bodyText: snippet,
       rawSize: raw.length,
       internalDate: now,
+      isDraft: true,
       messageIdHeader,
       referencesHeader: references,
       inReplyToHeader: inReplyTo,

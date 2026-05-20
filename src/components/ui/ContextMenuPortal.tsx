@@ -389,7 +389,7 @@ function ThreadMenu({
       const newMuted = !t.isMuted;
       if (newMuted) {
         await muteThreadDb(activeAccountId, id);
-        await archiveThread(activeAccountId, id, []);
+        useThreadStore.getState().updateThread(id, { isMuted: true, urgencyScore: 0.05 });
       } else {
         await unmuteThreadDb(activeAccountId, id);
         useThreadStore.getState().updateThread(id, { isMuted: false });
