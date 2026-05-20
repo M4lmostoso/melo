@@ -574,27 +574,30 @@ export class ImapSmtpProvider implements EmailProvider {
       throw new Error(`SMTP send failed: ${result.message}`);
     }
 
-    const messageId = `imap-sent-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-
-    // Save sent message to local DB so it appears in Sent folder immediately
-    try {
-      await this.saveSentMessageLocally(rawBase64Url, messageId, _threadId);
-    } catch (err) {
-      console.warn("[IMAP] Failed to save sent message to local DB:", err);
-    }
-
-    // Copy sent message to Sent folder on IMAP server
+    // Append to server Sent folder first so we can use the real IMAP UID as the
+    // message ID — prevents a duplicate when the background sync imports the same
+    // message a few seconds later (upsert on the same ID is a no-op).
+    let messageId = `imap-sent-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     try {
       const imapConfig = await this.getImapConfig();
       const sentFolder =
         (await findSpecialFolder(this.accountId, "\\Sent")) ?? "Sent";
-      await imapAppendMessage(imapConfig, sentFolder, rawBase64Url, "(\\Seen)");
+      const uid = await imapAppendMessage(imapConfig, sentFolder, rawBase64Url, "(\\Seen)");
+      if (uid > 0) {
+        messageId = `imap-${this.accountId}-${sentFolder}-${uid}`;
+      }
     } catch (err) {
-      // Non-fatal: message was sent successfully, just not copied to server Sent folder
       console.error(
         "[IMAP] Failed to copy sent message to Sent folder on server:",
         err,
       );
+    }
+
+    // Save to local DB with the definitive ID so it appears in Sent immediately
+    try {
+      await this.saveSentMessageLocally(rawBase64Url, messageId, _threadId);
+    } catch (err) {
+      console.warn("[IMAP] Failed to save sent message to local DB:", err);
     }
 
     return { id: messageId };
