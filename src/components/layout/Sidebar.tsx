@@ -47,6 +47,8 @@ import {
 
 const isMac = navigator.userAgent.includes("Macintosh");
 import { useTaskStore } from "@/stores/taskStore";
+import { useOutgoingStore } from "@/stores/outgoingStore";
+import { getOutgoingDbCountByAccount } from "@/services/db/outgoing";
 
 interface SidebarProps {
   collapsed: boolean;
@@ -334,6 +336,9 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
     [],
   );
 
+  const outgoingEmails = useOutgoingStore((s) => s.emails);
+  const [outgoingDbByAccount, setOutgoingDbByAccount] = useState<Record<string, number>>({});
+
   useEffect(() => {
     let scrollTimer: ReturnType<typeof setTimeout>;
     const handleScroll = () => {
@@ -352,6 +357,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
       }
     };
   }, []);
+
   const labels = useLabelStore((s) => s.labels);
   const allAccountLabels = useLabelStore((s) => s.allAccountLabels);
   const loadLabels = useLabelStore((s) => s.loadLabels);
@@ -552,6 +558,36 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   );
   const hasGlobal = globalAccounts.length >= 2;
 
+  const outgoingMemByAccount = useMemo(() => {
+    const result: Record<string, number> = {};
+    for (const e of outgoingEmails) result[e.accountId] = (result[e.accountId] ?? 0) + 1;
+    return result;
+  }, [outgoingEmails]);
+
+  const outgoingByAccount = useMemo(() => {
+    const result: Record<string, number> = {};
+    for (const a of globalAccounts) {
+      const total = (outgoingMemByAccount[a.id] ?? 0) + (outgoingDbByAccount[a.id] ?? 0);
+      if (total > 0) result[a.id] = total;
+    }
+    return result;
+  }, [globalAccounts, outgoingMemByAccount, outgoingDbByAccount]);
+
+  const outgoingTotal = useMemo(
+    () => Object.values(outgoingByAccount).reduce((s, n) => s + n, 0),
+    [outgoingByAccount],
+  );
+
+  useEffect(() => {
+    if (globalAccounts.length === 0) return;
+    const ids = globalAccounts.map((a) => a.id);
+    getOutgoingDbCountByAccount(ids).then(setOutgoingDbByAccount).catch(() => {});
+    const handler = () =>
+      getOutgoingDbCountByAccount(ids).then(setOutgoingDbByAccount).catch(() => {});
+    window.addEventListener("velo-sync-done", handler);
+    return () => window.removeEventListener("velo-sync-done", handler);
+  }, [globalAccounts, outgoingEmails]);
+
   const handleEditLabel = useCallback((labelId: string) => {
     setShowNewLabelForm(false);
     setEditingLabelId(labelId);
@@ -678,6 +714,62 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                     );
                   })}
                 </div>
+              </div>
+            )}
+            {/* ─── Outgoing (shown only when there are pending sends) ─── */}
+            {outgoingTotal > 0 && (
+              <div>
+                <ExpandableNavItem
+                  id="global-outgoing"
+                  label="Outgoing"
+                  isActive={activeLabel === "outgoing" && activeAccountId === null}
+                  collapsed={collapsed}
+                  expanded={!!expandedGlobalItems["global-outgoing"]}
+                  onNavigate={() => { setActiveAccount(null); navigateToLabel("outgoing"); }}
+                  onToggleExpand={() => toggleGlobalItem("global-outgoing")}
+                >
+                  <Send size={18} className="shrink-0 text-amber-500" />
+                  {!collapsed && (
+                    <>
+                      <span className="flex-1 truncate">Outgoing</span>
+                      <span className="text-[0.625rem] bg-amber-500/15 text-amber-500 px-1.5 min-w-[1.25rem] h-[1.125rem] rounded-full inline-flex items-center justify-center tabular-nums">
+                        {outgoingTotal}
+                      </span>
+                    </>
+                  )}
+                </ExpandableNavItem>
+                {!collapsed && (
+                  <div
+                    className={`grid transition-[grid-template-rows] duration-200 ease-out ${expandedGlobalItems["global-outgoing"] ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}
+                  >
+                    <div className="overflow-hidden">
+                      {globalAccounts.map((account) => {
+                        const count = outgoingByAccount[account.id] ?? 0;
+                        if (count === 0) return null;
+                        const color = account.color ?? "#3182CE";
+                        const displayName = account.label ?? account.displayName ?? account.email;
+                        const isAccountActive = activeLabel === "outgoing" && activeAccountId === account.id;
+                        return (
+                          <button
+                            key={account.id}
+                            onClick={() => { setActiveAccount(account.id); navigateToLabel("outgoing"); }}
+                            className={`flex items-center gap-2 w-full py-1.5 pl-7 pr-3 text-left text-[0.8125rem] transition-colors ${
+                              isAccountActive
+                                ? "text-accent font-medium bg-accent/10"
+                                : "text-sidebar-text/80 hover:text-sidebar-text hover:bg-sidebar-hover"
+                            }`}
+                          >
+                            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                            <span className="flex-1 truncate">{displayName}</span>
+                            <span className="text-[0.625rem] bg-amber-500/15 text-amber-500 px-1.5 min-w-[1.25rem] h-[1.125rem] rounded-full inline-flex items-center justify-center tabular-nums">
+                              {count}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
             {/* ─── Other global folder items ─── */}

@@ -50,6 +50,9 @@ import { useLabelStore, type Label } from "@/stores/labelStore";
 import { useSmartFolderStore } from "@/stores/smartFolderStore";
 import { useContextMenuStore } from "@/stores/contextMenuStore";
 import { useComposerStore } from "@/stores/composerStore";
+import { useOutgoingStore, type OutgoingEmail } from "@/stores/outgoingStore";
+import { getOutgoingDbEmails, type OutgoingDbEmail } from "@/services/db/outgoing";
+import { deleteOperation } from "@/services/db/pendingOperations";
 import { getMessagesForThread } from "@/services/db/messages";
 import {
   getSmartFolderSearchQuery,
@@ -199,6 +202,10 @@ const [hasMore, setHasMore] = useState(true);
     Map<string, import("@/services/db/scheduledEmails").DbScheduledEmail>
   >(new Map());
 
+  type OutgoingItem = { source: "memory"; email: OutgoingEmail } | { source: "db"; email: OutgoingDbEmail };
+  const outgoingItemsRef = useRef<Map<string, OutgoingItem>>(new Map());
+  const outgoingEmails = useOutgoingStore((s) => s.emails);
+
   const handleThreadContextMenu = useCallback(
     (e: React.MouseEvent, threadId: string) => {
       e.preventDefault();
@@ -268,7 +275,7 @@ const [hasMore, setHasMore] = useState(true);
   );
 
   const handleThreadClick = useCallback(
-    (thread: Thread) => {
+    async (thread: Thread) => {
       if (thread.accountId && thread.accountId !== activeAccountId) {
         setActiveAccount(thread.accountId);
       }
@@ -277,11 +284,46 @@ const [hasMore, setHasMore] = useState(true);
       } else if (activeLabel === "scheduled") {
         const email = scheduledEmailsRef.current.get(thread.id);
         if (email) setSelectedScheduledEmail(email);
+      } else if (activeLabel === "outgoing") {
+        const item = outgoingItemsRef.current.get(thread.id);
+        if (!item) return;
+
+        if (item.source === "memory") {
+          if (item.email.status === "sending") return;
+          if (item.email.timerId != null) clearTimeout(item.email.timerId);
+          useComposerStore.getState().setUndoSendTimer(null);
+          useComposerStore.getState().setUndoSendVisible(false);
+          useComposerStore.getState().setIsSending(false);
+          useOutgoingStore.getState().removeEmail(item.email.id);
+          openComposer({
+            to: item.email.to,
+            cc: item.email.cc,
+            bcc: item.email.bcc,
+            subject: item.email.subject,
+            bodyHtml: item.email.bodyHtml,
+            threadId: item.email.threadId,
+            inReplyToMessageId: item.email.inReplyToMessageId,
+            accountId: item.email.accountId,
+          });
+        } else {
+          try { await deleteOperation(item.email.id); } catch { /* ignore */ }
+          outgoingItemsRef.current.delete(item.email.id);
+          setThreads(useThreadStore.getState().threads.filter((t: Thread) => t.id !== item.email.id));
+          openComposer({
+            to: item.email.to,
+            cc: item.email.cc,
+            subject: item.email.subject,
+            bodyHtml: item.email.bodyHtml,
+            threadId: item.email.threadId,
+            inReplyToMessageId: item.email.inReplyTo ?? undefined,
+            accountId: item.email.accountId,
+          });
+        }
       } else {
         navigateToThread(thread.id);
       }
     },
-    [activeLabel, activeAccountId, setActiveAccount, handleDraftClick],
+    [activeLabel, activeAccountId, setActiveAccount, handleDraftClick, openComposer, setThreads],
   );
 
   const handleBulkDelete = async () => {
@@ -590,6 +632,7 @@ const [hasMore, setHasMore] = useState(true);
   const isUnifiedFolder = activeAccountId === null && UNIFIED_FOLDER_LABELS.has(activeLabel);
   const isScheduled = activeLabel === "scheduled";
   const isUnifiedScheduled = isScheduled && activeAccountId === null;
+  const isOutgoing = activeLabel === "outgoing";
   const globalAccountIds = useMemo(
     () => accounts.filter((a) => a.includeInGlobal).map((a) => a.id),
     [accounts],
@@ -640,6 +683,59 @@ const [hasMore, setHasMore] = useState(true);
         setHasMore(dbThreads.length === PAGE_SIZE);
       } catch (err) {
         console.error("Failed to load unified inbox threads:", err);
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
+    // Outgoing — combines in-memory (undo window + sending) with DB pending ops
+    if (isOutgoing) {
+      if (!keepSearch) clearSearch();
+      setLoading(true);
+      setHasMore(false);
+      try {
+        const memEmails = useOutgoingStore.getState().emails.filter(
+          (e) => !activeAccountId || e.accountId === activeAccountId,
+        );
+        const dbEmails = await getOutgoingDbEmails(
+          activeAccountId ? [activeAccountId] : globalAccountIds.length > 0 ? globalAccountIds : undefined,
+        );
+
+        const items = new Map<string, OutgoingItem>();
+        for (const e of memEmails) items.set(e.id, { source: "memory", email: e });
+        for (const e of dbEmails) items.set(e.id, { source: "db", email: e });
+        outgoingItemsRef.current = items;
+
+        const toSnippet = (html: string) => {
+          const div = document.createElement("div");
+          div.innerHTML = html;
+          return (div.textContent ?? "").slice(0, 120) || null;
+        };
+
+        const threads: Thread[] = [...items.values()].map((item) => {
+          const e = item.email;
+          const isSending = item.source === "memory" && item.email.status === "sending";
+          return {
+            id: e.id,
+            accountId: e.accountId,
+            subject: e.subject || "(no subject)",
+            snippet: isSending ? "Sending…" : toSnippet(e.bodyHtml),
+            lastMessageAt: item.source === "memory" ? item.email.createdAt : item.email.createdAt * 1000,
+            messageCount: 1,
+            isRead: true,
+            isStarred: false,
+            isPinned: false,
+            isMuted: false,
+            hasAttachments: false,
+            labelIds: ["OUTGOING"],
+            fromName: e.to[0] ?? null,
+            fromAddress: e.to[0] ?? null,
+          };
+        });
+        setThreads(threads);
+      } catch (err) {
+        console.error("Failed to load outgoing emails:", err);
       } finally {
         setLoading(false);
       }
@@ -792,6 +888,8 @@ const [hasMore, setHasMore] = useState(true);
     isUnifiedFolder,
     isScheduled,
     isUnifiedScheduled,
+    isOutgoing,
+    outgoingEmails,
     globalAccountIds,
     accounts,
     activeAccountId,
@@ -1476,7 +1574,8 @@ function EmptyStateForContext({
   }
   const isUnifiedFolderCtx = !activeAccountId && UNIFIED_FOLDER_LABELS.has(activeLabel);
   const isSmartFolderCtx = activeLabel.startsWith("smart-folder:");
-  if (!activeAccountId && !isUnifiedFolderCtx && !isSmartFolderCtx) {
+  const isOutgoingCtx = activeLabel === "outgoing";
+  if (!activeAccountId && !isUnifiedFolderCtx && !isSmartFolderCtx && !isOutgoingCtx) {
     return (
       <EmptyState
         illustration={NoAccountIllustration}
@@ -1552,6 +1651,14 @@ function EmptyStateForContext({
         <EmptyState
           illustration={GenericEmptyIllustration}
           title="No sent messages"
+        />
+      );
+    case "outgoing":
+      return (
+        <EmptyState
+          illustration={GenericEmptyIllustration}
+          title="No outgoing emails"
+          subtitle="Emails waiting to be sent appear here"
         />
       );
     case "scheduled":

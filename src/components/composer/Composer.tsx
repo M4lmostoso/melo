@@ -30,6 +30,7 @@ import {
   tombstoneImapDraft,
 } from "@/services/emailActions";
 import { buildRawEmail } from "@/utils/emailBuilder";
+import { useOutgoingStore } from "@/stores/outgoingStore";
 import { upsertContact } from "@/services/db/contacts";
 import { getSetting } from "@/services/db/settings";
 import { insertScheduledEmail } from "@/services/db/scheduledEmails";
@@ -370,8 +371,27 @@ const getFullHtml = useCallback(() => {
     const delaySetting = await getSetting("undo_send_delay_seconds");
     const delay = parseInt(delaySetting ?? "5", 10) * 1000;
     const currentDraftId = useComposerStore.getState().draftId;
+
+    const outgoingId = crypto.randomUUID();
+    useOutgoingStore.getState().addEmail({
+      id: outgoingId,
+      accountId: effectiveAccountId,
+      to: [...state.to],
+      cc: [...state.cc],
+      bcc: [...state.bcc],
+      subject: state.subject,
+      bodyHtml: html,
+      threadId: state.threadId,
+      inReplyToMessageId: state.inReplyToMessageId,
+      raw,
+      status: "undo",
+      createdAt: Date.now(),
+      timerId: null,
+    });
+
     state.setUndoSendVisible(true);
     const timer = setTimeout(() => {
+      useOutgoingStore.getState().updateStatus(outgoingId, "sending");
       useComposerStore.getState().setUndoSendVisible(false);
       useComposerStore.getState().setIsSending(false);
       sendingRef.current = false;
@@ -402,9 +422,13 @@ const getFullHtml = useCallback(() => {
             await upsertContact(addr, null);
         } catch (err) {
           console.error("Failed to send email:", err);
+        } finally {
+          useOutgoingStore.getState().removeEmail(outgoingId);
         }
       })();
     }, delay);
+
+    useOutgoingStore.getState().updateTimerId(outgoingId, timer);
     state.setUndoSendTimer(timer);
   }, [effectiveAccountId, activeAccount, closeComposer, getFullHtml]);
 

@@ -1,6 +1,7 @@
 import { useRef } from "react";
 import { CSSTransition } from "react-transition-group";
 import { useComposerStore } from "@/stores/composerStore";
+import { useOutgoingStore } from "@/stores/outgoingStore";
 
 const UNDO_DELAY_SECONDS = 5;
 
@@ -14,6 +15,7 @@ export function UndoSendToast() {
       clearTimeout(undoSendTimer);
       setUndoSendTimer(null);
     }
+    useOutgoingStore.getState().clearUndoEmails();
     setUndoSendVisible(false);
     setIsSending(false);
     closeComposer();
