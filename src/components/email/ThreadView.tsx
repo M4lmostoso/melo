@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useLayoutEffect, useState, useRef, useCallback } from "react";
 import { MessageItem } from "./MessageItem";
 import { ActionBar } from "./ActionBar";
 import {
@@ -432,11 +432,36 @@ const handlePrint = useCallback(async () => {
   }, [messages.length, readingPanePosition]);
 
   const [visibleStart, setVisibleStart] = useState(0);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const initialScrollDoneRef = useRef(false);
 
-  // Reset visible window when thread changes
+  // Reset visible window, stale refs, and scroll state when thread changes
   useEffect(() => {
     setVisibleStart(0);
+    initialScrollDoneRef.current = false;
+    messageRefs.current = [];
   }, [thread.id]);
+
+  // On initial load, scroll so that message n-2 (third-to-last) is at the top.
+  // useLayoutEffect runs synchronously after DOM commit (refs already set, before paint)
+  // so measurements are accurate even for collapsed message rows.
+  useLayoutEffect(() => {
+    if (loading || messages.length < 3 || initialScrollDoneRef.current) return;
+    const targetGlobalIdx = messages.length - 3;
+    const targetEl = messageRefs.current[targetGlobalIdx];
+    const container = scrollContainerRef.current;
+    if (targetEl && container) {
+      // offsetTop is relative to offsetParent; walk up to the container to get the true offset
+      let offset = 0;
+      let el: HTMLElement | null = targetEl;
+      while (el && el !== container) {
+        offset += el.offsetTop;
+        el = el.offsetParent as HTMLElement | null;
+      }
+      container.scrollTop = offset;
+      initialScrollDoneRef.current = true;
+    }
+  }, [loading, messages.length]);
 
   // Compute visible slice — always shows last INITIAL_MESSAGES_TO_SHOW messages,
   // expanding upward when the user loads earlier messages.
@@ -613,7 +638,7 @@ const handlePrint = useCallback(async () => {
         )}
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto">
+        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
           <ErrorBoundary name="MessageList">
             {hiddenCount > 0 && (
               <div className="px-6 py-3 border-b border-border-secondary">

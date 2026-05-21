@@ -158,6 +158,10 @@ const selectThread = useThreadStore((s) => s.selectThread);
 const [hasMore, setHasMore] = useState(true);
    const [loadingMore, setLoadingMore] = useState(false);
    const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  // Monotonically-increasing token: every loadThreads call increments this ref and
+  // captures its own snapshot. Before writing to state, it checks that its snapshot
+  // still matches — if not, a newer call is already in flight and this result is stale.
+  const loadVersionRef = useRef(0);
   // Tracks thread IDs loaded when entering a smart folder — prevents threads from disappearing
   // when marked as read (which fires velo-sync-done and re-runs the smart folder query).
   // Cleared on folder navigation.
@@ -674,6 +678,12 @@ const [hasMore, setHasMore] = useState(true);
   }
 
   const loadThreads = useCallback(async (keepSearch = false) => {
+    // Capture a version token. Any call that finds its token stale at write time is
+    // discarded — this prevents an older in-flight load from overwriting a newer one
+    // (race condition when navigating folders while a velo-sync-done debounce is pending).
+    const version = ++loadVersionRef.current;
+    const isStale = () => loadVersionRef.current !== version;
+
     // Unified inbox: load across all opted-in accounts (activeAccountId may be null)
     if (isUnifiedInbox) {
       if (!keepSearch) clearSearch();
@@ -682,12 +692,13 @@ const [hasMore, setHasMore] = useState(true);
       try {
         const dbThreads = await getUnifiedInboxThreads(globalAccountIds, PAGE_SIZE, 0);
         const mapped = await mapDbThreads(dbThreads);
+        if (isStale()) return;
         setThreads(mapped);
         setHasMore(dbThreads.length === PAGE_SIZE);
       } catch (err) {
         console.error("Failed to load unified inbox threads:", err);
       } finally {
-        setLoading(false);
+        if (!isStale()) setLoading(false);
       }
       return;
     }
@@ -738,7 +749,7 @@ const [hasMore, setHasMore] = useState(true);
             allSenders: null,
           };
         });
-        setThreads(threads);
+        if (!isStale()) setThreads(threads);
       } catch (err) {
         console.error("Failed to load outgoing emails:", err);
       }
@@ -759,11 +770,11 @@ const [hasMore, setHasMore] = useState(true);
         } else {
           emails = [];
         }
-        setThreads(mapScheduledToThreads(emails));
+        if (!isStale()) setThreads(mapScheduledToThreads(emails));
       } catch (err) {
         console.error("Failed to load scheduled emails:", err);
       } finally {
-        setLoading(false);
+        if (!isStale()) setLoading(false);
       }
       return;
     }
@@ -777,12 +788,13 @@ const [hasMore, setHasMore] = useState(true);
         const labelId = LABEL_MAP[activeLabel] ?? activeLabel;
         const dbThreads = await getUnifiedFolderThreads(globalAccountIds, labelId, PAGE_SIZE, 0);
         const mapped = await mapDbThreads(dbThreads);
+        if (isStale()) return;
         setThreads(mapped);
         setHasMore(dbThreads.length === PAGE_SIZE);
       } catch (err) {
         console.error("Failed to load unified folder threads:", err);
       } finally {
-        setLoading(false);
+        if (!isStale()) setLoading(false);
       }
       return;
     }
@@ -801,6 +813,7 @@ const [hasMore, setHasMore] = useState(true);
         const db = await getDb();
         const rows = await db.select<SmartFolderRow[]>(sql, params);
         const mapped = await mapSmartFolderRows(rows);
+        if (isStale()) return;
         if (!keepSearch) {
           pinnedSmartFolderIds.current = new Set(mapped.map((t) => t.id));
           setThreads(mapped);
@@ -818,7 +831,7 @@ const [hasMore, setHasMore] = useState(true);
       } catch (err) {
         console.error("Failed to load unified smart folder threads:", err);
       } finally {
-        setLoading(false);
+        if (!isStale()) setLoading(false);
       }
       return;
     }
@@ -842,6 +855,7 @@ const [hasMore, setHasMore] = useState(true);
         const db = await getDb();
         const rows = await db.select<SmartFolderRow[]>(sql, params);
         const mapped = await mapSmartFolderRows(rows);
+        if (isStale()) return;
         if (!keepSearch) {
           pinnedSmartFolderIds.current = new Set(mapped.map((t) => t.id));
           setThreads(mapped);
@@ -878,13 +892,14 @@ const [hasMore, setHasMore] = useState(true);
         }
 
         const mapped = await mapDbThreads(dbThreads);
+        if (isStale()) return;
         setThreads(mapped);
         setHasMore(dbThreads.length === PAGE_SIZE);
       }
     } catch (err) {
       console.error("Failed to load threads:", err);
     } finally {
-      setLoading(false);
+      if (!isStale()) setLoading(false);
     }
   }, [
     isUnifiedInbox,
