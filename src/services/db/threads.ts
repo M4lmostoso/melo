@@ -153,6 +153,28 @@ export async function upsertThread(thread: {
   });
 }
 
+/**
+ * Returns a map of normalizedSubject → threadId for all existing threads of the account.
+ * Used by delta sync to merge forwarded/replied messages into existing threads when
+ * In-Reply-To/References headers are absent.
+ */
+export async function getThreadSubjectMap(accountId: string): Promise<Map<string, string>> {
+  const { normalizeSubject } = await import('../threading/threadBuilder');
+  const db = await getDb();
+  const rows = await db.select<{ id: string; subject: string }[]>(
+    `SELECT id, subject FROM threads WHERE account_id = $1 AND subject IS NOT NULL AND subject != ''`,
+    [accountId],
+  );
+  const map = new Map<string, string>();
+  for (const row of rows) {
+    const norm = normalizeSubject(row.subject);
+    if (norm && !map.has(norm)) {
+      map.set(norm, row.id);
+    }
+  }
+  return map;
+}
+
 export async function markThreadUnreadInDb(accountId: string, threadId: string): Promise<void> {
   const db = await getDb();
   await db.execute(
@@ -628,6 +650,11 @@ export async function getGlobalUnreadCounts(
          WHERE inbox.thread_id = tl.thread_id
            AND inbox.account_id = tl.account_id
            AND inbox.label_id = 'INBOX'
+       )
+       AND NOT EXISTS (
+         SELECT 1 FROM thread_labels tl_ex
+         WHERE tl_ex.account_id = tl.account_id AND tl_ex.thread_id = tl.thread_id
+           AND tl_ex.label_id IN ('DRAFT', 'TRASH')
        )
      GROUP BY tl.account_id, tl.label_id`,
     accountIds,

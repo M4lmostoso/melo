@@ -96,18 +96,23 @@ async function saveLocal(): Promise<void> {
       import("@/services/db/threads"),
     ]);
 
-    await upsertThread({
-      id: effectiveThreadId,
-      accountId,
-      subject: state.subject || null,
-      snippet: "",
-      lastMessageAt: now,
-      messageCount: 1,
-      isRead: false,
-      isStarred: false,
-      isImportant: false,
-      hasAttachments: state.attachments.length > 0,
-    });
+    // For reply drafts the original thread already exists — don't modify it
+    // (keeps is_read, snippet, messageCount and sort position intact).
+    // For brand-new drafts create the thread row, always read (you authored it).
+    if (!state.threadId) {
+      await upsertThread({
+        id: effectiveThreadId,
+        accountId,
+        subject: state.subject || null,
+        snippet: "",
+        lastMessageAt: now,
+        messageCount: 1,
+        isRead: true,
+        isStarred: false,
+        isImportant: false,
+        hasAttachments: state.attachments.length > 0,
+      });
+    }
 
     const existingLabels = await getThreadLabelIds(accountId, effectiveThreadId);
     if (!existingLabels.includes("DRAFT")) {

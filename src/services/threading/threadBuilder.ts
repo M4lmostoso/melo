@@ -56,8 +56,8 @@ export function normalizeSubject(subject: string | null): string {
       changed = true;
     }
 
-    // Strip leading Re:/Fwd:/Fw: (case-insensitive)
-    const prefixMatch = /^(?:re|fwd|fw)\s*:\s*/i.exec(s);
+    // Strip leading Re:/R:/Fwd:/Fw: (case-insensitive; R: is used by some clients as Re:)
+    const prefixMatch = /^(?:re|r|fwd|fw)\s*:\s*/i.exec(s);
     if (prefixMatch) {
       s = s.slice(prefixMatch[0].length);
       changed = true;

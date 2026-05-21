@@ -28,9 +28,11 @@ import {
 import { clearDeletedImapUidsForFolder } from "../db/deletedImapUids";
 import {
   buildThreads,
+  normalizeSubject,
   type ThreadableMessage,
   type ThreadGroup,
 } from "../threading/threadBuilder";
+import { getThreadSubjectMap } from "../db/threads";
 import { getPendingOpResourceIds } from "../db/pendingOperations";
 import { processThreadUrgency, type ThreadUrgencyParams } from "@/services/ai/urgencyPipeline";
 import { getSetting } from "../db/settings";
@@ -196,6 +198,82 @@ function computeThreadLabels(
   }
 
   return [...allLabels];
+}
+
+/**
+ * After JWZ threading, check if any new thread group can be merged into an existing
+ * DB thread via normalized subject. This handles forwards and replies that lack
+ * In-Reply-To/References headers — their only linkage to the original conversation
+ * is the normalized subject (Fwd:/Re:/R: stripped).
+ *
+ * Only new groups (those whose threadId doesn't yet exist in the DB subject map keys)
+ * are candidates. Groups whose subject matches an existing thread are remapped to that
+ * thread's ID so imap_store_threads writes the new messages into the right thread.
+ */
+async function mergeGroupsBySubject(
+  accountId: string,
+  groups: ThreadGroup[],
+  threadableMessages: ThreadableMessage[],
+): Promise<ThreadGroup[]> {
+  // Build a quick lookup: local message ID → subject
+  const subjectById = new Map<string, string | null>();
+  for (const m of threadableMessages) {
+    subjectById.set(m.id, m.subject);
+  }
+
+  // Collect normalized subjects that appear to be replies/forwards.
+  // We only look up existing threads when the new message has a prefix, because
+  // a bare subject could collide with an unrelated thread.
+  const candidateGroups: ThreadGroup[] = [];
+  for (const group of groups) {
+    const firstSubject = group.messageIds
+      .map((id) => subjectById.get(id) ?? null)
+      .find((s) => s !== null && s !== undefined) ?? null;
+    if (!firstSubject) continue;
+    const norm = normalizeSubject(firstSubject);
+    // Only candidate if original subject had a strippable prefix (i.e. it's a reply/fwd)
+    if (norm && normalizeSubject(norm) === norm && firstSubject.trim() !== norm) {
+      candidateGroups.push(group);
+    }
+  }
+
+  if (candidateGroups.length === 0) return groups;
+
+  const existingSubjectMap = await getThreadSubjectMap(accountId);
+
+  const remapped = new Map<string, string>(); // oldThreadId → existingThreadId
+  for (const group of candidateGroups) {
+    const firstSubject = group.messageIds
+      .map((id) => subjectById.get(id) ?? null)
+      .find((s) => s !== null && s !== undefined) ?? null;
+    if (!firstSubject) continue;
+    const norm = normalizeSubject(firstSubject);
+    const existingId = existingSubjectMap.get(norm);
+    if (existingId && existingId !== group.threadId) {
+      remapped.set(group.threadId, existingId);
+    }
+  }
+
+  if (remapped.size === 0) return groups;
+
+  // Merge remapped groups: messages with the same target threadId get combined
+  const merged = new Map<string, string[]>(); // targetThreadId → messageIds
+  const processed = new Set<string>();
+
+  for (const group of groups) {
+    const targetId = remapped.get(group.threadId) ?? group.threadId;
+    const existing = merged.get(targetId);
+    if (existing) {
+      for (const id of group.messageIds) {
+        if (!existing.includes(id)) existing.push(id);
+      }
+    } else {
+      merged.set(targetId, [...group.messageIds]);
+    }
+    processed.add(group.threadId);
+  }
+
+  return [...merged.entries()].map(([threadId, messageIds]) => ({ threadId, messageIds }));
 }
 
 /**
@@ -649,7 +727,8 @@ export async function imapInitialSync(
 
   const storedHeaders = allHeaders.filter((h) => h.stored);
   const allThreadable = storedHeaders.map(headerToThreadable);
-  const threadGroups = buildThreads(allThreadable);
+  const rawThreadGroups = buildThreads(allThreadable);
+  const threadGroups = await mergeGroupsBySubject(accountId, rawThreadGroups, allThreadable);
 
   console.log(`[imapSync] Threading: ${storedHeaders.length} messages → ${threadGroups.length} threads`);
 
@@ -950,9 +1029,10 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
     return { messages: [], storedCount: 0 };
   }
 
-  // JWZ threading
+  // JWZ threading + subject-based merge with existing threads (for forwards/replies without headers)
   const allThreadable = storedHeaders.map(headerToThreadable);
-  const threadGroups = buildThreads(allThreadable);
+  const rawThreadGroups = buildThreads(allThreadable);
+  const threadGroups = await mergeGroupsBySubject(accountId, rawThreadGroups, allThreadable);
 
   // Thread updates — one SQL plugin call for pending ops, then one Rust call for writes
   const headerById = new Map(allHeaders.map((h) => [h.local_id, h]));
