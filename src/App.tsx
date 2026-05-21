@@ -898,10 +898,10 @@ export default function App() {
         </DndProvider>
       </div>
 
-      {/* Sync status bar */}
+      {/* Sync status pill */}
       {syncStatus && (
         <div
-          className={`fixed bottom-0 left-0 right-0 glass-panel text-white text-xs px-4 py-1.5 text-center z-40 animate-[slideUp_200ms_ease-out,fadeIn_200ms_ease-out] ${
+          className={`fixed bottom-4 right-4 glass-panel text-white text-xs px-3.5 py-1.5 rounded-lg z-40 shadow-lg w-fit animate-[slideUp_200ms_ease-out,fadeIn_200ms_ease-out] ${
             syncStatus.startsWith("Sync failed")
               ? "bg-danger/90"
               : ""
