@@ -40,7 +40,7 @@ cd src-tauri && cargo build
 - **Setup:** `src/test/setup.ts` (imports `@testing-library/jest-dom/vitest`)
 - **Config:** `globals: true` -- no imports needed for `describe`, `it`, `expect`
 - **Location:** Tests are colocated with source files (e.g., `uiStore.test.ts` next to `uiStore.ts`)
-- **Count:** 130 test files across stores (8), services (70), utils (14), components (31), constants (3), router (1), hooks (2), and config (1)
+- **Count:** 133 test files across stores (8), services (72), utils (14), components (32), constants (3), hooks (2), router (1), and config (1)
 
 ### Zustand test pattern
 
@@ -71,15 +71,15 @@ Produces native installers:
 
 ### Gmail (OAuth)
 
-Velo connects directly to Gmail via OAuth. You need your own Google Cloud credentials:
+Melo connects directly to Gmail via OAuth. You need your own Google Cloud credentials:
 
 1. Go to [Google Cloud Console](https://console.cloud.google.com/)
 2. Create a new project (or use an existing one)
 3. Enable the **Gmail API** and **Google Calendar API**
 4. Create OAuth 2.0 credentials (Desktop application)
-5. In Velo's Settings, enter your Client ID
+5. In Melo's Settings, enter your Client ID
 
-> Velo uses PKCE flow -- no client secret is required.
+> Melo uses PKCE flow -- no client secret is required.
 
 ### IMAP/SMTP
 
@@ -87,7 +87,7 @@ For non-Gmail providers (Outlook, Yahoo, iCloud, Fastmail, etc.):
 
 1. Click the account switcher in the sidebar → **Add IMAP Account**
 2. Enter your email address and password (or app-password)
-3. Velo auto-discovers server settings for well-known providers
+3. Melo auto-discovers server settings for well-known providers
 4. For other providers, enter IMAP/SMTP host, port, and security manually
 5. Test connection, then save
 
@@ -101,5 +101,6 @@ To enable AI features, add your API key for one or more providers in Settings:
 - **OpenAI** -- [Get API key](https://platform.openai.com/) -- GPT-4o Mini (default), GPT-4o, GPT-4.1 series
 - **Google Gemini** -- [Get API key](https://aistudio.google.com/) -- 2.5 Flash (default), 2.5 Pro
 - **Ollama** (local) -- Install [Ollama](https://ollama.com/), set server URL (default `http://localhost:11434`) and model (default `llama3.2`) in Settings > AI. No API key required.
+- **GitHub Copilot** -- Requires a Copilot subscription. Set your API key in Settings > AI.
 
 After configuring a provider, select which model to use per feature in Settings > AI.
