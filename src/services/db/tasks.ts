@@ -88,16 +88,7 @@ export async function getTasksWithSubjects(
 ): Promise<DbTaskWithSubject[]> {
   const db = await getDb();
   const completedFilter = includeCompleted ? "" : "AND t.is_completed = 0";
-  return db.select<DbTaskWithSubject[]>(
-    `SELECT t.*, th.subject AS thread_subject
-     FROM tasks t
-     LEFT JOIN threads th ON th.account_id = t.thread_account_id AND th.id = t.thread_id
-     WHERE (t.account_id = $1 OR t.account_id IS NULL)
-       AND t.parent_id IS NULL
-       AND t.deleted_at IS NULL
-       ${completedFilter}
-     ORDER BY
-       -- Overdue group first: threads with at least one overdue incomplete task
+  const ORDER_BY = `ORDER BY
        CASE WHEN t.thread_id IS NOT NULL AND EXISTS (
          SELECT 1 FROM tasks t2
          WHERE t2.thread_id = t.thread_id
@@ -106,10 +97,30 @@ export async function getTasksWithSubjects(
            AND t2.due_date < unixepoch()
            AND t2.deleted_at IS NULL
        ) THEN 0 ELSE 1 END ASC,
-       -- Within group: nearest due_date first, NULLs last
        CASE WHEN t.due_date IS NULL THEN 1 ELSE 0 END ASC,
        t.due_date ASC,
-       t.created_at DESC`,
+       t.created_at DESC`;
+
+  // Unified mode (null): show all tasks across every account
+  if (accountId === null) {
+    return db.select<DbTaskWithSubject[]>(
+      `SELECT t.*, th.subject AS thread_subject
+       FROM tasks t
+       LEFT JOIN threads th ON th.account_id = t.thread_account_id AND th.id = t.thread_id
+       WHERE t.parent_id IS NULL AND t.deleted_at IS NULL ${completedFilter}
+       ${ORDER_BY}`,
+    );
+  }
+
+  return db.select<DbTaskWithSubject[]>(
+    `SELECT t.*, th.subject AS thread_subject
+     FROM tasks t
+     LEFT JOIN threads th ON th.account_id = t.thread_account_id AND th.id = t.thread_id
+     WHERE (t.account_id = $1 OR t.account_id IS NULL)
+       AND t.parent_id IS NULL
+       AND t.deleted_at IS NULL
+       ${completedFilter}
+     ${ORDER_BY}`,
     [accountId],
   );
 }
@@ -293,6 +304,15 @@ export async function getDeletedTasksWithSubjects(
   accountId: string | null,
 ): Promise<DbTaskWithSubject[]> {
   const db = await getDb();
+  if (accountId === null) {
+    return db.select<DbTaskWithSubject[]>(
+      `SELECT t.*, th.subject AS thread_subject
+       FROM tasks t
+       LEFT JOIN threads th ON th.account_id = t.thread_account_id AND th.id = t.thread_id
+       WHERE t.parent_id IS NULL AND t.deleted_at IS NOT NULL
+       ORDER BY t.deleted_at DESC`,
+    );
+  }
   return db.select<DbTaskWithSubject[]>(
     `SELECT t.*, th.subject AS thread_subject
      FROM tasks t
@@ -369,6 +389,12 @@ export async function getIncompleteTaskCount(
   accountId: string | null,
 ): Promise<number> {
   const db = await getDb();
+  if (accountId === null) {
+    const rows = await db.select<{ count: number }[]>(
+      "SELECT COUNT(*) as count FROM tasks WHERE is_completed = 0 AND deleted_at IS NULL",
+    );
+    return rows[0]?.count ?? 0;
+  }
   const rows = await db.select<{ count: number }[]>(
     "SELECT COUNT(*) as count FROM tasks WHERE (account_id = $1 OR account_id IS NULL) AND is_completed = 0 AND deleted_at IS NULL",
     [accountId],

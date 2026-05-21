@@ -98,8 +98,7 @@ function formatDeletedAt(ts: number): string {
 
 export function TasksPage() {
   const accounts = useAccountStore((s) => s.accounts);
-  const activeAccount = accounts.find((a) => a.isActive);
-  const accountId = activeAccount?.id ?? null;
+  const accountId = useAccountStore((s) => s.activeAccountId);
 
   const setTasks = useTaskStore((s) => s.setTasks);
   const selectedTaskId = useTaskStore((s) => s.selectedTaskId);
@@ -125,8 +124,7 @@ export function TasksPage() {
   );
 
   const loadTasks = useCallback(async () => {
-    if (!accountId) return;
-    // Always fetch all non-deleted tasks (including completed) — filter client-side
+    // accountId may be null in unified-inbox mode — getTasksWithSubjects handles it
     const loaded = await getTasksWithSubjects(accountId, true);
     setAllTasks(loaded);
     setTasks(loaded);
@@ -135,7 +133,6 @@ export function TasksPage() {
   }, [accountId, setTasks]);
 
   const loadDeletedTasks = useCallback(async () => {
-    if (!accountId) return;
     const loaded = await getDeletedTasksWithSubjects(accountId);
     setDeletedTasks(loaded);
   }, [accountId]);
