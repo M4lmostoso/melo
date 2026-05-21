@@ -44,7 +44,6 @@ async function callAi(systemPrompt: string, userContent: string, options?: { ski
     FORMALIZE_PROMPT,
     ASK_INBOX_PROMPT,
     SMART_REPLY_PROMPT,
-    EXTRACT_TASK_PROMPT,
     COMPOSER_FEEDBACK_PROMPT,
   ];
 
@@ -289,8 +288,19 @@ export async function extractTaskFromThread(
   const combined = `<email_content>Subject: ${subject}\n\n${formatted}</email_content>`.slice(0, 6000);
   // Inject current timestamp so the AI can compute relative due dates
   const nowTs = Math.floor(Date.now() / 1000).toString();
-  const prompt = EXTRACT_TASK_PROMPT.replace("CURRENT_UNIX_TS", nowTs).replace("CURRENT_UNIX_TS", nowTs);
-  return callAi(prompt, combined);
+  let prompt = EXTRACT_TASK_PROMPT.replace("CURRENT_UNIX_TS", nowTs).replace("CURRENT_UNIX_TS", nowTs);
+  // The timestamp injection produces a new string that no longer matches the EXTRACT_TASK_PROMPT
+  // constant, so callAi's textPrompts.includes() check would skip language injection.
+  // Apply the language setting manually here instead.
+  try {
+    const lang = await getSetting("ai_language");
+    if (lang && lang !== "English") {
+      prompt += `\n\nIMPORTANT: You must output the task titles and descriptions in ${lang}.`;
+    }
+  } catch {
+    // Continue without language setting
+  }
+  return callAi(prompt, combined, { skipLanguage: true });
 }
 
 export async function testConnection(): Promise<boolean> {
