@@ -90,7 +90,7 @@ Vitest + jsdom. `globals: true`. Tests colocated with source. Zustand pattern: `
 - **IMAP UIDVALIDITY**: If changed, all cached UIDs invalid → full folder resync
 - **IMAP tombstone**: Deleted IMAP messages tracked in `deleted_imap_uids` table to prevent re-import during sync
 - **IMAP passwords**: Encrypted AES-256-GCM in SQLite. Optional `imap_username` column overrides email as login
-- **IMAP local drafts**: Drafts for IMAP accounts tracked in `local_drafts` table; appended to Drafts folder on send/discard
+- **IMAP local drafts**: Two-tier system — stable UUID row in `messages` table (local, 3s debounce) + server APPEND to Drafts folder (18s debounce). The stable UUID row carries `imap_uid`/`imap_folder` coords so delete/tombstone always finds the right server message. `local_drafts` table exists in schema but is unused
 - **Provider abstraction**: All sync/send goes through `EmailProvider` — use `getEmailProvider(account)` from `providerFactory.ts`, never call Gmail/IMAP directly from components
 - **Offline mode**: All email modify ops go through `emailActions.ts` (optimistic UI + local DB + queue). Never call `getGmailClient()` directly for mutations. Queue processor: 30s, exponential backoff (60s→300s→900s→3600s)
 - **Email HTML rendering**: DOMPurify sanitization in sandboxed iframe (`allow-same-origin` only). Remote images blocked by default (`data-blocked-src`), allowlist per sender

@@ -227,11 +227,16 @@ const [hasMore, setHasMore] = useState(true);
         const draftMsg = messages[messages.length - 1];
         if (!draftMsg) return;
 
-        // Look up the Gmail draft ID so auto-save can update the existing draft.
-        // For IMAP accounts, draftMsg.id is already the correct IMAP draft ID
-        // (format: imap-{accountId}-{folder}-{uid}) — use it as the default so
-        // discarding an IMAP draft always tombstones the right UID on the server.
-        let draftId: string | null = draftMsg.id.startsWith("imap-") ? draftMsg.id : null;
+        // For IMAP two-tier drafts, draftMsg.id is a stable UUID — use imap_uid/imap_folder
+        // to construct the real UID-based ID so startAutoSave tracks the existing server draft.
+        // Without this, updateDraft would create a new server draft instead of updating the old
+        // one, leaving the old UID orphaned on the server and re-imported on the next delta sync.
+        let draftId: string | null = null;
+        if (draftMsg.imap_uid != null && draftMsg.imap_folder) {
+          draftId = `imap-${activeAccountId}-${draftMsg.imap_folder}-${draftMsg.imap_uid}`;
+        } else if (draftMsg.id.startsWith("imap-")) {
+          draftId = draftMsg.id;
+        }
         try {
           const client = await getGmailClient(activeAccountId);
           const drafts = await client.listDrafts();
