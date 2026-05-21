@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { MessageItem } from "./MessageItem";
 import { ActionBar } from "./ActionBar";
 import {
@@ -443,24 +443,35 @@ const handlePrint = useCallback(async () => {
   }, [thread.id]);
 
   // On initial load, scroll so that message n-2 (third-to-last) is at the top.
-  // useLayoutEffect runs synchronously after DOM commit (refs already set, before paint)
-  // so measurements are accurate even for collapsed message rows.
-  useLayoutEffect(() => {
+  // We use a ResizeObserver because the last message's iframe loads asynchronously,
+  // expanding scrollHeight after the initial render. We retry until scrollHeight is
+  // large enough to reach the target offset, then disconnect.
+  useEffect(() => {
     if (loading || messages.length < 3 || initialScrollDoneRef.current) return;
-    const targetGlobalIdx = messages.length - 3;
-    const targetEl = messageRefs.current[targetGlobalIdx];
+
     const container = scrollContainerRef.current;
-    if (targetEl && container) {
-      // offsetTop is relative to offsetParent; walk up to the container to get the true offset
-      let offset = 0;
-      let el: HTMLElement | null = targetEl;
-      while (el && el !== container) {
-        offset += el.offsetTop;
-        el = el.offsetParent as HTMLElement | null;
-      }
-      container.scrollTop = offset;
+    if (!container) return;
+
+    const tryScroll = (): boolean => {
+      const targetEl = messageRefs.current[messages.length - 3];
+      if (!targetEl) return false;
+      const offset = targetEl.getBoundingClientRect().top - container.getBoundingClientRect().top;
+      // If scrollHeight hasn't grown enough yet, report failure so we retry on resize
+      if (offset > container.scrollHeight - container.clientHeight) return false;
+      container.scrollTop += offset;
       initialScrollDoneRef.current = true;
-    }
+      return true;
+    };
+
+    if (tryScroll()) return;
+
+    // Content still loading — observe the container's children for size changes
+    const observer = new ResizeObserver(() => {
+      if (tryScroll()) observer.disconnect();
+    });
+    for (const child of container.children) observer.observe(child);
+
+    return () => observer.disconnect();
   }, [loading, messages.length]);
 
   // Compute visible slice — always shows last INITIAL_MESSAGES_TO_SHOW messages,
