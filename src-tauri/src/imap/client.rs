@@ -431,6 +431,37 @@ pub async fn search_all_uids(
     Ok(result)
 }
 
+/// Given a list of locally-unread UIDs, returns which ones the server currently
+/// considers SEEN (i.e. `\Seen` flag is set).  Uses `UID SEARCH UID <set> SEEN`
+/// so only the UIDs we care about are examined — no full-folder scan.
+pub async fn check_seen_uids(
+    session: &mut ImapSession,
+    folder: &str,
+    uids: &[u32],
+) -> Result<Vec<u32>, String> {
+    if uids.is_empty() {
+        return Ok(vec![]);
+    }
+
+    tokio::time::timeout(IMAP_CMD_TIMEOUT, session.select(folder))
+        .await
+        .map_err(|_| format!("SELECT {folder} timed out"))?
+        .map_err(|e| format!("SELECT {folder} failed: {e}"))?;
+
+    // Build a UID set string, e.g. "1,5,10,42"
+    let uid_set = uids.iter().map(|u| u.to_string()).collect::<Vec<_>>().join(",");
+    let query = format!("UID {uid_set} SEEN");
+
+    let result = tokio::time::timeout(IMAP_SEARCH_TIMEOUT, session.uid_search(&query))
+        .await
+        .map_err(|_| format!("UID SEARCH SEEN timed out for {folder}"))?
+        .map_err(|e| format!("UID SEARCH SEEN failed for {folder}: {e}"))?;
+
+    let mut seen: Vec<u32> = result.into_iter().collect();
+    seen.sort();
+    Ok(seen)
+}
+
 /// Set or remove flags on messages.
 ///
 /// `flag_op`: "+FLAGS" to add, "-FLAGS" to remove

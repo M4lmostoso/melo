@@ -55,6 +55,7 @@ export function ReadingPane() {
           labelIds,
           fromName: dbThread.from_name,
           fromAddress: dbThread.from_address,
+          allSenders: dbThread.all_senders ?? null,
           urgencyScore: dbThread.urgency_score ?? 0,
           sentimentScore: dbThread.sentiment_score ?? 0,
           isHeatExtinguished: dbThread.is_heat_extinguished === 1,

@@ -228,7 +228,7 @@ async function applyLocalDbUpdate(
       break;
     case "trash":
       await db.execute(
-        "DELETE FROM thread_labels WHERE account_id = $1 AND thread_id = $2 AND label_id IN ('INBOX', 'DRAFT', 'SPAM')",
+        "DELETE FROM thread_labels WHERE account_id = $1 AND thread_id = $2 AND label_id IN ('INBOX', 'DRAFT', 'SPAM', 'SENT')",
         [accountId, action.threadId],
       );
       await db.execute(
@@ -808,7 +808,7 @@ export async function deleteSingleMessage(
       // Soft-trash: move thread to TRASH so it appears in Trash view
       // and the next IMAP sync won't re-import it to INBOX
       await db.execute(
-        "DELETE FROM thread_labels WHERE account_id = $1 AND thread_id = $2 AND label_id IN ('INBOX', 'DRAFT', 'SPAM')",
+        "DELETE FROM thread_labels WHERE account_id = $1 AND thread_id = $2 AND label_id IN ('INBOX', 'DRAFT', 'SPAM', 'SENT')",
         [accountId, threadId],
       );
       await db.execute(

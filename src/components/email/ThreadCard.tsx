@@ -115,7 +115,7 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
                   : "font-semibold text-text-primary"
               }`}
             >
-              {thread.fromName ?? thread.fromAddress ?? "Unknown"}
+              {thread.allSenders ?? thread.fromName ?? thread.fromAddress ?? "Unknown"}
             </span>
             <span className="text-xs text-text-tertiary whitespace-nowrap shrink-0">
               {formatRelativeDate(thread.lastMessageAt)}

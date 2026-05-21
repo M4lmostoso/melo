@@ -570,6 +570,7 @@ const [hasMore, setHasMore] = useState(true);
             labelIds,
             fromName: t.from_name,
             fromAddress: t.from_address,
+            allSenders: t.all_senders ?? null,
             urgencyScore,
             sentimentScore: t.sentiment_score ?? 0,
             isHeatExtinguished: t.is_heat_extinguished === 1,
@@ -609,6 +610,7 @@ const [hasMore, setHasMore] = useState(true);
             labelIds,
             fromName: dbThread.from_name,
             fromAddress: dbThread.from_address,
+            allSenders: dbThread.all_senders ?? null,
             urgencyScore: dbThread.urgency_score ?? 0,
             sentimentScore: dbThread.sentiment_score ?? 0,
             isHeatExtinguished: dbThread.is_heat_extinguished === 1,
@@ -667,6 +669,7 @@ const [hasMore, setHasMore] = useState(true);
       labelIds: ["SCHEDULED"],
       fromName: e.to_addresses.split(",")[0]?.trim() ?? null,
       fromAddress: e.to_addresses.split(",")[0]?.trim() ?? null,
+      allSenders: null,
     }));
   }
 
@@ -732,6 +735,7 @@ const [hasMore, setHasMore] = useState(true);
             labelIds: ["OUTGOING"],
             fromName: e.to[0] ?? null,
             fromAddress: e.to[0] ?? null,
+            allSenders: null,
           };
         });
         setThreads(threads);

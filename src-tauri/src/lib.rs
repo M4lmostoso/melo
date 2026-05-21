@@ -408,6 +408,7 @@ pub fn run() {
             commands::imap_fetch_messages,
             commands::imap_fetch_new_uids,
             commands::imap_search_all_uids,
+            commands::imap_check_seen_uids,
             commands::imap_fetch_message_body,
             commands::imap_fetch_raw_message,
             commands::imap_set_flags,

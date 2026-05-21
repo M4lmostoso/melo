@@ -215,6 +215,14 @@ export async function imapSearchAllUids(
   return invoke<number[]>('imap_search_all_uids', { config, folder });
 }
 
+export async function imapCheckSeenUids(
+  config: ImapConfig,
+  folder: string,
+  uids: number[]
+): Promise<number[]> {
+  return invoke<number[]>('imap_check_seen_uids', { config, folder, uids });
+}
+
 /**
  * Fetch a single message with full body by UID.
  */

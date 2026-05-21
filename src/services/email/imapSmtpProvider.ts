@@ -578,6 +578,8 @@ export class ImapSmtpProvider implements EmailProvider {
     // message ID — prevents a duplicate when the background sync imports the same
     // message a few seconds later (upsert on the same ID is a no-op).
     let messageId = `imap-sent-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    let resolvedSentFolder: string | undefined;
+    let resolvedUid: number | undefined;
     try {
       const imapConfig = await this.getImapConfig();
       const sentFolder =
@@ -585,6 +587,8 @@ export class ImapSmtpProvider implements EmailProvider {
       const uid = await imapAppendMessage(imapConfig, sentFolder, rawBase64Url, "(\\Seen)");
       if (uid > 0) {
         messageId = `imap-${this.accountId}-${sentFolder}-${uid}`;
+        resolvedSentFolder = sentFolder;
+        resolvedUid = uid;
       }
     } catch (err) {
       console.error(
@@ -593,9 +597,11 @@ export class ImapSmtpProvider implements EmailProvider {
       );
     }
 
-    // Save to local DB with the definitive ID so it appears in Sent immediately
+    // Save to local DB with the definitive ID so it appears in Sent immediately.
+    // Pass imap_folder and imap_uid so resolveGrouped() can find the message when
+    // the user deletes it before the next delta sync updates the DB.
     try {
-      await this.saveSentMessageLocally(rawBase64Url, messageId, _threadId);
+      await this.saveSentMessageLocally(rawBase64Url, messageId, _threadId, resolvedSentFolder, resolvedUid);
     } catch (err) {
       console.warn("[IMAP] Failed to save sent message to local DB:", err);
     }
@@ -612,6 +618,8 @@ export class ImapSmtpProvider implements EmailProvider {
     rawBase64Url: string,
     messageId: string,
     threadId?: string,
+    imapFolder?: string,
+    imapUid?: number,
   ): Promise<void> {
     const raw = base64UrlDecode(rawBase64Url);
     const headers = parseBasicHeaders(raw);
@@ -685,6 +693,8 @@ export class ImapSmtpProvider implements EmailProvider {
       messageIdHeader,
       referencesHeader: references,
       inReplyToHeader: inReplyTo,
+      imapUid: imapUid ?? null,
+      imapFolder: imapFolder ?? null,
     });
   }
 

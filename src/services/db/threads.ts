@@ -17,6 +17,7 @@ export interface DbThread {
   is_muted: number;
   from_name: string | null;
   from_address: string | null;
+  all_senders: string | null;
   urgency_score: number | null;
   sentiment_score: number | null;
   manual_urgency_override: number | null;
@@ -32,7 +33,9 @@ export async function getThreadsForAccount(
   const db = await getDb();
   if (labelId) {
     return db.select<DbThread[]>(
-      `SELECT t.*, m.from_name, m.from_address FROM threads t
+      `SELECT t.*, m.from_name, m.from_address,
+         (SELECT GROUP_CONCAT(from_name, ', ') FROM (SELECT from_name, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_name IS NOT NULL AND from_name != '' GROUP BY from_name ORDER BY last_date DESC)) as all_senders
+       FROM threads t
        INNER JOIN thread_labels tl ON tl.account_id = t.account_id AND tl.thread_id = t.id
        LEFT JOIN messages m ON m.account_id = t.account_id AND m.thread_id = t.id
          AND m.date = (SELECT MAX(m2.date) FROM messages m2 WHERE m2.account_id = t.account_id AND m2.thread_id = t.id)
@@ -44,7 +47,9 @@ export async function getThreadsForAccount(
     );
   }
   return db.select<DbThread[]>(
-    `SELECT t.*, m.from_name, m.from_address FROM threads t
+    `SELECT t.*, m.from_name, m.from_address,
+       (SELECT GROUP_CONCAT(from_name, ', ') FROM (SELECT from_name, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_name IS NOT NULL AND from_name != '' GROUP BY from_name ORDER BY last_date DESC)) as all_senders
+     FROM threads t
      LEFT JOIN messages m ON m.account_id = t.account_id AND m.thread_id = t.id
        AND m.date = (SELECT MAX(m2.date) FROM messages m2 WHERE m2.account_id = t.account_id AND m2.thread_id = t.id)
      WHERE t.account_id = $1
@@ -83,7 +88,9 @@ export async function getThreadsForCategory(
   if (category === "Primary") {
     // Primary includes threads with NULL category (uncategorized)
     return db.select<DbThread[]>(
-      `SELECT t.*, m.from_name, m.from_address FROM threads t
+      `SELECT t.*, m.from_name, m.from_address,
+         (SELECT GROUP_CONCAT(from_name, ', ') FROM (SELECT from_name, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_name IS NOT NULL AND from_name != '' GROUP BY from_name ORDER BY last_date DESC)) as all_senders
+       FROM threads t
        INNER JOIN thread_labels tl ON tl.account_id = t.account_id AND tl.thread_id = t.id
        LEFT JOIN thread_categories tc ON tc.account_id = t.account_id AND tc.thread_id = t.id
        LEFT JOIN messages m ON m.account_id = t.account_id AND m.thread_id = t.id
@@ -96,7 +103,9 @@ export async function getThreadsForCategory(
     );
   }
   return db.select<DbThread[]>(
-    `SELECT t.*, m.from_name, m.from_address FROM threads t
+    `SELECT t.*, m.from_name, m.from_address,
+       (SELECT GROUP_CONCAT(from_name, ', ') FROM (SELECT from_name, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_name IS NOT NULL AND from_name != '' GROUP BY from_name ORDER BY last_date DESC)) as all_senders
+     FROM threads t
      INNER JOIN thread_labels tl ON tl.account_id = t.account_id AND tl.thread_id = t.id
      INNER JOIN thread_categories tc ON tc.account_id = t.account_id AND tc.thread_id = t.id
      LEFT JOIN messages m ON m.account_id = t.account_id AND m.thread_id = t.id
@@ -250,7 +259,9 @@ export async function getThreadsByIds(
   // Fetch in batches to avoid very long IN clauses
   for (const { accountId, threadId } of pairs) {
     const rows = await db.select<DbThread[]>(
-      `SELECT t.*, m.from_name, m.from_address FROM threads t
+      `SELECT t.*, m.from_name, m.from_address,
+         (SELECT GROUP_CONCAT(from_name, ', ') FROM (SELECT from_name, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_name IS NOT NULL AND from_name != '' GROUP BY from_name ORDER BY last_date DESC)) as all_senders
+       FROM threads t
        LEFT JOIN messages m ON m.account_id = t.account_id AND m.thread_id = t.id
          AND m.date = (SELECT MAX(m2.date) FROM messages m2 WHERE m2.account_id = t.account_id AND m2.thread_id = t.id)
        WHERE t.account_id = $1 AND t.id = $2
@@ -268,7 +279,9 @@ export async function getThreadById(
 ): Promise<DbThread | undefined> {
   const db = await getDb();
   const rows = await db.select<DbThread[]>(
-    `SELECT t.*, m.from_name, m.from_address FROM threads t
+    `SELECT t.*, m.from_name, m.from_address,
+       (SELECT GROUP_CONCAT(from_name, ', ') FROM (SELECT from_name, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_name IS NOT NULL AND from_name != '' GROUP BY from_name ORDER BY last_date DESC)) as all_senders
+     FROM threads t
      LEFT JOIN messages m ON m.account_id = t.account_id AND m.thread_id = t.id
        AND m.date = (SELECT MAX(m2.date) FROM messages m2 WHERE m2.account_id = t.account_id AND m2.thread_id = t.id)
      WHERE t.account_id = $1 AND t.id = $2
@@ -518,7 +531,8 @@ export async function getUnifiedInboxThreads(
   const limitParam = `$${accountIds.length + 1}`;
   const offsetParam = `$${accountIds.length + 2}`;
   return db.select<DbThread[]>(
-    `SELECT t.*, m.from_name, m.from_address
+    `SELECT t.*, m.from_name, m.from_address,
+       (SELECT GROUP_CONCAT(from_name, ', ') FROM (SELECT from_name, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_name IS NOT NULL AND from_name != '' GROUP BY from_name ORDER BY last_date DESC)) as all_senders
      FROM threads t
      INNER JOIN thread_labels tl ON tl.account_id = t.account_id AND tl.thread_id = t.id
      LEFT JOIN messages m ON m.thread_id = t.id AND m.account_id = t.account_id
@@ -551,7 +565,8 @@ export async function getUnifiedFolderThreads(
     const limitParam = `$${accountIds.length + 1}`;
     const offsetParam = `$${accountIds.length + 2}`;
     return db.select<DbThread[]>(
-      `SELECT t.*, m.from_name, m.from_address
+      `SELECT t.*, m.from_name, m.from_address,
+         (SELECT GROUP_CONCAT(from_name, ', ') FROM (SELECT from_name, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_name IS NOT NULL AND from_name != '' GROUP BY from_name ORDER BY last_date DESC)) as all_senders
        FROM threads t
        LEFT JOIN messages m ON m.thread_id = t.id AND m.account_id = t.account_id
          AND m.id = (
@@ -575,7 +590,8 @@ export async function getUnifiedFolderThreads(
   const limitParam = `$${accountIds.length + 2}`;
   const offsetParam = `$${accountIds.length + 3}`;
   return db.select<DbThread[]>(
-    `SELECT t.*, m.from_name, m.from_address
+    `SELECT t.*, m.from_name, m.from_address,
+       (SELECT GROUP_CONCAT(from_name, ', ') FROM (SELECT from_name, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_name IS NOT NULL AND from_name != '' GROUP BY from_name ORDER BY last_date DESC)) as all_senders
      FROM threads t
      INNER JOIN thread_labels tl ON tl.account_id = t.account_id AND tl.thread_id = t.id
      LEFT JOIN messages m ON m.thread_id = t.id AND m.account_id = t.account_id

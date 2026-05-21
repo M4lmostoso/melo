@@ -95,6 +95,18 @@ pub async fn imap_search_all_uids(
 }
 
 #[tauri::command]
+pub async fn imap_check_seen_uids(
+    config: ImapConfig,
+    folder: String,
+    uids: Vec<u32>,
+) -> Result<Vec<u32>, String> {
+    let mut session = imap_client::connect(&config).await?;
+    let seen = imap_client::check_seen_uids(&mut session, &folder, &uids).await?;
+    let _ = session.logout().await;
+    Ok(seen)
+}
+
+#[tauri::command]
 pub async fn imap_fetch_message_body(
     sync_semaphore: tauri::State<'_, SyncSemaphore>,
     config: ImapConfig,
@@ -1006,7 +1018,7 @@ pub async fn imap_fetch_and_store(
                      VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6, ?7, 0, ?8) \
                      ON CONFLICT(account_id, id) DO UPDATE SET \
                        subject=?3, snippet=?4, last_message_at=?5, \
-                       is_read=?6, is_starred=?7, has_attachments=?8",
+                       is_read=MAX(threads.is_read, ?6), is_starred=?7, has_attachments=?8",
                     rusqlite::params![
                         local_id,
                         account_id,
@@ -1033,7 +1045,7 @@ pub async fn imap_fetch_and_store(
                      ON CONFLICT(account_id, id) DO UPDATE SET \
                        from_address=?4, from_name=?5, to_addresses=?6, cc_addresses=?7, \
                        bcc_addresses=?8, reply_to=?9, subject=?10, snippet=?11, date=?12, \
-                       is_read=?13, is_starred=?14, \
+                       is_read=MAX(messages.is_read, ?13), is_starred=?14, \
                        body_html=COALESCE(?15, body_html), \
                        body_text=COALESCE(?16, body_text), \
                        body_cached=CASE WHEN ?15 IS NOT NULL THEN 1 ELSE body_cached END, \

@@ -7,6 +7,7 @@ import {
   imapFetchNewUids,
   imapSearchFolder,
   imapSearchAllUids,
+  imapCheckSeenUids,
   imapDeltaCheck,
 } from "./tauriCommands";
 import { buildImapConfig } from "./imapConfigBuilder";
@@ -139,11 +140,16 @@ function headerToThreadable(h: ImapSyncHeader): ThreadableMessage {
 /**
  * Compute the final label set for a thread group given the member ImapSyncHeaders
  * and the cross-folder RFC-ID → labels accumulation map.
+ *
+ * threadHasExternalSenders: true when the DB already contains messages from other
+ * senders in this thread (e.g. original inbox messages when syncing a sent reply).
+ * Prevents the thread from losing its INBOX label after a reply is stored.
  */
 function computeThreadLabels(
   messages: ImapSyncHeader[],
   labelsByRfcId: Map<string, Set<string>>,
   accountEmail: string,
+  threadHasExternalSenders: boolean,
 ): string[] {
   const allLabels = new Set<string>();
   const lowerAccountEmail = accountEmail.toLowerCase();
@@ -179,8 +185,13 @@ function computeThreadLabels(
     allLabels.add("SENT");
   }
 
-  // INBOX: at least one non-trash/spam message in the thread is from someone else
-  if (messages.some((m) => !isFromMe(m.from_address) && m.label_id !== "TRASH" && m.label_id !== "SPAM")) {
+  // INBOX: at least one non-trash/spam message in the thread is from someone else,
+  // either in this sync batch or already stored in the DB (threadHasExternalSenders).
+  const newBatchHasExternal = messages.some(
+    (m) => !isFromMe(m.from_address) && m.label_id !== "TRASH" && m.label_id !== "SPAM",
+  );
+  const movingToTrashOrSpam = allLabels.has("TRASH") || allLabels.has("SPAM");
+  if ((newBatchHasExternal || threadHasExternalSenders) && !movingToTrashOrSpam) {
     allLabels.add("INBOX");
   }
 
@@ -191,12 +202,43 @@ function computeThreadLabels(
  * Build ImapThreadUpdate records from thread groups and stored headers.
  * Called after JWZ threading to produce the payload for imap_store_threads.
  */
+/**
+ * Returns the set of thread IDs (from the given list) that have at least one
+ * message in the DB from a sender other than this account, and are not currently
+ * labelled TRASH or SPAM. Used to preserve INBOX when syncing a sent reply.
+ */
+async function getThreadsWithExternalSenders(
+  accountId: string,
+  accountEmail: string,
+  threadIds: string[],
+): Promise<Set<string>> {
+  if (threadIds.length === 0) return new Set();
+  const { getDb } = await import("../db/connection");
+  const db = await getDb();
+  const ph = threadIds.map((_, i) => `$${i + 3}`).join(",");
+  const rows = await db.select<{ thread_id: string }[]>(
+    `SELECT DISTINCT m.thread_id
+     FROM messages m
+     WHERE m.account_id = $1
+       AND lower(m.from_address) != lower($2)
+       AND m.thread_id IN (${ph})
+       AND NOT EXISTS (
+         SELECT 1 FROM thread_labels tl
+         WHERE tl.account_id = $1 AND tl.thread_id = m.thread_id
+           AND tl.label_id IN ('TRASH', 'SPAM')
+       )`,
+    [accountId, accountEmail, ...threadIds],
+  );
+  return new Set(rows.map((r) => r.thread_id));
+}
+
 function buildThreadUpdates(
   threadGroups: ThreadGroup[],
   headerById: Map<string, ImapSyncHeader>,
   labelsByRfcId: Map<string, Set<string>>,
   skipThreadIds: Set<string>,
   accountEmail: string,
+  threadsWithExternalSenders: Set<string>,
 ): { updates: ImapThreadUpdate[]; urgencyQueue: ThreadUrgencyParams[] } {
   const updates: ImapThreadUpdate[] = [];
   const urgencyQueue: ThreadUrgencyParams[] = [];
@@ -217,7 +259,7 @@ function buildThreadUpdates(
     const isRead = messages.every((m) => m.is_read);
     const isStarred = messages.some((m) => m.is_starred);
     const hasAttachments = messages.some((m) => m.has_attachments);
-    const labelIds = computeThreadLabels(messages, labelsByRfcId, accountEmail);
+    const labelIds = computeThreadLabels(messages, labelsByRfcId, accountEmail, threadsWithExternalSenders.has(group.threadId));
 
     updates.push({
       thread_id: group.threadId,
@@ -321,6 +363,69 @@ async function reconcileDeletedMessages(
         );
       }
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Flag reconciliation — mark locally-unread messages as read when server says SEEN
+// ---------------------------------------------------------------------------
+
+async function syncReadFlagsForFolder(
+  config: ImapConfig,
+  accountId: string,
+  folderPath: string,
+): Promise<void> {
+  const { getDb } = await import("../db/connection");
+  const db = await getDb();
+
+  // Fetch all locally-unread UIDs for this folder
+  const rows = await db.select<{ id: string; uid: number; thread_id: string }[]>(
+    `SELECT id, imap_uid as uid, thread_id FROM messages
+     WHERE account_id = $1 AND imap_folder = $2 AND imap_uid IS NOT NULL AND is_read = 0`,
+    [accountId, folderPath],
+  );
+  if (rows.length === 0) return;
+
+  // Ask the server which of those UIDs have \Seen set
+  let seenUids: number[];
+  try {
+    seenUids = await imapCheckSeenUids(config, folderPath, rows.map((r) => r.uid));
+  } catch {
+    return;
+  }
+  if (seenUids.length === 0) return;
+
+  const seenSet = new Set(seenUids);
+  const toMark = rows.filter((r) => seenSet.has(r.uid));
+  if (toMark.length === 0) return;
+
+  console.log(`[imapSync] syncReadFlags: marking ${toMark.length} message(s) as read in ${folderPath}`);
+
+  const CHUNK = 500;
+  const affectedThreadIds = [...new Set(toMark.map((r) => r.thread_id))];
+
+  for (let i = 0; i < toMark.length; i += CHUNK) {
+    const chunk = toMark.slice(i, i + CHUNK);
+    const ph = chunk.map((_, j) => `$${j + 2}`).join(",");
+    await db.execute(
+      `UPDATE messages SET is_read = 1 WHERE account_id = $1 AND id IN (${ph})`,
+      [accountId, ...chunk.map((r) => r.id)],
+    );
+  }
+
+  // Update thread read state: mark thread as read only if no unread messages remain
+  for (let i = 0; i < affectedThreadIds.length; i += CHUNK) {
+    const chunk = affectedThreadIds.slice(i, i + CHUNK);
+    const tph = chunk.map((_, j) => `$${j + 2}`).join(",");
+    await db.execute(
+      `UPDATE threads SET is_read = 1
+       WHERE account_id = $1 AND id IN (${tph})
+         AND NOT EXISTS (
+           SELECT 1 FROM messages
+           WHERE messages.account_id = $1 AND messages.thread_id = threads.id AND messages.is_read = 0
+         )`,
+      [accountId, ...chunk],
+    );
   }
 }
 
@@ -559,8 +664,11 @@ export async function imapInitialSync(
   const pendingOpIds = await getPendingOpResourceIds(accountId);
   const skipThreadIds = new Set(threadGroups.map((g) => g.threadId).filter((id) => pendingOpIds.has(id)));
 
+  const allThreadIds = threadGroups.map((g) => g.threadId);
+  const threadsWithExternalSenders = await getThreadsWithExternalSenders(accountId, account.email, allThreadIds);
+
   const { updates, urgencyQueue } = buildThreadUpdates(
-    threadGroups, headerById, labelsByRfcId, skipThreadIds, account.email,
+    threadGroups, headerById, labelsByRfcId, skipThreadIds, account.email, threadsWithExternalSenders,
   );
 
   const allLocalIds = storedHeaders.map((h) => h.local_id);
@@ -794,6 +902,9 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
           });
           if (isMaintenanceCycle) {
             await reconcileDeletedMessages(config, accountId, folder.raw_path);
+            await syncReadFlagsForFolder(config, accountId, folder.raw_path).catch((err) =>
+              console.error(`[imapSync] syncReadFlagsForFolder error:`, err),
+            );
           }
           continue;
         }
@@ -816,6 +927,9 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
 
         if (isMaintenanceCycle) {
           await reconcileDeletedMessages(config, accountId, folder.raw_path);
+          await syncReadFlagsForFolder(config, accountId, folder.raw_path).catch((err) =>
+            console.error(`[imapSync] syncReadFlagsForFolder error:`, err),
+          );
         }
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err ?? "Unknown error");
@@ -845,8 +959,11 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
   const pendingOpIds = await getPendingOpResourceIds(accountId);
   const skipThreadIds = new Set(threadGroups.map((g) => g.threadId).filter((id) => pendingOpIds.has(id)));
 
+  const allThreadIds = threadGroups.map((g) => g.threadId);
+  const threadsWithExternalSenders = await getThreadsWithExternalSenders(accountId, account.email, allThreadIds);
+
   const { updates, urgencyQueue } = buildThreadUpdates(
-    threadGroups, headerById, labelsByRfcId, skipThreadIds, account.email,
+    threadGroups, headerById, labelsByRfcId, skipThreadIds, account.email, threadsWithExternalSenders,
   );
 
   const allLocalIds = storedHeaders.map((h) => h.local_id);

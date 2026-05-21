@@ -128,6 +128,7 @@ export async function mapSmartFolderRows(rows: SmartFolderRow[]): Promise<Thread
         labelIds,
         fromName: r.from_name,
         fromAddress: r.from_address,
+        allSenders: dbThread?.all_senders ?? null,
       };
     }),
   );
