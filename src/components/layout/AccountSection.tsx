@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { ChevronDown, ChevronRight, Inbox, Send, FileEdit, Trash2, Ban } from "lucide-react";
+import { ChevronDown, ChevronRight, Inbox, Send, FileEdit, Trash2, Ban, Loader2, AlertCircle } from "lucide-react";
 import type { Account } from "@/stores/accountStore";
+import { useUIStore } from "@/stores/uiStore";
 import { useActiveLabel } from "@/hooks/useRouteNavigation";
 import { ACCOUNT_COLOR_PRESETS } from "@/constants/accountColors";
 
@@ -32,22 +33,37 @@ export function AccountSection({
   const [expanded, setExpanded] = useState(false);
   const activeLabel = useActiveLabel();
   const color = account.color ?? DEFAULT_COLOR;
+  const syncState = useUIStore((s) => s.accountSyncStatuses[account.id]);
 
   if (sidebarCollapsed) {
     const inboxUnread = unreadCounts["INBOX"] ?? 0;
+    const isSyncing = syncState?.phase === "syncing";
+    const isError = syncState?.phase === "error";
     return (
       <button
         onClick={() => onFolderClick(account.id, "inbox")}
-        title={account.label ?? account.displayName ?? account.email}
+        title={
+          isError
+            ? `Sync error: ${syncState?.error ?? "Unknown error"}`
+            : (account.label ?? account.displayName ?? account.email)
+        }
         className="relative flex items-center justify-center w-full py-2"
       >
         <span
-          className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold text-white shrink-0"
+          className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold text-white shrink-0 ${isSyncing ? "opacity-70" : ""}`}
           style={{ backgroundColor: color }}
         >
           {(account.label ?? account.displayName ?? account.email)[0]?.toUpperCase()}
         </span>
-        {inboxUnread > 0 && (
+        {isSyncing && (
+          <span className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <Loader2 size={20} className="animate-spin text-white/80" />
+          </span>
+        )}
+        {isError && !isSyncing && (
+          <span className="absolute bottom-1 right-1.5 w-2.5 h-2.5 rounded-full bg-red-500 border border-sidebar-bg" />
+        )}
+        {inboxUnread > 0 && !isError && !isSyncing && (
           <span className="absolute top-1 right-2 text-[0.5rem] bg-accent text-white px-1 rounded-full leading-normal">
             {inboxUnread > 99 ? "99+" : inboxUnread}
           </span>
@@ -72,6 +88,14 @@ export function AccountSection({
         {!expanded && (unreadCounts["INBOX"] ?? 0) > 0 && (
           <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 min-w-[1.25rem] h-[1.125rem] rounded-full inline-flex items-center justify-center tabular-nums">
             {unreadCounts["INBOX"]}
+          </span>
+        )}
+        {syncState?.phase === "syncing" && (
+          <Loader2 size={11} className="shrink-0 animate-spin text-sidebar-text/50" />
+        )}
+        {syncState?.phase === "error" && (
+          <span title={syncState.error ?? "Sync error"} className="shrink-0 flex items-center">
+            <AlertCircle size={12} className="text-red-400" />
           </span>
         )}
         {expanded ? (

@@ -29,6 +29,11 @@ export type ComposerFontSize =
   | "20px"
   | "24px";
 export type InboxViewMode = "unified" | "split";
+export type AccountSyncPhase = "idle" | "syncing" | "error";
+export interface AccountSyncState {
+  phase: AccountSyncPhase;
+  error?: string;
+}
 
 export interface SidebarNavItem {
   id: string;
@@ -57,6 +62,7 @@ interface UIState {
   isOnline: boolean;
   pendingOpsCount: number;
   isSyncingFolder: string | null;
+  accountSyncStatuses: Record<string, AccountSyncState>;
   setTheme: (theme: Theme) => void;
   toggleSidebar: () => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
@@ -82,6 +88,7 @@ interface UIState {
   setOnline: (online: boolean) => void;
   setPendingOpsCount: (count: number) => void;
   setSyncingFolder: (folder: string | null) => void;
+  setAccountSyncPhase: (accountId: string, phase: AccountSyncPhase, error?: string) => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -106,6 +113,7 @@ export const useUIStore = create<UIState>((set) => ({
   isOnline: true,
   pendingOpsCount: 0,
   isSyncingFolder: null,
+  accountSyncStatuses: {},
 
   setTheme: (theme) => set({ theme }),
   toggleSidebar: () =>
@@ -192,4 +200,11 @@ export const useUIStore = create<UIState>((set) => ({
   setOnline: (isOnline) => set({ isOnline }),
   setPendingOpsCount: (pendingOpsCount) => set({ pendingOpsCount }),
   setSyncingFolder: (isSyncingFolder) => set({ isSyncingFolder }),
+  setAccountSyncPhase: (accountId, phase, error) =>
+    set((state) => ({
+      accountSyncStatuses: {
+        ...state.accountSyncStatuses,
+        [accountId]: { phase, error },
+      },
+    })),
 }));

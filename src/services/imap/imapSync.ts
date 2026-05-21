@@ -25,7 +25,7 @@ import {
   getAllFolderSyncStates,
   type FolderSyncState,
 } from "../db/folderSyncState";
-import { clearDeletedImapUidsForFolder } from "../db/deletedImapUids";
+import { clearDeletedImapUidsForFolder, pruneDeletedImapUids } from "../db/deletedImapUids";
 import {
   buildThreads,
   normalizeSubject,
@@ -810,6 +810,7 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
     await reconcileOrphanMessages(accountId).catch((err) =>
       console.error(`[imapSync] reconcileOrphanMessages error:`, err),
     );
+    await pruneDeletedImapUids().catch(() => {});
   }
 
   const syncStateMap = new Map(syncStates.map((s) => [s.folder_path, s]));

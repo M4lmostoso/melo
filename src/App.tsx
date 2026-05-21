@@ -670,7 +670,9 @@ export default function App() {
   const backfillDoneRef = useRef(false);
   useEffect(() => {
     const unsub = onSyncStatus((accountId, status, progress, error, storedCount) => {
+      const { setAccountSyncPhase } = useUIStore.getState();
       if (status === "syncing") {
+        setAccountSyncPhase(accountId, "syncing");
         if (progress) {
           if (progress.phase === "messages") {
             setSyncStatus(
@@ -687,6 +689,7 @@ export default function App() {
           setSyncStatus("Syncing...");
         }
       } else if (status === "done") {
+        setAccountSyncPhase(accountId, "idle");
         // Only show "Sync complete" and reload UI when something actually changed.
         // storedCount === undefined means Gmail or initial sync — always reload.
         // storedCount === 0 means idle delta sync — skip to avoid GC churn every 60s.
@@ -714,6 +717,7 @@ export default function App() {
             .catch((err) => console.error("Backfill error:", err));
         }
       } else if (status === "error") {
+        setAccountSyncPhase(accountId, "error", error);
         const acct = useAccountStore
           .getState()
           .accounts.find((a) => a.id === accountId);
