@@ -31,16 +31,6 @@ import { handleRecurringTaskCompletion } from "@/services/tasks/taskManager";
 import { TaskGroup } from "./TaskGroup";
 import { TaskQuickAdd } from "./TaskQuickAdd";
 
-// Deterministic account color from email string
-const ACCOUNT_COLORS = [
-  "#6366f1", "#ec4899", "#f59e0b", "#10b981",
-  "#3b82f6", "#ef4444", "#8b5cf6", "#14b8a6",
-];
-function accountColor(email: string): string {
-  let hash = 0;
-  for (let i = 0; i < email.length; i++) hash = (hash * 31 + email.charCodeAt(i)) | 0;
-  return ACCOUNT_COLORS[Math.abs(hash) % ACCOUNT_COLORS.length]!;
-}
 
 interface ThreadGroup {
   threadId: string | null;
@@ -119,7 +109,7 @@ export function TasksPage() {
   const [archiveHours, setArchiveHours] = useState<number>(0);
 
   const colorMap = useMemo(
-    () => Object.fromEntries(accounts.map((a) => [a.id, accountColor(a.email)])),
+    () => Object.fromEntries(accounts.map((a) => [a.id, a.color])),
     [accounts],
   );
 
@@ -451,7 +441,7 @@ export function TasksPage() {
               threadId={group.threadId}
               threadSubject={group.threadSubject}
               accountColor={
-                group.tasks[0]?.account_id ? colorMap[group.tasks[0].account_id] : undefined
+                group.tasks[0]?.account_id ? (colorMap[group.tasks[0].account_id] ?? undefined) : undefined
               }
               tasks={group.tasks}
               subtaskMap={subtaskMap}
