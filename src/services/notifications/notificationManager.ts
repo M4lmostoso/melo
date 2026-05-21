@@ -156,14 +156,14 @@ export function queueNewEmailNotification(
   notifyTimer = setTimeout(() => {
     const emailActionTypeId = actionTypesRegistered ? "email" : "default";
     if (pendingCount === 1) {
-      // Title = subject (shown bold on macOS); body = sender + first ~3 lines of snippet
-      const bodyParts: string[] = [`From: ${from}`];
+      // Title = sender name (shown bold on macOS, appears first); body = subject + snippet
+      const bodyParts: string[] = [subject || "(No subject)"];
       if (snippet) {
         const preview = snippet.trim().slice(0, 200);
         bodyParts.push(preview);
       }
       sendNotification({
-        title: subject || "(No subject)",
+        title: from,
         body: bodyParts.join("\n"),
         actionTypeId: emailActionTypeId,
       });
