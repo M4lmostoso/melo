@@ -3,6 +3,7 @@ import { Mail, ExternalLink, CheckCircle2, ChevronDown, ChevronRight, AlertTrian
 import type { DbTask } from "@/services/db/tasks";
 import { TaskItem } from "./TaskItem";
 import { navigateToLabel } from "@/router/navigate";
+import { useAccountStore } from "@/stores/accountStore";
 
 interface TaskGroupProps {
   threadId: string | null;
@@ -39,6 +40,7 @@ export function TaskGroup({
   onSelect,
 }: TaskGroupProps) {
   const [collapsed, setCollapsed] = useState(false);
+  const setActiveAccount = useAccountStore((s) => s.setActiveAccount);
 
   const isGeneral = threadId === null;
   const overdueAlert = !isGeneral && hasOverdue(tasks);
@@ -46,8 +48,11 @@ export function TaskGroup({
 
   const handleOpenThread = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
-    if (threadId) navigateToLabel("all", { threadId });
-  }, [threadId]);
+    if (!threadId) return;
+    const threadAccountId = tasks[0]?.thread_account_id ?? null;
+    if (threadAccountId) setActiveAccount(threadAccountId);
+    navigateToLabel("all", { threadId });
+  }, [threadId, tasks, setActiveAccount]);
 
   const handleCompleteAll = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
