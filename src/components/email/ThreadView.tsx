@@ -171,13 +171,18 @@ const updateThread = useThreadStore((s) => s.updateThread);
     const replyTo = selectedMessage.reply_to ?? selectedMessage.from_address;
     const msgIndex = messages.findIndex(m => m.id === selectedMessage.id);
     const quotedMessages = msgIndex >= 0 ? messages.slice(0, msgIndex + 1) : messages;
+    const rfcMsgId = selectedMessage.message_id_header ?? null;
+    const refs = rfcMsgId
+      ? [selectedMessage.references_header, rfcMsgId].filter(Boolean).join(" ")
+      : null;
     openComposer({
       mode: "reply",
       to: replyTo ? [replyTo] : [],
       subject: `Re: ${selectedMessage.subject ?? ""}`,
       quotedHtml: buildThreadQuote(quotedMessages),
       threadId: selectedMessage.thread_id,
-      inReplyToMessageId: selectedMessage.id,
+      inReplyToMessageId: rfcMsgId,
+      references: refs,
       accountId: thread.accountId,
     });
   }, [selectedMessage, openComposer, messages, thread.accountId]);
@@ -215,6 +220,10 @@ const updateThread = useThreadStore((s) => s.updateThread);
 
     const msgIndex = messages.findIndex(m => m.id === selectedMessage.id);
     const quotedMessages = msgIndex >= 0 ? messages.slice(0, msgIndex + 1) : messages;
+    const rfcMsgId = selectedMessage.message_id_header ?? null;
+    const refs = rfcMsgId
+      ? [selectedMessage.references_header, rfcMsgId].filter(Boolean).join(" ")
+      : null;
 
     openComposer({
       mode: "replyAll",
@@ -222,6 +231,9 @@ const updateThread = useThreadStore((s) => s.updateThread);
       cc: ccList,
       subject: `Re: ${selectedMessage.subject ?? ""}`,
       quotedHtml: buildThreadQuote(quotedMessages),
+      threadId: selectedMessage.thread_id,
+      inReplyToMessageId: rfcMsgId,
+      references: refs,
       accountId: thread.accountId,
     });
   }, [selectedMessage, openComposer, activeAccount, accounts, messages, thread.accountId]);
@@ -230,13 +242,18 @@ const handleForward = useCallback(async () => {
     if (!selectedMessage) return;
     const msgIndex = messages.findIndex(m => m.id === selectedMessage.id);
     const quotedMessages = msgIndex >= 0 ? messages.slice(0, msgIndex + 1) : messages;
+    const rfcMsgId = selectedMessage.message_id_header ?? null;
+    const refs = rfcMsgId
+      ? [selectedMessage.references_header, rfcMsgId].filter(Boolean).join(" ")
+      : null;
     openComposer({
       mode: "forward",
       to: [],
       subject: `Fwd: ${selectedMessage.subject ?? ""}`,
       quotedHtml: buildThreadForwardQuote(quotedMessages),
       threadId: selectedMessage.thread_id,
-      inReplyToMessageId: selectedMessage.id,
+      inReplyToMessageId: rfcMsgId,
+      references: refs,
       accountId: thread.accountId,
     });
   }, [selectedMessage, openComposer, messages, thread.accountId]);

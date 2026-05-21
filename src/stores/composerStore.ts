@@ -22,7 +22,8 @@ export interface ComposerState {
   bodyHtml: string;
   quotedHtml?: string; // Quotes for reply/forward (empty for new messages)
   threadId: string | null;
-  inReplyToMessageId: string | null;
+  inReplyToMessageId: string | null; // RFC 2822 Message-ID of the message being replied to
+  references: string | null; // RFC 2822 References header chain
   showCcBcc: boolean;
   draftId: string | null;
   localDraftId: string | null; // Stable UUID for the lifetime of one composer session (IMAP two-tier save)
@@ -49,6 +50,7 @@ export interface ComposerState {
     quotedHtml?: string; // Citazioni per reply/forward
     threadId?: string | null;
     inReplyToMessageId?: string | null;
+    references?: string | null;
     draftId?: string | null;
     /** Force a specific account for this compose session (overrides activeAccountId). */
     accountId?: string;
@@ -90,6 +92,7 @@ export const useComposerStore = create<ComposerState>()((set) => ({
   bodyHtml: "",
   threadId: null,
   inReplyToMessageId: null,
+  references: null,
   showCcBcc: false,
   draftId: null,
   localDraftId: null,
@@ -127,6 +130,7 @@ openComposer: (opts) => {
         quotedHtml: opts?.quotedHtml ?? "",
         threadId: opts?.threadId ?? null,
         inReplyToMessageId: opts?.inReplyToMessageId ?? null,
+        references: opts?.references ?? null,
         showCcBcc: (opts?.cc?.length ?? 0) > 0 || (opts?.bcc?.length ?? 0) > 0,
         draftId: opts?.draftId ?? null,
         localDraftId: crypto.randomUUID(),
@@ -205,6 +209,7 @@ openComposer: (opts) => {
       quotedHtml: "",
       threadId: null,
       inReplyToMessageId: null,
+      references: null,
       showCcBcc: false,
       draftId: null,
       localDraftId: null,

@@ -365,6 +365,7 @@ const getFullHtml = useCallback(() => {
       subject: state.subject,
       htmlBody: html,
       inReplyTo: state.inReplyToMessageId ?? undefined,
+      references: state.references ?? undefined,
       threadId: state.threadId ?? undefined,
       attachments:
         state.attachments.length > 0

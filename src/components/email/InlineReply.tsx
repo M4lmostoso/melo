@@ -239,13 +239,18 @@ export function InlineReply({
         html += `<div style="margin-top:16px;border-top:1px solid #e5e5e5;padding-top:12px">${signatureHtml}</div>`;
       }
 
+      const rfcMsgId = lastMessage?.message_id_header ?? undefined;
+      const refs = rfcMsgId
+        ? [lastMessage?.references_header, rfcMsgId].filter(Boolean).join(" ")
+        : undefined;
       const raw = buildRawEmail({
         from: activeAccount.email,
         to,
         cc: cc.length > 0 ? cc : undefined,
         subject: getSubject(),
         htmlBody: html,
-        inReplyTo: lastMessage?.id,
+        inReplyTo: rfcMsgId,
+        references: refs,
         threadId: thread.id,
       });
 
@@ -322,6 +327,10 @@ export function InlineReply({
         ? buildForwardQuote(messages)
         : buildReplyQuote(messages);
 
+    const rfcMsgId = lastMessage.message_id_header ?? null;
+    const refs = rfcMsgId
+      ? [lastMessage.references_header, rfcMsgId].filter(Boolean).join(" ")
+      : null;
     openComposer({
       mode: currentMode,
       to,
@@ -330,7 +339,8 @@ export function InlineReply({
       bodyHtml,
       quotedHtml,
       threadId: thread.id,
-      inReplyToMessageId: lastMessage.id,
+      inReplyToMessageId: rfcMsgId,
+      references: refs,
       accountId,
     });
 
