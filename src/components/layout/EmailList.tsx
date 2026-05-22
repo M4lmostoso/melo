@@ -24,6 +24,8 @@ import {
   getThreadLabelIds,
   getThreadIdsForLabel,
   deleteThread as deleteThreadFromDb,
+  getThreadsByIdsBatch,
+  getThreadLabelsByIdsBatch,
 } from "@/services/db/threads";
 import {
   getCategoriesForThreads,
@@ -644,6 +646,52 @@ const [hasMore, setHasMore] = useState(true);
     }
   }, [activeAccountId, threadMap, addThreads, selectThread, clearMultiSelect, setSelectedMessageId]);
 
+  const mergeSemanticResults = useThreadStore((s) => s.mergeSemanticResults);
+
+  const handleSemanticResult = useCallback(async (result: { citations: Array<{ threadId: string; messageId?: string }>; hits: Array<{ account_id: string; thread_id: string }> }) => {
+    // Only keep the threads actually cited in the answer, not all context hits
+    const citedThreadIds = new Set(result.citations.map((c) => c.threadId));
+    if (citedThreadIds.size === 0) return;
+    const accountById = new Map(result.hits.map((h) => [h.thread_id, h.account_id]));
+    const seen = new Set<string>();
+    const pairs: Array<{ accountId: string; threadId: string }> = [];
+    for (const threadId of citedThreadIds) {
+      if (seen.has(threadId)) continue;
+      seen.add(threadId);
+      const accountId = accountById.get(threadId);
+      if (accountId) pairs.push({ accountId, threadId });
+    }
+    try {
+      const [dbThreads, labelsByKey] = await Promise.all([
+        getThreadsByIdsBatch(pairs),
+        getThreadLabelsByIdsBatch(pairs),
+      ]);
+      const threads: Thread[] = dbThreads.map((t) => ({
+        id: t.id,
+        accountId: t.account_id,
+        subject: t.subject,
+        snippet: t.snippet,
+        lastMessageAt: t.last_message_at ?? 0,
+        messageCount: t.message_count,
+        isRead: t.is_read === 1,
+        isStarred: t.is_starred === 1,
+        isPinned: t.is_pinned === 1,
+        isMuted: t.is_muted === 1,
+        hasAttachments: t.has_attachments === 1,
+        labelIds: labelsByKey.get(`${t.account_id}:${t.id}`) ?? [],
+        fromName: t.from_name,
+        fromAddress: t.from_address,
+        allSenders: t.all_senders,
+        urgencyScore: t.urgency_score ?? undefined,
+        sentimentScore: t.sentiment_score ?? undefined,
+        isHeatExtinguished: t.is_heat_extinguished === 1,
+      }));
+      mergeSemanticResults(threads);
+    } catch (err) {
+      console.error("Failed to merge semantic search results:", err);
+    }
+  }, [mergeSemanticResults]);
+
   const isUnifiedInbox = activeLabel === "unified-inbox";
   const isUnifiedFolder = activeAccountId === null && UNIFIED_FOLDER_LABELS.has(activeLabel);
   const isScheduled = activeLabel === "scheduled";
@@ -1232,6 +1280,7 @@ const [hasMore, setHasMore] = useState(true);
         query={searchQuery}
         accountId={activeAccountId}
         onCitationClick={handleCitationClick}
+        onResult={handleSemanticResult}
       />
 
       {/* Header */}

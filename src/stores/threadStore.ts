@@ -49,6 +49,7 @@ interface ThreadState {
   setSearchLoading: (loading: boolean) => void;
   clearSearch: () => void;
   addThreads: (newThreads: Thread[]) => void;
+  mergeSemanticResults: (results: Thread[]) => void;
 }
 
 export const useThreadStore = create<ThreadState>((set, get) => ({
@@ -151,6 +152,14 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
   setSearchResults: (searchResults) => set({ searchResults }),
   setSearchLoading: (searchLoading) => set({ searchLoading }),
   clearSearch: () => set({ searchQuery: "", searchThreadIds: null, searchResults: null, searchLoading: false }),
+  mergeSemanticResults: (results) =>
+    set((state) => {
+      if (state.searchResults === null) return {};
+      return {
+        searchResults: results,
+        searchThreadIds: new Set(results.map((t) => t.id)),
+      };
+    }),
   addThreads: (newThreads) =>
     set((state) => {
       const existingIds = new Set(state.threads.map((t) => t.id));

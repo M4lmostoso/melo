@@ -10,10 +10,11 @@ import {
 import { openUrl } from "@tauri-apps/plugin-opener";
 
 interface AnswerPanelProps {
-   query: string;
-   accountId: string | null;
-   onCitationClick: (threadId: string, messageId?: string) => void;
- }
+  query: string;
+  accountId: string | null;
+  onCitationClick: (threadId: string, messageId?: string) => void;
+  onResult?: (result: SearchAnswerResult) => void;
+}
 
 function getThreadIdFromUrl(url: string): string | null {
   try {
@@ -108,6 +109,7 @@ export function AnswerPanel({
   query,
   accountId,
   onCitationClick,
+  onResult,
 }: AnswerPanelProps) {
   const [result, setResult] = useState<SearchAnswerResult | null>(null);
   const [loading, setLoading] = useState(false);
@@ -133,7 +135,10 @@ export function AnswerPanel({
       setResult(null);
       try {
         const r = await getSearchAnswer(query, accountId!);
-        if (!ctrl.signal.aborted) setResult(r);
+        if (!ctrl.signal.aborted) {
+          setResult(r);
+          onResult?.(r);
+        }
       } catch {
         // Silently dismiss — don't block the search results
       } finally {
