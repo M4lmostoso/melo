@@ -569,7 +569,7 @@ const [hasMore, setHasMore] = useState(true);
           const rawUrgency = t.urgency_score ?? 0;
           const decayedUrgency = !urgencyActive || t.is_heat_extinguished === 1
             ? 0
-            : applyTemporalDecay(rawUrgency, lastMessageAt * 1000, decayStart, decayFloor);
+            : applyTemporalDecay(rawUrgency, lastMessageAt, decayStart, decayFloor);
           const urgencyScore = t.is_muted === 1 ? Math.min(decayedUrgency, 0.05) : decayedUrgency;
           return {
             id: t.id,

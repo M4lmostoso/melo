@@ -1054,6 +1054,11 @@ const MIGRATIONS = [
     description: "Add is_draft flag to messages table for stable local draft tracking",
     sql: `ALTER TABLE messages ADD COLUMN is_draft INTEGER DEFAULT 0;`,
   },
+  {
+    version: 47,
+    description: "Normalize messages.date to milliseconds (IMAP stored seconds, Gmail stored ms)",
+    sql: `UPDATE messages SET date = date * 1000 WHERE date > 0 AND date < 10000000000;`,
+  },
 ];
 
 /**

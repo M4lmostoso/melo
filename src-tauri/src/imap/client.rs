@@ -1897,13 +1897,13 @@ fn parse_message(
     let subject = message.subject().map(|s| s.to_string());
     let date = message
         .date()
-        .map(|d| d.to_timestamp())
+        .map(|d| d.to_timestamp() * 1000)
         .filter(|&ts| ts > 0)
-        .or_else(|| internal_date.filter(|&ts| ts > 0))
+        .or_else(|| internal_date.map(|ts| ts * 1000).filter(|&ts| ts > 0))
         .unwrap_or_else(|| {
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_secs() as i64)
+                .map(|d| d.as_millis() as i64)
                 .unwrap_or(0)
         });
 

@@ -1006,8 +1006,8 @@ pub async fn imap_fetch_and_store(
         let stored = if msg.message_id.as_ref().map_or(false, |id| existing_rfc_ids.contains(id)) {
             false // duplicate — return header so TypeScript can accumulate cross-folder labels
         } else {
-            // Filter 3: date cutoff
-            if cutoff_date > 0 && msg.date > 0 && msg.date < cutoff_date {
+            // Filter 3: date cutoff (cutoff_date is Unix seconds from TS; msg.date is ms)
+            if cutoff_date > 0 && msg.date > 0 && msg.date < cutoff_date * 1000 {
                 false
             } else {
                 // Write placeholder thread (thread_id = local_id; updated by imap_store_threads)

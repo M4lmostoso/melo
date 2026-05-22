@@ -135,7 +135,7 @@ function headerToThreadable(h: ImapSyncHeader): ThreadableMessage {
     inReplyTo: h.in_reply_to,
     references: h.references,
     subject: h.subject,
-    date: h.date * 1000,
+    date: h.date,
   };
 }
 
@@ -344,7 +344,7 @@ function buildThreadUpdates(
       message_ids: group.messageIds,
       subject: first.subject,
       snippet: last.snippet,
-      last_message_at: last.date * 1000,
+      last_message_at: last.date,
       is_read: isRead,
       is_starred: isStarred,
       has_attachments: hasAttachments,
@@ -358,7 +358,7 @@ function buildThreadUpdates(
       bodyText: last.snippet,
       fromAddress: last.from_address,
       fromName: last.from_name,
-      lastMessageAt: last.date * 1000,
+      lastMessageAt: last.date,
       labelIds,
     });
   }
@@ -1180,7 +1180,7 @@ async function reconcileOrphanMessages(accountId: string): Promise<void> {
       message_ids: msgs.map((m) => m.msg_id),
       subject: first.subject,
       snippet: last.snippet,
-      last_message_at: last.date * 1000,
+      last_message_at: last.date,
       is_read: isRead,
       is_starred: isStarred,
       has_attachments: hasAttachments,
