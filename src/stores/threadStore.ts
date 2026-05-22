@@ -30,6 +30,8 @@ interface ThreadState {
   isLoading: boolean;
   searchQuery: string;
   searchThreadIds: Set<string> | null; // null = no active search
+  searchResults: Thread[] | null; // null = no active search, [] = search returned no hits
+  searchLoading: boolean;
   setThreads: (threads: Thread[]) => void;
   selectThread: (id: string | null) => void;
   setSelectedMessageId: (id: string | null) => void;
@@ -43,6 +45,8 @@ interface ThreadState {
   removeThread: (id: string) => void;
   removeThreads: (ids: string[]) => void;
   setSearch: (query: string, threadIds: Set<string> | null) => void;
+  setSearchResults: (results: Thread[] | null) => void;
+  setSearchLoading: (loading: boolean) => void;
   clearSearch: () => void;
   addThreads: (newThreads: Thread[]) => void;
 }
@@ -56,6 +60,8 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
   isLoading: false,
   searchQuery: "",
   searchThreadIds: null,
+  searchResults: null,
+  searchLoading: false,
 
   setThreads: (threads) => set({ threads, threadMap: new Map(threads.map((t) => [t.id, t])) }),
   selectThread: (selectedThreadId) => set({ selectedThreadId, selectedThreadIds: new Set() }),
@@ -142,7 +148,9 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       };
     }),
   setSearch: (query, threadIds) => set({ searchQuery: query, searchThreadIds: threadIds }),
-  clearSearch: () => set({ searchQuery: "", searchThreadIds: null }),
+  setSearchResults: (searchResults) => set({ searchResults }),
+  setSearchLoading: (searchLoading) => set({ searchLoading }),
+  clearSearch: () => set({ searchQuery: "", searchThreadIds: null, searchResults: null, searchLoading: false }),
   addThreads: (newThreads) =>
     set((state) => {
       const existingIds = new Set(state.threads.map((t) => t.id));

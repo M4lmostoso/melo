@@ -498,21 +498,22 @@ const [hasMore, setHasMore] = useState(true);
     }
   };
 
-  const searchThreadIds = useThreadStore((s) => s.searchThreadIds);
+  const searchResults = useThreadStore((s) => s.searchResults);
+  const searchLoading = useThreadStore((s) => s.searchLoading);
   const searchQuery = useThreadStore((s) => s.searchQuery);
+  const isSearchActive = searchResults !== null;
 
   const filteredThreads = useMemo(() => {
-    let filtered = threads;
-    // Apply search filter
-    if (searchThreadIds !== null) {
-      filtered = filtered.filter((t) => searchThreadIds.has(t.id));
-    }
+    // When a search is active, the source list is the standalone search
+    // results (loaded directly from DB across all emails). Otherwise we use
+    // the current folder's `threads` cache.
+    let filtered: Thread[] = isSearchActive ? searchResults! : threads;
     // Apply read filter
     if (readFilter === "unread") filtered = filtered.filter((t) => !t.isRead);
     else if (readFilter === "read") filtered = filtered.filter((t) => t.isRead);
     // Category filtering is now server-side (Phase 4) — no client-side filter needed
     return filtered;
-  }, [threads, readFilter, searchThreadIds]);
+  }, [threads, readFilter, searchResults, isSearchActive]);
 
   // Pre-compute bundled category Set for O(1) lookups in filter
   const bundledCategorySet = useMemo(
@@ -520,9 +521,12 @@ const [hasMore, setHasMore] = useState(true);
     [bundleRules],
   );
 
-  // Memoize visible threads (excludes bundled/held threads in "All" inbox view)
+  // Memoize visible threads (excludes bundled/held threads in "All" inbox view).
+  // When a search is active we bypass bundle/held filtering so every match is
+  // visible directly — otherwise hits hidden inside bundles would inflate the
+  // conversation count without ever appearing in the list.
   const visibleThreads = useMemo(() => {
-    if (activeLabel !== "inbox" || activeCategory !== "All")
+    if (activeLabel !== "inbox" || activeCategory !== "All" || isSearchActive)
       return filteredThreads;
     return filteredThreads.filter((t) => {
       const cat = categoryMap.get(t.id);
@@ -537,6 +541,7 @@ const [hasMore, setHasMore] = useState(true);
     categoryMap,
     bundledCategorySet,
     heldThreadIds,
+    isSearchActive,
   ]);
 
   const mapDbThreads = useCallback(
@@ -1178,6 +1183,7 @@ const [hasMore, setHasMore] = useState(true);
     };
   }, [loadThreads, activeAccountId, activeLabel]);
 
+
 // Infinite scroll: load more when near bottom
  useEffect(() => {
    const container = scrollContainerRef.current;
@@ -1387,9 +1393,9 @@ const [hasMore, setHasMore] = useState(true);
 
 {/* Thread list */}
        <div ref={scrollContainerRef} className={`flex-1 overflow-y-auto ${isScrolling ? 'scrollbar-visible' : 'scrollbar-hidden'}`}>
-         {isLoading && threads.length === 0 ? (
+         {(isLoading && threads.length === 0) || (searchLoading && !isSearchActive) ? (
           <EmailListSkeleton />
-        ) : filteredThreads.length === 0 && bundleRules.length === 0 ? (
+        ) : filteredThreads.length === 0 && (isSearchActive || bundleRules.length === 0) ? (
           <EmptyStateForContext
             searchQuery={searchQuery}
             activeAccountId={activeAccountId}
@@ -1399,9 +1405,10 @@ const [hasMore, setHasMore] = useState(true);
           />
         ) : (
           <>
-            {/* Bundle rows for "All" inbox view */}
+            {/* Bundle rows for "All" inbox view (hidden when searching) */}
             {activeLabel === "inbox" &&
               activeCategory === "All" &&
+              !isSearchActive &&
               bundleRules.map((rule) => {
                 const summary = bundleSummaries.get(rule.category);
                 if (!summary || summary.count === 0) return null;

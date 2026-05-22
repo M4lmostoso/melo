@@ -295,6 +295,78 @@ export async function getThreadsByIds(
   return results;
 }
 
+/**
+ * Batched variant of getThreadsByIds. Groups pairs by accountId and runs one
+ * query per account with `id IN (...)`. Used by search to avoid the
+ * one-query-per-thread cost of the loop-based version above.
+ */
+export async function getThreadsByIdsBatch(
+  pairs: Array<{ accountId: string; threadId: string }>,
+): Promise<DbThread[]> {
+  if (pairs.length === 0) return [];
+  const db = await getDb();
+
+  const byAccount = new Map<string, string[]>();
+  for (const { accountId, threadId } of pairs) {
+    const list = byAccount.get(accountId);
+    if (list) list.push(threadId);
+    else byAccount.set(accountId, [threadId]);
+  }
+
+  const results: DbThread[] = [];
+  for (const [accountId, threadIds] of byAccount) {
+    // $1 is accountId, $2..$N are threadIds
+    const placeholders = threadIds.map((_, i) => `$${i + 2}`).join(", ");
+    const rows = await db.select<DbThread[]>(
+      `SELECT t.*, m.from_name, m.from_address,
+         (SELECT GROUP_CONCAT(from_name, ', ') FROM (SELECT from_name, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_name IS NOT NULL AND from_name != '' GROUP BY from_name ORDER BY last_date DESC)) as all_senders
+       FROM threads t
+       LEFT JOIN messages m ON m.account_id = t.account_id AND m.thread_id = t.id
+         AND m.date = (SELECT MAX(m2.date) FROM messages m2 WHERE m2.account_id = t.account_id AND m2.thread_id = t.id)
+       WHERE t.account_id = $1 AND t.id IN (${placeholders})`,
+      [accountId, ...threadIds],
+    );
+    results.push(...rows);
+  }
+  return results;
+}
+
+/**
+ * Batched fetch of label IDs for a set of (accountId, threadId) pairs.
+ * Returns a Map keyed by `${accountId}:${threadId}` to the label ID list.
+ * One query per account.
+ */
+export async function getThreadLabelsByIdsBatch(
+  pairs: Array<{ accountId: string; threadId: string }>,
+): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>();
+  if (pairs.length === 0) return out;
+  const db = await getDb();
+
+  const byAccount = new Map<string, string[]>();
+  for (const { accountId, threadId } of pairs) {
+    const list = byAccount.get(accountId);
+    if (list) list.push(threadId);
+    else byAccount.set(accountId, [threadId]);
+  }
+
+  for (const [accountId, threadIds] of byAccount) {
+    const placeholders = threadIds.map((_, i) => `$${i + 2}`).join(", ");
+    const rows = await db.select<Array<{ thread_id: string; label_id: string }>>(
+      `SELECT thread_id, label_id FROM thread_labels
+       WHERE account_id = $1 AND thread_id IN (${placeholders})`,
+      [accountId, ...threadIds],
+    );
+    for (const r of rows) {
+      const key = `${accountId}:${r.thread_id}`;
+      const list = out.get(key);
+      if (list) list.push(r.label_id);
+      else out.set(key, [r.label_id]);
+    }
+  }
+  return out;
+}
+
 export async function getThreadById(
   accountId: string,
   threadId: string,

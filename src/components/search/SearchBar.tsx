@@ -1,12 +1,17 @@
 import { useState, useRef, useCallback } from "react";
 import { searchMessages } from "@/services/db/search";
-import { getThreadsByIds, getThreadLabelIds } from "@/services/db/threads";
+import {
+  getThreadsByIdsBatch,
+  getThreadLabelsByIdsBatch,
+} from "@/services/db/threads";
 import { useAccountStore } from "@/stores/accountStore";
-import { useThreadStore } from "@/stores/threadStore";
+import { useThreadStore, type Thread } from "@/stores/threadStore";
 import { useSmartFolderStore } from "@/stores/smartFolderStore";
 import { useComposerStore } from "@/stores/composerStore";
 import { InputDialog } from "@/components/ui/InputDialog";
 import { Search, X, FolderPlus, Pencil } from "lucide-react";
+
+const SEARCH_HIT_LIMIT = 100;
 
 export function SearchBar() {
   const searchQuery = useThreadStore((s) => s.searchQuery);
@@ -30,62 +35,98 @@ export function SearchBar() {
 
   const handleChange = useCallback(
     (value: string) => {
-      const { setSearch } = useThreadStore.getState();
-      setSearch(value, useThreadStore.getState().searchThreadIds);
+      const store = useThreadStore.getState();
 
       if (debounceRef.current) clearTimeout(debounceRef.current);
 
+      // Synchronously update the query (controls the textarea value).
+      // Clear any previous search results so the UI doesn't display stale
+      // matches while the new debounced query is in flight.
+      store.setSearch(value, null);
+      store.setSearchResults(null);
+      store.setSearchLoading(false);
+
       if (value.trim().length < 2) {
-        setSearch(value, null);
         return;
       }
 
+      // Mark "loading" only after a short delay so the spinner doesn't flash
+      // on every keystroke; the debounce itself acts as the delay.
+      store.setSearchLoading(true);
+
       debounceRef.current = setTimeout(async () => {
+        const isStale = () => useThreadStore.getState().searchQuery !== value;
         try {
           const hits = await searchMessages(
             value,
             activeAccountId ?? undefined,
-            200,
+            SEARCH_HIT_LIMIT,
           );
-          const threadIds = new Set(hits.map((h) => h.thread_id));
-          useThreadStore.getState().setSearch(value, threadIds);
+          if (isStale()) return;
 
-          // Load threads not yet in the store (beyond the initial 50)
-          const { threadMap } = useThreadStore.getState();
-          const missingPairs = hits
-            .filter((h) => !threadMap.has(h.thread_id))
-            .map((h) => ({ accountId: h.account_id, threadId: h.thread_id }));
-
-          if (missingPairs.length > 0) {
-            const dbThreads = await getThreadsByIds(missingPairs);
-            const mapped = await Promise.all(
-              dbThreads.map(async (t) => {
-                const labelIds = await getThreadLabelIds(t.account_id, t.id);
-                return {
-                  id: t.id,
-                  accountId: t.account_id,
-                  subject: t.subject,
-                  snippet: t.snippet,
-                  lastMessageAt: t.last_message_at ?? 0,
-                  messageCount: t.message_count,
-                  isRead: t.is_read === 1,
-                  isStarred: t.is_starred === 1,
-                  isPinned: t.is_pinned === 1,
-                  isMuted: t.is_muted === 1,
-                  hasAttachments: t.has_attachments === 1,
-                  labelIds,
-                  fromName: t.from_name,
-                  fromAddress: t.from_address,
-                  urgencyScore: t.urgency_score ?? undefined,
-                  sentimentScore: t.sentiment_score ?? undefined,
-                  isHeatExtinguished: t.is_heat_extinguished === 1,
-                };
-              }),
-            );
-            useThreadStore.getState().addThreads(mapped);
+          if (hits.length === 0) {
+            useThreadStore.getState().setSearchResults([]);
+            useThreadStore.getState().setSearchLoading(false);
+            useThreadStore.getState().setSearch(value, new Set());
+            return;
           }
-        } catch {
-          useThreadStore.getState().setSearch(value, null);
+
+          // Deduplicate to one entry per thread (searchMessages returns one row
+          // per matching message, so the same thread may appear multiple times).
+          const seen = new Set<string>();
+          const uniquePairs: Array<{ accountId: string; threadId: string }> = [];
+          const orderByThreadId = new Map<string, number>();
+          for (const h of hits) {
+            if (seen.has(h.thread_id)) continue;
+            seen.add(h.thread_id);
+            orderByThreadId.set(h.thread_id, uniquePairs.length);
+            uniquePairs.push({ accountId: h.account_id, threadId: h.thread_id });
+          }
+
+          const [dbThreads, labelsByKey] = await Promise.all([
+            getThreadsByIdsBatch(uniquePairs),
+            getThreadLabelsByIdsBatch(uniquePairs),
+          ]);
+          if (isStale()) return;
+
+          const mapped: Thread[] = dbThreads.map((t) => ({
+            id: t.id,
+            accountId: t.account_id,
+            subject: t.subject,
+            snippet: t.snippet,
+            lastMessageAt: t.last_message_at ?? 0,
+            messageCount: t.message_count,
+            isRead: t.is_read === 1,
+            isStarred: t.is_starred === 1,
+            isPinned: t.is_pinned === 1,
+            isMuted: t.is_muted === 1,
+            hasAttachments: t.has_attachments === 1,
+            labelIds: labelsByKey.get(`${t.account_id}:${t.id}`) ?? [],
+            fromName: t.from_name,
+            fromAddress: t.from_address,
+            allSenders: t.all_senders,
+            urgencyScore: t.urgency_score ?? undefined,
+            sentimentScore: t.sentiment_score ?? undefined,
+            isHeatExtinguished: t.is_heat_extinguished === 1,
+          }));
+
+          // Preserve FTS5 rank ordering from `hits`
+          mapped.sort((a, b) => {
+            const ai = orderByThreadId.get(a.id) ?? Number.MAX_SAFE_INTEGER;
+            const bi = orderByThreadId.get(b.id) ?? Number.MAX_SAFE_INTEGER;
+            return ai - bi;
+          });
+
+          if (isStale()) return;
+          useThreadStore.getState().setSearch(value, new Set(mapped.map((t) => t.id)));
+          useThreadStore.getState().setSearchResults(mapped);
+          useThreadStore.getState().setSearchLoading(false);
+        } catch (err) {
+          console.error("Search failed:", err);
+          if (!isStale()) {
+            useThreadStore.getState().setSearchResults([]);
+            useThreadStore.getState().setSearchLoading(false);
+          }
         }
       }, 200);
     },
@@ -93,6 +134,7 @@ export function SearchBar() {
   );
 
   const handleClear = useCallback(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
     useThreadStore.getState().clearSearch();
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
@@ -102,6 +144,7 @@ export function SearchBar() {
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Escape") {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
       useThreadStore.getState().clearSearch();
       if (textareaRef.current) textareaRef.current.style.height = "auto";
       textareaRef.current?.blur();
