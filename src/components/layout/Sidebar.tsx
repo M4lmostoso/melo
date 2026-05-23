@@ -324,6 +324,9 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
   const sidebarNavConfig = useUIStore((s) => s.sidebarNavConfig);
   const taskIncompleteCount = useTaskStore((s) => s.incompleteCount);
+  const taskOverdueTotal = useTaskStore((s) => s.taskOverdueTotal);
+  const taskBadgeByAccount = useTaskStore((s) => s.taskBadgeByAccount);
+  const refreshTaskBadges = useTaskStore((s) => s.refreshTaskBadges);
   const inboxViewMode = useUIStore((s) => s.inboxViewMode);
   const setInboxViewMode = useUIStore((s) => s.setInboxViewMode);
   const activeCategory = useActiveCategory();
@@ -459,6 +462,11 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
     [openMenu],
   );
 
+  // Load initial task badge counts
+  useEffect(() => {
+    refreshTaskBadges().catch(() => {});
+  }, [refreshTaskBadges]);
+
   // Load labels when active account changes
   useEffect(() => {
     if (activeAccountId) {
@@ -517,6 +525,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
           loadAllAccountLabels(allIds);
           refreshSmartFolderGlobalCounts(allIds);
         }
+        refreshTaskBadges().catch(() => {});
         useUIStore.getState().setSyncingFolder(null);
       }, 500);
     };
@@ -525,7 +534,25 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
       window.removeEventListener("velo-sync-done", handler);
       if (timer) clearTimeout(timer);
     };
-  }, [activeAccountId, loadLabels, loadAllAccountLabels, refreshSmartFolderCounts, refreshSmartFolderGlobalCounts, refreshGlobalUnreadCounts, refreshScheduledCounts]);
+  }, [activeAccountId, loadLabels, loadAllAccountLabels, refreshSmartFolderCounts, refreshSmartFolderGlobalCounts, refreshGlobalUnreadCounts, refreshScheduledCounts, refreshTaskBadges]);
+
+  // Immediate badge refresh after user actions (trash, archive, markRead, spam).
+  // No debounce — the DB is already updated by the time this event fires.
+  useEffect(() => {
+    const handler = () => {
+      if (activeAccountId) {
+        refreshLabelUnreadCounts(activeAccountId);
+        refreshSmartFolderCounts(activeAccountId);
+      }
+      const allIds = useAccountStore.getState().accounts.map((a) => a.id);
+      if (allIds.length > 0) {
+        refreshGlobalUnreadCounts(allIds);
+        refreshSmartFolderGlobalCounts(allIds);
+      }
+    };
+    window.addEventListener("velo-badges-refresh", handler);
+    return () => window.removeEventListener("velo-badges-refresh", handler);
+  }, [activeAccountId, refreshLabelUnreadCounts, refreshSmartFolderCounts, refreshGlobalUnreadCounts, refreshSmartFolderGlobalCounts]);
 
   const handleDeleteLabel = useCallback(
     async (labelId: string) => {
@@ -723,14 +750,18 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
             ).map((gi) => {
               const GIcon = gi.icon;
               const unreadKey = FOLDER_UNREAD_KEY[gi.id];
-              const globalTotal = gi.id === "scheduled"
-                ? globalAccounts.reduce((sum, a) => sum + (scheduledCounts[a.id] ?? 0), 0)
-                : unreadKey
-                  ? globalAccounts.reduce(
-                      (sum, a) => sum + (globalUnreadCounts[a.id]?.[unreadKey] ?? 0),
-                      0,
-                    )
-                  : 0;
+              const nullBadge = taskBadgeByAccount["__null__"] ?? { active: 0, overdue: 0 };
+              const globalTotal = gi.id === "tasks"
+                ? taskIncompleteCount
+                : gi.id === "scheduled"
+                  ? globalAccounts.reduce((sum, a) => sum + (scheduledCounts[a.id] ?? 0), 0)
+                  : unreadKey
+                    ? globalAccounts.reduce(
+                        (sum, a) => sum + (globalUnreadCounts[a.id]?.[unreadKey] ?? 0),
+                        0,
+                      )
+                    : 0;
+              const globalTaskOverdue = gi.id === "tasks" ? taskOverdueTotal : 0;
               return (
                 <Fragment key={`global-${gi.id}`}>
                   <div>
@@ -750,11 +781,15 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                       {!collapsed && (
                         <>
                           <span className="flex-1 truncate">{gi.label}</span>
-                          {globalTotal > 0 && (
+                          {globalTaskOverdue > 0 ? (
+                            <span className="text-[0.625rem] bg-amber-500/15 text-amber-500 px-1.5 min-w-[1.25rem] h-[1.125rem] rounded-full inline-flex items-center justify-center tabular-nums">
+                              {globalTaskOverdue}
+                            </span>
+                          ) : globalTotal > 0 ? (
                             <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 min-w-[1.25rem] h-[1.125rem] rounded-full inline-flex items-center justify-center tabular-nums">
                               {globalTotal}
                             </span>
-                          )}
+                          ) : null}
                         </>
                       )}
                     </ExpandableNavItem>
@@ -766,9 +801,17 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                           {globalAccounts.map((account) => {
                             const color = account.color ?? "#3182CE";
                             const displayName = account.label ?? account.displayName ?? account.email;
-                            const unread = gi.id === "scheduled"
-                              ? (scheduledCounts[account.id] ?? 0)
-                              : unreadKey ? (globalUnreadCounts[account.id]?.[unreadKey] ?? 0) : 0;
+                            let unread: number;
+                            let unreadOverdue = 0;
+                            if (gi.id === "tasks") {
+                              const accBadge = taskBadgeByAccount[account.id] ?? { active: 0, overdue: 0 };
+                              unread = accBadge.active + nullBadge.active;
+                              unreadOverdue = accBadge.overdue + nullBadge.overdue;
+                            } else {
+                              unread = gi.id === "scheduled"
+                                ? (scheduledCounts[account.id] ?? 0)
+                                : unreadKey ? (globalUnreadCounts[account.id]?.[unreadKey] ?? 0) : 0;
+                            }
                             const isAccountActive =
                               activeLabel === gi.id && activeAccountId === account.id;
                             return (
@@ -789,11 +832,15 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                                   style={{ backgroundColor: color }}
                                 />
                                 <span className="flex-1 truncate">{displayName}</span>
-                                {unread > 0 && (
+                                {unreadOverdue > 0 ? (
+                                  <span className="text-[0.625rem] bg-amber-500/15 text-amber-500 px-1.5 min-w-[1.25rem] h-[1.125rem] rounded-full inline-flex items-center justify-center tabular-nums">
+                                    {unreadOverdue}
+                                  </span>
+                                ) : unread > 0 ? (
                                   <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 min-w-[1.25rem] h-[1.125rem] rounded-full inline-flex items-center justify-center tabular-nums">
                                     {unread}
                                   </span>
-                                )}
+                                ) : null}
                               </button>
                             );
                           })}
@@ -1019,13 +1066,17 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                     {!collapsed && (
                       <span className="flex-1 truncate">{item.label}</span>
                     )}
-                    {item.id === "tasks" &&
-                      taskIncompleteCount > 0 &&
-                      !collapsed && (
+                    {item.id === "tasks" && !collapsed && (
+                      taskOverdueTotal > 0 ? (
+                        <span className="text-[0.625rem] bg-amber-500/15 text-amber-500 px-1.5 min-w-[1.25rem] h-[1.125rem] rounded-full inline-flex items-center justify-center tabular-nums">
+                          {taskOverdueTotal}
+                        </span>
+                      ) : taskIncompleteCount > 0 ? (
                         <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 min-w-[1.25rem] h-[1.125rem] rounded-full inline-flex items-center justify-center tabular-nums">
                           {taskIncompleteCount}
                         </span>
-                      )}
+                      ) : null
+                    )}
                     {unreadCount > 0 && !collapsed && item.id !== "tasks" && (
                       <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 min-w-[1.25rem] h-[1.125rem] rounded-full inline-flex items-center justify-center tabular-nums">
                         {unreadCount}

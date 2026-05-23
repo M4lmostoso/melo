@@ -1059,7 +1059,102 @@ const MIGRATIONS = [
     description: "Normalize messages.date to milliseconds (IMAP stored seconds, Gmail stored ms)",
     sql: `UPDATE messages SET date = date * 1000 WHERE date > 0 AND date < 10000000000;`,
   },
+  {
+    version: 48,
+    description: "Add covering index for IMAP duplicate detection query (message_id_header + imap_folder + imap_uid)",
+    sql: `CREATE INDEX IF NOT EXISTS idx_messages_dedup
+          ON messages(account_id, message_id_header, imap_folder, imap_uid)
+          WHERE message_id_header IS NOT NULL AND imap_folder IS NOT NULL AND imap_uid IS NOT NULL;`,
+  },
 ];
+
+// ---------------------------------------------------------------------------
+// Post-migration data repair
+// ---------------------------------------------------------------------------
+
+/**
+ * Windows-1252 code points that don't exist in Latin-1 (the 0x80–0x9F block).
+ * Maps Unicode code point → Windows-1252 byte value.
+ */
+const WIN1252_EXTRA: Record<number, number> = {
+  0x20AC: 0x80, 0x201A: 0x82, 0x0192: 0x83, 0x201E: 0x84,
+  0x2026: 0x85, 0x2020: 0x86, 0x2021: 0x87, 0x02C6: 0x88,
+  0x2030: 0x89, 0x0160: 0x8A, 0x2039: 0x8B, 0x0152: 0x8C,
+  0x017D: 0x8E, 0x2018: 0x91, 0x2019: 0x92, 0x201C: 0x93,
+  0x201D: 0x94, 0x2022: 0x95, 0x2013: 0x96, 0x2014: 0x97,
+  0x02DC: 0x98, 0x2122: 0x99, 0x0161: 0x9A, 0x203A: 0x9B,
+  0x0153: 0x9C, 0x017E: 0x9E, 0x0178: 0x9F,
+};
+
+function fixMojibake(s: string): string {
+  let current = s;
+  for (let iter = 0; iter < 3; iter++) {
+    const bytes: number[] = [];
+    let canMap = true;
+    for (const ch of current) {
+      const cp = ch.codePointAt(0)!;
+      if (cp <= 0xFF) {
+        bytes.push(cp);
+      } else if (WIN1252_EXTRA[cp] !== undefined) {
+        bytes.push(WIN1252_EXTRA[cp]!);
+      } else {
+        canMap = false;
+        break;
+      }
+    }
+    if (!canMap || !bytes.some((b) => b > 0x7F)) break;
+    try {
+      const fixed = new TextDecoder('utf-8', { fatal: true }).decode(new Uint8Array(bytes));
+      if (fixed !== current) { current = fixed; continue; }
+    } catch { /* invalid UTF-8 — stop */ }
+    break;
+  }
+  return current;
+}
+
+/**
+ * One-shot repair of Windows-1252 mojibake in existing subject/from_name fields.
+ * Stored in settings so it only runs once per installation.
+ */
+export async function repairMojibakeData(): Promise<void> {
+  const { getSetting, setSetting } = await import('./settings');
+  const already = await getSetting('mojibake_repair_v1');
+  if (already === '1') return;
+
+  const db = await getDb();
+
+  // Threads
+  const threadRows = await db.select<{ id: string; account_id: string; subject: string }[]>(
+    `SELECT id, account_id, subject FROM threads WHERE subject IS NOT NULL AND subject != ''`,
+  );
+  for (const row of threadRows) {
+    const fixed = fixMojibake(row.subject);
+    if (fixed !== row.subject) {
+      await db.execute(
+        `UPDATE threads SET subject = $1 WHERE account_id = $2 AND id = $3`,
+        [fixed, row.account_id, row.id],
+      );
+    }
+  }
+
+  // Messages — subject and from_name
+  const msgRows = await db.select<{ id: string; account_id: string; subject: string | null; from_name: string | null }[]>(
+    `SELECT id, account_id, subject, from_name FROM messages WHERE subject IS NOT NULL OR from_name IS NOT NULL`,
+  );
+  for (const row of msgRows) {
+    const fixedSubject = row.subject ? fixMojibake(row.subject) : null;
+    const fixedName = row.from_name ? fixMojibake(row.from_name) : null;
+    if (fixedSubject !== row.subject || fixedName !== row.from_name) {
+      await db.execute(
+        `UPDATE messages SET subject = $1, from_name = $2 WHERE account_id = $3 AND id = $4`,
+        [fixedSubject, fixedName, row.account_id, row.id],
+      );
+    }
+  }
+
+  await setSetting('mojibake_repair_v1', '1');
+  console.log(`[migrations] mojibake repair done: ${threadRows.length} threads, ${msgRows.length} messages checked`);
+}
 
 /**
  * Split a SQL string into individual statements, correctly handling

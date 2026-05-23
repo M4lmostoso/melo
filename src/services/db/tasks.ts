@@ -385,6 +385,20 @@ export async function reorderTasks(
   }
 }
 
+export async function getTaskBadgeCounts(): Promise<
+  Array<{ account_id: string | null; active: number; overdue: number }>
+> {
+  const db = await getDb();
+  return db.select<Array<{ account_id: string | null; active: number; overdue: number }>>(
+    `SELECT account_id,
+            COUNT(*) as active,
+            SUM(CASE WHEN due_date IS NOT NULL AND due_date < unixepoch() THEN 1 ELSE 0 END) as overdue
+     FROM tasks
+     WHERE is_completed = 0 AND deleted_at IS NULL AND parent_id IS NULL
+     GROUP BY account_id`,
+  );
+}
+
 export async function getIncompleteTaskCount(
   accountId: string | null,
 ): Promise<number> {

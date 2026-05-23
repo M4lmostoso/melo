@@ -20,7 +20,6 @@ import {
   hardDeleteTask,
   restoreTask,
   getSubtasks,
-  getIncompleteTaskCount,
   updateTask,
   type DbTask,
   type DbTaskWithSubject,
@@ -118,8 +117,7 @@ export function TasksPage() {
     const loaded = await getTasksWithSubjects(accountId, true);
     setAllTasks(loaded);
     setTasks(loaded);
-    const count = await getIncompleteTaskCount(accountId);
-    useTaskStore.getState().setIncompleteCount(count);
+    await useTaskStore.getState().refreshTaskBadges();
   }, [accountId, setTasks]);
 
   const loadDeletedTasks = useCallback(async () => {

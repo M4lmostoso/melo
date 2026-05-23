@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { DbTask, TaskPriority } from "@/services/db/tasks";
+import { getTaskBadgeCounts } from "@/services/db/tasks";
 import type { ExtractedTask } from "@/services/ai/taskExtraction";
 
 export type TaskGroupBy = "none" | "priority" | "dueDate" | "tag";
@@ -11,6 +12,8 @@ interface TaskState {
   threadTasks: DbTask[];
   selectedTaskId: string | null;
   incompleteCount: number;
+  taskOverdueTotal: number;
+  taskBadgeByAccount: Record<string, { active: number; overdue: number }>;
   groupBy: TaskGroupBy;
   filterStatus: TaskFilterStatus;
   filterPriority: TaskPriority | "all";
@@ -31,6 +34,7 @@ interface TaskState {
   removeTask: (id: string) => void;
   setSelectedTaskId: (id: string | null) => void;
   setIncompleteCount: (count: number) => void;
+  refreshTaskBadges: () => Promise<void>;
   setGroupBy: (groupBy: TaskGroupBy) => void;
   setFilterStatus: (status: TaskFilterStatus) => void;
   setFilterPriority: (priority: TaskPriority | "all") => void;
@@ -49,6 +53,8 @@ export const useTaskStore = create<TaskState>((set, get) => ({
   threadTasks: [],
   selectedTaskId: null,
   incompleteCount: 0,
+  taskOverdueTotal: 0,
+  taskBadgeByAccount: {},
   groupBy: "none",
   filterStatus: "incomplete",
   filterPriority: "all",
@@ -98,6 +104,19 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     }),
   setSelectedTaskId: (selectedTaskId) => set({ selectedTaskId }),
   setIncompleteCount: (incompleteCount) => set({ incompleteCount }),
+  refreshTaskBadges: async () => {
+    const rows = await getTaskBadgeCounts();
+    const byAccount: Record<string, { active: number; overdue: number }> = {};
+    let totalActive = 0;
+    let totalOverdue = 0;
+    for (const row of rows) {
+      const key = row.account_id ?? "__null__";
+      byAccount[key] = { active: row.active, overdue: row.overdue };
+      totalActive += row.active;
+      totalOverdue += row.overdue;
+    }
+    set({ taskBadgeByAccount: byAccount, taskOverdueTotal: totalOverdue, incompleteCount: totalActive });
+  },
   setGroupBy: (groupBy) => set({ groupBy }),
   setFilterStatus: (status) => set({ filterStatus: status }),
   setFilterPriority: (priority) => set({ filterPriority: priority }),

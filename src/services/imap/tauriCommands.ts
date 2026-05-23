@@ -409,6 +409,8 @@ export async function imapSearchFolder(
  */
 export interface ImapSyncHeader {
   local_id: string;
+  /** IMAP UID of this message in its folder. Used for accurate lastUid tracking. */
+  uid: number;
   message_id: string | null;
   in_reply_to: string | null;
   references: string | null;

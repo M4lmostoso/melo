@@ -538,7 +538,13 @@ async function fetchAndStoreWithRetry(
         const r = await imapFetchAndStore(config, accountId, folder, labelId, sub, cutoffDate);
         headers.push(...r);
       } catch (subErr) {
-        console.warn(`[imapSync] Sub-batch FETCH failed for ${sub.length} UIDs in ${folder}, will retry next sync`);
+        // Sub-batch failed. We return only the successful headers; lastUid in
+        // fetchAllInBatches is computed from response UIDs, so it won't advance
+        // past the failed UIDs — they will be retried on the next delta sync.
+        console.warn(
+          `[imapSync] Sub-batch FETCH failed for UIDs ${sub[0]}–${sub[sub.length - 1]} in ${folder} — will be retried next delta sync`,
+          subErr,
+        );
       }
     }
     return headers;
@@ -559,6 +565,9 @@ async function fetchAllInBatches(
   onProgress?: (fetched: number, total: number) => void,
 ): Promise<{ headers: ImapSyncHeader[]; lastUid: number }> {
   const headers: ImapSyncHeader[] = [];
+  // Track the highest UID actually returned by the server, not the highest
+  // requested. If a batch (or sub-batch) fails, we don't advance lastUid past
+  // the failed messages so the next delta sync retries them.
   let lastUid = 0;
 
   for (let i = 0; i < uids.length; i += BATCH_SIZE) {
@@ -567,20 +576,15 @@ async function fetchAllInBatches(
       config, accountId, folder, labelId, batch, cutoffDate,
     );
     headers.push(...batchHeaders);
+    // Advance lastUid only for UIDs the server actually returned (tombstoned
+    // messages are absent from batchHeaders but re-filtered harmlessly next sync).
     for (const h of batchHeaders) {
-      if (h.date > lastUid) lastUid = h.date; // date used as proxy; real lastUid below
-    }
-    // Actual lastUid: highest UID in the batch (not date)
-    for (const uid of batch) {
-      if (uid > lastUid) lastUid = uid;
+      if (h.uid > lastUid) lastUid = h.uid;
     }
     onProgress?.(Math.min(i + BATCH_SIZE, uids.length), uids.length);
-    // Small yield so other microtasks can run between batches
     await delay(0);
   }
 
-  // Correct lastUid: it's the max UID from the original uids array
-  lastUid = uids.length > 0 ? Math.max(...uids.slice(-1)) : 0;
   return { headers, lastUid };
 }
 

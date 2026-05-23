@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { X, Loader2, Sparkles, Calendar, Flag } from "lucide-react";
 import { extractTask } from "@/services/ai/taskExtraction";
-import { insertTask, getIncompleteTaskCount } from "@/services/db/tasks";
+import { insertTask } from "@/services/db/tasks";
 import type { TaskPriority } from "@/services/db/tasks";
 import type { DbMessage } from "@/services/db/messages";
 import { useTaskStore } from "@/stores/taskStore";
@@ -76,9 +76,8 @@ export function AiTaskExtractDialog({
         threadAccountId: accountId,
       });
 
-      // Update store count
-      const count = await getIncompleteTaskCount(accountId);
-      useTaskStore.getState().setIncompleteCount(count);
+      // Update store counts (global totals)
+      await useTaskStore.getState().refreshTaskBadges();
 
       onCreated?.(taskId);
       onClose();

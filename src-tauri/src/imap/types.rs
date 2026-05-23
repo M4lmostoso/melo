@@ -182,6 +182,9 @@ pub struct DeltaCheckResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImapSyncHeader {
     pub local_id: String,
+    /// IMAP UID of this message in its folder. Used by TypeScript to track the
+    /// highest UID actually returned from a batch (for correct lastUid accounting).
+    pub uid: u32,
     pub message_id: Option<String>,
     pub in_reply_to: Option<String>,
     pub references: Option<String>,

@@ -9,7 +9,7 @@ import { AskInbox } from "./components/search/AskInbox";
 import { useUIStore } from "./stores/uiStore";
 import { useAccountStore } from "./stores/accountStore";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
-import { runMigrations } from "./services/db/migrations";
+import { runMigrations, repairMojibakeData } from "./services/db/migrations";
 import { getAllAccounts } from "./services/db/accounts";
 import { getSetting, deleteSetting } from "./services/db/settings";
 import {
@@ -70,7 +70,6 @@ import { invoke } from "@tauri-apps/api/core";
 import { DndProvider } from "./components/dnd/DndProvider";
 import { TitleBar } from "./components/layout/TitleBar";
 import { useShortcutStore } from "./stores/shortcutStore";
-import { getIncompleteTaskCount } from "./services/db/tasks";
 import { useTaskStore } from "./stores/taskStore";
 import { purgeOldDeletedTasks, purgeOldCompletedTasks } from "./services/tasks/taskManager";
 import { ContextMenuPortal } from "./components/ui/ContextMenuPortal";
@@ -365,6 +364,9 @@ export default function App() {
         } catch (migErr) {
           console.error("Migration failed, continuing with existing schema:", migErr);
         }
+        repairMojibakeData().catch((err) =>
+          console.error("[App] mojibake repair failed:", err),
+        );
 
         const ui = useUIStore.getState();
 
@@ -625,12 +627,8 @@ export default function App() {
         // Initial badge count
         await updateBadgeCount();
 
-        // Load initial task count
-        const activeAcct = useAccountStore.getState().activeAccountId;
-        if (activeAcct) {
-          const count = await getIncompleteTaskCount(activeAcct);
-          useTaskStore.getState().setIncompleteCount(count);
-        }
+        // Load initial task badge counts (active + overdue per account)
+        await useTaskStore.getState().refreshTaskBadges();
         // Purge soft-deleted and completed tasks per user-configured retention settings — fire-and-forget
         purgeOldDeletedTasks();
         purgeOldCompletedTasks();

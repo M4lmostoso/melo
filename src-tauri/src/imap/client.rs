@@ -1894,7 +1894,7 @@ fn parse_message(
     let message = parser.parse(raw).ok_or("Failed to parse MIME message")?;
 
     let message_id = message.message_id().map(|s| s.to_string());
-    let subject = message.subject().map(|s| s.to_string());
+    let subject = message.subject().map(|s| fix_mojibake(s));
     let date = message
         .date()
         .map(|d| d.to_timestamp() * 1000)
@@ -2102,6 +2102,75 @@ fn extract_header_text(hv: Option<&mail_parser::HeaderValue>) -> Option<String> 
     }
 }
 
+/// Map a Unicode char to its Windows-1252 byte value, if any.
+/// Covers the standard Latin-1 range (U+0000–U+00FF) plus the 27 Windows-1252
+/// code points that differ from Latin-1 (U+0080–U+009F block).
+fn win1252_byte(c: char) -> Option<u8> {
+    let cp = c as u32;
+    if cp <= 0xFF {
+        return Some(cp as u8);
+    }
+    match c {
+        '\u{20AC}' => Some(0x80),
+        '\u{201A}' => Some(0x82),
+        '\u{0192}' => Some(0x83),
+        '\u{201E}' => Some(0x84),
+        '\u{2026}' => Some(0x85),
+        '\u{2020}' => Some(0x86),
+        '\u{2021}' => Some(0x87),
+        '\u{02C6}' => Some(0x88),
+        '\u{2030}' => Some(0x89),
+        '\u{0160}' => Some(0x8A),
+        '\u{2039}' => Some(0x8B),
+        '\u{0152}' => Some(0x8C),
+        '\u{017D}' => Some(0x8E),
+        '\u{2018}' => Some(0x91),
+        '\u{2019}' => Some(0x92),
+        '\u{201C}' => Some(0x93),
+        '\u{201D}' => Some(0x94),
+        '\u{2022}' => Some(0x95),
+        '\u{2013}' => Some(0x96),
+        '\u{2014}' => Some(0x97),
+        '\u{02DC}' => Some(0x98),
+        '\u{2122}' => Some(0x99),
+        '\u{0161}' => Some(0x9A),
+        '\u{203A}' => Some(0x9B),
+        '\u{0153}' => Some(0x9C),
+        '\u{017E}' => Some(0x9E),
+        '\u{0178}' => Some(0x9F),
+        _ => None,
+    }
+}
+
+/// Fix Windows-1252 mojibake in email header strings (subject, sender name, etc.).
+///
+/// Some mail clients send UTF-8 bytes labeled as Latin-1/Windows-1252, or mail
+/// servers re-encode headers incorrectly. This can happen once (producing e.g.
+/// "dÃ©lai") or twice ("dÃƒÂ©lai") for a word like "délai". This function
+/// detects and reverses those reinterpretations by attempting to treat each
+/// Unicode code point as a Windows-1252 byte and checking whether the resulting
+/// byte slice is valid UTF-8. The fix is applied recursively until no further
+/// correction is possible, capped at 3 iterations to avoid pathological input.
+fn fix_mojibake(s: &str) -> String {
+    let mut current = s.to_string();
+    for _ in 0..3 {
+        let bytes: Option<Vec<u8>> = current.chars().map(win1252_byte).collect();
+        match bytes {
+            Some(b) if b.iter().any(|&x| x > 0x7F) => {
+                if let Ok(fixed) = std::str::from_utf8(&b) {
+                    if fixed != current {
+                        current = fixed.to_string();
+                        continue;
+                    }
+                }
+            }
+            _ => {}
+        }
+        break;
+    }
+    current
+}
+
 /// Extract the first address (email, display name) from an Address field.
 fn extract_first_address(
     addr: Option<&mail_parser::Address>,
@@ -2113,7 +2182,7 @@ fn extract_first_address(
 
     if let Some(first) = addr.first() {
         let email = first.address.as_ref().map(|s| s.to_string());
-        let name = first.name.as_ref().map(|s| s.to_string());
+        let name = first.name.as_ref().map(|s| fix_mojibake(s));
         (email, name)
     } else {
         (None, None)
@@ -2129,7 +2198,7 @@ fn format_address_list(addr: Option<&mail_parser::Address>) -> Option<String> {
         .map(|a| {
             let email = a.address.as_deref().unwrap_or("");
             match a.name.as_deref() {
-                Some(name) if !name.is_empty() => format!("{name} <{email}>"),
+                Some(name) if !name.is_empty() => format!("{} <{email}>", fix_mojibake(name)),
                 _ => email.to_string(),
             }
         })

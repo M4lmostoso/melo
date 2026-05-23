@@ -431,6 +431,19 @@ export async function executeEmailAction(
     console.warn("Local DB update failed:", err);
   }
 
+  // Immediately refresh sidebar badges from the updated DB — no need to wait for
+  // the network call. velo-badges-refresh is handled without debounce in the Sidebar.
+  const affectsBadges =
+    action.type === "markRead" ||
+    action.type === "archive" ||
+    action.type === "trash" ||
+    action.type === "spam" ||
+    action.type === "permanentDelete";
+  if (affectsBadges) {
+    updateBadgeCount().catch(console.error);
+    window.dispatchEvent(new Event("velo-badges-refresh"));
+  }
+
   // 3. If offline, queue
   if (!useUIStore.getState().isOnline) {
     await enqueuePendingOperation(
@@ -439,9 +452,6 @@ export async function executeEmailAction(
       getResourceId(action),
       actionToParams(action),
     );
-    if (action.type === "markRead" || action.type === "archive" || action.type === "trash" || action.type === "spam") {
-      updateBadgeCount().catch(console.error);
-    }
     return { success: true, queued: true };
   }
 
@@ -449,9 +459,6 @@ export async function executeEmailAction(
   try {
     const data = await executeViaProvider(accountId, action);
     window.dispatchEvent(new Event("velo-sync-done"));
-    if (action.type === "markRead" || action.type === "archive" || action.type === "trash" || action.type === "spam") {
-      updateBadgeCount().catch(console.error);
-    }
     return { success: true, data };
   } catch (err) {
     const classified = classifyError(err);
@@ -464,9 +471,6 @@ export async function executeEmailAction(
         getResourceId(action),
         actionToParams(action),
       );
-      if (action.type === "markRead" || action.type === "archive" || action.type === "trash" || action.type === "spam") {
-        updateBadgeCount().catch(console.error);
-      }
       return { success: true, queued: true };
     }
 
@@ -806,7 +810,8 @@ export async function deleteSingleMessage(
       ]);
     } else {
       // Soft-trash: move thread to TRASH so it appears in Trash view
-      // and the next IMAP sync won't re-import it to INBOX
+      // and the next IMAP sync won't re-import it to INBOX.
+      // Also mark as read — trashing an unread message counts as "dealt with".
       await db.execute(
         "DELETE FROM thread_labels WHERE account_id = $1 AND thread_id = $2 AND label_id IN ('INBOX', 'DRAFT', 'SPAM', 'SENT')",
         [accountId, threadId],
@@ -815,6 +820,11 @@ export async function deleteSingleMessage(
         "INSERT OR IGNORE INTO thread_labels (account_id, thread_id, label_id) VALUES ($1, $2, 'TRASH')",
         [accountId, threadId],
       );
+      await db.execute(
+        "UPDATE threads SET is_read = 1 WHERE account_id = $1 AND id = $2",
+        [accountId, threadId],
+      );
+      useThreadStore.getState().updateThread(threadId, { isRead: true });
     }
     const nextId = getNextThreadId(threadId);
     useThreadStore.getState().removeThread(threadId);

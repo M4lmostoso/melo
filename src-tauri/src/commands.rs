@@ -1119,6 +1119,7 @@ pub async fn imap_fetch_and_store(
 
         headers.push(ImapSyncHeader {
             local_id,
+            uid: msg.uid,
             message_id: rfc_id_for_header.into(),
             in_reply_to: msg.in_reply_to,
             references: msg.references,

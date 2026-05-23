@@ -12,7 +12,6 @@ import {
   softDeleteTasksByThread,
   restoreDeletedTasksByThread,
   getSubtasks,
-  getIncompleteTaskCount,
   updateTask,
 } from "@/services/db/tasks";
 import type { DbTask, TaskDirection } from "@/services/db/tasks";
@@ -57,8 +56,7 @@ export function TaskSidebar({ accountId, threadId, messages = [] }: TaskSidebarP
   const refreshTasks = useCallback(async () => {
     const tasks = await getTasksForThread(accountId, threadId);
     setThreadTasks(tasks);
-    const count = await getIncompleteTaskCount(accountId);
-    useTaskStore.getState().setIncompleteCount(count);
+    await useTaskStore.getState().refreshTaskBadges();
     const deleted = await getDeletedTasksForThread(accountId, threadId);
     setDeletedCount(deleted.length);
   }, [accountId, threadId, setThreadTasks]);
