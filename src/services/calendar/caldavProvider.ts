@@ -8,7 +8,7 @@ import type {
   CreateEventInput,
   UpdateEventInput,
 } from "./types";
-import { generateVEvent, parseVEvent } from "./icalHelper";
+import { generateVEvent, parseVEvent, parseVEvents } from "./icalHelper";
 import { getAccount } from "@/services/db/accounts";
 import { listCalDavCalendars, fetchCalDavEvents } from "./caldavHttp";
 
@@ -59,11 +59,15 @@ export class CalDAVProvider implements CalendarProvider {
     const username = account.caldav_username ?? account.email;
 
     const objects = await fetchCalDavEvents(calendarRemoteId, username, account.caldav_password, timeMin, timeMax);
-    return objects.map((obj) => {
-      const event = parseVEvent(obj.icalData, obj.url);
-      event.etag = obj.etag;
-      return event;
-    });
+    const allEvents: CalendarEventData[] = [];
+    for (const obj of objects) {
+      const events = parseVEvents(obj.icalData, obj.url);
+      for (const event of events) {
+        event.etag = obj.etag;
+        allEvents.push(event);
+      }
+    }
+    return allEvents;
   }
 
   async createEvent(calendarRemoteId: string, event: CreateEventInput): Promise<CalendarEventData> {
@@ -162,11 +166,14 @@ export class CalDAVProvider implements CalendarProvider {
       timeMax.toISOString(),
     );
 
-    const created = objects.map((obj) => {
-      const event = parseVEvent(obj.icalData, obj.url);
-      event.etag = obj.etag;
-      return event;
-    });
+    const created: CalendarEventData[] = [];
+    for (const obj of objects) {
+      const events = parseVEvents(obj.icalData, obj.url);
+      for (const event of events) {
+        event.etag = obj.etag;
+        created.push(event);
+      }
+    }
 
     return { created, updated: [], deletedRemoteIds: [], newSyncToken: null, newCtag: null };
   }

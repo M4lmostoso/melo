@@ -145,6 +145,35 @@ export function parseVEvent(icalData: string, href?: string): CalendarEventData 
   };
 }
 
+/**
+ * Parse all VEVENTs from iCalendar data, returning one entry per occurrence.
+ * Used for CalDAV objects with `expand` that return multiple instances in one blob.
+ * Each recurring instance gets a stable unique ID: `uid_startTimestamp`.
+ */
+export function parseVEvents(icalData: string, href?: string): CalendarEventData[] {
+  // Split on BEGIN:VEVENT (case-insensitive)
+  const blocks = icalData.split(/BEGIN:VEVENT/i);
+  if (blocks.length <= 1) return [parseVEvent(icalData, href)];
+
+  const events: CalendarEventData[] = [];
+  const isMultiple = blocks.length > 2;
+
+  for (let i = 1; i < blocks.length; i++) {
+    const raw = blocks[i]!;
+    const endIdx = raw.search(/END:VEVENT/i);
+    const veventBody = endIdx >= 0 ? raw.slice(0, endIdx) : raw;
+    const wrapped = `BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT${veventBody}END:VEVENT\r\nEND:VCALENDAR`;
+    const event = parseVEvent(wrapped, href);
+    if (isMultiple && event.uid) {
+      // Use uid + startTime for a stable per-instance key
+      event.remoteEventId = `${event.uid}_${event.startTime}`;
+    }
+    events.push(event);
+  }
+
+  return events.length > 0 ? events : [parseVEvent(icalData, href)];
+}
+
 /** Extract the METHOD property from iCalendar data (REQUEST, REPLY, CANCEL, etc.) */
 export function extractIcsMethod(icalData: string): string {
   const match = icalData.match(/^METHOD:(.+)$/im);

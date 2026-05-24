@@ -69,18 +69,29 @@ export class GoogleCalendarProvider implements CalendarProvider {
 
   async fetchEvents(calendarRemoteId: string, timeMin: string, timeMax: string): Promise<CalendarEventData[]> {
     const client = await this.getClient();
-    const params = new URLSearchParams({
-      timeMin,
-      timeMax,
-      singleEvents: "true",
-      orderBy: "startTime",
-      maxResults: "250",
-    });
-
     const encodedId = encodeURIComponent(calendarRemoteId);
-    const url = `${CALENDAR_API_BASE}/calendars/${encodedId}/events?${params}`;
-    const response = await client.request<GoogleEventListResponse>(url);
-    return (response.items ?? []).map(mapGoogleEvent);
+    const allEvents: CalendarEventData[] = [];
+    let pageToken: string | undefined;
+
+    do {
+      const params = new URLSearchParams({
+        timeMin,
+        timeMax,
+        singleEvents: "true",
+        orderBy: "startTime",
+        maxResults: "250",
+      });
+      if (pageToken) params.set("pageToken", pageToken);
+
+      const url = `${CALENDAR_API_BASE}/calendars/${encodedId}/events?${params}`;
+      const response = await client.request<GoogleEventListResponse>(url);
+      for (const item of response.items ?? []) {
+        allEvents.push(mapGoogleEvent(item));
+      }
+      pageToken = response.nextPageToken;
+    } while (pageToken);
+
+    return allEvents;
   }
 
   async createEvent(calendarRemoteId: string, event: CreateEventInput): Promise<CalendarEventData> {
