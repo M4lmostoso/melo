@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { t } from "@/i18n";
 import type { DbCalendarEvent } from "@/services/db/calendarEvents";
 import { EventCard } from "./EventCard";
 
@@ -83,7 +84,7 @@ export function MonthView({ currentDate, events, colorMap, onEventClick }: Month
                 ))}
                 {dayEvents.length > 3 && (
                   <div className="text-[0.625rem] text-text-tertiary pl-1">
-                    +{dayEvents.length - 3} more
+                    {t("calendar.moreEvents", { count: dayEvents.length - 3 })}
                   </div>
                 )}
               </div>

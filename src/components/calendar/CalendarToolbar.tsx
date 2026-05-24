@@ -11,8 +11,8 @@ interface CalendarToolbarProps {
   onToday: () => void;
   onViewChange: (view: CalendarView) => void;
   onCreateEvent: () => void;
-  onToggleCalendarList: () => void;
-  calendarListOpen?: boolean;
+  onToggleCalendarList?: () => void;
+  showCalendarListButton?: boolean;
 }
 
 export function CalendarToolbar({
@@ -24,7 +24,7 @@ export function CalendarToolbar({
   onViewChange,
   onCreateEvent,
   onToggleCalendarList,
-  calendarListOpen,
+  showCalendarListButton,
 }: CalendarToolbarProps) {
   const title = formatTitle(currentDate, view);
 
@@ -55,17 +55,15 @@ export function CalendarToolbar({
       </div>
 
       <div className="flex items-center gap-2">
-        <button
-          onClick={onToggleCalendarList}
-          className={`p-1.5 rounded transition-colors ${
-            calendarListOpen
-              ? "text-text-primary bg-bg-hover"
-              : "text-text-secondary hover:text-text-primary hover:bg-bg-hover"
-          }`}
-          title={t("calendar.toolbar.myCalendars")}
-        >
-          <CalendarDays size={16} />
-        </button>
+        {showCalendarListButton && onToggleCalendarList && (
+          <button
+            onClick={onToggleCalendarList}
+            className="p-1.5 text-text-secondary hover:text-text-primary hover:bg-bg-hover rounded transition-colors"
+            title={t("calendar.toggleCalendarList")}
+          >
+            <CalendarDays size={16} />
+          </button>
+        )}
         <div className="flex bg-bg-tertiary rounded-md p-0.5">
           {(["day", "week", "month"] as CalendarView[]).map((v) => (
             <button
@@ -77,7 +75,7 @@ export function CalendarToolbar({
                   : "text-text-tertiary hover:text-text-secondary"
               }`}
             >
-              {t(`calendar.toolbar.${v}` as Parameters<typeof t>[0])}
+              {v}
             </button>
           ))}
         </div>
@@ -86,7 +84,7 @@ export function CalendarToolbar({
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-accent hover:bg-accent-hover rounded-md transition-colors"
         >
           <Plus size={14} />
-          {t("calendar.toolbar.create")}
+          {t("calendar.createEvent")}
         </button>
       </div>
     </div>

@@ -2,23 +2,14 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
-import {
-  Reply,
-  ReplyAll,
-  Forward,
-  Send,
-  Maximize2,
-  RotateCcw,
-  X,
-  Loader2,
-} from "lucide-react";
+import { Reply, ReplyAll, Forward, Send, Maximize2, RotateCcw, X, Loader2 } from "lucide-react";
+import { t } from "@/i18n";
 import { useAccountStore } from "@/stores/accountStore";
 import { useComposerStore } from "@/stores/composerStore";
 import { useUIStore } from "@/stores/uiStore";
 import { sendEmail, archiveThread } from "@/services/emailActions";
 import { buildRawEmail } from "@/utils/emailBuilder";
 import { upsertContact } from "@/services/db/contacts";
-import { normalizeEmail } from "@/utils/emailUtils";
 import { getSetting } from "@/services/db/settings";
 import { getDefaultSignature } from "@/services/db/signatures";
 import {
@@ -29,37 +20,8 @@ import {
 } from "@/services/ai/writingStyleService";
 import type { DbMessage } from "@/services/db/messages";
 import type { Thread } from "@/stores/threadStore";
-import { escapeHtml, sanitizeHtml } from "@/utils/sanitize";
 
 type ReplyMode = "reply" | "replyAll" | "forward";
-
-function buildReplyQuote(msgs: DbMessage[]): string {
-  if (msgs.length === 0) return "";
-  return (
-    "<br><br>" +
-    [...msgs]
-      .reverse()
-      .map((msg) => {
-        const date = new Date(msg.date).toLocaleString();
-        const from = msg.from_name
-          ? `${escapeHtml(msg.from_name)} &lt;${escapeHtml(msg.from_address ?? "")}&gt;`
-          : (msg.from_address ? escapeHtml(msg.from_address) : "Unknown");
-        const body = msg.body_html ? sanitizeHtml(msg.body_html) : escapeHtml(msg.body_text ?? "");
-        return `<div style="border-left:2px solid #ccc;padding-left:12px;margin-left:0;color:#666;margin-bottom:8px">On ${date}, ${from} wrote:<br>${body}</div>`;
-      })
-      .join("")
-  );
-}
-
-function buildForwardQuote(msgs: DbMessage[]): string {
-  if (msgs.length === 0) return "";
-  const parts = msgs.map((msg) => {
-    const date = new Date(msg.date).toLocaleString();
-    const body = msg.body_html ? sanitizeHtml(msg.body_html) : escapeHtml(msg.body_text ?? "");
-    return `From: ${escapeHtml(msg.from_name ?? "")} &lt;${escapeHtml(msg.from_address ?? "")}&gt;<br>Date: ${date}<br>Subject: ${escapeHtml(msg.subject ?? "")}<br>To: ${escapeHtml(msg.to_addresses ?? "")}<br><br>${body}`;
-  });
-  return `<br><br>---------- Forwarded message ---------<br><br>${parts.join("<br><br>---------- Previous message ---------<br><br>")}`;
-}
 
 interface InlineReplyProps {
   thread: Thread;
@@ -69,13 +31,7 @@ interface InlineReplyProps {
   onSent: () => void;
 }
 
-export function InlineReply({
-  thread,
-  messages,
-  accountId,
-  noReply,
-  onSent,
-}: InlineReplyProps) {
+export function InlineReply({ thread, messages, accountId, noReply, onSent }: InlineReplyProps) {
   const [mode, setMode] = useState<ReplyMode | null>(null);
   const [sending, setSending] = useState(false);
   const [signatureHtml, setSignatureHtml] = useState("");
@@ -94,48 +50,39 @@ export function InlineReply({
     extensions: [
       StarterKit.configure({ heading: false, link: { openOnClick: false } }),
       Placeholder.configure({
-        placeholder: "Write your reply...",
+        placeholder: t("email.inlineReply.reply") + "...",
       }),
     ],
     content: "",
     editorProps: {
       attributes: {
-        class:
-          "prose prose-sm max-w-none px-3 py-2 min-h-[80px] max-h-[200px] overflow-y-auto focus:outline-none text-text-primary text-sm",
+        class: "prose prose-sm max-w-none px-3 py-2 min-h-[80px] max-h-[200px] overflow-y-auto focus:outline-none text-text-primary text-sm",
       },
     },
   });
 
-  const loadAutoDraft = useCallback(
-    async (draftMode: AutoDraftMode) => {
-      if (!editor) return;
-      autoDraftAbortRef.current = false;
-      setAutoDraftLoading(true);
-      try {
-        const enabled = await isAutoDraftEnabled();
-        if (!enabled || autoDraftAbortRef.current) return;
+  const loadAutoDraft = useCallback(async (draftMode: AutoDraftMode) => {
+    if (!editor) return;
+    autoDraftAbortRef.current = false;
+    setAutoDraftLoading(true);
+    try {
+      const enabled = await isAutoDraftEnabled();
+      if (!enabled || autoDraftAbortRef.current) return;
 
-        const draft = await generateAutoDraft(
-          thread.id,
-          accountId,
-          messages,
-          draftMode,
-        );
-        if (autoDraftAbortRef.current || !draft) return;
+      const draft = await generateAutoDraft(thread.id, accountId, messages, draftMode);
+      if (autoDraftAbortRef.current || !draft) return;
 
-        // Only set content if the editor is still empty (user hasn't typed)
-        if (editor.isEmpty) {
-          editor.commands.setContent(draft);
-          setHasAutoDraft(true);
-        }
-      } catch (err) {
-        console.warn("Auto-draft generation failed:", err);
-      } finally {
-        setAutoDraftLoading(false);
+      // Only set content if the editor is still empty (user hasn't typed)
+      if (editor.isEmpty) {
+        editor.commands.setContent(draft);
+        setHasAutoDraft(true);
       }
-    },
-    [editor, thread.id, accountId, messages],
-  );
+    } catch (err) {
+      console.warn("Auto-draft generation failed:", err);
+    } finally {
+      setAutoDraftLoading(false);
+    }
+  }, [editor, thread.id, accountId, messages]);
 
   const activateMode = useCallback((newMode: ReplyMode) => {
     setMode(newMode);
@@ -194,32 +141,18 @@ export function InlineReply({
       lastMessage.to_addresses.split(",").forEach((a) => allTo.add(a.trim()));
     }
     // Remove self from recipients
-    const myEmails = new Set(accounts.map((a) => normalizeEmail(a.email)));
-
-    if (lastMessage.to_addresses) {
-      lastMessage.to_addresses.split(",").forEach((a) => {
-        const trimmed = a.trim();
-        if (trimmed && !myEmails.has(normalizeEmail(trimmed))) {
-          allTo.add(trimmed);
-        }
-      });
-    }
+    if (activeAccount?.email) allTo.delete(activeAccount.email);
 
     const ccList: string[] = [];
     if (lastMessage.cc_addresses) {
       lastMessage.cc_addresses.split(",").forEach((a) => {
         const trimmed = a.trim();
-        if (trimmed && !myEmails.has(normalizeEmail(trimmed))) {
-          ccList.push(trimmed);
-        }
+        if (trimmed && trimmed !== activeAccount?.email) ccList.push(trimmed);
       });
     }
 
-    return {
-      to: Array.from(allTo).filter((r) => !myEmails.has(normalizeEmail(r))),
-      cc: ccList,
-    };
-  }, [lastMessage, mode, accounts]);
+    return { to: Array.from(allTo), cc: ccList };
+  }, [lastMessage, mode, activeAccount?.email]);
 
   const getSubject = useCallback((): string => {
     const sub = lastMessage?.subject ?? "";
@@ -239,18 +172,13 @@ export function InlineReply({
         html += `<div style="margin-top:16px;border-top:1px solid #e5e5e5;padding-top:12px">${signatureHtml}</div>`;
       }
 
-      const rfcMsgId = lastMessage?.message_id_header ?? undefined;
-      const refs = rfcMsgId
-        ? [lastMessage?.references_header, rfcMsgId].filter(Boolean).join(" ")
-        : undefined;
       const raw = buildRawEmail({
         from: activeAccount.email,
         to,
         cc: cc.length > 0 ? cc : undefined,
         subject: getSubject(),
         htmlBody: html,
-        inReplyTo: rfcMsgId,
-        references: refs,
+        inReplyTo: lastMessage?.id,
         threadId: thread.id,
       });
 
@@ -258,8 +186,7 @@ export function InlineReply({
       const delaySetting = await getSetting("undo_send_delay_seconds");
       const delay = parseInt(delaySetting ?? "5", 10) * 1000;
 
-      const { setUndoSendVisible, setUndoSendTimer } =
-        useComposerStore.getState();
+      const { setUndoSendVisible, setUndoSendTimer } = useComposerStore.getState();
       setUndoSendVisible(true);
 
       const timer = setTimeout(async () => {
@@ -268,11 +195,7 @@ export function InlineReply({
 
           // Send & archive: remove from inbox if enabled
           if (useUIStore.getState().sendAndArchive) {
-            try {
-              await archiveThread(accountId, thread.id, []);
-            } catch {
-              /* ignore */
-            }
+            try { await archiveThread(accountId, thread.id, []); } catch { /* ignore */ }
           }
 
           // Update contacts frequency
@@ -283,92 +206,48 @@ export function InlineReply({
           console.error("Failed to send inline reply:", err);
         } finally {
           setUndoSendVisible(false);
-          setSending(false);
         }
       }, delay);
 
       setUndoSendTimer(timer);
 
-      // Reset editor content but keep editor visible during undo period
+      // Reset state
       editor.commands.setContent("");
       setMode(null);
       onSent();
     } catch (err) {
       console.error("Failed to send:", err);
+    } finally {
+      setSending(false);
     }
-    // Note: setSending is reset in the timer's finally block
-  }, [
-    activeAccount,
-    editor,
-    sending,
-    getRecipients,
-    getSubject,
-    signatureHtml,
-    lastMessage,
-    thread.id,
-    accountId,
-    mode,
-    onSent,
-  ]);
+  }, [activeAccount, editor, sending, getRecipients, getSubject, signatureHtml, lastMessage, thread.id, accountId, mode, onSent]);
 
   const handleExpandToComposer = useCallback(() => {
     if (!editor || !lastMessage) return;
     const { to, cc } = getRecipients();
     const bodyHtml = editor.getHTML();
-    const currentMode =
-      mode === "forward"
-        ? "forward"
-        : mode === "replyAll"
-          ? "replyAll"
-          : "reply";
 
-    const quotedHtml =
-      currentMode === "forward"
-        ? buildForwardQuote(messages)
-        : buildReplyQuote(messages);
-
-    const rfcMsgId = lastMessage.message_id_header ?? null;
-    const refs = rfcMsgId
-      ? [lastMessage.references_header, rfcMsgId].filter(Boolean).join(" ")
-      : null;
     openComposer({
-      mode: currentMode,
+      mode: mode === "forward" ? "forward" : mode === "replyAll" ? "replyAll" : "reply",
       to,
       cc,
       subject: getSubject(),
       bodyHtml,
-      quotedHtml,
       threadId: thread.id,
-      inReplyToMessageId: rfcMsgId,
-      references: refs,
-      accountId,
+      inReplyToMessageId: lastMessage.id,
     });
 
     // Reset inline state
     editor.commands.setContent("");
     setMode(null);
-  }, [
-    editor,
-    lastMessage,
-    getRecipients,
-    getSubject,
-    mode,
-    thread.id,
-    openComposer,
-    messages,
-  ]);
+  }, [editor, lastMessage, getRecipients, getSubject, mode, thread.id, openComposer]);
 
   const handleRegenerateDraft = useCallback(async () => {
     if (!editor || !mode || mode === "forward") return;
     autoDraftAbortRef.current = false;
     setAutoDraftLoading(true);
     try {
-      const draft = await regenerateAutoDraft(
-        thread.id,
-        accountId,
-        messages,
-        mode,
-      );
+      const draft = await regenerateAutoDraft(thread.id, accountId, messages, mode);
       if (autoDraftAbortRef.current || !draft) return;
       editor.commands.setContent(draft);
       setHasAutoDraft(true);
@@ -395,9 +274,7 @@ export function InlineReply({
       }
     };
     editor.on("update", onUpdate);
-    return () => {
-      editor.off("update", onUpdate);
-    };
+    return () => { editor.off("update", onUpdate); };
   }, [editor, autoDraftLoading]);
 
   // Cleanup focus timer on unmount
@@ -437,27 +314,27 @@ export function InlineReply({
         <button
           onClick={() => activateMode("reply")}
           disabled={noReply}
-          title={noReply ? "This sender does not accept replies" : undefined}
+          title={noReply ? t("email.inlineReply.noReplyTooltip") : undefined}
           className="flex items-center gap-1.5 px-4 py-2 text-xs text-text-secondary border border-border-primary rounded-lg hover:bg-bg-hover hover:text-text-primary transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-text-secondary"
         >
           <Reply size={14} />
-          Reply
+          {t("email.inlineReply.reply")}
         </button>
         <button
           onClick={() => activateMode("replyAll")}
           disabled={noReply}
-          title={noReply ? "This sender does not accept replies" : undefined}
+          title={noReply ? t("email.inlineReply.noReplyTooltip") : undefined}
           className="flex items-center gap-1.5 px-4 py-2 text-xs text-text-secondary border border-border-primary rounded-lg hover:bg-bg-hover hover:text-text-primary transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-text-secondary"
         >
           <ReplyAll size={14} />
-          Reply All
+          {t("email.inlineReply.replyAll")}
         </button>
         <button
           onClick={() => activateMode("forward")}
           className="flex items-center gap-1.5 px-4 py-2 text-xs text-text-secondary border border-border-primary rounded-lg hover:bg-bg-hover hover:text-text-primary transition-colors"
         >
           <Forward size={14} />
-          Forward
+          {t("email.inlineReply.forward")}
         </button>
       </div>
     );
@@ -465,14 +342,10 @@ export function InlineReply({
 
   // Expanded state — editor visible
   const { to } = getRecipients();
-  const modeLabel =
-    mode === "reply" ? "Reply" : mode === "replyAll" ? "Reply All" : "Forward";
+  const modeLabel = mode === "reply" ? t("email.inlineReply.reply") : mode === "replyAll" ? t("email.inlineReply.replyAll") : t("email.inlineReply.forward");
 
   return (
-    <div
-      ref={containerRef}
-      className="mx-4 my-3 border border-border-primary rounded-lg overflow-hidden bg-bg-primary"
-    >
+    <div ref={containerRef} className="mx-4 my-3 border border-border-primary rounded-lg overflow-hidden bg-bg-primary">
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 bg-bg-secondary border-b border-border-secondary">
         <div className="flex items-center gap-2">
@@ -487,17 +360,13 @@ export function InlineReply({
                     : "text-text-tertiary hover:text-text-primary"
                 }`}
               >
-                {m === "reply"
-                  ? "Reply"
-                  : m === "replyAll"
-                    ? "Reply All"
-                    : "Forward"}
+                {m === "reply" ? t("email.inlineReply.reply") : m === "replyAll" ? t("email.inlineReply.replyAll") : t("email.inlineReply.forward")}
               </button>
             ))}
           </div>
           {to.length > 0 && (
             <span className="text-[0.6875rem] text-text-tertiary truncate max-w-[200px]">
-              to {to.join(", ")}
+              {t("email.inlineReply.to")} {to.join(", ")}
             </span>
           )}
         </div>
@@ -505,7 +374,7 @@ export function InlineReply({
           onClick={() => setMode(null)}
           className="text-xs text-text-tertiary hover:text-text-primary transition-colors"
         >
-          Cancel
+          {t("email.inlineReply.cancel")}
         </button>
       </div>
 
@@ -516,7 +385,7 @@ export function InlineReply({
           <div className="absolute inset-0 flex items-center justify-center bg-bg-primary/60 backdrop-blur-[1px]">
             <div className="flex items-center gap-2 text-xs text-text-secondary">
               <Loader2 size={14} className="animate-spin" />
-              Generating draft...
+              {t("email.inlineReply.generatingDraft")}
             </div>
           </div>
         )}
@@ -527,30 +396,30 @@ export function InlineReply({
         <div className="flex items-center gap-1">
           <button
             onClick={handleExpandToComposer}
-            title="Expand to full composer"
+            title={t("email.inlineReply.expandTooltip")}
             className="flex items-center gap-1.5 px-2 py-1 text-xs text-text-tertiary hover:text-text-primary transition-colors"
           >
             <Maximize2 size={12} />
-            Expand
+            {t("email.inlineReply.expand")}
           </button>
           {hasAutoDraft && mode !== "forward" && (
             <>
               <button
                 onClick={handleRegenerateDraft}
                 disabled={autoDraftLoading}
-                title="Regenerate AI draft"
+                title={t("email.inlineReply.regenerateTooltip")}
                 className="flex items-center gap-1 px-2 py-1 text-xs text-text-tertiary hover:text-accent transition-colors disabled:opacity-50"
               >
                 <RotateCcw size={11} />
-                Regenerate
+                {t("email.inlineReply.regenerate")}
               </button>
               <button
                 onClick={handleClearDraft}
-                title="Clear AI draft"
+                title={t("email.inlineReply.clearTooltip")}
                 className="flex items-center gap-1 px-2 py-1 text-xs text-text-tertiary hover:text-danger transition-colors"
               >
                 <X size={11} />
-                Clear
+                {t("email.inlineReply.clear")}
               </button>
             </>
           )}

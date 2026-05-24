@@ -7,12 +7,12 @@ import {
   Loader2,
   Calendar,
 } from "lucide-react";
+import { t } from "@/i18n";
 import { Modal } from "@/components/ui/Modal";
 import { TextField } from "@/components/ui/TextField";
 import { insertCalDavAccount } from "@/services/db/accounts";
 import { useAccountStore } from "@/stores/accountStore";
 import { discoverCalDavSettings, testCalDavConnection } from "@/services/calendar/autoDiscovery";
-import { t } from "@/i18n";
 
 interface AddCalDavAccountProps {
   onClose: () => void;
@@ -85,10 +85,6 @@ export function AddCalDavAccount({ onClose, onSuccess, onBack }: AddCalDavAccoun
         displayName: displayName || null,
         avatarUrl: null,
         isActive: true,
-        color: null,
-        includeInGlobal: true,
-        sortOrder: 0,
-        label: null,
       });
 
       setStep("done");
@@ -101,7 +97,7 @@ export function AddCalDavAccount({ onClose, onSuccess, onBack }: AddCalDavAccoun
   }, [email, displayName, caldavUrl, username, password, addAccount]);
 
   return (
-    <Modal isOpen={true} onClose={onClose} title={t("accounts.addCalDavAccount")} width="w-full max-w-md">
+    <Modal isOpen={true} onClose={onClose} title={t("accounts.addCalDav.title")} width="w-full max-w-md">
       <div className="p-4">
         {step === "basic" && (
           <div className="space-y-4">
@@ -110,15 +106,15 @@ export function AddCalDavAccount({ onClose, onSuccess, onBack }: AddCalDavAccoun
                 <Calendar size={20} className="text-accent" />
               </div>
               <div>
-                <h3 className="text-sm font-medium text-text-primary">{t("accounts.caldavCalendarAccount")}</h3>
+                <h3 className="text-sm font-medium text-text-primary">{t("accounts.addCalDav.subtitle")}</h3>
                 <p className="text-xs text-text-tertiary">
-                  {t("accounts.caldavCalendarAccountDesc")}
+                  {t("accounts.addCalDav.connectDesc")}
                 </p>
               </div>
             </div>
 
             <TextField
-              label={t("accounts.emailAddress")}
+              label={t("accounts.addCalDav.email")}
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
@@ -127,11 +123,11 @@ export function AddCalDavAccount({ onClose, onSuccess, onBack }: AddCalDavAccoun
             />
 
             <TextField
-              label={t("accounts.displayName")}
+              label={t("accounts.addCalDav.displayNameOptional")}
               type="text"
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
-              placeholder="My Calendar"
+              placeholder={t("accounts.addCalDav.displayNamePlaceholder")}
             />
 
             <div className="flex justify-between pt-2">
@@ -140,14 +136,14 @@ export function AddCalDavAccount({ onClose, onSuccess, onBack }: AddCalDavAccoun
                 className="flex items-center gap-1 text-sm text-text-secondary hover:text-text-primary transition-colors"
               >
                 <ArrowLeft size={14} />
-                {t("accounts.back")}
+                {t("common.back")}
               </button>
               <button
                 onClick={handleDiscoverAndNext}
                 disabled={!email.trim()}
                 className="flex items-center gap-1 px-4 py-2 text-sm font-medium text-white bg-accent hover:bg-accent-hover rounded-md transition-colors disabled:opacity-50"
               >
-                {t("accounts.next")}
+                {t("common.next")}
                 <ArrowRight size={14} />
               </button>
             </div>
@@ -158,18 +154,18 @@ export function AddCalDavAccount({ onClose, onSuccess, onBack }: AddCalDavAccoun
           <div className="space-y-4">
             {providerName && (
               <div className="text-xs text-accent font-medium">
-                {t("accounts.caldavDetected", { provider: providerName })}
+                {t("accounts.addCalDav.detected", { name: providerName })}
               </div>
             )}
 
             {needsAppPassword && (
               <div className="p-3 bg-warning/10 border border-warning/30 rounded text-xs text-text-secondary">
-                {t("accounts.caldavAppPasswordWarning")}
+                {t("accounts.addCalDav.appPasswordHint")}
               </div>
             )}
 
             <TextField
-              label={t("accounts.caldavServerUrl")}
+              label={t("accounts.addCalDav.caldavUrl")}
               type="url"
               value={caldavUrl}
               onChange={(e) => setCaldavUrl(e.target.value)}
@@ -177,7 +173,7 @@ export function AddCalDavAccount({ onClose, onSuccess, onBack }: AddCalDavAccoun
             />
 
             <TextField
-              label={t("accounts.username")}
+              label={t("accounts.addCalDav.username")}
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
@@ -185,11 +181,11 @@ export function AddCalDavAccount({ onClose, onSuccess, onBack }: AddCalDavAccoun
             />
 
             <TextField
-              label={needsAppPassword ? t("accounts.appPassword") : t("accounts.password")}
+              label={needsAppPassword ? t("accounts.addCalDav.appPassword") : t("accounts.addCalDav.password")}
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder={needsAppPassword ? t("accounts.appPasswordPlaceholder") : t("accounts.password")}
+              placeholder={needsAppPassword ? t("accounts.addCalDav.appPasswordPlaceholder") : t("accounts.addCalDav.password")}
             />
 
             <div className="flex justify-between pt-2">
@@ -198,14 +194,14 @@ export function AddCalDavAccount({ onClose, onSuccess, onBack }: AddCalDavAccoun
                 className="flex items-center gap-1 text-sm text-text-secondary hover:text-text-primary transition-colors"
               >
                 <ArrowLeft size={14} />
-                {t("accounts.back")}
+                {t("common.back")}
               </button>
               <button
                 onClick={() => { setStep("test"); handleTest(); }}
                 disabled={!caldavUrl || !password}
                 className="flex items-center gap-1 px-4 py-2 text-sm font-medium text-white bg-accent hover:bg-accent-hover rounded-md transition-colors disabled:opacity-50"
               >
-                {t("accounts.testAndConnect")}
+                {t("accounts.addCalDav.testAndConnect")}
                 <ArrowRight size={14} />
               </button>
             </div>
@@ -218,7 +214,7 @@ export function AddCalDavAccount({ onClose, onSuccess, onBack }: AddCalDavAccoun
               {testing && (
                 <>
                   <Loader2 size={32} className="animate-spin text-accent mx-auto mb-3" />
-                  <p className="text-sm text-text-secondary">{t("accounts.testingConnection")}</p>
+                  <p className="text-sm text-text-secondary">{t("accounts.addCalDav.testingConnection")}</p>
                 </>
               )}
 
@@ -229,8 +225,8 @@ export function AddCalDavAccount({ onClose, onSuccess, onBack }: AddCalDavAccoun
                   {calendarCount > 0 && (
                     <p className="text-xs text-text-tertiary mt-1">
                       {calendarCount !== 1
-                        ? t("accounts.calendarsFoundPlural", { count: String(calendarCount) })
-                        : t("accounts.calendarsFound", { count: String(calendarCount) })}
+                        ? t("accounts.addCalDav.foundCalendarsPlural", { count: calendarCount })
+                        : t("accounts.addCalDav.foundCalendars", { count: calendarCount })}
                     </p>
                   )}
                 </>
@@ -239,7 +235,7 @@ export function AddCalDavAccount({ onClose, onSuccess, onBack }: AddCalDavAccoun
               {!testing && testResult && !testResult.success && (
                 <>
                   <XCircle size={32} className="text-danger mx-auto mb-3" />
-                  <p className="text-sm font-medium text-text-primary">{t("accounts.connectionFailed")}</p>
+                  <p className="text-sm font-medium text-text-primary">{t("accounts.addCalDav.connectionFailed")}</p>
                   <p className="text-xs text-text-tertiary mt-1">{testResult.message}</p>
                 </>
               )}
@@ -251,7 +247,7 @@ export function AddCalDavAccount({ onClose, onSuccess, onBack }: AddCalDavAccoun
                 className="flex items-center gap-1 text-sm text-text-secondary hover:text-text-primary transition-colors"
               >
                 <ArrowLeft size={14} />
-                {t("accounts.back")}
+                {t("common.back")}
               </button>
 
               {testResult?.success ? (
@@ -260,14 +256,14 @@ export function AddCalDavAccount({ onClose, onSuccess, onBack }: AddCalDavAccoun
                   disabled={creating}
                   className="flex items-center gap-1 px-4 py-2 text-sm font-medium text-white bg-accent hover:bg-accent-hover rounded-md transition-colors disabled:opacity-50"
                 >
-                  {creating ? t("accounts.creating") : t("accounts.addAccountBtn")}
+                  {creating ? t("common.creating") : t("accounts.addImap.addAccount")}
                 </button>
               ) : !testing ? (
                 <button
                   onClick={handleTest}
                   className="flex items-center gap-1 px-4 py-2 text-sm font-medium text-white bg-accent hover:bg-accent-hover rounded-md transition-colors"
                 >
-                  {t("accounts.retry")}
+                  {t("common.retry")}
                 </button>
               ) : null}
             </div>
@@ -277,15 +273,15 @@ export function AddCalDavAccount({ onClose, onSuccess, onBack }: AddCalDavAccoun
         {step === "done" && (
           <div className="text-center py-6">
             <CheckCircle2 size={32} className="text-success mx-auto mb-3" />
-            <p className="text-sm font-medium text-text-primary">{t("accounts.caldavAdded")}</p>
+            <p className="text-sm font-medium text-text-primary">{t("accounts.addCalDav.addedTitle")}</p>
             <p className="text-xs text-text-tertiary mt-1">
-              {t("accounts.caldavAddedDesc")}
+              {t("accounts.addCalDav.addedDesc")}
             </p>
             <button
               onClick={onSuccess}
               className="mt-4 px-4 py-2 text-sm font-medium text-white bg-accent hover:bg-accent-hover rounded-md transition-colors"
             >
-              {t("accounts.done")}
+              {t("common.done")}
             </button>
           </div>
         )}

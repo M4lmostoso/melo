@@ -29,30 +29,32 @@ export function SetupClientId({ onComplete, onCancel }: SetupClientIdProps) {
   };
 
   return (
-    <Modal isOpen={true} onClose={onCancel} title={t("accounts.googleApiSetup")} width="w-full max-w-lg">
+    <Modal isOpen={true} onClose={onCancel} title={t("accounts.setupClientId.title")} width="w-full max-w-lg">
       <div className="p-4">
         <p className="text-text-secondary text-sm mb-4">
-          {t("accounts.googleApiSetupDesc")}
+          {t("accounts.setupClientId.desc")}
         </p>
 
         <ol className="text-text-secondary text-sm mb-4 space-y-1 list-decimal list-inside">
           <li>
-            <span className="text-accent">{t("accounts.googleSetupStep1")}</span>
+            {t("accounts.setupClientId.step1")}
           </li>
-          <li>{t("accounts.googleSetupStep2")}</li>
-          <li>{t("accounts.googleSetupStep3")}</li>
-          <li>{t("accounts.googleSetupStep4")}</li>
+          <li>{t("accounts.setupClientId.step2")}</li>
+          <li>{t("accounts.setupClientId.step3")}</li>
           <li>
-            {t("accounts.googleSetupStep5", { url: "" })}<code className="bg-bg-tertiary px-1 rounded text-xs">http://127.0.0.1:17248</code>{" "}
+            {t("accounts.setupClientId.step4")}
           </li>
-          <li>{t("accounts.googleSetupStep6")}</li>
+          <li>
+            {t("accounts.setupClientId.step5", { uri: "http://127.0.0.1:17248" })}
+          </li>
+          <li>{t("accounts.setupClientId.step6")}</li>
         </ol>
 
         <input
           type="text"
           value={clientId}
           onChange={(e) => setClientId(e.target.value)}
-          placeholder={t("accounts.pasteClientId")}
+          placeholder={t("accounts.setupClientId.clientIdPlaceholder")}
           className="w-full px-3 py-2 bg-bg-secondary border border-border-primary rounded-lg text-sm mb-3 outline-none focus:border-accent"
         />
 
@@ -60,11 +62,11 @@ export function SetupClientId({ onComplete, onCancel }: SetupClientIdProps) {
           type="password"
           value={clientSecret}
           onChange={(e) => setClientSecret(e.target.value)}
-          placeholder={t("accounts.pasteClientSecret")}
+          placeholder={t("accounts.setupClientId.clientSecretPlaceholder")}
           className="w-full px-3 py-2 bg-bg-secondary border border-border-primary rounded-lg text-sm mb-1 outline-none focus:border-accent"
         />
         <p className="text-text-tertiary text-xs mb-4">
-          {t("accounts.clientSecretNote")}
+          {t("accounts.setupClientId.clientSecretHint")}
         </p>
 
         <div className="flex gap-3 justify-end">
@@ -72,14 +74,14 @@ export function SetupClientId({ onComplete, onCancel }: SetupClientIdProps) {
             onClick={onCancel}
             className="px-4 py-2 text-sm text-text-secondary hover:text-text-primary transition-colors"
           >
-            {t("accounts.cancel")}
+            {t("common.cancel")}
           </button>
           <button
             onClick={handleSave}
             disabled={!clientId.trim() || !clientSecret.trim() || saving}
             className="px-4 py-2 text-sm bg-accent text-white rounded-lg hover:bg-accent-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {saving ? t("accounts.savingClientId") : t("accounts.saveAndContinue")}
+            {saving ? t("common.saving") : t("accounts.setupClientId.saveAndContinue")}
           </button>
         </div>
       </div>

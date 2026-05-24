@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { Sparkles, X, Send, ExternalLink } from "lucide-react";
+import { t } from "@/i18n";
 import { askMyInbox, type AskInboxResult } from "@/services/ai/askInbox";
 import { useAccountStore } from "@/stores/accountStore";
 import { navigateToLabel } from "@/router/navigate";
@@ -27,7 +28,7 @@ export function AskInbox({ isOpen, onClose }: AskInboxProps) {
     } catch (err) {
       console.error("Ask inbox failed:", err);
       setResult({
-        answer: "Sorry, something went wrong. Please check your AI configuration and try again.",
+        answer: t("search.askInbox.errorMessage"),
         sourceMessages: [],
       });
     } finally {
@@ -67,7 +68,7 @@ export function AskInbox({ isOpen, onClose }: AskInboxProps) {
         {/* Header */}
         <div className="flex items-center gap-2 px-4 py-3 border-b border-border-primary bg-bg-secondary">
           <Sparkles size={16} className="text-accent" />
-          <span className="text-sm font-medium text-text-primary flex-1">Ask My Inbox</span>
+          <span className="text-sm font-medium text-text-primary flex-1">{t("search.askInbox.title")}</span>
           <button
             onClick={onClose}
             className="text-text-tertiary hover:text-text-primary transition-colors"
@@ -85,7 +86,7 @@ export function AskInbox({ isOpen, onClose }: AskInboxProps) {
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Ask a question about your emails..."
+            placeholder={t("search.askInbox.placeholder")}
             className="flex-1 bg-transparent text-sm text-text-primary outline-none placeholder:text-text-tertiary"
           />
           <button

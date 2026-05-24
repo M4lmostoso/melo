@@ -1,4 +1,5 @@
 import { DateTimePickerDialog } from "@/components/ui/DateTimePickerDialog";
+import { t } from "@/i18n";
 
 interface ScheduleSendDialogProps {
   onSchedule: (timestamp: number) => void;
@@ -28,17 +29,17 @@ function getSchedulePresets(): { label: string; detail: string; timestamp: numbe
 
   return [
     {
-      label: "Tomorrow morning",
+      label: t("composer.scheduleSend.tomorrowMorning"),
       detail: tomorrowMorning.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }) + " 9:00 AM",
       timestamp: Math.floor(tomorrowMorning.getTime() / 1000),
     },
     {
-      label: "Tomorrow afternoon",
+      label: t("composer.scheduleSend.tomorrowAfternoon"),
       detail: tomorrowAfternoon.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }) + " 1:00 PM",
       timestamp: Math.floor(tomorrowAfternoon.getTime() / 1000),
     },
     {
-      label: "Monday morning",
+      label: t("composer.scheduleSend.mondayMorning"),
       detail: monday.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }) + " 9:00 AM",
       timestamp: Math.floor(monday.getTime() / 1000),
     },
@@ -52,10 +53,10 @@ export function ScheduleSendDialog({ onSchedule, onClose }: ScheduleSendDialogPr
     <DateTimePickerDialog
       isOpen={true}
       onClose={onClose}
-      title="Schedule send"
+      title={t("composer.scheduleSend.title")}
       presets={presets}
       onSelect={onSchedule}
-      submitLabel="Schedule"
+      submitLabel={t("composer.scheduleSend.submitLabel")}
       zIndex="z-[60]"
     />
   );

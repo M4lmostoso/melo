@@ -1,21 +1,12 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeFile } from "@tauri-apps/plugin-fs";
-import {
-  getAttachmentsForMessage,
-  type DbAttachment,
-} from "@/services/db/attachments";
+import { getAttachmentsForMessage, type DbAttachment } from "@/services/db/attachments";
 import { getEmailProvider } from "@/services/email/providerFactory";
 import { Modal } from "@/components/ui/Modal";
 import { Download, Eye } from "lucide-react";
-import {
-  formatFileSize,
-  isImage,
-  isPdf,
-  isText,
-  canPreview,
-  getFileIcon,
-} from "@/utils/fileTypeHelpers";
+import { t } from "@/i18n";
+import { formatFileSize, isImage, isPdf, isText, canPreview, getFileIcon } from "@/utils/fileTypeHelpers";
 
 /** Dedup attachments by filename+size (content-based) */
 function dedup(attachments: DbAttachment[]): DbAttachment[] {
@@ -28,75 +19,24 @@ function dedup(attachments: DbAttachment[]): DbAttachment[] {
   });
 }
 
-/** Get file extension from mime type */
-function getExtensionFromMimeType(mimeType?: string): string {
-  if (!mimeType) return "";
-  const mimeToExt: Record<string, string> = {
-    "image/jpeg": "jpg",
-    "image/jpg": "jpg",
-    "image/png": "png",
-    "image/gif": "gif",
-    "image/webp": "webp",
-    "image/svg+xml": "svg",
-    "image/bmp": "bmp",
-    "image/tiff": "tiff",
-    "application/pdf": "pdf",
-    "text/plain": "txt",
-    "text/html": "html",
-    "text/csv": "csv",
-    "application/msword": "doc",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
-    "application/vnd.ms-excel": "xls",
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
-    "application/vnd.ms-powerpoint": "ppt",
-    "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
-    "application/zip": "zip",
-    "application/x-rar-compressed": "rar",
-    "application/x-7z-compressed": "7z",
-    "application/x-tar": "tar",
-    "application/gzip": "gz",
-    "video/mp4": "mp4",
-    "video/quicktime": "mov",
-    "video/x-msvideo": "avi",
-    "video/webm": "webm",
-    "audio/mpeg": "mp3",
-    "audio/wav": "wav",
-    "audio/ogg": "ogg",
-    "application/json": "json",
-    "application/xml": "xml",
-  };
-  return mimeToExt[mimeType.toLowerCase()] || "";
-}
-
 interface AttachmentListProps {
   accountId: string;
   messageId: string;
   attachments: DbAttachment[];
   referencedCids?: Set<string>;
-  excludeIds?: string[];
 }
 
-export function AttachmentList({
-  accountId,
-  messageId,
-  attachments,
-  referencedCids,
-  excludeIds,
-}: AttachmentListProps) {
+export function AttachmentList({ accountId, messageId, attachments, referencedCids }: AttachmentListProps) {
   const [preview, setPreview] = useState<DbAttachment | null>(null);
 
   // Filter out CID images rendered in the email body and true inline parts, then dedup
-  const fileAttachments = dedup(
-    attachments.filter((a) => {
-      // Skip attachments whose CID is referenced in the email body (already rendered inline)
-      if (a.content_id && referencedCids?.has(a.content_id)) return false;
-      // True inline: marked inline with no filename
-      if (a.is_inline && !a.filename) return false;
-      // Skip attachments handled by a dedicated widget (e.g. CalendarInviteWidget)
-      if (excludeIds?.includes(a.id)) return false;
-      return true;
-    }),
-  );
+  const fileAttachments = dedup(attachments.filter((a) => {
+    // Skip attachments whose CID is referenced in the email body (already rendered inline)
+    if (a.content_id && referencedCids?.has(a.content_id)) return false;
+    // True inline: marked inline with no filename
+    if (a.is_inline && !a.filename) return false;
+    return true;
+  }));
 
   if (fileAttachments.length === 0) return null;
 
@@ -104,8 +44,9 @@ export function AttachmentList({
     <>
       <div className="mt-3 pt-3 border-t border-border-secondary">
         <div className="text-xs text-text-tertiary mb-2">
-          {fileAttachments.length} attachment
-          {fileAttachments.length !== 1 ? "s" : ""}
+          {fileAttachments.length !== 1
+            ? t("email.attachmentList.countPlural", { count: fileAttachments.length })
+            : t("email.attachmentList.count", { count: fileAttachments.length })}
         </div>
         <div className="flex flex-wrap gap-2">
           {fileAttachments.map((att) => (
@@ -114,11 +55,9 @@ export function AttachmentList({
               onClick={() => setPreview(att)}
               className="flex items-center gap-2 px-3 py-1.5 text-xs rounded-md border border-border-primary hover:bg-bg-hover transition-colors"
             >
-              <span className="text-text-tertiary">
-                {getFileIcon(att.mime_type)}
-              </span>
+              <span className="text-text-tertiary">{getFileIcon(att.mime_type)}</span>
               <span className="text-text-secondary truncate max-w-[200px]">
-                {att.filename ?? "Unnamed"}
+                {att.filename ?? t("email.attachmentList.unnamed")}
               </span>
               {att.size != null && (
                 <span className="text-text-tertiary whitespace-nowrap">
@@ -165,15 +104,10 @@ export function AttachmentPreview({
     if (bytesRef.current) return bytesRef.current;
 
     const provider = await getEmailProvider(accountId);
-    const attachmentId = attachment.gmail_attachment_id ?? attachment.imap_part_id;
-    const response = await provider.fetchAttachment(messageId, attachmentId!);
+    const response = await provider.fetchAttachment(messageId, attachment.gmail_attachment_id!);
 
-    // Normalize URL-safe base64 (Gmail API) to standard base64.
-    // IMAP returns standard base64; Gmail returns URL-safe. Standard base64 never has - or _,
-    // so we can safely detect and convert only URL-safe format.
-    const base64 = response.data.includes("-") || response.data.includes("_")
-      ? response.data.replace(/-/g, "+").replace(/_/g, "/")
-      : response.data;
+    // Normalize URL-safe base64 (Gmail API) to standard base64
+    const base64 = response.data.replace(/-/g, "+").replace(/_/g, "/");
     const binaryStr = atob(base64);
     const bytes = new Uint8Array(binaryStr.length);
     for (let i = 0; i < binaryStr.length; i++) {
@@ -181,10 +115,10 @@ export function AttachmentPreview({
     }
     bytesRef.current = bytes;
     return bytes;
-  }, [accountId, messageId, attachment.gmail_attachment_id, attachment.imap_part_id]);
+  }, [accountId, messageId, attachment.gmail_attachment_id]);
 
   const handlePreviewLoad = useCallback(async () => {
-    if ((!attachment.gmail_attachment_id && !attachment.imap_part_id) || !isPreviewable || blobUrl) return;
+    if (!attachment.gmail_attachment_id || !isPreviewable || blobUrl) return;
 
     setLoading(true);
     try {
@@ -192,9 +126,7 @@ export function AttachmentPreview({
       const effectiveMime = isPdf(attachment.mime_type, attachment.filename)
         ? "application/pdf"
         : (attachment.mime_type ?? "application/octet-stream");
-      const blob = new Blob([bytes.buffer as ArrayBuffer], {
-        type: effectiveMime,
-      });
+      const blob = new Blob([bytes.buffer as ArrayBuffer], { type: effectiveMime });
       setBlobUrl(URL.createObjectURL(blob));
     } catch (err) {
       console.error("Failed to load preview:", err);
@@ -211,24 +143,14 @@ export function AttachmentPreview({
     }
   }, [isPreviewable, blobUrl, loading, error, handlePreviewLoad]);
 
-      const handleDownload = async () => {
-    if ((!attachment.gmail_attachment_id && !attachment.imap_part_id) || saving) return;
+  const handleDownload = async () => {
+    if (!attachment.gmail_attachment_id || saving) return;
 
     setSaving(true);
     try {
-      // Determine file extension from filename or mime type
-      const filename = attachment.filename ?? "attachment";
-      const extension = filename.includes(".") 
-        ? filename.split(".").pop()
-        : getExtensionFromMimeType(attachment.mime_type ?? undefined);
-      const defaultFilename = filename.replace(/\.[^.]+$/, "") + (extension ? `.${extension}` : "");
-      
       const filePath = await save({
-        defaultPath: defaultFilename,
-        filters: [{ 
-          name: "All Files", 
-          extensions: extension ? [extension] : ["*"] 
-        }],
+        defaultPath: attachment.filename ?? "attachment",
+        filters: [{ name: "All Files", extensions: ["*"] }],
       });
 
       if (!filePath) {
@@ -270,7 +192,7 @@ export function AttachmentPreview({
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-accent hover:bg-accent-hover rounded-md transition-colors disabled:opacity-50"
         >
           <Download size={13} />
-          {saving ? "Saving..." : "Download"}
+          {saving ? t("email.attachmentList.saving") : t("email.attachmentList.download")}
         </button>
         <button
           onClick={handleClose}
@@ -292,14 +214,13 @@ export function AttachmentPreview({
       renderHeader={header}
     >
       {/* Allow native right-click in preview (save image, copy, etc.) */}
-      <div
-        className="flex-1 overflow-auto min-h-[200px] flex items-center justify-center p-4"
-        data-native-context-menu
-      >
+      <div className="flex-1 overflow-auto min-h-[200px] flex items-center justify-center p-4" data-native-context-menu>
         {loading && (
-          <p className="text-sm text-text-tertiary">Loading preview...</p>
+          <p className="text-sm text-text-tertiary">{t("email.attachmentList.loadingPreview")}</p>
         )}
-        {error && <p className="text-sm text-text-tertiary">{error}</p>}
+        {error && (
+          <p className="text-sm text-text-tertiary">{error}</p>
+        )}
         {!loading && !error && blobUrl && isImage(attachment.mime_type) && (
           <img
             src={blobUrl}
@@ -307,24 +228,21 @@ export function AttachmentPreview({
             className="max-w-full max-h-[70vh] object-contain rounded"
           />
         )}
-        {!loading &&
-          !error &&
-          blobUrl &&
-          isPdf(attachment.mime_type, attachment.filename) && (
-            <iframe
-              src={blobUrl}
-              title={attachment.filename ?? "PDF preview"}
-              className="w-full h-[70vh] border-0 rounded"
-            />
-          )}
+        {!loading && !error && blobUrl && isPdf(attachment.mime_type, attachment.filename) && (
+          <iframe
+            src={blobUrl}
+            title={attachment.filename ?? "PDF preview"}
+            className="w-full h-[70vh] border-0 rounded"
+          />
+        )}
         {!loading && !error && blobUrl && isText(attachment.mime_type) && (
           <TextPreview url={blobUrl} />
         )}
         {!isPreviewable && !loading && (
           <div className="flex flex-col items-center gap-3 text-text-tertiary">
             <Eye size={40} strokeWidth={1} />
-            <p className="text-sm">Preview not available for this file type</p>
-            <p className="text-xs">{attachment.mime_type ?? "Unknown type"}</p>
+            <p className="text-sm">{t("email.attachmentList.previewNotAvailable")}</p>
+            <p className="text-xs">{attachment.mime_type ?? t("email.attachmentList.unknownType")}</p>
           </div>
         )}
       </div>
@@ -336,10 +254,7 @@ function TextPreview({ url }: { url: string }) {
   const [text, setText] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(url)
-      .then((r) => r.text())
-      .then(setText)
-      .catch(() => setText("Failed to load text"));
+    fetch(url).then((r) => r.text()).then(setText).catch(() => setText("Failed to load text"));
   }, [url]);
 
   return (

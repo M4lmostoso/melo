@@ -20,7 +20,7 @@ export function CalendarReauthBanner({ accountId, email, onReauthSuccess }: Cale
       await reauthorizeAccount(accountId, email);
       onReauthSuccess();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Re-authorization failed");
+      setError(err instanceof Error ? err.message : t("calendar.reauthButton"));
       setStatus("error");
     }
   };
@@ -29,9 +29,9 @@ export function CalendarReauthBanner({ accountId, email, onReauthSuccess }: Cale
     <div className="mx-6 my-4 p-4 rounded-lg bg-warning/10 border border-warning/30 flex items-start gap-3">
       <AlertTriangle size={18} className="text-warning shrink-0 mt-0.5" />
       <div className="flex-1">
-        <p className="text-sm font-medium text-text-primary">{t("calendar.reauthBanner.title")}</p>
+        <p className="text-sm font-medium text-text-primary">{t("calendar.reauthBannerTitle")}</p>
         <p className="text-xs text-text-secondary mt-1">
-          {t("calendar.reauthBanner.desc")}
+          {t("calendar.reauthBannerDesc")}
         </p>
         {error && (
           <p className="text-xs text-danger mt-1.5">{error}</p>
@@ -42,7 +42,7 @@ export function CalendarReauthBanner({ accountId, email, onReauthSuccess }: Cale
           className="mt-2.5 px-3 py-1.5 text-xs font-medium bg-accent text-white rounded-md hover:bg-accent-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
         >
           {status === "authorizing" && <Loader2 size={12} className="animate-spin" />}
-          {status === "authorizing" ? t("calendar.reauthBanner.authorizing") : t("calendar.reauthBanner.reauthorize")}
+          {status === "authorizing" ? t("calendar.reauthWaiting") : t("calendar.reauthButton")}
         </button>
       </div>
     </div>

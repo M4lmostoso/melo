@@ -1,95 +1,35 @@
 import { useEffect, useCallback, useMemo, useRef, useState } from "react";
 import { CSSTransition } from "react-transition-group";
+import { t } from "@/i18n";
 import { ThreadCard } from "../email/ThreadCard";
-import { SwipeableThreadCard } from "../email/SwipeableThreadCard";
 import { CategoryTabs } from "../email/CategoryTabs";
 import { SearchBar } from "../search/SearchBar";
-import { AnswerPanel } from "../search/AnswerPanel";
 import { EmailListSkeleton } from "../ui/Skeleton";
 import { useThreadStore, type Thread } from "@/stores/threadStore";
 import { useAccountStore } from "@/stores/accountStore";
 import { useUIStore } from "@/stores/uiStore";
-import {
-  useActiveLabel,
-  useSelectedThreadId,
-  useActiveCategory,
-} from "@/hooks/useRouteNavigation";
+import { useActiveLabel, useSelectedThreadId, useActiveCategory } from "@/hooks/useRouteNavigation";
 import { navigateToThread, navigateToLabel } from "@/router/navigate";
-import {
-  getThreadsForAccount,
-  getThreadsForCategory,
-  getUnifiedInboxThreads,
-  getUnifiedFolderThreads,
-  getThreadById,
-  getThreadLabelIds,
-  getThreadIdsForLabel,
-  deleteThread as deleteThreadFromDb,
-  getThreadsByIdsBatch,
-  getThreadLabelsByIdsBatch,
-} from "@/services/db/threads";
-import {
-  getCategoriesForThreads,
-  getCategoryUnreadCounts,
-} from "@/services/db/threadCategories";
+import { getThreadsForAccount, getThreadsForCategory, getThreadLabelIds, deleteThread as deleteThreadFromDb } from "@/services/db/threads";
+import { getCategoriesForThreads, getCategoryUnreadCounts } from "@/services/db/threadCategories";
 import { getActiveFollowUpThreadIds } from "@/services/db/followUpReminders";
-import { applyTemporalDecay } from "@/services/ai/reputationEngine";
-import { getSetting } from "@/services/db/settings";
-import {
-  archiveThread,
-  trashThread,
-  permanentDeleteThread,
-  spamThread,
-  markThreadRead,
-} from "@/services/emailActions";
-import {
-  getBundleRules,
-  getHeldThreadIds,
-  getBundleSummaries,
-  type DbBundleRule,
-} from "@/services/db/bundleRules";
+import { getBundleRules, getHeldThreadIds, getBundleSummaries, type DbBundleRule } from "@/services/db/bundleRules";
 import { getGmailClient } from "@/services/gmail/tokenManager";
-import { useLabelStore, type Label } from "@/stores/labelStore";
+import { useLabelStore } from "@/stores/labelStore";
 import { useSmartFolderStore } from "@/stores/smartFolderStore";
 import { useContextMenuStore } from "@/stores/contextMenuStore";
 import { useComposerStore } from "@/stores/composerStore";
-import { useOutgoingStore, type OutgoingEmail } from "@/stores/outgoingStore";
-import { getOutgoingDbEmails, type OutgoingDbEmail } from "@/services/db/outgoing";
-import { deleteOperation } from "@/services/db/pendingOperations";
 import { getMessagesForThread } from "@/services/db/messages";
-import {
-  getSmartFolderSearchQuery,
-  mapSmartFolderRows,
-  type SmartFolderRow,
-} from "@/services/search/smartFolderQuery";
+import { getSmartFolderSearchQuery, mapSmartFolderRows, type SmartFolderRow } from "@/services/search/smartFolderQuery";
 import { getDb } from "@/services/db/connection";
-import {
-  getScheduledEmailsForAccount,
-  getScheduledEmailsByAccounts,
-  updateScheduledEmailStatus,
-  type DbScheduledEmail,
-} from "@/services/db/scheduledEmails";
-import { ScheduledEmailPanel } from "./ScheduledEmailPanel";
-import {
-  Archive,
-  Trash2,
-  X,
-  Ban,
-  Filter,
-  ChevronRight,
-  Package,
-  FolderSearch,
-  Mail,
-  MailOpen,
-} from "lucide-react";
+import { Archive, Trash2, X, Ban, Filter, ChevronRight, Package, FolderSearch } from "lucide-react";
 import { EmptyState } from "../ui/EmptyState";
 import {
   InboxClearIllustration,
   NoSearchResultsIllustration,
   NoAccountIllustration,
   GenericEmptyIllustration,
-  ScheduledEmptyIllustration,
 } from "../ui/illustrations";
-import { scrollTracker } from "@/utils/scrollTracker";
 
 const PAGE_SIZE = 50;
 
@@ -105,17 +45,7 @@ const LABEL_MAP: Record<string, string> = {
   all: "", // no filter
 };
 
-const UNIFIED_FOLDER_LABELS = new Set([
-  "starred", "snoozed", "sent", "drafts", "trash", "spam", "all", "scheduled",
-]);
-
-export function EmailList({
-  width,
-  listRef,
-}: {
-  width?: number;
-  listRef?: React.Ref<HTMLDivElement>;
-}) {
+export function EmailList({ width, listRef }: { width?: number; listRef?: React.Ref<HTMLDivElement> }) {
   const threads = useThreadStore((s) => s.threads);
   const selectedThreadId = useSelectedThreadId();
   const selectedThreadIds = useThreadStore((s) => s.selectedThreadIds);
@@ -123,399 +53,168 @@ export function EmailList({
   const setThreads = useThreadStore((s) => s.setThreads);
   const setLoading = useThreadStore((s) => s.setLoading);
   const removeThreads = useThreadStore((s) => s.removeThreads);
-const selectThread = useThreadStore((s) => s.selectThread);
-   const clearMultiSelect = useThreadStore((s) => s.clearMultiSelect);
-   const setSelectedMessageId = useThreadStore((s) => s.setSelectedMessageId);
+  const clearMultiSelect = useThreadStore((s) => s.clearMultiSelect);
   const selectAll = useThreadStore((s) => s.selectAll);
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
-  const setActiveAccount = useAccountStore((s) => s.setActiveAccount);
-  const accounts = useAccountStore((s) => s.accounts);
   const activeLabel = useActiveLabel();
   const readFilter = useUIStore((s) => s.readFilter);
   const setReadFilter = useUIStore((s) => s.setReadFilter);
   const readingPanePosition = useUIStore((s) => s.readingPanePosition);
   const userLabels = useLabelStore((s) => s.labels);
-  const refreshScheduledCounts = useLabelStore((s) => s.refreshScheduledCounts);
   const smartFolders = useSmartFolderStore((s) => s.folders);
 
   // Detect smart folder mode
   const isSmartFolder = activeLabel.startsWith("smart-folder:");
-  const smartFolderId = isSmartFolder
-    ? activeLabel.replace("smart-folder:", "")
-    : null;
-  const activeSmartFolder = smartFolderId
-    ? (smartFolders.find((f) => f.id === smartFolderId) ?? null)
-    : null;
+  const smartFolderId = isSmartFolder ? activeLabel.replace("smart-folder:", "") : null;
+  const activeSmartFolder = smartFolderId ? smartFolders.find((f) => f.id === smartFolderId) ?? null : null;
 
   const inboxViewMode = useUIStore((s) => s.inboxViewMode);
   const routerCategory = useActiveCategory();
 
   // In split mode, use the router's category; in unified mode, always use "All"
   const activeCategory = inboxViewMode === "split" ? routerCategory : "All";
-  const setActiveCategory =
-    inboxViewMode === "split"
-      ? (cat: string) => navigateToLabel("inbox", { category: cat })
-      : () => { };
+  const setActiveCategory = inboxViewMode === "split"
+    ? (cat: string) => navigateToLabel("inbox", { category: cat })
+    : () => {};
 
-const [hasMore, setHasMore] = useState(true);
-   const [loadingMore, setLoadingMore] = useState(false);
-   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
-  // Monotonically-increasing token: every loadThreads call increments this ref and
-  // captures its own snapshot. Before writing to state, it checks that its snapshot
-  // still matches — if not, a newer call is already in flight and this result is stale.
-  const loadVersionRef = useRef(0);
-  // Tracks thread IDs loaded when entering a smart folder — prevents threads from disappearing
-  // when marked as read (which fires velo-sync-done and re-runs the smart folder query).
-  // Cleared on folder navigation.
-  const pinnedSmartFolderIds = useRef<Set<string>>(new Set());
-   const [isScrolling, setIsScrolling] = useState(false);
-  const [categoryMap, setCategoryMap] = useState<Map<string, string>>(
-    () => new Map(),
-  );
-  const [categoryUnreadCounts, setCategoryUnreadCounts] = useState<
-    Map<string, number>
-  >(() => new Map());
-  const [followUpThreadIds, setFollowUpThreadIds] = useState<Set<string>>(
-    () => new Set(),
-  );
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const [categoryMap, setCategoryMap] = useState<Map<string, string>>(() => new Map());
+  const [categoryUnreadCounts, setCategoryUnreadCounts] = useState<Map<string, number>>(() => new Map());
+  const [followUpThreadIds, setFollowUpThreadIds] = useState<Set<string>>(() => new Set());
   const [bundleRules, setBundleRules] = useState<DbBundleRule[]>([]);
-  const [heldThreadIds, setHeldThreadIds] = useState<Set<string>>(
-    () => new Set(),
-  );
-  const [expandedBundles, setExpandedBundles] = useState<Set<string>>(
-    () => new Set(),
-  );
-  const [bundleSummaries, setBundleSummaries] = useState<
-    Map<
-      string,
-      {
-        count: number;
-        latestSubject: string | null;
-        latestSender: string | null;
-      }
-    >
-  >(() => new Map());
+  const [heldThreadIds, setHeldThreadIds] = useState<Set<string>>(() => new Set());
+  const [expandedBundles, setExpandedBundles] = useState<Set<string>>(() => new Set());
+  const [bundleSummaries, setBundleSummaries] = useState<Map<string, { count: number; latestSubject: string | null; latestSender: string | null }>>(() => new Map());
 
   const openMenu = useContextMenuStore((s) => s.openMenu);
   const multiSelectCount = selectedThreadIds.size;
 
   const openComposer = useComposerStore((s) => s.openComposer);
   const multiSelectBarRef = useRef<HTMLDivElement>(null);
-  const [selectedScheduledEmail, setSelectedScheduledEmail] = useState<
-    import("@/services/db/scheduledEmails").DbScheduledEmail | null
-  >(null);
-  const scheduledEmailsRef = useRef<
-    Map<string, import("@/services/db/scheduledEmails").DbScheduledEmail>
-  >(new Map());
 
-  type OutgoingItem = { source: "memory"; email: OutgoingEmail } | { source: "db"; email: OutgoingDbEmail };
-  const outgoingItemsRef = useRef<Map<string, OutgoingItem>>(new Map());
-  const outgoingEmails = useOutgoingStore((s) => s.emails);
+  const handleThreadContextMenu = useCallback((e: React.MouseEvent, threadId: string) => {
+    e.preventDefault();
+    openMenu("thread", { x: e.clientX, y: e.clientY }, { threadId });
+  }, [openMenu]);
 
-  const handleThreadContextMenu = useCallback(
-    (e: React.MouseEvent, threadId: string) => {
-      e.preventDefault();
-      openMenu("thread", { x: e.clientX, y: e.clientY }, { threadId });
-    },
-    [openMenu],
-  );
+  const handleDraftClick = useCallback(async (thread: Thread) => {
+    if (!activeAccountId) return;
+    try {
+      const messages = await getMessagesForThread(activeAccountId, thread.id);
+      // Get the last message (the draft)
+      const draftMsg = messages[messages.length - 1];
+      if (!draftMsg) return;
 
-  const handleDraftClick = useCallback(
-    async (thread: Thread) => {
-      if (!activeAccountId) return;
+      // Look up the Gmail draft ID so auto-save can update the existing draft
+      let draftId: string | null = null;
       try {
-        const messages = await getMessagesForThread(activeAccountId, thread.id);
-        // Get the last message (the draft)
-        const draftMsg = messages[messages.length - 1];
-        if (!draftMsg) return;
-
-        // For IMAP two-tier drafts, draftMsg.id is a stable UUID — use imap_uid/imap_folder
-        // to construct the real UID-based ID so startAutoSave tracks the existing server draft.
-        // Without this, updateDraft would create a new server draft instead of updating the old
-        // one, leaving the old UID orphaned on the server and re-imported on the next delta sync.
-        let draftId: string | null = null;
-        if (draftMsg.imap_uid != null && draftMsg.imap_folder) {
-          draftId = `imap-${activeAccountId}-${draftMsg.imap_folder}-${draftMsg.imap_uid}`;
-        } else if (draftMsg.id.startsWith("imap-")) {
-          draftId = draftMsg.id;
-        }
-        try {
-          const client = await getGmailClient(activeAccountId);
-          const drafts = await client.listDrafts();
-          const match = drafts.find((d: any) => d.message.id === draftMsg.id);
-          if (match) draftId = match.id;
-        } catch {
-          // Non-Gmail account: keep the IMAP draftId set above (or null for unknown providers)
-        }
-
-        const to = draftMsg.to_addresses
-          ? draftMsg.to_addresses
-            .split(",")
-            .map((a) => a.trim())
-            .filter(Boolean)
-          : [];
-        const cc = draftMsg.cc_addresses
-          ? draftMsg.cc_addresses
-            .split(",")
-            .map((a) => a.trim())
-            .filter(Boolean)
-          : [];
-        const bcc = draftMsg.bcc_addresses
-          ? draftMsg.bcc_addresses
-            .split(",")
-            .map((a) => a.trim())
-            .filter(Boolean)
-          : [];
-
-        openComposer({
-          mode: "new",
-          to,
-          cc,
-          bcc,
-          subject: draftMsg.subject ?? "",
-          bodyHtml: draftMsg.body_html ?? draftMsg.body_text ?? "",
-          threadId: thread.id,
-          draftId,
-          accountId: activeAccountId,
-        });
-      } catch (err) {
-        console.error("Failed to open draft:", err);
+        const client = await getGmailClient(activeAccountId);
+        const drafts = await client.listDrafts();
+        const match = drafts.find((d) => d.message.id === draftMsg.id);
+        if (match) draftId = match.id;
+      } catch {
+        // If we can't get draft ID, composer will create a new draft on save
       }
-    },
-    [activeAccountId, openComposer],
-  );
 
-  const handleThreadClick = useCallback(
-    async (thread: Thread) => {
-      if (thread.accountId && thread.accountId !== activeAccountId) {
-        setActiveAccount(thread.accountId);
-      }
-      if (activeLabel === "drafts") {
-        handleDraftClick(thread);
-      } else if (activeLabel === "scheduled") {
-        const email = scheduledEmailsRef.current.get(thread.id);
-        if (email) setSelectedScheduledEmail(email);
-      } else if (activeLabel === "outgoing") {
-        const item = outgoingItemsRef.current.get(thread.id);
-        if (!item) return;
+      const to = draftMsg.to_addresses
+        ? draftMsg.to_addresses.split(",").map((a) => a.trim()).filter(Boolean)
+        : [];
+      const cc = draftMsg.cc_addresses
+        ? draftMsg.cc_addresses.split(",").map((a) => a.trim()).filter(Boolean)
+        : [];
+      const bcc = draftMsg.bcc_addresses
+        ? draftMsg.bcc_addresses.split(",").map((a) => a.trim()).filter(Boolean)
+        : [];
 
-        if (item.source === "memory") {
-          if (item.email.status === "sending") return;
-          if (item.email.timerId != null) clearTimeout(item.email.timerId);
-          useComposerStore.getState().setUndoSendTimer(null);
-          useComposerStore.getState().setUndoSendVisible(false);
-          useComposerStore.getState().setIsSending(false);
-          useOutgoingStore.getState().removeEmail(item.email.id);
-          openComposer({
-            to: item.email.to,
-            cc: item.email.cc,
-            bcc: item.email.bcc,
-            subject: item.email.subject,
-            bodyHtml: item.email.bodyHtml,
-            threadId: item.email.threadId,
-            inReplyToMessageId: item.email.inReplyToMessageId,
-            accountId: item.email.accountId,
-          });
-        } else {
-          try { await deleteOperation(item.email.id); } catch { /* ignore */ }
-          outgoingItemsRef.current.delete(item.email.id);
-          setThreads(useThreadStore.getState().threads.filter((t: Thread) => t.id !== item.email.id));
-          openComposer({
-            to: item.email.to,
-            cc: item.email.cc,
-            subject: item.email.subject,
-            bodyHtml: item.email.bodyHtml,
-            threadId: item.email.threadId,
-            inReplyToMessageId: item.email.inReplyTo ?? undefined,
-            accountId: item.email.accountId,
-          });
-        }
-      } else {
-        navigateToThread(thread.id);
-      }
-    },
-    [activeLabel, activeAccountId, setActiveAccount, handleDraftClick, openComposer, setThreads],
-  );
+      openComposer({
+        mode: "new",
+        to,
+        cc,
+        bcc,
+        subject: draftMsg.subject ?? "",
+        bodyHtml: draftMsg.body_html ?? draftMsg.body_text ?? "",
+        threadId: thread.id,
+        draftId,
+      });
+    } catch (err) {
+      console.error("Failed to open draft:", err);
+    }
+  }, [activeAccountId, openComposer]);
+
+  const handleThreadClick = useCallback((thread: Thread) => {
+    if (activeLabel === "drafts") {
+      handleDraftClick(thread);
+    } else {
+      navigateToThread(thread.id);
+    }
+  }, [activeLabel, handleDraftClick]);
 
   const handleBulkDelete = async () => {
-    if (!isUnifiedInbox && !activeAccountId) return;
-    if (multiSelectCount === 0) return;
+    if (!activeAccountId || multiSelectCount === 0) return;
     const isTrashView = activeLabel === "trash";
     const ids = [...selectedThreadIds];
-
-    // Optimistic remove is handled by executeEmailAction, but for bulk
-    // we do it here for immediate feedback since we process them in parallel
     removeThreads(ids);
-    clearMultiSelect();
-
     try {
-      await Promise.all(
-        ids.map(async (id) => {
-          const accountId = threads.find((t) => t.id === id)?.accountId ?? activeAccountId;
-          if (!accountId) return;
-          if (isTrashView) {
-            await permanentDeleteThread(accountId, id, []);
-            await deleteThreadFromDb(accountId, id);
-          } else {
-            await trashThread(accountId, id, []);
-          }
-        }),
-      );
+      const client = await getGmailClient(activeAccountId);
+      await Promise.all(ids.map(async (id) => {
+        if (isTrashView) {
+          await client.deleteThread(id);
+          await deleteThreadFromDb(activeAccountId, id);
+        } else {
+          await client.modifyThread(id, ["TRASH"], ["INBOX"]);
+        }
+      }));
     } catch (err) {
       console.error("Bulk delete failed:", err);
-      // Next sync will restore any that failed
     }
   };
 
   const handleBulkArchive = async () => {
-    if (!isUnifiedInbox && !activeAccountId) return;
-    if (multiSelectCount === 0) return;
+    if (!activeAccountId || multiSelectCount === 0) return;
     const ids = [...selectedThreadIds];
     removeThreads(ids);
-    clearMultiSelect();
-
     try {
-      await Promise.all(
-        ids.map((id) => {
-          const accountId = threads.find((t) => t.id === id)?.accountId ?? activeAccountId;
-          if (!accountId) return Promise.resolve();
-          return archiveThread(accountId, id, []);
-        }),
-      );
+      const client = await getGmailClient(activeAccountId);
+      await Promise.all(ids.map((id) => client.modifyThread(id, undefined, ["INBOX"])));
     } catch (err) {
       console.error("Bulk archive failed:", err);
     }
   };
 
   const handleBulkSpam = async () => {
-    if (!isUnifiedInbox && !activeAccountId) return;
-    if (multiSelectCount === 0) return;
+    if (!activeAccountId || multiSelectCount === 0) return;
     const ids = [...selectedThreadIds];
     const isSpamView = activeLabel === "spam";
     removeThreads(ids);
-    clearMultiSelect();
-
     try {
-      await Promise.all(
-        ids.map((id) => {
-          const accountId = threads.find((t) => t.id === id)?.accountId ?? activeAccountId;
-          if (!accountId) return Promise.resolve();
-          return spamThread(accountId, id, [], !isSpamView);
-        }),
-      );
+      const client = await getGmailClient(activeAccountId);
+      await Promise.all(ids.map((id) =>
+        isSpamView
+          ? client.modifyThread(id, ["INBOX"], ["SPAM"])
+          : client.modifyThread(id, ["SPAM"], ["INBOX"]),
+      ));
     } catch (err) {
       console.error("Bulk spam failed:", err);
     }
   };
 
-  const handleBulkMarkRead = async (read: boolean) => {
-    if (!isUnifiedInbox && !activeAccountId) return;
-    if (multiSelectCount === 0) return;
-    const ids = [...selectedThreadIds];
-    clearMultiSelect();
-    try {
-      await Promise.all(
-        ids.map((id) => {
-          const accountId = threads.find((t) => t.id === id)?.accountId ?? activeAccountId;
-          if (!accountId) return Promise.resolve();
-          return markThreadRead(accountId, id, [], read);
-        }),
-      );
-    } catch (err) {
-      console.error(`Bulk mark ${read ? "read" : "unread"} failed:`, err);
-    }
-  };
-
-  const handleBulkMarkAllSpamRead = async () => {
-    if (activeLabel !== "spam") return;
-    const targetAccounts = activeAccountId ? [activeAccountId] : accounts.map((a) => a.id);
-    try {
-      const results = await Promise.all(
-        targetAccounts.map((accId) => getThreadIdsForLabel(accId, "SPAM").then((ids) => ({ accId, ids }))),
-      );
-      await Promise.all(
-        results.flatMap(({ accId, ids }) =>
-          ids.map((id) => markThreadRead(accId, id, [], true)),
-        ),
-      );
-    } catch (err) {
-      console.error("Bulk mark all spam as read failed:", err);
-    }
-  };
-
-  const handleBulkMoveAllSpamToTrash = async () => {
-    if (activeLabel !== "spam") return;
-    const targetAccounts = activeAccountId ? [activeAccountId] : accounts.map((a) => a.id);
-    try {
-      const results = await Promise.all(
-        targetAccounts.map((accId) => getThreadIdsForLabel(accId, "SPAM").then((ids) => ({ accId, ids }))),
-      );
-      const allIds = results.flatMap(({ ids }) => ids);
-      if (allIds.length === 0) return;
-      removeThreads(allIds);
-      await Promise.all(
-        results.flatMap(({ accId, ids }) =>
-          ids.map((id) => trashThread(accId, id, [])),
-        ),
-      );
-    } catch (err) {
-      console.error("Bulk move all spam to trash failed:", err);
-    }
-  };
-
-  const handleBulkMarkAllTrashRead = async () => {
-    if (activeLabel !== "trash") return;
-    const targetAccounts = activeAccountId ? [activeAccountId] : accounts.map((a) => a.id);
-    try {
-      const results = await Promise.all(
-        targetAccounts.map((accId) => getThreadIdsForLabel(accId, "TRASH").then((ids) => ({ accId, ids }))),
-      );
-      await Promise.all(
-        results.flatMap(({ accId, ids }) =>
-          ids.map((id) => markThreadRead(accId, id, [], true)),
-        ),
-      );
-    } catch (err) {
-      console.error("Bulk mark all trash as read failed:", err);
-    }
-  };
-
-  const handleBulkEmptyTrash = async () => {
-    if (activeLabel !== "trash") return;
-    const targetAccounts = activeAccountId ? [activeAccountId] : accounts.map((a) => a.id);
-    try {
-      const results = await Promise.all(
-        targetAccounts.map((accId) => getThreadIdsForLabel(accId, "TRASH").then((ids) => ({ accId, ids }))),
-      );
-      const allIds = results.flatMap(({ ids }) => ids);
-      if (allIds.length === 0) return;
-      removeThreads(allIds);
-      await Promise.all(
-        results.flatMap(({ accId, ids }) =>
-          ids.map((id) => permanentDeleteThread(accId, id, [])),
-        ),
-      );
-    } catch (err) {
-      console.error("Bulk empty trash failed:", err);
-    }
-  };
-
-  const searchResults = useThreadStore((s) => s.searchResults);
-  const searchLoading = useThreadStore((s) => s.searchLoading);
+  const searchThreadIds = useThreadStore((s) => s.searchThreadIds);
   const searchQuery = useThreadStore((s) => s.searchQuery);
-  const isSearchActive = searchResults !== null;
 
   const filteredThreads = useMemo(() => {
-    // When a search is active, the source list is the standalone search
-    // results (loaded directly from DB across all emails). Otherwise we use
-    // the current folder's `threads` cache.
-    let filtered: Thread[] = isSearchActive ? searchResults! : threads;
+    let filtered = threads;
+    // Apply search filter
+    if (searchThreadIds !== null) {
+      filtered = filtered.filter((t) => searchThreadIds.has(t.id));
+    }
     // Apply read filter
     if (readFilter === "unread") filtered = filtered.filter((t) => !t.isRead);
     else if (readFilter === "read") filtered = filtered.filter((t) => t.isRead);
     // Category filtering is now server-side (Phase 4) — no client-side filter needed
     return filtered;
-  }, [threads, readFilter, searchResults, isSearchActive]);
+  }, [threads, readFilter, searchThreadIds]);
 
   // Pre-compute bundled category Set for O(1) lookups in filter
   const bundledCategorySet = useMemo(
@@ -523,383 +222,50 @@ const [hasMore, setHasMore] = useState(true);
     [bundleRules],
   );
 
-  // Memoize visible threads (excludes bundled/held threads in "All" inbox view).
-  // When a search is active we bypass bundle/held filtering so every match is
-  // visible directly — otherwise hits hidden inside bundles would inflate the
-  // conversation count without ever appearing in the list.
+  // Memoize visible threads (excludes bundled/held threads in "All" inbox view)
   const visibleThreads = useMemo(() => {
-    if (activeLabel !== "inbox" || activeCategory !== "All" || isSearchActive)
-      return filteredThreads;
+    if (activeLabel !== "inbox" || activeCategory !== "All") return filteredThreads;
     return filteredThreads.filter((t) => {
       const cat = categoryMap.get(t.id);
       if (cat && bundledCategorySet.has(cat)) return false;
       if (heldThreadIds.has(t.id)) return false;
       return true;
     });
-  }, [
-    filteredThreads,
-    activeLabel,
-    activeCategory,
-    categoryMap,
-    bundledCategorySet,
-    heldThreadIds,
-    isSearchActive,
-  ]);
+  }, [filteredThreads, activeLabel, activeCategory, categoryMap, bundledCategorySet, heldThreadIds]);
 
-  const mapDbThreads = useCallback(
-    async (
-      dbThreads: Awaited<ReturnType<typeof getThreadsForAccount>>,
-    ): Promise<Thread[]> => {
-      const [decayStartRaw, decayFloorRaw, behaviorEnabledRaw, urgencyEnabledRaw] = await Promise.all([
-        getSetting("ai_urgency_decay_start_days"),
-        getSetting("ai_urgency_decay_floor_days"),
-        getSetting("ai_behavior_enabled"),
-        getSetting("ai_urgency_enabled"),
-      ]);
-      const decayStart = parseInt(decayStartRaw ?? "20", 10);
-      const decayFloor = parseInt(decayFloorRaw ?? "30", 10);
-      const urgencyActive = behaviorEnabledRaw !== "false" && urgencyEnabledRaw !== "false";
-
-      return Promise.all(
-        dbThreads.map(async (t) => {
-          const labelIds = await getThreadLabelIds(t.account_id, t.id);
-          const alwaysRead =
-            labelIds.includes("DRAFT") || labelIds.includes("TRASH");
-          const lastMessageAt = t.last_message_at ?? 0;
-          const rawUrgency = t.urgency_score ?? 0;
-          const decayedUrgency = !urgencyActive || t.is_heat_extinguished === 1
-            ? 0
-            : applyTemporalDecay(rawUrgency, lastMessageAt, decayStart, decayFloor);
-          const urgencyScore = t.is_muted === 1 ? Math.min(decayedUrgency, 0.05) : decayedUrgency;
-          return {
-            id: t.id,
-            accountId: t.account_id,
-            subject: t.subject,
-            snippet: t.snippet,
-            lastMessageAt,
-            messageCount: t.message_count,
-            isRead: alwaysRead || t.is_read === 1,
-            isStarred: t.is_starred === 1,
-            isPinned: t.is_pinned === 1,
-            isMuted: t.is_muted === 1,
-            hasAttachments: t.has_attachments === 1,
-            labelIds,
-            fromName: t.from_name,
-            fromAddress: t.from_address,
-            allSenders: t.all_senders ?? null,
-            urgencyScore,
-            sentimentScore: t.sentiment_score ?? 0,
-            isHeatExtinguished: t.is_heat_extinguished === 1,
-          };
-        }),
-      );
-    },
-    [],
-  );
+  const mapDbThreads = useCallback(async (dbThreads: Awaited<ReturnType<typeof getThreadsForAccount>>): Promise<Thread[]> => {
+    return Promise.all(
+      dbThreads.map(async (t) => {
+        const labelIds = await getThreadLabelIds(t.account_id, t.id);
+        return {
+          id: t.id,
+          accountId: t.account_id,
+          subject: t.subject,
+          snippet: t.snippet,
+          lastMessageAt: t.last_message_at ?? 0,
+          messageCount: t.message_count,
+          isRead: t.is_read === 1,
+          isStarred: t.is_starred === 1,
+          isPinned: t.is_pinned === 1,
+          isMuted: t.is_muted === 1,
+          hasAttachments: t.has_attachments === 1,
+          labelIds,
+          fromName: t.from_name,
+          fromAddress: t.from_address,
+        };
+      }),
+    );
+  }, []);
 
   const clearSearch = useThreadStore((s) => s.clearSearch);
 
-  const threadMap = useThreadStore((s) => s.threadMap);
-  const addThreads = useThreadStore((s) => s.addThreads);
-
-  const handleCitationClick = useCallback(async (threadId: string, messageId?: string) => {
-    if (!activeAccountId) return;
-
-    // Ensure thread is in store so it shows up in the list and can be highlighted
-    if (!threadMap.has(threadId)) {
-      try {
-        const dbThread = await getThreadById(activeAccountId, threadId);
-        if (dbThread) {
-          const labelIds = await getThreadLabelIds(activeAccountId, threadId);
-          const mapped: Thread = {
-            id: dbThread.id,
-            accountId: dbThread.account_id,
-            subject: dbThread.subject,
-            snippet: dbThread.snippet,
-            lastMessageAt: dbThread.last_message_at ?? 0,
-            messageCount: dbThread.message_count,
-            isRead: dbThread.is_read === 1,
-            isStarred: dbThread.is_starred === 1,
-            isPinned: dbThread.is_pinned === 1,
-            isMuted: dbThread.is_muted === 1,
-            hasAttachments: dbThread.has_attachments === 1,
-            labelIds,
-            fromName: dbThread.from_name,
-            fromAddress: dbThread.from_address,
-            allSenders: dbThread.all_senders ?? null,
-            urgencyScore: dbThread.urgency_score ?? 0,
-            sentimentScore: dbThread.sentiment_score ?? 0,
-            isHeatExtinguished: dbThread.is_heat_extinguished === 1,
-          };
-          addThreads([mapped]);
-        }
-      } catch (err) {
-        console.error("Failed to fetch thread for citation click:", err);
-      }
-    }
-
-    selectThread(threadId);
-    clearMultiSelect();
-    navigateToThread(threadId);
-    if (messageId) {
-      setSelectedMessageId(messageId);
-    }
-  }, [activeAccountId, threadMap, addThreads, selectThread, clearMultiSelect, setSelectedMessageId]);
-
-  const mergeSemanticResults = useThreadStore((s) => s.mergeSemanticResults);
-
-  const handleSemanticResult = useCallback(async (result: { citations: Array<{ threadId: string; messageId?: string }>; hits: Array<{ account_id: string; thread_id: string }> }) => {
-    // Only keep the threads actually cited in the answer, not all context hits
-    const citedThreadIds = new Set(result.citations.map((c) => c.threadId));
-    if (citedThreadIds.size === 0) return;
-    const accountById = new Map(result.hits.map((h) => [h.thread_id, h.account_id]));
-    const seen = new Set<string>();
-    const pairs: Array<{ accountId: string; threadId: string }> = [];
-    for (const threadId of citedThreadIds) {
-      if (seen.has(threadId)) continue;
-      seen.add(threadId);
-      const accountId = accountById.get(threadId);
-      if (accountId) pairs.push({ accountId, threadId });
-    }
-    try {
-      const [dbThreads, labelsByKey] = await Promise.all([
-        getThreadsByIdsBatch(pairs),
-        getThreadLabelsByIdsBatch(pairs),
-      ]);
-      const threads: Thread[] = dbThreads.map((t) => ({
-        id: t.id,
-        accountId: t.account_id,
-        subject: t.subject,
-        snippet: t.snippet,
-        lastMessageAt: t.last_message_at ?? 0,
-        messageCount: t.message_count,
-        isRead: t.is_read === 1,
-        isStarred: t.is_starred === 1,
-        isPinned: t.is_pinned === 1,
-        isMuted: t.is_muted === 1,
-        hasAttachments: t.has_attachments === 1,
-        labelIds: labelsByKey.get(`${t.account_id}:${t.id}`) ?? [],
-        fromName: t.from_name,
-        fromAddress: t.from_address,
-        allSenders: t.all_senders,
-        urgencyScore: t.urgency_score ?? undefined,
-        sentimentScore: t.sentiment_score ?? undefined,
-        isHeatExtinguished: t.is_heat_extinguished === 1,
-      }));
-      mergeSemanticResults(threads);
-    } catch (err) {
-      console.error("Failed to merge semantic search results:", err);
-    }
-  }, [mergeSemanticResults]);
-
-  const isUnifiedInbox = activeLabel === "unified-inbox";
-  const isUnifiedFolder = activeAccountId === null && UNIFIED_FOLDER_LABELS.has(activeLabel);
-  const isScheduled = activeLabel === "scheduled";
-  const isUnifiedScheduled = isScheduled && activeAccountId === null;
-  const isOutgoing = activeLabel === "outgoing";
-  const globalAccountIds = useMemo(
-    () => accounts.filter((a) => a.includeInGlobal).map((a) => a.id),
-    [accounts],
-  );
-
-  function mapScheduledToThreads(emails: DbScheduledEmail[]): Thread[] {
-    scheduledEmailsRef.current = new Map(emails.map((e) => [e.id, e]));
-    return emails.map((e) => ({
-      id: e.id,
-      accountId: e.account_id,
-      subject: e.subject,
-      snippet: (() => {
-        const div = document.createElement("div");
-        div.innerHTML = e.body_html;
-        return (div.textContent ?? "").slice(0, 120) || null;
-      })(),
-      lastMessageAt: e.scheduled_at * 1000,
-      messageCount: 1,
-      isRead: true,
-      isStarred: false,
-      isPinned: false,
-      isMuted: false,
-      hasAttachments:
-        !!e.attachment_paths &&
-        (() => {
-          try {
-            return (JSON.parse(e.attachment_paths!) as unknown[]).length > 0;
-          } catch {
-            return false;
-          }
-        })(),
-      labelIds: ["SCHEDULED"],
-      fromName: e.to_addresses.split(",")[0]?.trim() ?? null,
-      fromAddress: e.to_addresses.split(",")[0]?.trim() ?? null,
-      allSenders: null,
-    }));
-  }
-
-  const loadThreads = useCallback(async (keepSearch = false) => {
-    // Capture a version token. Any call that finds its token stale at write time is
-    // discarded — this prevents an older in-flight load from overwriting a newer one
-    // (race condition when navigating folders while a velo-sync-done debounce is pending).
-    const version = ++loadVersionRef.current;
-    const isStale = () => loadVersionRef.current !== version;
-
-    // Unified inbox: load across all opted-in accounts (activeAccountId may be null)
-    if (isUnifiedInbox) {
-      if (!keepSearch) clearSearch();
-      setLoading(true);
-      setHasMore(true);
-      try {
-        const dbThreads = await getUnifiedInboxThreads(globalAccountIds, PAGE_SIZE, 0);
-        const mapped = await mapDbThreads(dbThreads);
-        if (isStale()) return;
-        setThreads(mapped);
-        setHasMore(dbThreads.length === PAGE_SIZE);
-      } catch (err) {
-        console.error("Failed to load unified inbox threads:", err);
-      } finally {
-        if (!isStale()) setLoading(false);
-      }
-      return;
-    }
-
-    // Outgoing — combines in-memory (undo window + sending) with DB pending ops.
-    // No setLoading here: keeping existing cards visible during the async DB read
-    // prevents the skeleton flash that would otherwise appear at the memory→DB handoff.
-    if (isOutgoing) {
-      if (!keepSearch) clearSearch();
-      setHasMore(false);
-      try {
-        const memEmails = useOutgoingStore.getState().emails.filter(
-          (e) => !activeAccountId || e.accountId === activeAccountId,
-        );
-        const dbEmails = await getOutgoingDbEmails(
-          activeAccountId ? [activeAccountId] : globalAccountIds.length > 0 ? globalAccountIds : undefined,
-        );
-
-        const items = new Map<string, OutgoingItem>();
-        for (const e of memEmails) items.set(e.id, { source: "memory", email: e });
-        for (const e of dbEmails) items.set(e.id, { source: "db", email: e });
-        outgoingItemsRef.current = items;
-
-        const toSnippet = (html: string) => {
-          const div = document.createElement("div");
-          div.innerHTML = html;
-          return (div.textContent ?? "").slice(0, 120) || null;
-        };
-
-        const threads: Thread[] = [...items.values()].map((item) => {
-          const e = item.email;
-          const isSending = item.source === "memory" && item.email.status === "sending";
-          return {
-            id: e.id,
-            accountId: e.accountId,
-            subject: e.subject || "(no subject)",
-            snippet: isSending ? "Sending…" : toSnippet(e.bodyHtml),
-            lastMessageAt: item.source === "memory" ? item.email.createdAt : item.email.createdAt * 1000,
-            messageCount: 1,
-            isRead: true,
-            isStarred: false,
-            isPinned: false,
-            isMuted: false,
-            hasAttachments: false,
-            labelIds: ["OUTGOING"],
-            fromName: e.to[0] ?? null,
-            fromAddress: e.to[0] ?? null,
-            allSenders: null,
-          };
-        });
-        if (!isStale()) setThreads(threads);
-      } catch (err) {
-        console.error("Failed to load outgoing emails:", err);
-      }
-      return;
-    }
-
-    // Scheduled emails — separate table, no thread_labels join
-    if (isScheduled) {
-      if (!keepSearch) clearSearch();
-      setLoading(true);
-      setHasMore(false);
-      try {
-        let emails: DbScheduledEmail[];
-        if (isUnifiedScheduled) {
-          emails = await getScheduledEmailsByAccounts(globalAccountIds);
-        } else if (activeAccountId) {
-          emails = await getScheduledEmailsForAccount(activeAccountId);
-        } else {
-          emails = [];
-        }
-        if (!isStale()) setThreads(mapScheduledToThreads(emails));
-      } catch (err) {
-        console.error("Failed to load scheduled emails:", err);
-      } finally {
-        if (!isStale()) setLoading(false);
-      }
-      return;
-    }
-
-    // Unified folder (starred, snoozed, sent, drafts, trash, spam, all) across all global accounts
-    if (isUnifiedFolder) {
-      if (!keepSearch) clearSearch();
-      setLoading(true);
-      setHasMore(true);
-      try {
-        const labelId = LABEL_MAP[activeLabel] ?? activeLabel;
-        const dbThreads = await getUnifiedFolderThreads(globalAccountIds, labelId, PAGE_SIZE, 0);
-        const mapped = await mapDbThreads(dbThreads);
-        if (isStale()) return;
-        setThreads(mapped);
-        setHasMore(dbThreads.length === PAGE_SIZE);
-      } catch (err) {
-        console.error("Failed to load unified folder threads:", err);
-      } finally {
-        if (!isStale()) setLoading(false);
-      }
-      return;
-    }
-
-    // Unified smart folder: query across all opted-in accounts
-    if (isSmartFolder && activeSmartFolder && !activeAccountId) {
-      if (!keepSearch) clearSearch();
-      setLoading(true);
-      setHasMore(false);
-      try {
-        const { sql, params } = getSmartFolderSearchQuery(
-          activeSmartFolder.query,
-          globalAccountIds,
-          PAGE_SIZE,
-        );
-        const db = await getDb();
-        const rows = await db.select<SmartFolderRow[]>(sql, params);
-        const mapped = await mapSmartFolderRows(rows);
-        if (isStale()) return;
-        if (!keepSearch) {
-          pinnedSmartFolderIds.current = new Set(mapped.map((t) => t.id));
-          setThreads(mapped);
-        } else {
-          const currentThreads = useThreadStore.getState().threads;
-          const currentThreadMap = new Map(currentThreads.map((t) => [t.id, t]));
-          const newIds = new Set(mapped.map((t) => t.id));
-          const pinnedToKeep = [...pinnedSmartFolderIds.current]
-            .filter((id) => !newIds.has(id) && currentThreadMap.has(id))
-            .map((id) => currentThreadMap.get(id)!);
-          setThreads(
-            [...mapped, ...pinnedToKeep].sort((a, b) => b.lastMessageAt - a.lastMessageAt),
-          );
-        }
-      } catch (err) {
-        console.error("Failed to load unified smart folder threads:", err);
-      } finally {
-        if (!isStale()) setLoading(false);
-      }
-      return;
-    }
-
+  const loadThreads = useCallback(async () => {
     if (!activeAccountId) {
       setThreads([]);
       return;
     }
 
-    if (!keepSearch) clearSearch();
+    clearSearch();
     setLoading(true);
     setHasMore(true);
     try {
@@ -913,32 +279,13 @@ const [hasMore, setHasMore] = useState(true);
         const db = await getDb();
         const rows = await db.select<SmartFolderRow[]>(sql, params);
         const mapped = await mapSmartFolderRows(rows);
-        if (isStale()) return;
-        if (!keepSearch) {
-          pinnedSmartFolderIds.current = new Set(mapped.map((t) => t.id));
-          setThreads(mapped);
-        } else {
-          const currentThreads = useThreadStore.getState().threads;
-          const currentThreadMap = new Map(currentThreads.map((t) => [t.id, t]));
-          const newIds = new Set(mapped.map((t) => t.id));
-          const pinnedToKeep = [...pinnedSmartFolderIds.current]
-            .filter((id) => !newIds.has(id) && currentThreadMap.has(id))
-            .map((id) => currentThreadMap.get(id)!);
-          setThreads(
-            [...mapped, ...pinnedToKeep].sort((a, b) => b.lastMessageAt - a.lastMessageAt),
-          );
-        }
+        setThreads(mapped);
         setHasMore(false); // Smart folders load all at once
       } else {
         let dbThreads;
         // Server-side category filtering for inbox
         if (activeLabel === "inbox" && activeCategory !== "All") {
-          dbThreads = await getThreadsForCategory(
-            activeAccountId,
-            activeCategory,
-            PAGE_SIZE,
-            0,
-          );
+          dbThreads = await getThreadsForCategory(activeAccountId, activeCategory, PAGE_SIZE, 0);
         } else {
           const gmailLabelId = LABEL_MAP[activeLabel] ?? activeLabel;
           dbThreads = await getThreadsForAccount(
@@ -950,75 +297,25 @@ const [hasMore, setHasMore] = useState(true);
         }
 
         const mapped = await mapDbThreads(dbThreads);
-        if (isStale()) return;
         setThreads(mapped);
         setHasMore(dbThreads.length === PAGE_SIZE);
       }
     } catch (err) {
       console.error("Failed to load threads:", err);
     } finally {
-      if (!isStale()) setLoading(false);
+      setLoading(false);
     }
-  }, [
-    isUnifiedInbox,
-    isUnifiedFolder,
-    isScheduled,
-    isUnifiedScheduled,
-    isOutgoing,
-    globalAccountIds,
-    accounts,
-    activeAccountId,
-    activeLabel,
-    activeCategory,
-    isSmartFolder,
-    activeSmartFolder,
-    setThreads,
-    setLoading,
-    mapDbThreads,
-    clearSearch,
-  ]);
+  }, [activeAccountId, activeLabel, activeCategory, isSmartFolder, activeSmartFolder, setThreads, setLoading, mapDbThreads, clearSearch]);
 
   const loadMore = useCallback(async () => {
-    if (loadingMore || !hasMore) return;
+    if (!activeAccountId || loadingMore || !hasMore) return;
+
     setLoadingMore(true);
     try {
       const offset = threads.length;
-
-      if (isUnifiedInbox) {
-        const dbThreads = await getUnifiedInboxThreads(globalAccountIds, PAGE_SIZE, offset);
-        const mapped = await mapDbThreads(dbThreads);
-        if (mapped.length > 0) {
-          const existingIds = new Set(threads.map((t) => t.id));
-          const newThreads = mapped.filter((t) => !existingIds.has(t.id));
-          if (newThreads.length > 0) setThreads([...threads, ...newThreads]);
-        }
-        setHasMore(dbThreads.length === PAGE_SIZE);
-        return;
-      }
-
-      if (isUnifiedFolder) {
-        const labelId = LABEL_MAP[activeLabel] ?? activeLabel;
-        const dbThreads = await getUnifiedFolderThreads(globalAccountIds, labelId, PAGE_SIZE, offset);
-        const mapped = await mapDbThreads(dbThreads);
-        if (mapped.length > 0) {
-          const existingIds = new Set(threads.map((t) => t.id));
-          const newThreads = mapped.filter((t) => !existingIds.has(t.id));
-          if (newThreads.length > 0) setThreads([...threads, ...newThreads]);
-        }
-        setHasMore(dbThreads.length === PAGE_SIZE);
-        return;
-      }
-
-      if (!activeAccountId) return;
-
       let dbThreads;
       if (activeLabel === "inbox" && activeCategory !== "All") {
-        dbThreads = await getThreadsForCategory(
-          activeAccountId,
-          activeCategory,
-          PAGE_SIZE,
-          offset,
-        );
+        dbThreads = await getThreadsForCategory(activeAccountId, activeCategory, PAGE_SIZE, offset);
       } else {
         const gmailLabelId = LABEL_MAP[activeLabel] ?? activeLabel;
         dbThreads = await getThreadsForAccount(
@@ -1031,13 +328,7 @@ const [hasMore, setHasMore] = useState(true);
 
       const mapped = await mapDbThreads(dbThreads);
       if (mapped.length > 0) {
-        // Deduplicate: prevent threads that shifted positions (due to a sync)
-        // from appearing twice when loading more pages.
-        const existingIds = new Set(threads.map((t) => t.id));
-        const newThreads = mapped.filter((t) => !existingIds.has(t.id));
-        if (newThreads.length > 0) {
-          setThreads([...threads, ...newThreads]);
-        }
+        setThreads([...threads, ...mapped]);
       }
       setHasMore(dbThreads.length === PAGE_SIZE);
     } catch (err) {
@@ -1045,43 +336,14 @@ const [hasMore, setHasMore] = useState(true);
     } finally {
       setLoadingMore(false);
     }
-  }, [
-    isUnifiedInbox,
-    isUnifiedFolder,
-    globalAccountIds,
-    accounts,
-    activeAccountId,
-    activeLabel,
-    activeCategory,
-    threads,
-    loadingMore,
-    hasMore,
-    setThreads,
-    mapDbThreads,
-  ]);
-
-  // Clear pinned smart-folder threads whenever the user navigates to a different folder
-  useEffect(() => {
-    pinnedSmartFolderIds.current = new Set();
-  }, [activeLabel]);
+  }, [activeAccountId, activeLabel, activeCategory, threads, loadingMore, hasMore, setThreads, mapDbThreads]);
 
   useEffect(() => {
     loadThreads();
   }, [loadThreads]);
 
-  // Refresh outgoing list whenever the in-memory store changes, but only while in the
-  // outgoing view. Kept separate so that sending an email doesn't inadvertently
-  // re-trigger loadThreads (and thus reload inbox/sent/etc) when another folder is active.
-  useEffect(() => {
-    if (isOutgoing) loadThreads();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [outgoingEmails]);
-
   // Stable thread ID key — only changes when the actual set of thread IDs changes, not on every array reference
-  const threadIdKey = useMemo(
-    () => threads.map((t) => t.id).join(","),
-    [threads],
-  );
+  const threadIdKey = useMemo(() => threads.map((t) => t.id).join(","), [threads]);
 
   // Load all thread metadata (categories, unread counts, follow-ups, bundles) in one coordinated effect
   useEffect(() => {
@@ -1109,11 +371,9 @@ const [hasMore, setHasMore] = useState(true);
         // Categories (only for inbox "All" tab with threads)
         if (isInbox && isAllCategory && threadIds.length > 0) {
           promises.push(
-            getCategoriesForThreads(activeAccountId, threadIds).then(
-              (result) => {
-                if (!cancelled) setCategoryMap(result);
-              },
-            ),
+            getCategoriesForThreads(activeAccountId, threadIds).then((result) => {
+              if (!cancelled) setCategoryMap(result);
+            }),
           );
         } else {
           setCategoryMap(new Map());
@@ -1133,13 +393,11 @@ const [hasMore, setHasMore] = useState(true);
         // Follow-up indicators
         if (threadIds.length > 0) {
           promises.push(
-            getActiveFollowUpThreadIds(activeAccountId, threadIds)
-              .then((result) => {
-                if (!cancelled) setFollowUpThreadIds(result);
-              })
-              .catch(() => {
-                if (!cancelled) setFollowUpThreadIds(new Set());
-              }),
+            getActiveFollowUpThreadIds(activeAccountId, threadIds).then((result) => {
+              if (!cancelled) setFollowUpThreadIds(result);
+            }).catch(() => {
+              if (!cancelled) setFollowUpThreadIds(new Set());
+            }),
           );
         } else {
           setFollowUpThreadIds(new Set());
@@ -1148,34 +406,27 @@ const [hasMore, setHasMore] = useState(true);
         // Bundle rules + held threads (only for inbox)
         if (isInbox) {
           promises.push(
-            getBundleRules(activeAccountId)
-              .then(async (rules) => {
-                if (cancelled) return;
-                const bundled = rules.filter((r) => r.is_bundled);
-                setBundleRules(bundled);
-                // Batch-fetch all summaries in 2 queries instead of 2N
-                if (bundled.length > 0) {
-                  const summaries = await getBundleSummaries(
-                    activeAccountId,
-                    bundled.map((r) => r.category),
-                  ).catch(() => new Map());
-                  if (!cancelled) setBundleSummaries(summaries);
-                } else {
-                  if (!cancelled) setBundleSummaries(new Map());
-                }
-              })
-              .catch(() => {
-                if (!cancelled) setBundleRules([]);
-              }),
+            getBundleRules(activeAccountId).then(async (rules) => {
+              if (cancelled) return;
+              const bundled = rules.filter((r) => r.is_bundled);
+              setBundleRules(bundled);
+              // Batch-fetch all summaries in 2 queries instead of 2N
+              if (bundled.length > 0) {
+                const summaries = await getBundleSummaries(activeAccountId, bundled.map((r) => r.category)).catch(() => new Map());
+                if (!cancelled) setBundleSummaries(summaries);
+              } else {
+                if (!cancelled) setBundleSummaries(new Map());
+              }
+            }).catch(() => {
+              if (!cancelled) setBundleRules([]);
+            }),
           );
           promises.push(
-            getHeldThreadIds(activeAccountId)
-              .then((result) => {
-                if (!cancelled) setHeldThreadIds(result);
-              })
-              .catch(() => {
-                if (!cancelled) setHeldThreadIds(new Set());
-              }),
+            getHeldThreadIds(activeAccountId).then((result) => {
+              if (!cancelled) setHeldThreadIds(result);
+            }).catch(() => {
+              if (!cancelled) setHeldThreadIds(new Set());
+            }),
           );
         } else {
           setBundleRules([]);
@@ -1190,39 +441,24 @@ const [hasMore, setHasMore] = useState(true);
     };
 
     loadMetadata();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [threadIdKey, activeLabel, activeCategory, activeAccountId]);
 
   // Auto-scroll selected thread into view (triggered by keyboard navigation)
   useEffect(() => {
     if (!selectedThreadId || !scrollContainerRef.current) return;
-    const el = scrollContainerRef.current.querySelector(
-      `[data-thread-id="${CSS.escape(selectedThreadId)}"]`,
-    );
+    const el = scrollContainerRef.current.querySelector(`[data-thread-id="${CSS.escape(selectedThreadId)}"]`);
     if (el) {
       el.scrollIntoView({ block: "nearest" });
     }
   }, [selectedThreadId]);
-
-  // Clear selection when the selected thread no longer exists in the loaded list.
-  // This happens after a repair or deletion removes messages that were being viewed
-  // (e.g. date-0 messages deleted by imap_date_repair_v1).
-  useEffect(() => {
-    if (!selectedThreadId || isLoading || threads.length === 0) return;
-    const stillExists = threads.some((t) => t.id === selectedThreadId);
-    if (!stillExists) {
-      selectThread(null);
-    }
-  }, [threads, selectedThreadId, isLoading, selectThread]);
 
   // Listen for sync completion to reload (debounced to avoid waterfall from multiple emitters)
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;
     const handler = () => {
       if (timer) clearTimeout(timer);
-      timer = setTimeout(() => loadThreads(true), 500);
+      timer = setTimeout(() => loadThreads(), 500);
     };
     window.addEventListener("velo-sync-done", handler);
     return () => {
@@ -1231,43 +467,32 @@ const [hasMore, setHasMore] = useState(true);
     };
   }, [loadThreads, activeAccountId, activeLabel]);
 
+  // Infinite scroll: load more when near bottom
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
 
-// Infinite scroll: load more when near bottom
- useEffect(() => {
-   const container = scrollContainerRef.current;
-   if (!container) return;
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = container;
+      if (scrollHeight - scrollTop - clientHeight < 200) {
+        loadMore();
+      }
+    };
 
-   let scrollTimer: ReturnType<typeof setTimeout>;
-   
-   const handleScroll = () => {
-     scrollTracker.markScroll();
-     setIsScrolling(true);
-     clearTimeout(scrollTimer);
-     scrollTimer = setTimeout(() => setIsScrolling(false), 1500);
-     
-     const { scrollTop, scrollHeight, clientHeight } = container;
-     if (scrollHeight - scrollTop - clientHeight < 200) {
-       loadMore();
-     }
-   };
-
-   container.addEventListener("scroll", handleScroll, { passive: true });
-   return () => {
-     clearTimeout(scrollTimer);
-     container.removeEventListener("scroll", handleScroll);
-   };
- }, [loadMore]);
+    container.addEventListener("scroll", handleScroll, { passive: true });
+    return () => container.removeEventListener("scroll", handleScroll);
+  }, [loadMore]);
 
   return (
-    <>
     <div
       ref={listRef}
-      className={`flex flex-col bg-bg-secondary/50 glass-panel ${readingPanePosition === "right"
-          ? "min-w-60 shrink-0"
+      className={`flex flex-col bg-bg-secondary/50 glass-panel ${
+        readingPanePosition === "right"
+          ? "min-w-[240px] shrink-0"
           : readingPanePosition === "bottom"
-            ? "w-full border-b border-border-primary h-[40%] min-h-50"
+            ? "w-full border-b border-border-primary h-[40%] min-h-[200px]"
             : "w-full flex-1"
-        }`}
+      }`}
       style={readingPanePosition === "right" && width ? { width } : undefined}
     >
       {/* Search */}
@@ -1275,88 +500,34 @@ const [hasMore, setHasMore] = useState(true);
         <SearchBar />
       </div>
 
-      {/* AI Answer Panel — shown only when search query looks like a question */}
-      <AnswerPanel
-        query={searchQuery}
-        accountId={activeAccountId}
-        onCitationClick={handleCitationClick}
-        onResult={handleSemanticResult}
-      />
-
       {/* Header */}
-      <div data-tauri-drag-region className="px-4 py-2 border-b border-border-primary flex items-center justify-between">
-        <div data-tauri-drag-region>
+      <div className="px-4 py-2 border-b border-border-primary flex items-center justify-between">
+        <div>
           <h2 className="text-sm font-semibold text-text-primary capitalize flex items-center gap-1.5">
-            {isSmartFolder && (
-              <FolderSearch size={14} className="text-accent shrink-0" />
-            )}
+            {isSmartFolder && <FolderSearch size={14} className="text-accent shrink-0" />}
             {isSmartFolder
-              ? (activeSmartFolder?.name ?? "Smart Folder")
-              : activeLabel === "inbox" &&
-                inboxViewMode === "split" &&
-                activeCategory !== "All"
+              ? activeSmartFolder?.name ?? t("layout.emailList.smartFolder")
+              : activeLabel === "inbox" && inboxViewMode === "split" && activeCategory !== "All"
                 ? `Inbox — ${activeCategory}`
                 : LABEL_MAP[activeLabel] !== undefined
                   ? activeLabel
-                  : (userLabels.find((l: Label) => l.id === activeLabel)
-                    ?.name ?? activeLabel)}
+                  : userLabels.find((l) => l.id === activeLabel)?.name ?? activeLabel}
           </h2>
           <span className="text-xs text-text-tertiary">
-            {filteredThreads.length} conversation
-            {filteredThreads.length !== 1 ? "s" : ""}
+            {filteredThreads.length !== 1
+              ? t("layout.emailList.conversationsPlural", { count: filteredThreads.length })
+              : t("layout.emailList.conversations", { count: filteredThreads.length })}
           </span>
         </div>
-        <div className="flex items-center gap-2">
-          {" "}
-          {/* New wrapper div for buttons and select */}
-          {activeLabel === "spam" && (
-            <>
-              <button
-                onClick={handleBulkMarkAllSpamRead}
-                title="Mark all spam as read"
-                className="p-1.5 text-text-secondary hover:text-text-primary hover:bg-bg-hover rounded transition-colors"
-              >
-                <MailOpen size={14} />
-              </button>
-              <button
-                onClick={handleBulkMoveAllSpamToTrash}
-                title="Move all spam to trash"
-                className="p-1.5 text-text-secondary hover:text-error hover:bg-bg-hover rounded transition-colors"
-              >
-                <Trash2 size={14} />
-              </button>
-            </>
-          )}
-          {activeLabel === "trash" && (
-            <>
-              <button
-                onClick={handleBulkMarkAllTrashRead}
-                title="Mark all trash as read"
-                className="p-1.5 text-text-secondary hover:text-text-primary hover:bg-bg-hover rounded transition-colors"
-              >
-                <MailOpen size={14} />
-              </button>
-              <button
-                onClick={handleBulkEmptyTrash}
-                title="Empty trash"
-                className="p-1.5 text-text-secondary hover:text-error hover:bg-bg-hover rounded transition-colors"
-              >
-                <Trash2 size={14} />
-              </button>
-            </>
-          )}
-          <select
-            value={readFilter}
-            onChange={(e) =>
-              setReadFilter(e.target.value as "all" | "read" | "unread")
-            }
-            className="text-xs bg-bg-tertiary text-text-secondary px-2 py-1 rounded border border-border-primary"
-          >
-            <option value="all">All</option>
-            <option value="unread">Unread</option>
-            <option value="read">Read</option>
-          </select>
-        </div>
+        <select
+          value={readFilter}
+          onChange={(e) => setReadFilter(e.target.value as "all" | "read" | "unread")}
+          className="text-xs bg-bg-tertiary text-text-secondary px-2 py-1 rounded border border-border-primary"
+        >
+          <option value="all">{t("layout.emailList.allEmails")}</option>
+          <option value="unread">{t("layout.emailList.unreadOnly")}</option>
+          <option value="read">{t("layout.emailList.readOnly")}</option>
+        </select>
       </div>
 
       {/* Category tabs (inbox + split mode only) */}
@@ -1369,69 +540,46 @@ const [hasMore, setHasMore] = useState(true);
       )}
 
       {/* Multi-select action bar */}
-      <CSSTransition
-        nodeRef={multiSelectBarRef}
-        in={multiSelectCount > 0}
-        timeout={150}
-        classNames="slide-down"
-        unmountOnExit
-      >
-        <div
-          ref={multiSelectBarRef}
-          className="px-3 py-2 border-b border-border-primary bg-accent/5 flex items-center justify-between"
-        >
+      <CSSTransition nodeRef={multiSelectBarRef} in={multiSelectCount > 0} timeout={150} classNames="slide-down" unmountOnExit>
+        <div ref={multiSelectBarRef} className="px-3 py-2 border-b border-border-primary bg-accent/5 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="text-xs font-medium text-text-primary">
-              {multiSelectCount} selected
+              {t("layout.emailList.multiSelectBar", { count: multiSelectCount })}
             </span>
             {multiSelectCount < filteredThreads.length && (
               <button
                 onClick={selectAll}
                 className="text-xs text-accent hover:text-accent-hover transition-colors"
               >
-                Select all
+                {t("layout.emailList.selectAll")}
               </button>
             )}
           </div>
           <div className="flex items-center gap-1">
             <button
               onClick={handleBulkArchive}
-              title="Archive selected"
+              title={t("layout.emailList.archive")}
               className="p-1.5 text-text-secondary hover:text-text-primary hover:bg-bg-hover rounded transition-colors"
             >
               <Archive size={14} />
             </button>
             <button
               onClick={handleBulkDelete}
-              title="Delete selected"
+              title={t("layout.emailList.trash")}
               className="p-1.5 text-text-secondary hover:text-error hover:bg-bg-hover rounded transition-colors"
             >
               <Trash2 size={14} />
             </button>
             <button
-              onClick={() => handleBulkMarkRead(true)}
-              title="Mark as read"
-              className="p-1.5 text-text-secondary hover:text-text-primary hover:bg-bg-hover rounded transition-colors"
-            >
-              <MailOpen size={14} />
-            </button>
-            <button
-              onClick={() => handleBulkMarkRead(false)}
-              title="Mark as unread"
-              className="p-1.5 text-text-secondary hover:text-text-primary hover:bg-bg-hover rounded transition-colors"
-            >
-              <Mail size={14} />
-            </button>
-            <button
               onClick={handleBulkSpam}
-              title={activeLabel === "spam" ? "Not spam" : "Report spam"}
+              title={activeLabel === "spam" ? t("search.commandPalette.notSpam") : t("search.commandPalette.reportSpam")}
               className="p-1.5 text-text-secondary hover:text-text-primary hover:bg-bg-hover rounded transition-colors"
             >
               <Ban size={14} />
             </button>
             <button
               onClick={clearMultiSelect}
-              title="Clear selection"
+              title={t("layout.emailList.clearSelection")}
               className="p-1.5 text-text-secondary hover:text-text-primary hover:bg-bg-hover rounded transition-colors"
             >
               <X size={14} />
@@ -1440,11 +588,11 @@ const [hasMore, setHasMore] = useState(true);
         </div>
       </CSSTransition>
 
-{/* Thread list */}
-       <div ref={scrollContainerRef} className={`flex-1 overflow-y-auto ${isScrolling ? 'scrollbar-visible' : 'scrollbar-hidden'}`}>
-         {(isLoading && threads.length === 0) || (searchLoading && !isSearchActive) ? (
+      {/* Thread list */}
+      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
+        {isLoading && threads.length === 0 ? (
           <EmailListSkeleton />
-        ) : filteredThreads.length === 0 && (isSearchActive || bundleRules.length === 0) ? (
+        ) : filteredThreads.length === 0 && bundleRules.length === 0 ? (
           <EmptyStateForContext
             searchQuery={searchQuery}
             activeAccountId={activeAccountId}
@@ -1454,101 +602,85 @@ const [hasMore, setHasMore] = useState(true);
           />
         ) : (
           <>
-            {/* Bundle rows for "All" inbox view (hidden when searching) */}
-            {activeLabel === "inbox" &&
-              activeCategory === "All" &&
-              !isSearchActive &&
-              bundleRules.map((rule) => {
-                const summary = bundleSummaries.get(rule.category);
-                if (!summary || summary.count === 0) return null;
-                const isExpanded = expandedBundles.has(rule.category);
-                const bundledThreads = isExpanded
-                  ? filteredThreads.filter(
-                    (t) => categoryMap.get(t.id) === rule.category,
-                  )
-                  : [];
-                return (
-                  <div key={`bundle-${rule.category}`}>
-                    <button
-                      onClick={() => {
-                        setExpandedBundles((prev) => {
-                          const next = new Set(prev);
-                          if (next.has(rule.category))
-                            next.delete(rule.category);
-                          else next.add(rule.category);
-                          return next;
-                        });
-                      }}
-                      className="w-full text-left px-4 py-3 border-b border-border-secondary hover:bg-bg-hover transition-colors flex items-center gap-3"
-                    >
-                      <div className="w-9 h-9 rounded-full bg-accent/15 flex items-center justify-center shrink-0">
-                        <Package size={16} className="text-accent" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-semibold text-text-primary">
-                            {rule.category}
-                          </span>
-                          <span className="text-xs bg-accent/15 text-accent px-1.5 rounded-full">
-                            {summary.count}
-                          </span>
-                        </div>
-                        <span className="text-xs text-text-tertiary truncate block mt-0.5">
-                          {summary.latestSender && `${summary.latestSender}: `}
-                          {summary.latestSubject ?? ""}
+            {/* Bundle rows for "All" inbox view */}
+            {activeLabel === "inbox" && activeCategory === "All" && bundleRules.map((rule) => {
+              const summary = bundleSummaries.get(rule.category);
+              if (!summary || summary.count === 0) return null;
+              const isExpanded = expandedBundles.has(rule.category);
+              const bundledThreads = isExpanded
+                ? filteredThreads.filter((t) => categoryMap.get(t.id) === rule.category)
+                : [];
+              return (
+                <div key={`bundle-${rule.category}`}>
+                  <button
+                    onClick={() => {
+                      setExpandedBundles((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(rule.category)) next.delete(rule.category);
+                        else next.add(rule.category);
+                        return next;
+                      });
+                    }}
+                    className="w-full text-left px-4 py-3 border-b border-border-secondary hover:bg-bg-hover transition-colors flex items-center gap-3"
+                  >
+                    <div className="w-9 h-9 rounded-full bg-accent/15 flex items-center justify-center shrink-0">
+                      <Package size={16} className="text-accent" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold text-text-primary">
+                          {rule.category}
+                        </span>
+                        <span className="text-xs bg-accent/15 text-accent px-1.5 rounded-full">
+                          {summary.count}
                         </span>
                       </div>
-                      <ChevronRight
-                        size={14}
-                        className={`text-text-tertiary transition-transform shrink-0 ${isExpanded ? "rotate-90" : ""}`}
+                      <span className="text-xs text-text-tertiary truncate block mt-0.5">
+                        {summary.latestSender && `${summary.latestSender}: `}{summary.latestSubject ?? ""}
+                      </span>
+                    </div>
+                    <ChevronRight
+                      size={14}
+                      className={`text-text-tertiary transition-transform shrink-0 ${isExpanded ? "rotate-90" : ""}`}
+                    />
+                  </button>
+                  {isExpanded && bundledThreads.map((thread) => (
+                    <div key={thread.id} className="pl-4">
+                      <ThreadCard
+                        thread={thread}
+                        isSelected={thread.id === selectedThreadId}
+                        onClick={handleThreadClick}
+                        onContextMenu={handleThreadContextMenu}
+                        category={rule.category}
+                        hasFollowUp={followUpThreadIds.has(thread.id)}
                       />
-                    </button>
-                    {isExpanded &&
-                      bundledThreads.map((thread) => (
-                        <div key={thread.id} className="pl-4">
-                          <ThreadCard
-                            thread={thread}
-                            isSelected={thread.id === selectedThreadId}
-                            onClick={handleThreadClick}
-                            onContextMenu={handleThreadContextMenu}
-                            category={rule.category}
-                            hasFollowUp={followUpThreadIds.has(thread.id)}
-                          />
-                        </div>
-                      ))}
-                  </div>
-                );
-              })}
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
             {visibleThreads.map((thread, idx) => {
               const prevThread = idx > 0 ? filteredThreads[idx - 1] : undefined;
               const showDivider = prevThread?.isPinned && !thread.isPinned;
-              const accountColor = (isUnifiedInbox || isUnifiedFolder || isSmartFolder)
-                ? (accounts.find((a) => a.id === thread.accountId)?.color ?? null)
-                : null;
-return (
-                 <div
-                   key={thread.id}
-                   data-thread-id={thread.id}
-                   className={`${idx < 15 ? "stagger-in" : ""} ${accountColor ? "border-l-[3px]" : ""}`}
-                   style={{
-                     ...(idx < 15 ? { animationDelay: `${idx * 30}ms` } : {}),
-                     ...(accountColor ? { "--account-color": accountColor, borderLeftColor: "var(--account-color)" } as React.CSSProperties : {}),
-                   }}
-                 >
+              return (
+                <div
+                  key={thread.id}
+                  data-thread-id={thread.id}
+                  className={idx < 15 ? "stagger-in" : undefined}
+                  style={idx < 15 ? { animationDelay: `${idx * 30}ms` } : undefined}
+                >
                   {showDivider && (
                     <div className="px-4 py-1.5 text-xs font-medium text-text-tertiary uppercase tracking-wider bg-bg-tertiary/50 border-b border-border-secondary">
-                      Other emails
+                      {t("layout.emailList.otherEmails")}
                     </div>
                   )}
-                  <SwipeableThreadCard
+                  <ThreadCard
                     thread={thread}
                     isSelected={thread.id === selectedThreadId}
                     onClick={handleThreadClick}
                     onContextMenu={handleThreadContextMenu}
                     category={categoryMap.get(thread.id)}
-                    showCategoryBadge={
-                      activeLabel === "inbox" && activeCategory === "All"
-                    }
+                    showCategoryBadge={activeLabel === "inbox" && activeCategory === "All"}
                     hasFollowUp={followUpThreadIds.has(thread.id)}
                   />
                 </div>
@@ -1556,74 +688,18 @@ return (
             })}
             {loadingMore && (
               <div className="px-4 py-3 text-center text-xs text-text-tertiary">
-                Loading more...
+                {t("layout.emailList.loadingMore")}
               </div>
             )}
             {!hasMore && threads.length > PAGE_SIZE && (
               <div className="px-4 py-3 text-center text-xs text-text-tertiary">
-                All conversations loaded
+                {t("layout.emailList.allLoaded")}
               </div>
             )}
           </>
         )}
       </div>
     </div>
-
-    {selectedScheduledEmail && (
-      <ScheduledEmailPanel
-        email={selectedScheduledEmail}
-        onClose={() => setSelectedScheduledEmail(null)}
-        onEdit={(email) => {
-          setSelectedScheduledEmail(null);
-          const toList = email.to_addresses
-            .split(",")
-            .map((s) => s.trim())
-            .filter(Boolean);
-          const ccList = email.cc_addresses
-            ? email.cc_addresses.split(",").map((s) => s.trim()).filter(Boolean)
-            : [];
-          const bccList = email.bcc_addresses
-            ? email.bcc_addresses.split(",").map((s) => s.trim()).filter(Boolean)
-            : [];
-          updateScheduledEmailStatus(email.id, "cancelled").then(() => {
-            removeThreads([email.id]);
-            scheduledEmailsRef.current.delete(email.id);
-            refreshScheduledCounts(accounts.map((a) => a.id));
-          });
-          openComposer({
-            mode: "new",
-            accountId: email.account_id,
-            to: toList,
-            cc: ccList,
-            bcc: bccList,
-            subject: email.subject ?? "",
-            bodyHtml: email.body_html,
-            threadId: email.thread_id,
-            inReplyToMessageId: email.reply_to_message_id,
-          });
-        }}
-        onCancelled={(id) => {
-          removeThreads([id]);
-          scheduledEmailsRef.current.delete(id);
-          setSelectedScheduledEmail(null);
-          refreshScheduledCounts(accounts.map((a) => a.id));
-        }}
-        onRescheduled={(id, newTime) => {
-          setThreads(
-            threads.map((t) =>
-              t.id === id ? { ...t, lastMessageAt: newTime * 1000 } : t,
-            ),
-          );
-          const existing = scheduledEmailsRef.current.get(id);
-          if (existing) {
-            const updated = { ...existing, scheduled_at: newTime };
-            scheduledEmailsRef.current.set(id, updated);
-            setSelectedScheduledEmail(updated);
-          }
-        }}
-      />
-    )}
-    </>
   );
 }
 
@@ -1641,162 +717,47 @@ function EmptyStateForContext({
   activeCategory: string;
 }) {
   if (searchQuery) {
-    return (
-      <EmptyState
-        illustration={NoSearchResultsIllustration}
-        title="No results found"
-        subtitle="Try a different search term"
-      />
-    );
+    return <EmptyState illustration={NoSearchResultsIllustration} title={t("layout.emailList.emptySearch.title")} subtitle={t("layout.emailList.emptySearch.subtitle")} />;
   }
   if (readFilter !== "all") {
-    return (
-      <EmptyState
-        icon={Filter}
-        title={`No ${readFilter} emails`}
-        subtitle="Try changing the filter"
-      />
-    );
+    return <EmptyState icon={Filter} title={t("layout.emailList.emptyFilter.title", { filter: readFilter })} subtitle={t("layout.emailList.emptyFilter.subtitle")} />;
   }
-  const isUnifiedFolderCtx = !activeAccountId && UNIFIED_FOLDER_LABELS.has(activeLabel);
-  const isSmartFolderCtx = activeLabel.startsWith("smart-folder:");
-  const isOutgoingCtx = activeLabel === "outgoing";
-  if (!activeAccountId && !isUnifiedFolderCtx && !isSmartFolderCtx && !isOutgoingCtx) {
-    return (
-      <EmptyState
-        illustration={NoAccountIllustration}
-        title="No account connected"
-        subtitle="Add a Gmail account to get started"
-      />
-    );
+  if (!activeAccountId) {
+    return <EmptyState illustration={NoAccountIllustration} title={t("layout.emailList.emptyNoAccount.title")} subtitle={t("layout.emailList.emptyNoAccount.subtitle")} />;
   }
 
   switch (activeLabel) {
     case "inbox":
       if (activeCategory !== "All") {
-        const categoryMessages: Record<
-          string,
-          { title: string; subtitle: string }
-        > = {
-          Primary: {
-            title: "Primary is clear",
-            subtitle: "No important conversations",
-          },
-          Updates: {
-            title: "No updates",
-            subtitle: "Notifications and transactional emails appear here",
-          },
-          Promotions: {
-            title: "No promotions",
-            subtitle: "Marketing and promotional emails appear here",
-          },
-          Social: {
-            title: "No social emails",
-            subtitle: "Social network notifications appear here",
-          },
-          Newsletters: {
-            title: "No newsletters",
-            subtitle: "Newsletters and subscriptions appear here",
-          },
+        const categoryMessages: Record<string, { title: string; subtitle: string }> = {
+          Primary: { title: t("layout.emailList.emptyPrimary.title"), subtitle: t("layout.emailList.emptyPrimary.subtitle") },
+          Updates: { title: t("layout.emailList.emptyUpdates.title"), subtitle: t("layout.emailList.emptyUpdates.subtitle") },
+          Promotions: { title: t("layout.emailList.emptyPromotions.title"), subtitle: t("layout.emailList.emptyPromotions.subtitle") },
+          Social: { title: t("layout.emailList.emptySocial.title"), subtitle: t("layout.emailList.emptySocial.subtitle") },
+          Newsletters: { title: t("layout.emailList.emptyNewsletters.title"), subtitle: t("layout.emailList.emptyNewsletters.subtitle") },
         };
         const msg = categoryMessages[activeCategory];
-        if (msg)
-          return (
-            <EmptyState
-              illustration={InboxClearIllustration}
-              title={msg.title}
-              subtitle={msg.subtitle}
-            />
-          );
+        if (msg) return <EmptyState illustration={InboxClearIllustration} title={msg.title} subtitle={msg.subtitle} />;
       }
-      return (
-        <EmptyState
-          illustration={InboxClearIllustration}
-          title="You're all caught up"
-          subtitle="No new conversations"
-        />
-      );
+      return <EmptyState illustration={InboxClearIllustration} title={t("layout.emailList.emptyInbox.title")} subtitle={t("layout.emailList.emptyInbox.subtitle")} />;
     case "starred":
-      return (
-        <EmptyState
-          illustration={GenericEmptyIllustration}
-          title="No starred conversations"
-          subtitle="Star emails to find them here"
-        />
-      );
+      return <EmptyState illustration={GenericEmptyIllustration} title={t("layout.emailList.emptyStarred.title")} subtitle={t("layout.emailList.emptyStarred.subtitle")} />;
     case "snoozed":
-      return (
-        <EmptyState
-          illustration={GenericEmptyIllustration}
-          title="No snoozed emails"
-          subtitle="Snoozed emails will appear here"
-        />
-      );
+      return <EmptyState illustration={GenericEmptyIllustration} title={t("layout.emailList.emptySnoozed.title")} subtitle={t("layout.emailList.emptySnoozed.subtitle")} />;
     case "sent":
-      return (
-        <EmptyState
-          illustration={GenericEmptyIllustration}
-          title="No sent messages"
-        />
-      );
-    case "outgoing":
-      return (
-        <EmptyState
-          illustration={GenericEmptyIllustration}
-          title="No outgoing emails"
-          subtitle="Emails waiting to be sent appear here"
-        />
-      );
-    case "scheduled":
-      return (
-        <EmptyState
-          illustration={ScheduledEmptyIllustration}
-          title="No scheduled emails"
-          subtitle="Emails you schedule from the composer will appear here"
-        />
-      );
+      return <EmptyState illustration={GenericEmptyIllustration} title={t("layout.emailList.emptySent.title")} />;
     case "drafts":
-      return (
-        <EmptyState illustration={GenericEmptyIllustration} title="No drafts" />
-      );
+      return <EmptyState illustration={GenericEmptyIllustration} title={t("layout.emailList.emptyDrafts.title")} />;
     case "trash":
-      return (
-        <EmptyState
-          illustration={GenericEmptyIllustration}
-          title="Trash is empty"
-        />
-      );
+      return <EmptyState illustration={GenericEmptyIllustration} title={t("layout.emailList.emptyTrash.title")} />;
     case "spam":
-      return (
-        <EmptyState
-          illustration={GenericEmptyIllustration}
-          title="No spam"
-          subtitle="Looking good!"
-        />
-      );
+      return <EmptyState illustration={GenericEmptyIllustration} title={t("layout.emailList.emptySpam.title")} subtitle={t("layout.emailList.emptySpam.subtitle")} />;
     case "all":
-      return (
-        <EmptyState
-          illustration={GenericEmptyIllustration}
-          title="No emails yet"
-        />
-      );
+      return <EmptyState illustration={GenericEmptyIllustration} title={t("layout.emailList.emptyAll.title")} />;
     default:
       if (activeLabel.startsWith("smart-folder:")) {
-        return (
-          <EmptyState
-            illustration={GenericEmptyIllustration}
-            title="No matching emails"
-            subtitle="No emails match this smart folder"
-          />
-        );
+        return <EmptyState icon={FolderSearch} title={t("layout.emailList.emptySmartFolder.title")} subtitle={t("layout.emailList.emptySmartFolder.subtitle")} />;
       }
-      return (
-        <EmptyState
-          illustration={GenericEmptyIllustration}
-          title="Nothing here"
-          subtitle="No conversations with this label"
-        />
-      );
+      return <EmptyState illustration={GenericEmptyIllustration} title={t("layout.emailList.emptyLabel.title")} subtitle={t("layout.emailList.emptyLabel.subtitle")} />;
   }
 }

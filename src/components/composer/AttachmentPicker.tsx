@@ -1,5 +1,6 @@
 import { useRef } from "react";
 import { Paperclip, X } from "lucide-react";
+import { t } from "@/i18n";
 import { useComposerStore, type ComposerAttachment } from "@/stores/composerStore";
 import { readFileAsBase64 } from "@/utils/fileUtils";
 import { formatFileSize } from "@/utils/fileTypeHelpers";
@@ -52,10 +53,10 @@ export function AttachmentPicker() {
           type="button"
           onClick={() => inputRef.current?.click()}
           className="flex items-center gap-1 text-xs text-text-tertiary hover:text-text-primary transition-colors py-1"
-          title="Attach files"
+          title={t("composer.attachmentPicker.attachFiles")}
         >
           <Paperclip size={14} />
-          <span>Attach</span>
+          <span>{t("composer.attachmentPicker.attach")}</span>
         </button>
 
         {attachments.map((att) => (
@@ -80,7 +81,7 @@ export function AttachmentPicker() {
 
         {attachments.length > 0 && (
           <span className="text-xs text-text-tertiary">
-            {formatFileSize(totalSize)} total
+            {formatFileSize(totalSize)} {t("composer.attachmentPicker.total")}
           </span>
         )}
       </div>

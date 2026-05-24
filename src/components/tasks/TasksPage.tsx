@@ -2,150 +2,76 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   CheckSquare,
   Search,
-  ArrowDownLeft,
-  ArrowUpRight,
   Trash2,
-  RotateCcw,
-  X,
+  CheckCircle2,
 } from "lucide-react";
+import { t } from "@/i18n";
 import { useAccountStore } from "@/stores/accountStore";
-import { useTaskStore, type TaskFilterStatus, type TaskDirectionFilter } from "@/stores/taskStore";
+import { useTaskStore, type TaskGroupBy, type TaskFilterStatus } from "@/stores/taskStore";
 import {
-  getTasksWithSubjects,
-  getDeletedTasksWithSubjects,
+  getTasksForAccount,
   insertTask,
   completeTask,
   uncompleteTask,
-  softDeleteTask,
-  hardDeleteTask,
-  restoreTask,
+  deleteTask as dbDeleteTask,
   getSubtasks,
-  updateTask,
+  getIncompleteTaskCount,
   type DbTask,
-  type DbTaskWithSubject,
   type TaskPriority,
 } from "@/services/db/tasks";
-import { getSetting } from "@/services/db/settings";
 import { handleRecurringTaskCompletion } from "@/services/tasks/taskManager";
-import { TaskGroup } from "./TaskGroup";
+import { TaskItem } from "./TaskItem";
 import { TaskQuickAdd } from "./TaskQuickAdd";
 
-
-interface ThreadGroup {
-  threadId: string | null;
-  threadSubject: string | null;
-  tasks: DbTaskWithSubject[];
-  hasOverdue: boolean;
-  nearestDue: number | null;
-}
-
-function buildGroups(tasks: DbTaskWithSubject[]): ThreadGroup[] {
-  const map = new Map<string | null, DbTaskWithSubject[]>();
-
-  for (const task of tasks) {
-    const key = task.thread_id ?? null;
-    if (!map.has(key)) map.set(key, []);
-    map.get(key)!.push(task);
-  }
-
-  const now = Math.floor(Date.now() / 1000);
-  const groups: ThreadGroup[] = [];
-
-  for (const [threadId, groupTasks] of map.entries()) {
-    const hasOverdue = groupTasks.some(
-      (t) => !t.is_completed && t.due_date !== null && t.due_date < now,
-    );
-    const dueDates = groupTasks
-      .filter((t) => !t.is_completed && t.due_date !== null)
-      .map((t) => t.due_date!);
-    const nearestDue = dueDates.length > 0 ? Math.min(...dueDates) : null;
-    const subject = groupTasks[0]?.thread_subject ?? null;
-
-    groups.push({ threadId, threadSubject: subject, tasks: groupTasks, hasOverdue, nearestDue });
-  }
-
-  // Two-level sort: overdue groups first, then by nearest due date (nulls last), general section last
-  groups.sort((a, b) => {
-    if (a.threadId === null && b.threadId !== null) return 1;
-    if (a.threadId !== null && b.threadId === null) return -1;
-    if (a.hasOverdue !== b.hasOverdue) return a.hasOverdue ? -1 : 1;
-    if (a.nearestDue !== null && b.nearestDue !== null) return a.nearestDue - b.nearestDue;
-    if (a.nearestDue !== null) return -1;
-    if (b.nearestDue !== null) return 1;
-    return 0;
-  });
-
-  return groups;
-}
-
-function formatDeletedAt(ts: number): string {
-  const diff = Math.floor(Date.now() / 1000) - ts;
-  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  return `${Math.floor(diff / 86400)}d ago`;
-}
+const PRIORITY_ORDER: Record<TaskPriority, number> = {
+  urgent: 0,
+  high: 1,
+  medium: 2,
+  low: 3,
+  none: 4,
+};
 
 export function TasksPage() {
   const accounts = useAccountStore((s) => s.accounts);
-  const accountId = useAccountStore((s) => s.activeAccountId);
+  const activeAccount = accounts.find((a) => a.isActive);
+  const accountId = activeAccount?.id ?? null;
 
+  const tasks = useTaskStore((s) => s.tasks);
   const setTasks = useTaskStore((s) => s.setTasks);
   const selectedTaskId = useTaskStore((s) => s.selectedTaskId);
   const setSelectedTaskId = useTaskStore((s) => s.setSelectedTaskId);
+  const groupBy = useTaskStore((s) => s.groupBy);
+  const setGroupBy = useTaskStore((s) => s.setGroupBy);
   const filterStatus = useTaskStore((s) => s.filterStatus);
   const setFilterStatus = useTaskStore((s) => s.setFilterStatus);
   const filterPriority = useTaskStore((s) => s.filterPriority);
   const setFilterPriority = useTaskStore((s) => s.setFilterPriority);
-  const filterDirection = useTaskStore((s) => s.filterDirection);
-  const setFilterDirection = useTaskStore((s) => s.setFilterDirection);
   const searchQuery = useTaskStore((s) => s.searchQuery);
   const setSearchQuery = useTaskStore((s) => s.setSearchQuery);
 
-  const [allTasks, setAllTasks] = useState<DbTaskWithSubject[]>([]);
-  const [deletedTasks, setDeletedTasks] = useState<DbTaskWithSubject[]>([]);
   const [subtaskMap, setSubtaskMap] = useState<Record<string, DbTask[]>>({});
-  // auto_archive_completed_hours (0 = show all completed)
-  const [archiveHours, setArchiveHours] = useState<number>(0);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
-  const colorMap = useMemo(
-    () => Object.fromEntries(accounts.map((a) => [a.id, a.color])),
-    [accounts],
-  );
-
+  // Load tasks
   const loadTasks = useCallback(async () => {
-    // accountId may be null in unified-inbox mode — getTasksWithSubjects handles it
-    const loaded = await getTasksWithSubjects(accountId, true);
-    setAllTasks(loaded);
+    if (!accountId) return;
+    const includeCompleted = filterStatus !== "incomplete";
+    const loaded = await getTasksForAccount(accountId, includeCompleted);
     setTasks(loaded);
-    await useTaskStore.getState().refreshTaskBadges();
-  }, [accountId, setTasks]);
-
-  const loadDeletedTasks = useCallback(async () => {
-    const loaded = await getDeletedTasksWithSubjects(accountId);
-    setDeletedTasks(loaded);
-  }, [accountId]);
-
-  // Load archive setting once on mount
-  useEffect(() => {
-    getSetting("task_auto_archive_completed_hours").then((raw) => {
-      if (raw) {
-        const h = parseInt(raw, 10);
-        if (!isNaN(h) && h > 0) setArchiveHours(h);
-      }
-    });
-  }, []);
-
-  useEffect(() => { loadTasks(); }, [loadTasks]);
+    const count = await getIncompleteTaskCount(accountId);
+    useTaskStore.getState().setIncompleteCount(count);
+  }, [accountId, filterStatus, setTasks]);
 
   useEffect(() => {
-    if (filterStatus === "deleted") loadDeletedTasks();
-  }, [filterStatus, loadDeletedTasks]);
+    loadTasks();
+  }, [loadTasks]);
 
+  // Load subtasks
   useEffect(() => {
     let cancelled = false;
     async function load() {
       const map: Record<string, DbTask[]> = {};
-      for (const task of allTasks) {
+      for (const task of tasks) {
         const subs = await getSubtasks(task.id);
         if (subs.length > 0) map[task.id] = subs;
       }
@@ -153,31 +79,21 @@ export function TasksPage() {
     }
     load();
     return () => { cancelled = true; };
-  }, [allTasks]);
+  }, [tasks]);
 
-  // Client-side filtering for active tasks
+  // Filter + search
   const filteredTasks = useMemo(() => {
-    if (filterStatus === "deleted") return [];
-
-    const now = Math.floor(Date.now() / 1000);
-    let result = allTasks;
+    let result = tasks;
 
     if (filterStatus === "completed") {
       result = result.filter((t) => t.is_completed);
     } else if (filterStatus === "incomplete") {
-      result = result.filter((t) => {
-        if (!t.is_completed) return true;
-        // Show recently-completed tasks within the archive window
-        if (archiveHours > 0 && t.completed_at !== null) {
-          return t.completed_at > now - archiveHours * 3600;
-        }
-        return false; // hide completed when archiveHours=0 (default: hide all completed)
-      });
+      result = result.filter((t) => !t.is_completed);
     }
-    // filterStatus === "all": include everything non-deleted
 
-    if (filterPriority !== "all") result = result.filter((t) => t.priority === filterPriority);
-    if (filterDirection !== "all") result = result.filter((t) => t.direction === filterDirection);
+    if (filterPriority !== "all") {
+      result = result.filter((t) => t.priority === filterPriority);
+    }
 
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
@@ -185,20 +101,61 @@ export function TasksPage() {
         (t) => t.title.toLowerCase().includes(q) || t.description?.toLowerCase().includes(q),
       );
     }
+
     return result;
-  }, [allTasks, filterStatus, filterPriority, filterDirection, searchQuery, archiveHours]);
+  }, [tasks, filterStatus, filterPriority, searchQuery]);
 
-  // Filtered deleted tasks (search only)
-  const filteredDeletedTasks = useMemo(() => {
-    if (filterStatus !== "deleted") return [];
-    if (!searchQuery.trim()) return deletedTasks;
-    const q = searchQuery.toLowerCase();
-    return deletedTasks.filter(
-      (t) => t.title.toLowerCase().includes(q) || t.description?.toLowerCase().includes(q),
-    );
-  }, [deletedTasks, filterStatus, searchQuery]);
+  // Grouping
+  const groupedTasks = useMemo(() => {
+    if (groupBy === "none") return [{ label: "", tasks: filteredTasks }];
 
-  const groups = useMemo(() => buildGroups(filteredTasks), [filteredTasks]);
+    const groups = new Map<string, DbTask[]>();
+
+    for (const task of filteredTasks) {
+      let key: string;
+      switch (groupBy) {
+        case "priority":
+          key = task.priority.charAt(0).toUpperCase() + task.priority.slice(1);
+          break;
+        case "dueDate":
+          if (!task.due_date) key = t("tasks.dueDateGroupNone");
+          else {
+            const d = new Date(task.due_date * 1000);
+            const now = new Date();
+            const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            const dueStart = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+            const diff = Math.floor((dueStart.getTime() - todayStart.getTime()) / 86400000);
+            if (diff < 0) key = t("tasks.dueDateGroupOverdue");
+            else if (diff === 0) key = t("tasks.dueDateGroupToday");
+            else if (diff === 1) key = t("tasks.dueDateGroupTomorrow");
+            else if (diff <= 7) key = t("tasks.dueDateGroupThisWeek");
+            else key = t("tasks.dueDateGroupLater");
+          }
+          break;
+        case "tag": {
+          const tags: string[] = (() => { try { return JSON.parse(task.tags_json); } catch { return []; } })();
+          key = tags[0] ?? "Untagged";
+          break;
+        }
+        default:
+          key = "";
+      }
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(task);
+    }
+
+    // Sort groups by priority order if grouping by priority
+    const entries = [...groups.entries()];
+    if (groupBy === "priority") {
+      entries.sort((a, b) => {
+        const aP = PRIORITY_ORDER[a[0].toLowerCase() as TaskPriority] ?? 99;
+        const bP = PRIORITY_ORDER[b[0].toLowerCase() as TaskPriority] ?? 99;
+        return aP - bP;
+      });
+    }
+
+    return entries.map(([label, tasks]) => ({ label, tasks }));
+  }, [filteredTasks, groupBy]);
 
   const handleAddTask = useCallback(async (title: string) => {
     if (!accountId) return;
@@ -208,7 +165,7 @@ export function TasksPage() {
 
   const handleToggleComplete = useCallback(async (id: string, completed: boolean) => {
     if (completed) {
-      const task = allTasks.find((t) => t.id === id);
+      const task = tasks.find((t) => t.id === id);
       if (task?.recurrence_rule) {
         await handleRecurringTaskCompletion(id);
       } else {
@@ -218,54 +175,28 @@ export function TasksPage() {
       await uncompleteTask(id);
     }
     await loadTasks();
-  }, [allTasks, loadTasks]);
+  }, [tasks, loadTasks]);
 
   const handleDelete = useCallback(async (id: string) => {
-    await softDeleteTask(id);
+    await dbDeleteTask(id);
     await loadTasks();
   }, [loadTasks]);
 
-  const handleDueDateChange = useCallback(async (id: string, dueDate: number | null) => {
-    await updateTask(id, { dueDate });
+  const handleBulkComplete = useCallback(async () => {
+    for (const id of selectedIds) {
+      await completeTask(id);
+    }
+    setSelectedIds(new Set());
     await loadTasks();
-  }, [loadTasks]);
+  }, [selectedIds, loadTasks]);
 
-  const handleEdit = useCallback(async (
-    id: string,
-    updates: { title?: string; direction?: import("@/services/db/tasks").TaskDirection; dueDate?: number | null },
-  ) => {
-    await updateTask(id, updates);
+  const handleBulkDelete = useCallback(async () => {
+    for (const id of selectedIds) {
+      await dbDeleteTask(id);
+    }
+    setSelectedIds(new Set());
     await loadTasks();
-  }, [loadTasks]);
-
-  const handleCompleteAll = useCallback(async (taskIds: string[]) => {
-    for (const id of taskIds) await completeTask(id);
-    await loadTasks();
-  }, [loadTasks]);
-
-  const handleRestoreDeleted = useCallback(async (id: string) => {
-    await restoreTask(id);
-    await loadDeletedTasks();
-    await loadTasks();
-  }, [loadDeletedTasks, loadTasks]);
-
-  const handleHardDeleteTask = useCallback(async (id: string) => {
-    await hardDeleteTask(id);
-    await loadDeletedTasks();
-  }, [loadDeletedTasks]);
-
-  const handleRestoreAll = useCallback(async () => {
-    for (const t of filteredDeletedTasks) await restoreTask(t.id);
-    await loadDeletedTasks();
-    await loadTasks();
-  }, [filteredDeletedTasks, loadDeletedTasks, loadTasks]);
-
-  const isTrash = filterStatus === "deleted";
-  const isEmpty = isTrash ? filteredDeletedTasks.length === 0 : filteredTasks.length === 0;
-
-  const overdueCount = useMemo(() => filteredTasks.filter(
-    (t) => !t.is_completed && t.due_date !== null && t.due_date < Math.floor(Date.now() / 1000),
-  ).length, [filteredTasks]);
+  }, [selectedIds, loadTasks]);
 
   return (
     <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-bg-primary/50">
@@ -273,41 +204,15 @@ export function TasksPage() {
       <div className="flex items-center justify-between px-5 py-3 border-b border-border-primary shrink-0 bg-bg-primary/60 backdrop-blur-sm">
         <div className="flex items-center gap-2">
           <CheckSquare size={18} className="text-accent" />
-          <h1 className="text-base font-semibold text-text-primary">Tasks</h1>
-          {!isTrash && filteredTasks.length > 0 && (
+          <h1 className="text-base font-semibold text-text-primary">{t("tasks.title")}</h1>
+          {filteredTasks.length > 0 && (
             <span className="text-xs text-text-tertiary bg-bg-tertiary px-2 py-0.5 rounded-full">
               {filteredTasks.length}
             </span>
           )}
-          {isTrash && filteredDeletedTasks.length > 0 && (
-            <span className="text-xs text-text-tertiary bg-bg-tertiary px-2 py-0.5 rounded-full">
-              {filteredDeletedTasks.length}
-            </span>
-          )}
-          {overdueCount > 0 && !isTrash && (
-            <span className="text-xs text-red-400 bg-red-500/10 px-2 py-0.5 rounded-full font-medium">
-              {overdueCount} overdue
-            </span>
-          )}
-          {isTrash && (
-            <span className="text-xs text-text-tertiary bg-amber-500/10 text-amber-400 px-2 py-0.5 rounded-full">
-              Trash
-            </span>
-          )}
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap justify-end">
-          {/* Restore all — trash mode only */}
-          {isTrash && filteredDeletedTasks.length > 0 && (
-            <button
-              onClick={handleRestoreAll}
-              className="flex items-center gap-1 text-xs text-accent hover:opacity-80 font-medium px-2 py-1 rounded bg-accent/10"
-            >
-              <RotateCcw size={12} />
-              Restore all
-            </button>
-          )}
-
+        <div className="flex items-center gap-2">
           {/* Search */}
           <div className="relative">
             <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-tertiary" />
@@ -315,143 +220,116 @@ export function TasksPage() {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search tasks..."
-              className="w-44 pl-8 pr-3 py-1.5 bg-bg-tertiary border border-border-primary rounded-lg text-xs text-text-primary outline-none focus:border-accent"
+              placeholder={t("tasks.searchPlaceholder")}
+              className="w-48 pl-8 pr-3 py-1.5 bg-bg-tertiary border border-border-primary rounded-lg text-xs text-text-primary outline-none focus:border-accent"
             />
           </div>
 
-          {/* Direction filter — hidden in trash */}
-          {!isTrash && (
-            <div className="flex items-center gap-0.5 bg-bg-tertiary border border-border-primary rounded-lg p-0.5">
-              {(["all", "outgoing", "incoming"] as TaskDirectionFilter[]).map((d) => (
-                <button
-                  key={d}
-                  onClick={() => setFilterDirection(d)}
-                  className={`flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors ${
-                    filterDirection === d ? "bg-accent text-white" : "text-text-secondary hover:text-text-primary"
-                  }`}
-                >
-                  {d === "outgoing" && <ArrowUpRight size={11} />}
-                  {d === "incoming" && <ArrowDownLeft size={11} />}
-                  {d === "all" ? "All" : d.charAt(0).toUpperCase() + d.slice(1)}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {/* Status filter */}
+          {/* Filters */}
           <select
             value={filterStatus}
             onChange={(e) => setFilterStatus(e.target.value as TaskFilterStatus)}
             className="bg-bg-tertiary text-text-primary text-xs px-2.5 py-1.5 rounded-lg border border-border-primary"
           >
-            <option value="incomplete">Active</option>
-            <option value="all">All</option>
-            <option value="completed">Completed</option>
-            <option value="deleted">Trash</option>
+            <option value="incomplete">{t("tasks.filterActive")}</option>
+            <option value="all">{t("tasks.filterAll")}</option>
+            <option value="completed">{t("tasks.filterCompleted")}</option>
           </select>
 
-          {!isTrash && (
-            <select
-              value={filterPriority}
-              onChange={(e) => setFilterPriority(e.target.value as TaskPriority | "all")}
-              className="bg-bg-tertiary text-text-primary text-xs px-2.5 py-1.5 rounded-lg border border-border-primary"
-            >
-              <option value="all">All priorities</option>
-              <option value="urgent">Urgent</option>
-              <option value="high">High</option>
-              <option value="medium">Medium</option>
-              <option value="low">Low</option>
-              <option value="none">None</option>
-            </select>
-          )}
+          <select
+            value={filterPriority}
+            onChange={(e) => setFilterPriority(e.target.value as TaskPriority | "all")}
+            className="bg-bg-tertiary text-text-primary text-xs px-2.5 py-1.5 rounded-lg border border-border-primary"
+          >
+            <option value="all">{t("tasks.priorityAll")}</option>
+            <option value="urgent">{t("tasks.priorityUrgent")}</option>
+            <option value="high">{t("tasks.priorityHigh")}</option>
+            <option value="medium">{t("tasks.priorityMedium")}</option>
+            <option value="low">{t("tasks.priorityLow")}</option>
+            <option value="none">{t("tasks.priorityNone")}</option>
+          </select>
+
+          {/* Group by */}
+          <select
+            value={groupBy}
+            onChange={(e) => setGroupBy(e.target.value as TaskGroupBy)}
+            className="bg-bg-tertiary text-text-primary text-xs px-2.5 py-1.5 rounded-lg border border-border-primary"
+          >
+            <option value="none">{t("tasks.groupNone")}</option>
+            <option value="priority">{t("tasks.groupByPriority")}</option>
+            <option value="dueDate">{t("tasks.groupByDueDate")}</option>
+            <option value="tag">{t("tasks.groupByTag")}</option>
+          </select>
         </div>
       </div>
 
-      {/* Quick add — hidden in trash */}
-      {!isTrash && (
-        <div className="border-b border-border-primary px-2">
-          <TaskQuickAdd onAdd={handleAddTask} />
+      {/* Bulk actions bar */}
+      {selectedIds.size > 0 && (
+        <div className="flex items-center gap-3 px-5 py-2 bg-accent/5 border-b border-accent/20">
+          <span className="text-xs text-text-secondary">{t("tasks.bulkSelected", { count: selectedIds.size })}</span>
+          <button
+            onClick={handleBulkComplete}
+            className="flex items-center gap-1 text-xs text-accent hover:text-accent-hover"
+          >
+            <CheckCircle2 size={13} />
+            {t("tasks.bulkComplete")}
+          </button>
+          <button
+            onClick={handleBulkDelete}
+            className="flex items-center gap-1 text-xs text-danger hover:opacity-80"
+          >
+            <Trash2 size={13} />
+            {t("tasks.bulkDelete")}
+          </button>
+          <button
+            onClick={() => setSelectedIds(new Set())}
+            className="text-xs text-text-tertiary hover:text-text-primary ml-auto"
+          >
+            {t("tasks.clearSelection")}
+          </button>
         </div>
       )}
 
+      {/* Quick add */}
+      <div className="border-b border-border-primary px-2">
+        <TaskQuickAdd onAdd={handleAddTask} />
+      </div>
+
       {/* Task list */}
-      <div className="flex-1 overflow-y-auto py-3 px-3 space-y-2">
-        {isEmpty ? (
+      <div className="flex-1 overflow-y-auto py-2 px-3">
+        {filteredTasks.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center">
-            {isTrash ? (
-              <>
-                <Trash2 size={48} className="text-text-tertiary/30 mb-4" />
-                <p className="text-sm text-text-secondary mb-1">Trash is empty</p>
-                <p className="text-xs text-text-tertiary">I task eliminati appariranno qui</p>
-              </>
-            ) : (
-              <>
-                <CheckSquare size={48} className="text-text-tertiary/30 mb-4" />
-                <p className="text-sm text-text-secondary mb-1">No tasks</p>
-                <p className="text-xs text-text-tertiary">
-                  {searchQuery ? "Try a different search term" : "Add a task above or press 't' on any email thread"}
-                </p>
-              </>
-            )}
+            <CheckSquare size={48} className="text-text-tertiary/30 mb-4" />
+            <p className="text-sm text-text-secondary mb-1">{t("tasks.emptyTitle")}</p>
+            <p className="text-xs text-text-tertiary">
+              {searchQuery ? t("tasks.emptySearchHint") : t("tasks.emptyAddHint")}
+            </p>
           </div>
-        ) : isTrash ? (
-          /* Trash view — simple flat list */
-          <div className="space-y-1">
-            {filteredDeletedTasks.map((task) => (
-              <div
-                key={task.id}
-                className="flex items-center gap-3 px-3 py-2 rounded-lg border border-border-primary bg-bg-primary/40 group"
-              >
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-text-secondary line-through truncate">{task.title}</p>
-                  {task.thread_subject && (
-                    <p className="text-xs text-text-tertiary truncate mt-0.5">{task.thread_subject}</p>
-                  )}
-                </div>
-                <span className="text-xs text-text-tertiary shrink-0">
-                  {task.deleted_at ? formatDeletedAt(task.deleted_at) : ""}
-                </span>
-                <div className="flex items-center gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button
-                    onClick={() => handleRestoreDeleted(task.id)}
-                    title="Restore task"
-                    className="p-1 text-text-tertiary hover:text-accent transition-colors"
-                  >
-                    <RotateCcw size={13} />
-                  </button>
-                  <button
-                    onClick={() => handleHardDeleteTask(task.id)}
-                    title="Elimina definitivamente"
-                    className="p-1 text-text-tertiary hover:text-danger transition-colors"
-                  >
-                    <X size={13} />
-                  </button>
+        ) : (
+          <div className="space-y-4">
+            {groupedTasks.map((group) => (
+              <div key={group.label || "__ungrouped"}>
+                {group.label && (
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-text-tertiary mb-2 px-3">
+                    {group.label}
+                  </h3>
+                )}
+                <div className="space-y-0.5">
+                  {group.tasks.map((task) => (
+                    <TaskItem
+                      key={task.id}
+                      task={task}
+                      subtasks={subtaskMap[task.id]}
+                      onToggleComplete={handleToggleComplete}
+                      onSelect={setSelectedTaskId}
+                      onDelete={handleDelete}
+                      isSelected={selectedTaskId === task.id}
+                    />
+                  ))}
                 </div>
               </div>
             ))}
           </div>
-        ) : (
-          /* Active task groups */
-          groups.map((group) => (
-            <TaskGroup
-              key={group.threadId ?? "__general"}
-              threadId={group.threadId}
-              threadSubject={group.threadSubject}
-              accountColor={
-                group.tasks[0]?.account_id ? (colorMap[group.tasks[0].account_id] ?? undefined) : undefined
-              }
-              tasks={group.tasks}
-              subtaskMap={subtaskMap}
-              onToggleComplete={handleToggleComplete}
-              onDelete={handleDelete}
-              onDueDateChange={handleDueDateChange}
-              onEdit={handleEdit}
-              onCompleteAll={handleCompleteAll}
-              selectedTaskId={selectedTaskId}
-              onSelect={setSelectedTaskId}
-            />
-          ))
         )}
       </div>
     </div>

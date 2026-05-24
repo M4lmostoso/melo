@@ -1,79 +1,37 @@
 /**
- * Minimal i18n engine.
+ * Minimal i18n helper.
  *
  * Usage:
- *   await loadLocale("en-US");       // once at app startup
- *   t("sidebar.nav.inbox")           // → "Inbox"
- *   t("threadView.messageCountPlural", { count: 3 }) // → "3 messages in this thread"
+ *   import { t } from "@/i18n";
+ *   t("sidebar.nav.inbox")                               // → "Inbox"
+ *   t("threadView.messageCountPlural", { count: 5 })    // → "5 messages in this thread"
  *
- * Locale files live in public/locale/<locale>.json.
- * Add a new language by creating public/locale/<locale>.json and calling
- * loadLocale("<locale>") before rendering.
- *
- * IMPORTANT: Any UI change that adds, removes, or modifies a visible string
- * MUST also update public/locale/en-US.json (and all other locale files).
- * See docs/i18n.md for the full contribution guide.
+ * Keys are nested paths (dot-separated) into public/locale/en-US.json.
+ * Placeholders in values use {name} syntax and are replaced from the params object.
  */
 
-type Translations = Record<string, unknown>;
+// Import locale JSON directly — Vite resolves this at build-time.
+import locale from "../public/locale/en-US.json";
 
-let _translations: Translations = {};
-let _locale = "en-US";
-let _loadPromise: Promise<void> | null = null;
-
-/** Load a locale file from public/locale/<locale>.json. Call once at startup. */
-export async function loadLocale(locale: string = "en-US"): Promise<void> {
-  if (_loadPromise) return _loadPromise;
-  _loadPromise = (async () => {
-    try {
-      const res = await fetch(`/locale/${locale}.json`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      _translations = (await res.json()) as Translations;
-      _locale = locale;
-    } catch (err) {
-      console.error(`[i18n] Failed to load locale "${locale}":`, err);
-      // Keep _translations empty — t() will return the key as fallback.
-    }
-  })();
-  return _loadPromise;
-}
-
-function _get(obj: unknown, path: string[]): unknown {
-  let cur = obj;
-  for (const part of path) {
-    if (typeof cur !== "object" || cur === null) return undefined;
-    cur = (cur as Record<string, unknown>)[part];
+function getNestedValue(obj: Record<string, unknown>, path: string): string | undefined {
+  const parts = path.split(".");
+  let current: unknown = obj;
+  for (const part of parts) {
+    if (current == null || typeof current !== "object") return undefined;
+    current = (current as Record<string, unknown>)[part];
   }
-  return cur;
+  return typeof current === "string" ? current : undefined;
 }
 
-/**
- * Translate a dot-notation key, optionally interpolating `{param}` placeholders.
- *
- * Falls back to the key itself if not found.
- *
- * @example
- *   t("sidebar.nav.inbox")                          // "Inbox"
- *   t("threadView.messageCountPlural", { count: 5}) // "5 messages in this thread"
- */
 export function t(key: string, params?: Record<string, string | number>): string {
-  const value = _get(_translations, key.split("."));
-  if (typeof value !== "string") return key;
-  if (!params) return value;
-  return value.replace(/\{(\w+)\}/g, (_, k) => String(params[k] ?? `{${k}}`));
-}
-
-/** Returns the currently active locale identifier (e.g. "en-US"). */
-export function getCurrentLocale(): string {
-  return _locale;
-}
-
-/**
- * Reset the i18n state (used in tests to reload a different locale).
- * @internal
- */
-export function _resetForTesting(): void {
-  _translations = {};
-  _locale = "en-US";
-  _loadPromise = null;
+  const raw = getNestedValue(locale as Record<string, unknown>, key);
+  if (raw === undefined) {
+    // Fallback: return last segment of the key so UI stays readable in dev
+    return key.split(".").pop() ?? key;
+  }
+  if (!params) return raw;
+  return raw.replace(/\{(\w+)\}/g, (_, name) => {
+    const val = params[name];
+    return val !== undefined ? String(val) : `{${name}}`;
+  });
 }

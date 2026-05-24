@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import type { DbAttachment } from "@/services/db/attachments";
 import { getEmailProvider } from "@/services/email/providerFactory";
 import { FileText } from "lucide-react";
+import { t } from "@/i18n";
 import { formatFileSize, isImage, isPdf } from "@/utils/fileTypeHelpers";
 
 /** Dedup attachments by filename+size (content-based) */
@@ -72,7 +73,7 @@ export function InlineAttachmentPreview({
               <FileText size={16} className="text-danger shrink-0" />
               <div className="min-w-0">
                 <div className="text-xs text-text-primary truncate">
-                  {att.filename ?? "Document.pdf"}
+                  {att.filename ?? t("email.inlineAttachment.defaultPdf")}
                 </div>
                 {att.size != null && (
                   <div className="text-[0.625rem] text-text-tertiary">
@@ -168,23 +169,23 @@ function ImageThumbnail({
       <button
         onClick={onClick}
         className="block rounded-md overflow-hidden border border-border-secondary hover:border-accent transition-colors"
-        title={attachment.filename ?? "Image"}
+        title={attachment.filename ?? t("email.inlineAttachment.image")}
       >
         {loading && (
           <div className="w-[200px] h-[120px] bg-bg-tertiary animate-pulse flex items-center justify-center">
-            <span className="text-xs text-text-tertiary">Loading...</span>
+            <span className="text-xs text-text-tertiary">{t("email.inlineAttachment.loading")}</span>
           </div>
         )}
         {thumbnailUrl && (
           <img
             src={thumbnailUrl}
-            alt={attachment.filename ?? "Image"}
+            alt={attachment.filename ?? t("email.inlineAttachment.image")}
             className="max-w-[200px] max-h-[200px] object-cover"
           />
         )}
         {!loading && !thumbnailUrl && (
           <div className="w-[200px] h-[120px] bg-bg-tertiary flex items-center justify-center">
-            <span className="text-xs text-text-tertiary">Image</span>
+            <span className="text-xs text-text-tertiary">{t("email.inlineAttachment.image")}</span>
           </div>
         )}
       </button>

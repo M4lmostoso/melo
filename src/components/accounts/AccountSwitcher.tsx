@@ -47,7 +47,7 @@ export function AccountSwitcher({
           <div className="w-8 h-8 rounded-full bg-accent/10 flex items-center justify-center shrink-0">
             <UserPlus size={16} className="text-accent" />
           </div>
-          {!collapsed && <span className="font-medium">{t("accounts.switcherAddAccount")}</span>}
+          {!collapsed && <span className="font-medium">{t("accounts.accountSwitcher.addAccount")}</span>}
         </button>
       </div>
     );
@@ -67,7 +67,7 @@ export function AccountSwitcher({
           <>
             <div className="flex-1 min-w-0 text-left">
               <div className="text-sm font-medium text-sidebar-text truncate leading-tight">
-                {activeAccount.label || activeAccount.displayName || activeAccount.email.split("@")[0]}
+                {activeAccount.displayName || activeAccount.email.split("@")[0]}
               </div>
               <div className="text-xs text-sidebar-text/50 truncate leading-tight">
                 {activeAccount.email}
@@ -92,7 +92,7 @@ export function AccountSwitcher({
         >
           {accounts.length > 1 && (
             <div className="px-3 py-1.5 text-[0.625rem] font-medium text-text-tertiary uppercase tracking-wider">
-              {t("accounts.accountsHeader")}
+              {t("accounts.accountSwitcher.accounts")}
             </div>
           )}
           {accounts.map((account) => {
@@ -110,7 +110,7 @@ export function AccountSwitcher({
                 <AccountAvatarSmall account={account} isActive={isActive} />
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-medium truncate leading-tight flex items-center gap-1.5">
-                    {account.label || account.displayName || account.email.split("@")[0]}
+                    {account.displayName || account.email.split("@")[0]}
                     {account.provider === "caldav" && (
                       <Calendar size={12} className="shrink-0 text-text-tertiary" />
                     )}
@@ -133,7 +133,7 @@ export function AccountSwitcher({
             <div className="w-7 h-7 rounded-full bg-bg-tertiary flex items-center justify-center shrink-0">
               <Plus size={14} />
             </div>
-            <span>{t("accounts.switcherAddAccount")}</span>
+            <span>{t("accounts.accountSwitcher.addAccount")}</span>
           </button>
         </div>
       )}
@@ -148,7 +148,7 @@ function ActiveAvatar({ account }: { account: Account | undefined }) {
   if (!account) return null;
 
   const initial = (
-    account.label?.[0] ?? account.displayName?.[0] ?? account.email[0] ?? "?"
+    account.displayName?.[0] ?? account.email[0] ?? "?"
   ).toUpperCase();
   const showImg = account.avatarUrl && !imgError;
 
@@ -180,7 +180,7 @@ function AccountAvatarSmall({
   const [imgError, setImgError] = useState(false);
 
   const initial = (
-    account.label?.[0] ?? account.displayName?.[0] ?? account.email[0] ?? "?"
+    account.displayName?.[0] ?? account.email[0] ?? "?"
   ).toUpperCase();
   const showImg = account.avatarUrl && !imgError;
 

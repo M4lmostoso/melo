@@ -57,10 +57,6 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
         displayName: userInfo.name,
         avatarUrl: userInfo.picture,
         isActive: true,
-        color: null,
-        includeInGlobal: true,
-        sortOrder: 0,
-        label: null,
       });
 
       onSuccess();
@@ -111,10 +107,10 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
 
   if (view === "gmail") {
     return (
-      <Modal isOpen={true} onClose={onClose} title={t("accounts.addGmailTitle")} width="w-full max-w-md">
+      <Modal isOpen={true} onClose={onClose} title={t("accounts.addAccount.titleGmail")} width="w-full max-w-md">
         <div className="p-4">
           <p className="text-text-secondary text-sm mb-6">
-            {t("accounts.signInWithGoogle")}
+            {t("accounts.addAccount.connectGmailDesc")}
           </p>
 
           {error && (
@@ -125,9 +121,9 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
 
           {status === "authenticating" && (
             <div className="text-center py-4 text-text-secondary text-sm">
-              <div className="mb-2">{t("accounts.waitingForSignIn")}</div>
+              <div className="mb-2">{t("accounts.addAccount.waitingForSignIn")}</div>
               <div className="text-xs text-text-tertiary">
-                {t("accounts.completeSignInBrowser")}
+                {t("accounts.addAccount.completeSignInBrowser")}
               </div>
             </div>
           )}
@@ -141,14 +137,14 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
               }}
               className="px-4 py-2 text-sm text-text-secondary hover:text-text-primary transition-colors"
             >
-              {t("accounts.back")}
+              {t("common.back")}
             </button>
             <div className="flex gap-3">
               <button
                 onClick={onClose}
                 className="px-4 py-2 text-sm text-text-secondary hover:text-text-primary transition-colors"
               >
-                {t("accounts.cancel")}
+                {t("common.cancel")}
               </button>
               <button
                 onClick={handleAddGmailAccount}
@@ -156,10 +152,10 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
                 className="px-4 py-2 text-sm bg-accent text-white rounded-lg hover:bg-accent-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {status === "authenticating"
-                  ? t("accounts.waiting")
+                  ? t("common.waiting")
                   : status === "checking"
-                    ? t("accounts.checking")
-                    : t("accounts.signInWithGoogleBtn")}
+                    ? t("common.checking")
+                    : t("accounts.addAccount.signInWithGoogle")}
               </button>
             </div>
           </div>
@@ -170,10 +166,10 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
 
   // Provider selection view
   return (
-    <Modal isOpen={true} onClose={onClose} title={t("accounts.addAccountTitle")} width="w-full max-w-md">
+    <Modal isOpen={true} onClose={onClose} title={t("accounts.addAccount.title")} width="w-full max-w-md">
       <div className="p-4">
         <p className="text-text-secondary text-sm mb-4">
-          {t("accounts.chooseProvider")}
+          {t("accounts.addAccount.chooseProvider")}
         </p>
 
         <div className="space-y-3">
@@ -203,10 +199,10 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
             </div>
             <div className="flex-1 min-w-0">
               <div className="text-sm font-medium text-text-primary group-hover:text-accent transition-colors">
-                {t("accounts.googleGmail")}
+                {t("accounts.addAccount.googleGmail")}
               </div>
               <div className="text-xs text-text-tertiary mt-0.5">
-                {t("accounts.googleGmailDesc")}
+                {t("accounts.addAccount.googleGmailDesc")}
               </div>
             </div>
           </button>
@@ -220,10 +216,10 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
             </div>
             <div className="flex-1 min-w-0">
               <div className="text-sm font-medium text-text-primary group-hover:text-accent transition-colors">
-                {t("accounts.imapSmtp")}
+                {t("accounts.addAccount.imapSmtp")}
               </div>
               <div className="text-xs text-text-tertiary mt-0.5">
-                {t("accounts.imapSmtpDesc")}
+                {t("accounts.addAccount.imapSmtpDesc")}
               </div>
             </div>
           </button>
@@ -237,10 +233,10 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
             </div>
             <div className="flex-1 min-w-0">
               <div className="text-sm font-medium text-text-primary group-hover:text-accent transition-colors">
-                {t("accounts.caldavCalendarAccount")}
+                {t("accounts.addAccount.calDav")}
               </div>
               <div className="text-xs text-text-tertiary mt-0.5">
-                {t("accounts.calDavDesc")}
+                {t("accounts.addAccount.calDavDesc")}
               </div>
             </div>
           </button>
@@ -251,7 +247,7 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
             onClick={onClose}
             className="px-4 py-2 text-sm text-text-secondary hover:text-text-primary transition-colors"
           >
-            {t("accounts.cancel")}
+            {t("common.cancel")}
           </button>
         </div>
       </div>
