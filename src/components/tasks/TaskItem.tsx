@@ -9,6 +9,7 @@ import {
   RepeatIcon,
   Link2,
 } from "lucide-react";
+import { t } from "@/i18n";
 import type { DbTask, TaskPriority } from "@/services/db/tasks";
 
 const PRIORITY_COLORS: Record<TaskPriority, string> = {
@@ -34,11 +35,11 @@ function formatDueDate(timestamp: number): string {
   const dueStart = new Date(date.getFullYear(), date.getMonth(), date.getDate());
   const diffDays = Math.floor((dueStart.getTime() - todayStart.getTime()) / (1000 * 60 * 60 * 24));
 
-  if (diffDays < 0) return `${Math.abs(diffDays)}d overdue`;
-  if (diffDays === 0) return "Today";
-  if (diffDays === 1) return "Tomorrow";
+  if (diffDays < 0) return t("tasks.dueDateOverdue", { days: Math.abs(diffDays) });
+  if (diffDays === 0) return t("tasks.dueDateToday");
+  if (diffDays === 1) return t("tasks.dueDateTomorrow");
   if (diffDays <= 7) return `${diffDays}d`;
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
 function getDueDateColor(timestamp: number): string {

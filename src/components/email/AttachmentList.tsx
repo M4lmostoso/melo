@@ -5,6 +5,7 @@ import { getAttachmentsForMessage, type DbAttachment } from "@/services/db/attac
 import { getEmailProvider } from "@/services/email/providerFactory";
 import { Modal } from "@/components/ui/Modal";
 import { Download, Eye } from "lucide-react";
+import { t } from "@/i18n";
 import { formatFileSize, isImage, isPdf, isText, canPreview, getFileIcon } from "@/utils/fileTypeHelpers";
 
 /** Dedup attachments by filename+size (content-based) */
@@ -43,7 +44,9 @@ export function AttachmentList({ accountId, messageId, attachments, referencedCi
     <>
       <div className="mt-3 pt-3 border-t border-border-secondary">
         <div className="text-xs text-text-tertiary mb-2">
-          {fileAttachments.length} attachment{fileAttachments.length !== 1 ? "s" : ""}
+          {fileAttachments.length !== 1
+            ? t("email.attachmentList.countPlural", { count: fileAttachments.length })
+            : t("email.attachmentList.count", { count: fileAttachments.length })}
         </div>
         <div className="flex flex-wrap gap-2">
           {fileAttachments.map((att) => (
@@ -54,7 +57,7 @@ export function AttachmentList({ accountId, messageId, attachments, referencedCi
             >
               <span className="text-text-tertiary">{getFileIcon(att.mime_type)}</span>
               <span className="text-text-secondary truncate max-w-[200px]">
-                {att.filename ?? "Unnamed"}
+                {att.filename ?? t("email.attachmentList.unnamed")}
               </span>
               {att.size != null && (
                 <span className="text-text-tertiary whitespace-nowrap">
@@ -189,7 +192,7 @@ export function AttachmentPreview({
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-accent hover:bg-accent-hover rounded-md transition-colors disabled:opacity-50"
         >
           <Download size={13} />
-          {saving ? "Saving..." : "Download"}
+          {saving ? t("email.attachmentList.saving") : t("email.attachmentList.download")}
         </button>
         <button
           onClick={handleClose}
@@ -213,7 +216,7 @@ export function AttachmentPreview({
       {/* Allow native right-click in preview (save image, copy, etc.) */}
       <div className="flex-1 overflow-auto min-h-[200px] flex items-center justify-center p-4" data-native-context-menu>
         {loading && (
-          <p className="text-sm text-text-tertiary">Loading preview...</p>
+          <p className="text-sm text-text-tertiary">{t("email.attachmentList.loadingPreview")}</p>
         )}
         {error && (
           <p className="text-sm text-text-tertiary">{error}</p>
@@ -238,8 +241,8 @@ export function AttachmentPreview({
         {!isPreviewable && !loading && (
           <div className="flex flex-col items-center gap-3 text-text-tertiary">
             <Eye size={40} strokeWidth={1} />
-            <p className="text-sm">Preview not available for this file type</p>
-            <p className="text-xs">{attachment.mime_type ?? "Unknown type"}</p>
+            <p className="text-sm">{t("email.attachmentList.previewNotAvailable")}</p>
+            <p className="text-xs">{attachment.mime_type ?? t("email.attachmentList.unknownType")}</p>
           </div>
         )}
       </div>

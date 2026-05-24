@@ -3,6 +3,7 @@ import { useThreadStore } from "@/stores/threadStore";
 import { useSelectedThreadId } from "@/hooks/useRouteNavigation";
 import { EmptyState } from "../ui/EmptyState";
 import { ReadingPaneIllustration } from "../ui/illustrations";
+import { t } from "@/i18n";
 
 export function ReadingPane() {
   const selectedThreadId = useSelectedThreadId();
@@ -11,7 +12,7 @@ export function ReadingPane() {
   if (!selectedThread) {
     return (
       <div className="flex-1 flex flex-col bg-bg-primary/50 glass-panel">
-        <EmptyState illustration={ReadingPaneIllustration} title="Velo" subtitle="Select an email to read" />
+        <EmptyState illustration={ReadingPaneIllustration} title={t("layout.titleBar.appName")} subtitle={t("layout.readingPane.selectEmail")} />
       </div>
     );
   }

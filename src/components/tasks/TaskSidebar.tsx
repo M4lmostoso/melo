@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { X, ExternalLink } from "lucide-react";
+import { t } from "@/i18n";
 import { useTaskStore } from "@/stores/taskStore";
 import { useUIStore } from "@/stores/uiStore";
 import {
@@ -99,11 +100,11 @@ export function TaskSidebar({ accountId, threadId }: TaskSidebarProps) {
     <div className="w-72 border-l border-border-primary bg-bg-primary/50 flex flex-col shrink-0">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border-secondary">
-        <h3 className="text-sm font-semibold text-text-primary">Tasks</h3>
+        <h3 className="text-sm font-semibold text-text-primary">{t("tasks.title")}</h3>
         <div className="flex items-center gap-1">
           <button
             onClick={() => navigateToLabel("tasks")}
-            title="Open tasks page"
+            title={t("tasks.openTasksPage")}
             className="p-1 text-text-tertiary hover:text-text-primary transition-colors"
           >
             <ExternalLink size={13} />
@@ -121,7 +122,7 @@ export function TaskSidebar({ accountId, threadId }: TaskSidebarProps) {
       <div className="flex-1 overflow-y-auto py-1">
         {threadTasks.length === 0 ? (
           <p className="text-xs text-text-tertiary text-center py-6">
-            No tasks linked to this thread
+            {t("tasks.noTasksInThread")}
           </p>
         ) : (
           <div className="space-y-0.5">
@@ -140,7 +141,7 @@ export function TaskSidebar({ accountId, threadId }: TaskSidebarProps) {
 
       {/* Quick add */}
       <div className="border-t border-border-secondary">
-        <TaskQuickAdd onAdd={handleAddTask} placeholder="Add task to this thread..." />
+        <TaskQuickAdd onAdd={handleAddTask} placeholder={t("tasks.addTaskToThread")} />
       </div>
     </div>
   );

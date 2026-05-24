@@ -2,6 +2,7 @@ import { useState, useRef, useCallback } from "react";
 import { useAccountStore, type Account } from "@/stores/accountStore";
 import { ChevronDown, Check, Plus, UserPlus, Calendar } from "lucide-react";
 import { useClickOutside } from "@/hooks/useClickOutside";
+import { t } from "@/i18n";
 
 interface AccountSwitcherProps {
   collapsed: boolean;
@@ -46,7 +47,7 @@ export function AccountSwitcher({
           <div className="w-8 h-8 rounded-full bg-accent/10 flex items-center justify-center shrink-0">
             <UserPlus size={16} className="text-accent" />
           </div>
-          {!collapsed && <span className="font-medium">Add Account</span>}
+          {!collapsed && <span className="font-medium">{t("accounts.accountSwitcher.addAccount")}</span>}
         </button>
       </div>
     );
@@ -91,7 +92,7 @@ export function AccountSwitcher({
         >
           {accounts.length > 1 && (
             <div className="px-3 py-1.5 text-[0.625rem] font-medium text-text-tertiary uppercase tracking-wider">
-              Accounts
+              {t("accounts.accountSwitcher.accounts")}
             </div>
           )}
           {accounts.map((account) => {
@@ -132,7 +133,7 @@ export function AccountSwitcher({
             <div className="w-7 h-7 rounded-full bg-bg-tertiary flex items-center justify-center shrink-0">
               <Plus size={14} />
             </div>
-            <span>Add account</span>
+            <span>{t("accounts.accountSwitcher.addAccount")}</span>
           </button>
         </div>
       )}

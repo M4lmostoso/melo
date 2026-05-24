@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { t } from "@/i18n";
 import { useAccountStore } from "@/stores/accountStore";
 import { getCalendarEventsInRangeMulti, upsertCalendarEvent, type DbCalendarEvent } from "@/services/db/calendarEvents";
 import { getVisibleCalendars, getCalendarsForAccount, upsertCalendar, type DbCalendar } from "@/services/db/calendars";
@@ -255,7 +256,7 @@ export function CalendarPage() {
   if (!activeAccountId) {
     return (
       <div className="flex-1 flex items-center justify-center text-text-tertiary text-sm">
-        Connect an account to use Calendar
+        {t("calendar.connectAccountPrompt")}
       </div>
     );
   }
@@ -264,8 +265,8 @@ export function CalendarPage() {
     return (
       <div className="flex-1 flex items-center justify-center text-text-tertiary text-sm">
         <div className="text-center">
-          <p>Calendar is not configured for this account.</p>
-          <p className="mt-1 text-xs">For IMAP accounts, configure CalDAV in Settings.</p>
+          <p>{t("calendar.notConfigured")}</p>
+          <p className="mt-1 text-xs">{t("calendar.notConfiguredHint")}</p>
         </div>
       </div>
     );
@@ -301,7 +302,7 @@ export function CalendarPage() {
       {calendarError && !needsReauth && (
         <div className="mx-6 my-4 p-4 rounded-lg bg-danger/10 border border-danger/30 flex items-start gap-3">
           <div>
-            <p className="text-sm font-medium text-text-primary">Calendar access error</p>
+            <p className="text-sm font-medium text-text-primary">{t("calendar.calendarAccessError")}</p>
             <p className="text-xs text-text-secondary mt-1">{calendarError}</p>
           </div>
         </div>
@@ -309,7 +310,7 @@ export function CalendarPage() {
 
       {loading && events.length === 0 && (
         <div className="flex-1 flex items-center justify-center text-text-tertiary text-sm">
-          Loading calendar...
+          {t("calendar.loadingCalendar")}
         </div>
       )}
 

@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { t } from "@/i18n";
 import type { DbCalendarEvent } from "@/services/db/calendarEvents";
 
 interface DayViewProps {
@@ -62,7 +63,7 @@ export function DayView({ currentDate, events, onEventClick }: DayViewProps) {
               onClick={() => onEventClick(e)}
               className="w-full text-left text-xs px-2 py-1.5 rounded bg-accent/10 text-accent hover:bg-accent/20 transition-colors"
             >
-              {e.summary ?? "Event"} · All day
+              {e.summary ?? t("calendar.eventFallback")} · {t("calendar.eventAllDay")}
             </button>
           ))}
         </div>
@@ -86,7 +87,7 @@ export function DayView({ currentDate, events, onEventClick }: DayViewProps) {
                     onClick={() => onEventClick(e)}
                     className="w-full text-left text-xs px-2 py-1 rounded bg-accent/15 text-accent truncate hover:bg-accent/25 transition-colors mb-0.5"
                   >
-                    {e.summary ?? "Event"}
+                    {e.summary ?? t("calendar.eventFallback")}
                     {e.location && <span className="text-text-tertiary"> · {e.location}</span>}
                   </button>
                 ))}

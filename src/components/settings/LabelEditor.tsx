@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { Trash2, Pencil, ChevronUp, ChevronDown, X } from "lucide-react";
+import { t } from "@/i18n";
 import { useAccountStore } from "@/stores/accountStore";
 import { useLabelStore, type Label } from "@/stores/labelStore";
 import { LabelForm } from "@/components/labels/LabelForm";
@@ -38,7 +39,7 @@ export function LabelEditor() {
       await deleteLabel(activeAccountId, label.id);
       if (editingId === label.id) resetForm();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete label");
+      setError(err instanceof Error ? err.message : t("settings.labelEditor.deleteLabel") + " failed");
     }
   }, [activeAccountId, deleteLabel, editingId, resetForm]);
 
@@ -76,7 +77,7 @@ export function LabelEditor() {
       )}
 
       {labels.length === 0 && !showForm && (
-        <p className="text-sm text-text-tertiary">No user labels</p>
+        <p className="text-sm text-text-tertiary">{t("settings.labelEditor.noLabels")}</p>
       )}
 
       {labels.map((label, index) => (
@@ -100,7 +101,7 @@ export function LabelEditor() {
                 onClick={() => handleMoveUp(index)}
                 disabled={index === 0}
                 className="p-1 text-text-tertiary hover:text-text-primary disabled:opacity-30 disabled:cursor-not-allowed"
-                title="Move up"
+                title={t("settings.labelEditor.moveUp")}
               >
                 <ChevronUp size={13} />
               </button>
@@ -108,21 +109,21 @@ export function LabelEditor() {
                 onClick={() => handleMoveDown(index)}
                 disabled={index === labels.length - 1}
                 className="p-1 text-text-tertiary hover:text-text-primary disabled:opacity-30 disabled:cursor-not-allowed"
-                title="Move down"
+                title={t("settings.labelEditor.moveDown")}
               >
                 <ChevronDown size={13} />
               </button>
               <button
                 onClick={() => handleEdit(label)}
                 className="p-1 text-text-tertiary hover:text-text-primary"
-                title="Edit"
+                title={t("settings.labelEditor.editLabel")}
               >
                 <Pencil size={13} />
               </button>
               <button
                 onClick={() => handleDelete(label)}
                 className="p-1 text-text-tertiary hover:text-danger"
-                title="Delete"
+                title={t("settings.labelEditor.deleteLabel")}
               >
                 <Trash2 size={13} />
               </button>
@@ -152,7 +153,7 @@ export function LabelEditor() {
           onClick={() => { setShowForm(true); setEditingId(null); setError(null); }}
           className="text-xs text-accent hover:text-accent-hover"
         >
-          + Add label
+          + {t("settings.labelEditor.addLabel")}
         </button>
       )}
     </div>

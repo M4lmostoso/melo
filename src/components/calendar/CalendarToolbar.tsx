@@ -1,4 +1,5 @@
 import { ChevronLeft, ChevronRight, Plus, CalendarDays } from "lucide-react";
+import { t } from "@/i18n";
 
 export type CalendarView = "day" | "week" | "month";
 
@@ -42,7 +43,7 @@ export function CalendarToolbar({
             onClick={onToday}
             className="px-2.5 py-1 text-xs font-medium text-text-secondary hover:text-text-primary hover:bg-bg-hover rounded transition-colors"
           >
-            Today
+            {t("calendar.today")}
           </button>
           <button
             onClick={onNext}
@@ -58,7 +59,7 @@ export function CalendarToolbar({
           <button
             onClick={onToggleCalendarList}
             className="p-1.5 text-text-secondary hover:text-text-primary hover:bg-bg-hover rounded transition-colors"
-            title="Toggle calendar list"
+            title={t("calendar.toggleCalendarList")}
           >
             <CalendarDays size={16} />
           </button>
@@ -83,7 +84,7 @@ export function CalendarToolbar({
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-accent hover:bg-accent-hover rounded-md transition-colors"
         >
           <Plus size={14} />
-          Create
+          {t("calendar.createEvent")}
         </button>
       </div>
     </div>

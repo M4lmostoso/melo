@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { t } from "@/i18n";
 import type { DbCalendarEvent } from "@/services/db/calendarEvents";
 
 interface WeekViewProps {
@@ -81,7 +82,7 @@ export function WeekView({ currentDate, events, onEventClick }: WeekViewProps) {
 
       {/* All-day events row */}
       <div className="grid grid-cols-[60px_repeat(7,1fr)] border-b border-border-primary shrink-0">
-        <div className="border-r border-border-secondary px-1 py-1 text-[0.625rem] text-text-tertiary">all-day</div>
+        <div className="border-r border-border-secondary px-1 py-1 text-[0.625rem] text-text-tertiary">{t("calendar.allDayLabel")}</div>
         {days.map((day, i) => {
           const allDay = allDayByDay.get(day.getDate()) ?? [];
           return (
@@ -92,7 +93,7 @@ export function WeekView({ currentDate, events, onEventClick }: WeekViewProps) {
                   onClick={() => onEventClick(e)}
                   className="w-full text-left text-[0.625rem] px-1 py-0.5 rounded bg-accent/10 text-accent truncate hover:bg-accent/20 transition-colors"
                 >
-                  {e.summary ?? "Event"}
+                  {e.summary ?? t("calendar.eventFallback")}
                 </button>
               ))}
             </div>
@@ -121,7 +122,7 @@ export function WeekView({ currentDate, events, onEventClick }: WeekViewProps) {
                         className="absolute inset-x-0.5 text-[0.625rem] px-1 py-0.5 rounded bg-accent/15 text-accent truncate hover:bg-accent/25 transition-colors"
                         title={e.summary ?? "Event"}
                       >
-                        {e.summary ?? "Event"}
+                        {e.summary ?? t("calendar.eventFallback")}
                       </button>
                     ))}
                   </div>

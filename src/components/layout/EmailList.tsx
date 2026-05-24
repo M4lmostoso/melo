@@ -1,5 +1,6 @@
 import { useEffect, useCallback, useMemo, useRef, useState } from "react";
 import { CSSTransition } from "react-transition-group";
+import { t } from "@/i18n";
 import { ThreadCard } from "../email/ThreadCard";
 import { CategoryTabs } from "../email/CategoryTabs";
 import { SearchBar } from "../search/SearchBar";
@@ -505,7 +506,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
           <h2 className="text-sm font-semibold text-text-primary capitalize flex items-center gap-1.5">
             {isSmartFolder && <FolderSearch size={14} className="text-accent shrink-0" />}
             {isSmartFolder
-              ? activeSmartFolder?.name ?? "Smart Folder"
+              ? activeSmartFolder?.name ?? t("layout.emailList.smartFolder")
               : activeLabel === "inbox" && inboxViewMode === "split" && activeCategory !== "All"
                 ? `Inbox — ${activeCategory}`
                 : LABEL_MAP[activeLabel] !== undefined
@@ -513,7 +514,9 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
                   : userLabels.find((l) => l.id === activeLabel)?.name ?? activeLabel}
           </h2>
           <span className="text-xs text-text-tertiary">
-            {filteredThreads.length} conversation{filteredThreads.length !== 1 ? "s" : ""}
+            {filteredThreads.length !== 1
+              ? t("layout.emailList.conversationsPlural", { count: filteredThreads.length })
+              : t("layout.emailList.conversations", { count: filteredThreads.length })}
           </span>
         </div>
         <select
@@ -521,9 +524,9 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
           onChange={(e) => setReadFilter(e.target.value as "all" | "read" | "unread")}
           className="text-xs bg-bg-tertiary text-text-secondary px-2 py-1 rounded border border-border-primary"
         >
-          <option value="all">All</option>
-          <option value="unread">Unread</option>
-          <option value="read">Read</option>
+          <option value="all">{t("layout.emailList.allEmails")}</option>
+          <option value="unread">{t("layout.emailList.unreadOnly")}</option>
+          <option value="read">{t("layout.emailList.readOnly")}</option>
         </select>
       </div>
 
@@ -541,42 +544,42 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
         <div ref={multiSelectBarRef} className="px-3 py-2 border-b border-border-primary bg-accent/5 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="text-xs font-medium text-text-primary">
-              {multiSelectCount} selected
+              {t("layout.emailList.multiSelectBar", { count: multiSelectCount })}
             </span>
             {multiSelectCount < filteredThreads.length && (
               <button
                 onClick={selectAll}
                 className="text-xs text-accent hover:text-accent-hover transition-colors"
               >
-                Select all
+                {t("layout.emailList.selectAll")}
               </button>
             )}
           </div>
           <div className="flex items-center gap-1">
             <button
               onClick={handleBulkArchive}
-              title="Archive selected"
+              title={t("layout.emailList.archive")}
               className="p-1.5 text-text-secondary hover:text-text-primary hover:bg-bg-hover rounded transition-colors"
             >
               <Archive size={14} />
             </button>
             <button
               onClick={handleBulkDelete}
-              title="Delete selected"
+              title={t("layout.emailList.trash")}
               className="p-1.5 text-text-secondary hover:text-error hover:bg-bg-hover rounded transition-colors"
             >
               <Trash2 size={14} />
             </button>
             <button
               onClick={handleBulkSpam}
-              title={activeLabel === "spam" ? "Not spam" : "Report spam"}
+              title={activeLabel === "spam" ? t("search.commandPalette.notSpam") : t("search.commandPalette.reportSpam")}
               className="p-1.5 text-text-secondary hover:text-text-primary hover:bg-bg-hover rounded transition-colors"
             >
               <Ban size={14} />
             </button>
             <button
               onClick={clearMultiSelect}
-              title="Clear selection"
+              title={t("layout.emailList.clearSelection")}
               className="p-1.5 text-text-secondary hover:text-text-primary hover:bg-bg-hover rounded transition-colors"
             >
               <X size={14} />
@@ -668,7 +671,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
                 >
                   {showDivider && (
                     <div className="px-4 py-1.5 text-xs font-medium text-text-tertiary uppercase tracking-wider bg-bg-tertiary/50 border-b border-border-secondary">
-                      Other emails
+                      {t("layout.emailList.otherEmails")}
                     </div>
                   )}
                   <ThreadCard
@@ -685,12 +688,12 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
             })}
             {loadingMore && (
               <div className="px-4 py-3 text-center text-xs text-text-tertiary">
-                Loading more...
+                {t("layout.emailList.loadingMore")}
               </div>
             )}
             {!hasMore && threads.length > PAGE_SIZE && (
               <div className="px-4 py-3 text-center text-xs text-text-tertiary">
-                All conversations loaded
+                {t("layout.emailList.allLoaded")}
               </div>
             )}
           </>
@@ -714,47 +717,47 @@ function EmptyStateForContext({
   activeCategory: string;
 }) {
   if (searchQuery) {
-    return <EmptyState illustration={NoSearchResultsIllustration} title="No results found" subtitle="Try a different search term" />;
+    return <EmptyState illustration={NoSearchResultsIllustration} title={t("layout.emailList.emptySearch.title")} subtitle={t("layout.emailList.emptySearch.subtitle")} />;
   }
   if (readFilter !== "all") {
-    return <EmptyState icon={Filter} title={`No ${readFilter} emails`} subtitle="Try changing the filter" />;
+    return <EmptyState icon={Filter} title={t("layout.emailList.emptyFilter.title", { filter: readFilter })} subtitle={t("layout.emailList.emptyFilter.subtitle")} />;
   }
   if (!activeAccountId) {
-    return <EmptyState illustration={NoAccountIllustration} title="No account connected" subtitle="Add a Gmail account to get started" />;
+    return <EmptyState illustration={NoAccountIllustration} title={t("layout.emailList.emptyNoAccount.title")} subtitle={t("layout.emailList.emptyNoAccount.subtitle")} />;
   }
 
   switch (activeLabel) {
     case "inbox":
       if (activeCategory !== "All") {
         const categoryMessages: Record<string, { title: string; subtitle: string }> = {
-          Primary: { title: "Primary is clear", subtitle: "No important conversations" },
-          Updates: { title: "No updates", subtitle: "Notifications and transactional emails appear here" },
-          Promotions: { title: "No promotions", subtitle: "Marketing and promotional emails appear here" },
-          Social: { title: "No social emails", subtitle: "Social network notifications appear here" },
-          Newsletters: { title: "No newsletters", subtitle: "Newsletters and subscriptions appear here" },
+          Primary: { title: t("layout.emailList.emptyPrimary.title"), subtitle: t("layout.emailList.emptyPrimary.subtitle") },
+          Updates: { title: t("layout.emailList.emptyUpdates.title"), subtitle: t("layout.emailList.emptyUpdates.subtitle") },
+          Promotions: { title: t("layout.emailList.emptyPromotions.title"), subtitle: t("layout.emailList.emptyPromotions.subtitle") },
+          Social: { title: t("layout.emailList.emptySocial.title"), subtitle: t("layout.emailList.emptySocial.subtitle") },
+          Newsletters: { title: t("layout.emailList.emptyNewsletters.title"), subtitle: t("layout.emailList.emptyNewsletters.subtitle") },
         };
         const msg = categoryMessages[activeCategory];
         if (msg) return <EmptyState illustration={InboxClearIllustration} title={msg.title} subtitle={msg.subtitle} />;
       }
-      return <EmptyState illustration={InboxClearIllustration} title="You're all caught up" subtitle="No new conversations" />;
+      return <EmptyState illustration={InboxClearIllustration} title={t("layout.emailList.emptyInbox.title")} subtitle={t("layout.emailList.emptyInbox.subtitle")} />;
     case "starred":
-      return <EmptyState illustration={GenericEmptyIllustration} title="No starred conversations" subtitle="Star emails to find them here" />;
+      return <EmptyState illustration={GenericEmptyIllustration} title={t("layout.emailList.emptyStarred.title")} subtitle={t("layout.emailList.emptyStarred.subtitle")} />;
     case "snoozed":
-      return <EmptyState illustration={GenericEmptyIllustration} title="No snoozed emails" subtitle="Snoozed emails will appear here" />;
+      return <EmptyState illustration={GenericEmptyIllustration} title={t("layout.emailList.emptySnoozed.title")} subtitle={t("layout.emailList.emptySnoozed.subtitle")} />;
     case "sent":
-      return <EmptyState illustration={GenericEmptyIllustration} title="No sent messages" />;
+      return <EmptyState illustration={GenericEmptyIllustration} title={t("layout.emailList.emptySent.title")} />;
     case "drafts":
-      return <EmptyState illustration={GenericEmptyIllustration} title="No drafts" />;
+      return <EmptyState illustration={GenericEmptyIllustration} title={t("layout.emailList.emptyDrafts.title")} />;
     case "trash":
-      return <EmptyState illustration={GenericEmptyIllustration} title="Trash is empty" />;
+      return <EmptyState illustration={GenericEmptyIllustration} title={t("layout.emailList.emptyTrash.title")} />;
     case "spam":
-      return <EmptyState illustration={GenericEmptyIllustration} title="No spam" subtitle="Looking good!" />;
+      return <EmptyState illustration={GenericEmptyIllustration} title={t("layout.emailList.emptySpam.title")} subtitle={t("layout.emailList.emptySpam.subtitle")} />;
     case "all":
-      return <EmptyState illustration={GenericEmptyIllustration} title="No emails yet" />;
+      return <EmptyState illustration={GenericEmptyIllustration} title={t("layout.emailList.emptyAll.title")} />;
     default:
       if (activeLabel.startsWith("smart-folder:")) {
-        return <EmptyState icon={FolderSearch} title="No matching emails" subtitle="Try adjusting the smart folder query" />;
+        return <EmptyState icon={FolderSearch} title={t("layout.emailList.emptySmartFolder.title")} subtitle={t("layout.emailList.emptySmartFolder.subtitle")} />;
       }
-      return <EmptyState illustration={GenericEmptyIllustration} title="Nothing here" subtitle="No conversations with this label" />;
+      return <EmptyState illustration={GenericEmptyIllustration} title={t("layout.emailList.emptyLabel.title")} subtitle={t("layout.emailList.emptyLabel.subtitle")} />;
   }
 }
