@@ -10,9 +10,11 @@ interface MonthViewProps {
   onEventClick: (event: DbCalendarEvent) => void;
 }
 
-const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const DAY_NAMES = Array.from({ length: 7 }, (_, i) =>
+  new Date(2023, 0, i + 1).toLocaleDateString(undefined, { weekday: "short" }),
+);
 
-export function MonthView({ currentDate, events, onEventClick }: MonthViewProps) {
+export function MonthView({ currentDate, events, colorMap = {}, onEventClick }: MonthViewProps) {
   const year = currentDate.getFullYear();
   const month = currentDate.getMonth();
   const firstDay = new Date(year, month, 1);
@@ -78,6 +80,7 @@ export function MonthView({ currentDate, events, onEventClick }: MonthViewProps)
                     key={event.id}
                     event={event}
                     compact
+                    color={colorMap[event.calendar_id ?? ""] }
                     onClick={() => onEventClick(event)}
                   />
                 ))}

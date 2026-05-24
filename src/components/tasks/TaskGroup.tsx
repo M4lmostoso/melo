@@ -34,8 +34,8 @@ export function TaskGroup({
   subtaskMap,
   onToggleComplete,
   onDelete,
-  onDueDateChange: _onDueDateChange,
-  onEdit: _onEdit,
+  onDueDateChange,
+  onEdit,
   onCompleteAll,
   selectedTaskId,
   onSelect,
@@ -66,7 +66,6 @@ export function TaskGroup({
 
   return (
     <div className="rounded-lg border border-border-primary overflow-hidden">
-      {/* Group header */}
       <div
         className={`flex items-center gap-2 px-3 py-2 cursor-pointer select-none transition-colors ${
           overdueAlert
@@ -75,12 +74,10 @@ export function TaskGroup({
         } hover:bg-bg-hover`}
         onClick={() => setCollapsed(!collapsed)}
       >
-        {/* Collapse toggle */}
         <button className="shrink-0 text-text-tertiary">
           {collapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
         </button>
 
-        {/* Account color dot */}
         {accountColor && !isGeneral && (
           <span
             className="w-2 h-2 rounded-full shrink-0"
@@ -88,14 +85,12 @@ export function TaskGroup({
           />
         )}
 
-        {/* Icon */}
         {isGeneral ? (
           <CheckCircle2 size={13} className="text-text-tertiary shrink-0" />
         ) : (
           <Mail size={13} className={overdueAlert ? "text-red-400 shrink-0" : "text-text-tertiary shrink-0"} />
         )}
 
-        {/* Subject */}
         <span
           className={`flex-1 min-w-0 text-xs font-medium truncate ${
             overdueAlert ? "text-red-400" : "text-text-primary"
@@ -104,7 +99,6 @@ export function TaskGroup({
           {displaySubject}
         </span>
 
-        {/* Overdue badge */}
         {overdueAlert && (
           <span className="flex items-center gap-0.5 text-[0.6rem] text-red-400 shrink-0 font-semibold uppercase tracking-wide">
             <AlertTriangle size={10} />
@@ -112,12 +106,10 @@ export function TaskGroup({
           </span>
         )}
 
-        {/* Task count */}
         <span className="text-[0.6875rem] text-text-tertiary shrink-0">
           {incompleteTasks.length}/{tasks.length}
         </span>
 
-        {/* Actions — shown on hover */}
         <div className="flex items-center gap-1 shrink-0 ml-1" onClick={(e) => e.stopPropagation()}>
           {!isGeneral && incompleteTasks.length > 0 && onCompleteAll && (
             <button
@@ -140,7 +132,6 @@ export function TaskGroup({
         </div>
       </div>
 
-      {/* Task list */}
       {!collapsed && (
         <div className="bg-bg-primary/40 py-0.5">
           {tasks.map((task) => (
@@ -151,7 +142,10 @@ export function TaskGroup({
               onToggleComplete={onToggleComplete}
               onSelect={onSelect}
               onDelete={onDelete}
+              onDueDateChange={onDueDateChange}
+              onEdit={onEdit}
               isSelected={selectedTaskId === task.id}
+              accountColor={accountColor}
             />
           ))}
         </div>

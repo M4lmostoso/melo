@@ -349,6 +349,7 @@ export function CalendarPage() {
             <WeekView
               currentDate={currentDate}
               events={events}
+              colorMap={colorMap}
               onEventClick={handleEventClick}
             />
           )}
@@ -356,6 +357,7 @@ export function CalendarPage() {
             <DayView
               currentDate={currentDate}
               events={events}
+              colorMap={colorMap}
               onEventClick={handleEventClick}
             />
           )}

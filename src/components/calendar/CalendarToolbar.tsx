@@ -69,13 +69,13 @@ export function CalendarToolbar({
             <button
               key={v}
               onClick={() => onViewChange(v)}
-              className={`px-3 py-1 text-xs font-medium rounded transition-colors capitalize ${
+              className={`px-3 py-1 text-xs font-medium rounded transition-colors ${
                 view === v
                   ? "bg-bg-primary text-text-primary shadow-sm"
                   : "text-text-tertiary hover:text-text-secondary"
               }`}
             >
-              {v}
+              {t(`calendar.view${v.charAt(0).toUpperCase()}${v.slice(1)}` as Parameters<typeof t>[0])}
             </button>
           ))}
         </div>
@@ -92,9 +92,8 @@ export function CalendarToolbar({
 }
 
 function formatTitle(date: Date, view: CalendarView): string {
-  const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
   if (view === "month") {
-    return `${months[date.getMonth()]} ${date.getFullYear()}`;
+    return date.toLocaleDateString(undefined, { month: "long", year: "numeric" });
   }
   if (view === "week") {
     const start = new Date(date);
@@ -102,9 +101,12 @@ function formatTitle(date: Date, view: CalendarView): string {
     const end = new Date(start);
     end.setDate(end.getDate() + 6);
     if (start.getMonth() === end.getMonth()) {
-      return `${months[start.getMonth()]} ${start.getDate()}-${end.getDate()}, ${start.getFullYear()}`;
+      const base = start.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+      return `${base} ${start.getDate()}–${end.getDate()}`;
     }
-    return `${months[start.getMonth()]?.slice(0, 3)} ${start.getDate()} - ${months[end.getMonth()]?.slice(0, 3)} ${end.getDate()}, ${end.getFullYear()}`;
+    const startStr = start.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    const endStr = end.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+    return `${startStr} – ${endStr}`;
   }
   return date.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" });
 }

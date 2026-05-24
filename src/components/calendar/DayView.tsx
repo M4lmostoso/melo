@@ -5,12 +5,13 @@ import type { DbCalendarEvent } from "@/services/db/calendarEvents";
 interface DayViewProps {
   currentDate: Date;
   events: DbCalendarEvent[];
+  colorMap?: Record<string, string>;
   onEventClick: (event: DbCalendarEvent) => void;
 }
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 
-export function DayView({ currentDate, events, onEventClick }: DayViewProps) {
+export function DayView({ currentDate, events, colorMap = {}, onEventClick }: DayViewProps) {
   const dayStart = new Date(currentDate);
   dayStart.setHours(0, 0, 0, 0);
 
@@ -57,15 +58,19 @@ export function DayView({ currentDate, events, onEventClick }: DayViewProps) {
       {/* All-day events */}
       {allDayEvents.length > 0 && (
         <div className="px-6 py-2 border-b border-border-secondary space-y-1">
-          {allDayEvents.map((e) => (
-            <button
-              key={e.id}
-              onClick={() => onEventClick(e)}
-              className="w-full text-left text-xs px-2 py-1.5 rounded bg-accent/10 text-accent hover:bg-accent/20 transition-colors"
-            >
-              {e.summary ?? t("calendar.eventFallback")} · {t("calendar.eventAllDay")}
-            </button>
-          ))}
+          {allDayEvents.map((e) => {
+            const c = colorMap[e.calendar_id ?? ""] ?? "var(--color-accent)";
+            return (
+              <button
+                key={e.id}
+                onClick={() => onEventClick(e)}
+                className="w-full text-left text-xs px-2 py-1.5 rounded transition-colors hover:opacity-80"
+                style={{ backgroundColor: `${c}1a`, color: c }}
+              >
+                {e.summary ?? t("calendar.eventFallback")} · {t("calendar.eventAllDay")}
+              </button>
+            );
+          })}
         </div>
       )}
 
@@ -81,16 +86,20 @@ export function DayView({ currentDate, events, onEventClick }: DayViewProps) {
                 </span>
               </div>
               <div className="flex-1 relative px-1">
-                {hourEvents.map((e) => (
-                  <button
-                    key={e.id}
-                    onClick={() => onEventClick(e)}
-                    className="w-full text-left text-xs px-2 py-1 rounded bg-accent/15 text-accent truncate hover:bg-accent/25 transition-colors mb-0.5"
-                  >
-                    {e.summary ?? t("calendar.eventFallback")}
-                    {e.location && <span className="text-text-tertiary"> · {e.location}</span>}
-                  </button>
-                ))}
+                {hourEvents.map((e) => {
+                  const c = colorMap[e.calendar_id ?? ""] ?? "var(--color-accent)";
+                  return (
+                    <button
+                      key={e.id}
+                      onClick={() => onEventClick(e)}
+                      className="w-full text-left text-xs px-2 py-1 rounded truncate transition-colors hover:opacity-80 mb-0.5"
+                      style={{ backgroundColor: `${c}26`, color: c }}
+                    >
+                      {e.summary ?? t("calendar.eventFallback")}
+                      {e.location && <span className="opacity-70"> · {e.location}</span>}
+                    </button>
+                  );
+                })}
               </div>
             </div>
           );

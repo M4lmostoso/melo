@@ -735,7 +735,7 @@ const handlePrint = useCallback(async () => {
 
       {/* Task sidebar */}
       {taskSidebarVisible && activeAccountId && (
-        <TaskSidebar accountId={thread.accountId} threadId={thread.id} />
+        <TaskSidebar accountId={thread.accountId} threadId={thread.id} messages={messages} />
       )}
 
       {/* Raw message source modal */}
