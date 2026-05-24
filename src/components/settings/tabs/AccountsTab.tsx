@@ -23,6 +23,7 @@ import { syncGoogleContacts } from "@/services/contacts/googleContacts";
 import { RefreshCw, Mail, GripVertical } from "lucide-react";
 import { Section, SettingRow } from "./shared";
 import { Button } from "@/components/ui/Button";
+import { t } from "@/i18n";
 import { EditImapAccount } from "@/components/accounts/EditImapAccount";
 import { ImapIdleFoldersEditor } from "@/components/settings/ImapIdleFoldersEditor";
 import { EditGmailAccount } from "@/components/accounts/EditGmailAccount";
@@ -47,7 +48,7 @@ function SortableAccountRow({ id, children }: { id: string; children: React.Reac
         {...listeners}
         className="text-text-tertiary/40 hover:text-text-tertiary transition-colors cursor-grab active:cursor-grabbing touch-none p-1 shrink-0"
         tabIndex={-1}
-        aria-label="Drag to reorder"
+        aria-label={t("settings.accounts.dragToReorder")}
       >
         <GripVertical size={15} />
       </button>
@@ -89,13 +90,13 @@ function SendAsAliasesSection() {
   };
 
   return (
-    <Section title="Send-As Aliases">
+    <Section title={t("settings.accounts.sections.sendAsAliases")}>
       <p className="text-xs text-text-tertiary mb-3">
-        These aliases are synced from your Gmail settings. You can select which alias to use as the default sender.
+        {t("settings.accounts.aliasesDesc")}
       </p>
       {aliases.length === 0 ? (
         <p className="text-sm text-text-tertiary">
-          No aliases found. Aliases are fetched from Gmail on startup.
+          {t("settings.accounts.noAliases")}
         </p>
       ) : (
         <div className="space-y-2">
@@ -113,12 +114,12 @@ function SendAsAliasesSection() {
                   <div className="flex items-center gap-2 mt-0.5">
                     {alias.isPrimary && (
                       <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 py-0.5 rounded-full">
-                        Primary
+                        {t("settings.accounts.aliasPrimary")}
                       </span>
                     )}
                     {alias.isDefault && (
                       <span className="text-[0.625rem] bg-success/15 text-success px-1.5 py-0.5 rounded-full">
-                        Default
+                        {t("settings.accounts.aliasDefault")}
                       </span>
                     )}
                     {alias.verificationStatus !== "accepted" && (
@@ -134,7 +135,7 @@ function SendAsAliasesSection() {
                   onClick={() => handleSetDefault(alias)}
                   className="text-xs text-accent hover:text-accent-hover transition-colors shrink-0 ml-3"
                 >
-                  Set as default
+                  {t("settings.accounts.setAsDefault")}
                 </button>
               )}
             </div>
@@ -183,13 +184,13 @@ function SyncOfflineSection() {
   };
 
   return (
-    <Section title="Sync & Offline">
+    <Section title={t("settings.accounts.sections.syncOffline")}>
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <div>
-            <span className="text-sm text-text-secondary">Pending operations</span>
+            <span className="text-sm text-text-secondary">{t("settings.accounts.pendingOps")}</span>
             <p className="text-xs text-text-tertiary mt-0.5">
-              Changes waiting to sync to the server
+              {t("settings.accounts.pendingOpsDesc")}
             </p>
           </div>
           <span className="text-sm font-mono text-text-primary">{pendingCount}</span>
@@ -197,9 +198,9 @@ function SyncOfflineSection() {
 
         <div className="flex items-center justify-between">
           <div>
-            <span className="text-sm text-text-secondary">Failed operations</span>
+            <span className="text-sm text-text-secondary">{t("settings.accounts.failedOps")}</span>
             <p className="text-xs text-text-tertiary mt-0.5">
-              Changes that could not be synced after multiple retries
+              {t("settings.accounts.failedOpsDesc")}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -211,14 +212,14 @@ function SyncOfflineSection() {
                   disabled={loading}
                   className="text-xs text-accent hover:text-accent-hover transition-colors disabled:opacity-50"
                 >
-                  Retry
+                  {t("settings.accounts.retryFailed")}
                 </button>
                 <button
                   onClick={handleClearFailed}
                   disabled={loading}
                   className="text-xs text-danger hover:opacity-80 transition-colors disabled:opacity-50"
                 >
-                  Clear
+                  {t("settings.accounts.clearFailed")}
                 </button>
               </>
             )}
@@ -342,18 +343,18 @@ export function AccountsTab() {
   return (
     <>
       <Section
-        title="Mail Accounts"
+        title={t("settings.accounts.sections.mailAccounts")}
         action={
           <button
             onClick={() => setShowAddAccount(true)}
             className="text-xs text-accent hover:text-accent-hover transition-colors"
           >
-            + Add Account
+            {t("settings.accounts.addAccount")}
           </button>
         }
       >
         {mailAccounts.length === 0 ? (
-          <p className="text-sm text-text-tertiary">No mail accounts connected</p>
+          <p className="text-sm text-text-tertiary">{t("settings.accounts.noMailAccounts")}</p>
         ) : (
           <DndContext sensors={accountSensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
             <SortableContext items={mailAccounts.map((a) => a.id)} strategy={verticalListSortingStrategy}>
@@ -385,7 +386,7 @@ export function AccountsTab() {
                                 onClick={() => setEditingImapAccountId(account.id)}
                                 className="text-xs text-accent hover:text-accent-hover transition-colors"
                               >
-                                Edit
+                                {t("settings.accounts.editAccount")}
                               </button>
                             )}
                             {account.provider !== "imap" && (
@@ -402,7 +403,7 @@ export function AccountsTab() {
                                 }
                                 className="text-xs text-accent hover:text-accent-hover transition-colors"
                               >
-                                Edit
+                                {t("settings.accounts.editAccount")}
                               </button>
                             )}
                             <button
@@ -410,10 +411,10 @@ export function AccountsTab() {
                               disabled={resyncStatus[account.id] === "syncing"}
                               className="text-xs text-accent hover:text-accent-hover transition-colors disabled:opacity-50"
                             >
-                              {resyncStatus[account.id] === "syncing" && "Resyncing..."}
-                              {resyncStatus[account.id] === "done" && "Done!"}
-                              {resyncStatus[account.id] === "error" && "Failed"}
-                              {(!resyncStatus[account.id] || resyncStatus[account.id] === "idle") && "Resync"}
+                              {resyncStatus[account.id] === "syncing" && t("settings.accounts.resyncing")}
+                              {resyncStatus[account.id] === "done" && t("settings.accounts.resyncDone")}
+                              {resyncStatus[account.id] === "error" && t("settings.accounts.resyncFailed")}
+                              {(!resyncStatus[account.id] || resyncStatus[account.id] === "idle") && t("settings.accounts.resync")}
                             </button>
                             {account.provider === "gmail_api" && (
                               <button
@@ -423,16 +424,16 @@ export function AccountsTab() {
                               >
                                 {resyncStatus[account.id] === "syncing"
                                   ? contactsProgress
-                                    ? `Syncing ${contactsProgress.current} contacts...`
-                                    : "Syncing contacts..."
-                                  : "Sync Contacts"}
+                                    ? t("settings.accounts.syncingContactsProgress", { count: contactsProgress.current })
+                                    : t("settings.accounts.syncingContacts")
+                                  : t("settings.accounts.syncContacts")}
                               </button>
                             )}
                             <button
                               onClick={() => handleRemoveAccount(account.id)}
                               className="text-xs text-danger hover:text-danger/80 transition-colors"
                             >
-                              Remove
+                              {t("settings.accounts.removeAccount")}
                             </button>
                           </div>
                         </div>
@@ -451,9 +452,9 @@ export function AccountsTab() {
 
       <SendAsAliasesSection />
 
-      <Section title="Sync">
+      <Section title={t("settings.accounts.sections.sync")}>
         <div className="flex items-center justify-between">
-          <span className="text-sm text-text-secondary">Check for new mail</span>
+          <span className="text-sm text-text-secondary">{t("settings.accounts.checkForNewMail")}</span>
           <Button
             variant="primary"
             size="md"
@@ -461,13 +462,13 @@ export function AccountsTab() {
             onClick={handleManualSync}
             disabled={isSyncing || accounts.length === 0}
           >
-            {isSyncing ? "Syncing..." : "Sync now"}
+            {isSyncing ? t("settings.accounts.syncing") : t("settings.accounts.syncNow")}
           </Button>
         </div>
         <div className="flex items-center justify-between">
           <div>
-            <span className="text-sm text-text-secondary">Full resync</span>
-            <p className="text-xs text-text-tertiary mt-0.5">Re-download all emails from scratch</p>
+            <span className="text-sm text-text-secondary">{t("settings.accounts.fullResync")}</span>
+            <p className="text-xs text-text-tertiary mt-0.5">{t("settings.accounts.fullResyncDesc")}</p>
           </div>
           <Button
             variant="secondary"
@@ -477,13 +478,13 @@ export function AccountsTab() {
             disabled={isSyncing || accounts.length === 0}
             className="bg-bg-tertiary text-text-primary border border-border-primary"
           >
-            {isSyncing ? "Syncing..." : "Full resync"}
+            {isSyncing ? t("settings.accounts.syncing") : t("settings.accounts.fullResync")}
           </Button>
         </div>
       </Section>
 
-      <Section title="Sync Period">
-        <SettingRow label="Sync emails from">
+      <Section title={t("settings.accounts.sections.syncPeriod")}>
+        <SettingRow label={t("settings.accounts.syncEmailsFrom")}>
           <select
             value={syncPeriodDays}
             onChange={async (e) => {
@@ -493,14 +494,14 @@ export function AccountsTab() {
             }}
             className="w-48 bg-bg-tertiary text-text-primary text-sm px-3 py-1.5 rounded-md border border-border-primary focus:border-accent outline-none"
           >
-            <option value="0">Everything</option>
-            <option value="30">Last 30 days</option>
-            <option value="90">Last 90 days</option>
-            <option value="180">Last 180 days</option>
-            <option value="365">Last 1 year</option>
+            <option value="0">{t("settings.accounts.syncEverything")}</option>
+            <option value="30">{t("settings.accounts.syncLast30")}</option>
+            <option value="90">{t("settings.accounts.syncLast90")}</option>
+            <option value="180">{t("settings.accounts.syncLast180")}</option>
+            <option value="365">{t("settings.accounts.syncLast1Year")}</option>
           </select>
         </SettingRow>
-        <p className="text-xs text-text-tertiary">Changes apply on the next full resync.</p>
+        <p className="text-xs text-text-tertiary">{t("settings.accounts.syncChangesNote")}</p>
       </Section>
 
       <SyncOfflineSection />

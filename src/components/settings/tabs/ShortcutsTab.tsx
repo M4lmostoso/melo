@@ -3,6 +3,7 @@ import { useShortcutStore } from "@/stores/shortcutStore";
 import { SHORTCUTS, getDefaultKeyMap } from "@/constants/shortcuts";
 import { registerComposeShortcut, getCurrentShortcut, DEFAULT_SHORTCUT } from "@/services/globalShortcut";
 import { Section } from "./shared";
+import { t } from "@/i18n";
 
 export function ShortcutsTab() {
   const keyMap = useShortcutStore((s) => s.keyMap);
@@ -74,12 +75,12 @@ export function ShortcutsTab() {
 
   return (
     <>
-      <Section title="Global Shortcut">
+      <Section title={t("settings.shortcuts.globalShortcut")}>
         <div className="flex items-center justify-between">
           <div>
-            <span className="text-sm text-text-secondary">Quick compose</span>
+            <span className="text-sm text-text-secondary">{t("settings.shortcuts.quickCompose")}</span>
             <p className="text-xs text-text-tertiary mt-0.5">
-              Open compose window from any app
+              {t("settings.shortcuts.quickComposeDesc")}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -97,7 +98,7 @@ export function ShortcutsTab() {
                   : "bg-bg-tertiary text-text-secondary hover:text-text-primary border border-border-primary"
               }`}
             >
-              {recordingGlobal ? "Press keys..." : "Change"}
+              {recordingGlobal ? t("settings.shortcuts.pressKeys") : t("settings.shortcuts.change")}
             </button>
           </div>
         </div>
@@ -105,14 +106,14 @@ export function ShortcutsTab() {
 
       <div className="flex items-center justify-between mb-4">
         <p className="text-sm text-text-tertiary">
-          Click a shortcut to rebind it. Press any key or key combination to set.
+          {t("settings.shortcuts.rebindHint")}
         </p>
         {hasCustom && (
           <button
             onClick={resetAll}
             className="text-xs text-accent hover:text-accent-hover transition-colors shrink-0 ml-4"
           >
-            Reset all
+            {t("settings.shortcuts.resetAll")}
           </button>
         )}
       </div>
@@ -147,13 +148,13 @@ export function ShortcutsTab() {
                           : "bg-bg-tertiary text-text-tertiary hover:text-text-primary border border-border-primary"
                       }`}
                     >
-                      {isRecording ? "Press key..." : currentKey}
+                      {isRecording ? t("settings.shortcuts.pressKey") : currentKey}
                     </button>
                     {!isDefault && (
                       <button
                         onClick={() => resetKey(item.id)}
                         className="text-xs text-text-tertiary hover:text-text-primary"
-                        title={`Reset to ${defaults[item.id]}`}
+                        title={t("settings.shortcuts.resetToDefault", { key: defaults[item.id] ?? "" })}
                       >
                         ×
                       </button>

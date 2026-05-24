@@ -7,6 +7,7 @@ import type { DbCalendarEvent } from "@/services/db/calendarEvents";
 import { calColor, calDisplayName, type DbCalendar } from "@/services/db/calendars";
 import { getCalendarProvider } from "@/services/calendar/providerFactory";
 import { deleteCalendarEvent as deleteCalendarEventDb } from "@/services/db/calendarEvents";
+import { t } from "@/i18n";
 
 interface EventDetailModalProps {
   event: DbCalendarEvent;
@@ -86,10 +87,10 @@ export function EventDetailModal({ event, calendars, accountId, onClose, onUpdat
 
   if (editing) {
     return (
-      <Modal isOpen={true} onClose={onClose} title="Edit Event" width="w-full max-w-md">
+      <Modal isOpen={true} onClose={onClose} title={t("calendar.editEvent")} width="w-full max-w-md">
         <div className="p-4 space-y-3">
           <TextField
-            label="Title"
+            label={t("calendar.createModal.titleLabel")}
             type="text"
             value={summary}
             onChange={(e) => setSummary(e.target.value)}
@@ -98,13 +99,13 @@ export function EventDetailModal({ event, calendars, accountId, onClose, onUpdat
 
           <div className="grid grid-cols-2 gap-3">
             <TextField
-              label="Start"
+              label={t("calendar.createModal.start")}
               type="datetime-local"
               value={startTime}
               onChange={(e) => setStartTime(e.target.value)}
             />
             <TextField
-              label="End"
+              label={t("calendar.createModal.end")}
               type="datetime-local"
               value={endTime}
               onChange={(e) => setEndTime(e.target.value)}
@@ -112,19 +113,19 @@ export function EventDetailModal({ event, calendars, accountId, onClose, onUpdat
           </div>
 
           <TextField
-            label="Location"
+            label={t("calendar.createModal.location")}
             type="text"
             value={location}
             onChange={(e) => setLocation(e.target.value)}
-            placeholder="Add location"
+            placeholder={t("calendar.addLocation")}
           />
 
           <div>
-            <label className="text-xs text-text-secondary block mb-1">Description</label>
+            <label className="text-xs text-text-secondary block mb-1">{t("calendar.createModal.description")}</label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Add description"
+              placeholder={t("calendar.addDescription")}
               rows={3}
               className="w-full px-3 py-1.5 bg-bg-tertiary border border-border-primary rounded text-sm text-text-primary outline-none focus:border-accent resize-none"
             />
@@ -132,10 +133,10 @@ export function EventDetailModal({ event, calendars, accountId, onClose, onUpdat
 
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="secondary" size="md" onClick={() => setEditing(false)}>
-              Cancel
+              {t("calendar.detailModal.cancel")}
             </Button>
             <Button variant="primary" size="md" onClick={handleSave} disabled={saving || !summary.trim()}>
-              {saving ? "Saving..." : "Save"}
+              {saving ? t("calendar.detailModal.saving") : t("calendar.detailModal.save")}
             </Button>
           </div>
         </div>
@@ -179,7 +180,7 @@ export function EventDetailModal({ event, calendars, accountId, onClose, onUpdat
 
         {attendees.length > 0 && (
           <div className="border-t border-border-primary pt-3">
-            <div className="text-xs text-text-tertiary mb-1.5">Attendees</div>
+            <div className="text-xs text-text-tertiary mb-1.5">{t("calendar.detailModal.attendees")}</div>
             <div className="space-y-1">
               {attendees.map((a, i) => (
                 <div key={i} className="flex items-center gap-2 text-sm text-text-secondary">
@@ -194,12 +195,12 @@ export function EventDetailModal({ event, calendars, accountId, onClose, onUpdat
         <div className="flex justify-between pt-2 border-t border-border-primary">
           {confirmDelete ? (
             <div className="flex items-center gap-2">
-              <span className="text-xs text-danger">Delete this event?</span>
+              <span className="text-xs text-danger">{t("calendar.detailModal.confirmDelete")}</span>
               <Button variant="danger" size="xs" onClick={handleDelete} disabled={deleting}>
-                {deleting ? "Deleting..." : "Yes, delete"}
+                {deleting ? t("calendar.detailModal.deleting") : t("calendar.detailModal.confirmDeleteBtn")}
               </Button>
               <Button variant="secondary" size="xs" onClick={() => setConfirmDelete(false)}>
-                Cancel
+                {t("calendar.detailModal.cancelDelete")}
               </Button>
             </div>
           ) : (
@@ -209,7 +210,7 @@ export function EventDetailModal({ event, calendars, accountId, onClose, onUpdat
               icon={<Trash2 size={14} />}
               onClick={() => setConfirmDelete(true)}
             >
-              Delete
+              {t("calendar.detailModal.delete")}
             </Button>
           )}
           <Button
@@ -218,7 +219,7 @@ export function EventDetailModal({ event, calendars, accountId, onClose, onUpdat
             icon={<Pencil size={14} />}
             onClick={() => setEditing(true)}
           >
-            Edit
+            {t("calendar.detailModal.edit")}
           </Button>
         </div>
       </div>

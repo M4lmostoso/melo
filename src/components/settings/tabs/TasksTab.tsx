@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { getSetting, setSetting } from "@/services/db/settings";
 import { Section } from "./shared";
+import { t } from "@/i18n";
 
 export function TasksTab() {
   const [taskRetentionDeleted, setTaskRetentionDeleted] = useState("7");
@@ -21,15 +22,15 @@ export function TasksTab() {
 
   return (
     <>
-      <Section title="Task Retention">
+      <Section title={t("settings.tasks.sections.taskRetention")}>
         <p className="text-xs text-text-tertiary mb-4">
-          Control how long deleted and completed tasks are kept before being permanently removed.
+          {t("settings.tasks.retentionDesc")}
         </p>
         <div className="space-y-4">
           <div className="flex items-center justify-between gap-4">
             <div className="flex-1">
-              <p className="text-sm text-text-primary font-medium">Deleted task retention</p>
-              <p className="text-xs text-text-tertiary mt-0.5">Days before manually deleted tasks are purged from the database</p>
+              <p className="text-sm text-text-primary font-medium">{t("settings.tasks.deletedRetention")}</p>
+              <p className="text-xs text-text-tertiary mt-0.5">{t("settings.tasks.deletedRetentionDesc")}</p>
             </div>
             <div className="flex items-center gap-2">
               <input
@@ -46,14 +47,14 @@ export function TasksTab() {
                 }}
                 className="w-20 bg-bg-tertiary border border-border-primary rounded-lg px-2.5 py-1.5 text-sm text-text-primary text-center outline-none focus:border-accent"
               />
-              <span className="text-xs text-text-tertiary w-8">days</span>
+              <span className="text-xs text-text-tertiary w-8">{t("settings.tasks.days")}</span>
             </div>
           </div>
 
           <div className="flex items-center justify-between gap-4">
             <div className="flex-1">
-              <p className="text-sm text-text-primary font-medium">Auto-hide completed tasks</p>
-              <p className="text-xs text-text-tertiary mt-0.5">Hours after which completed tasks disappear from the active view (0 = hide immediately)</p>
+              <p className="text-sm text-text-primary font-medium">{t("settings.tasks.autoHideCompleted")}</p>
+              <p className="text-xs text-text-tertiary mt-0.5">{t("settings.tasks.autoHideCompletedDesc")}</p>
             </div>
             <div className="flex items-center gap-2">
               <input
@@ -70,14 +71,14 @@ export function TasksTab() {
                 }}
                 className="w-20 bg-bg-tertiary border border-border-primary rounded-lg px-2.5 py-1.5 text-sm text-text-primary text-center outline-none focus:border-accent"
               />
-              <span className="text-xs text-text-tertiary w-8">hours</span>
+              <span className="text-xs text-text-tertiary w-8">{t("settings.tasks.hours")}</span>
             </div>
           </div>
 
           <div className="flex items-center justify-between gap-4">
             <div className="flex-1">
-              <p className="text-sm text-text-primary font-medium">Completed task retention</p>
-              <p className="text-xs text-text-tertiary mt-0.5">Days before completed tasks are permanently deleted (0 = keep forever)</p>
+              <p className="text-sm text-text-primary font-medium">{t("settings.tasks.completedRetention")}</p>
+              <p className="text-xs text-text-tertiary mt-0.5">{t("settings.tasks.completedRetentionDesc")}</p>
             </div>
             <div className="flex items-center gap-2">
               <input
@@ -94,18 +95,18 @@ export function TasksTab() {
                 }}
                 className="w-20 bg-bg-tertiary border border-border-primary rounded-lg px-2.5 py-1.5 text-sm text-text-primary text-center outline-none focus:border-accent"
               />
-              <span className="text-xs text-text-tertiary w-8">days</span>
+              <span className="text-xs text-text-tertiary w-8">{t("settings.tasks.days")}</span>
             </div>
           </div>
         </div>
       </Section>
 
-      <Section title="Trash & Recovery">
+      <Section title={t("settings.tasks.sections.trashRecovery")}>
         <p className="text-xs text-text-tertiary mb-2">
-          Deleted tasks are soft-deleted and visible in the <strong className="text-text-secondary">Trash</strong> view inside the Tasks page. You can restore or permanently delete them from there.
+          {t("settings.tasks.trashRecoveryDesc")}
         </p>
         <p className="text-xs text-text-tertiary">
-          When viewing a thread, a <strong className="text-text-secondary">Restore</strong> banner appears in the task sidebar if there are recoverable tasks for that thread.
+          {t("settings.tasks.trashRecoveryDesc2")}
         </p>
       </Section>
     </>

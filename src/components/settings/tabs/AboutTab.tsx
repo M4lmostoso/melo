@@ -3,6 +3,7 @@ import { Globe, Github, Mail, ExternalLink, Scale, RefreshCw, Download } from "l
 import { Section } from "./shared";
 import { Button } from "@/components/ui/Button";
 import appIcon from "@/assets/icon.png";
+import { t } from "@/i18n";
 
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
@@ -89,22 +90,22 @@ function DeveloperSection() {
 
   return (
     <>
-      <Section title="App Info">
-        <InfoRow label="App version" value={appVersion || "..."} />
-        <InfoRow label="Tauri version" value={tauriVersion || "..."} />
-        <InfoRow label="WebView version" value={webviewVersion || "..."} />
-        <InfoRow label="Platform" value={platformLabel} />
+      <Section title={t("settings.about.sections.appInfo")}>
+        <InfoRow label={t("settings.about.appVersion")} value={appVersion || "..."} />
+        <InfoRow label={t("settings.about.tauriVersion")} value={tauriVersion || "..."} />
+        <InfoRow label={t("settings.about.webViewVersion")} value={webviewVersion || "..."} />
+        <InfoRow label={t("settings.about.platform")} value={platformLabel} />
       </Section>
 
-      <Section title="Updates">
+      <Section title={t("settings.about.sections.updates")}>
         <div className="flex items-center justify-between">
           <div>
-            <span className="text-sm text-text-secondary">Software updates</span>
+            <span className="text-sm text-text-secondary">{t("settings.about.softwareUpdates")}</span>
             {updateVersion && (
-              <p className="text-xs text-accent mt-0.5">v{updateVersion} available</p>
+              <p className="text-xs text-accent mt-0.5">{t("settings.about.versionAvailable", { version: updateVersion })}</p>
             )}
             {updateCheckDone && !updateVersion && (
-              <p className="text-xs text-success mt-0.5">Up to date</p>
+              <p className="text-xs text-success mt-0.5">{t("settings.about.upToDate")}</p>
             )}
           </div>
           <div className="flex items-center gap-2">
@@ -116,7 +117,7 @@ function DeveloperSection() {
                 onClick={handleInstallUpdate}
                 disabled={installingUpdate}
               >
-                {installingUpdate ? "Updating..." : "Update & Restart"}
+                {installingUpdate ? t("settings.about.updating") : t("settings.about.updateAndRestart")}
               </Button>
             ) : (
               <Button
@@ -127,18 +128,18 @@ function DeveloperSection() {
                 disabled={checkingForUpdate}
                 className="bg-bg-tertiary text-text-primary border border-border-primary"
               >
-                {checkingForUpdate ? "Checking..." : "Check for Updates"}
+                {checkingForUpdate ? t("settings.about.checking") : t("settings.about.checkForUpdates")}
               </Button>
             )}
           </div>
         </div>
       </Section>
 
-      <Section title="Developer Tools">
+      <Section title={t("settings.about.sections.developerTools")}>
         <div className="flex items-center justify-between">
           <div>
-            <span className="text-sm text-text-secondary">Open DevTools</span>
-            <p className="text-xs text-text-tertiary mt-0.5">Open the WebView developer tools inspector</p>
+            <span className="text-sm text-text-secondary">{t("settings.about.openDevTools")}</span>
+            <p className="text-xs text-text-tertiary mt-0.5">{t("settings.about.openDevToolsDesc")}</p>
           </div>
           <Button
             variant="secondary"
@@ -149,7 +150,7 @@ function DeveloperSection() {
             }}
             className="bg-bg-tertiary text-text-primary border border-border-primary"
           >
-            Open DevTools
+            {t("settings.about.openDevTools")}
           </Button>
         </div>
       </Section>
@@ -173,23 +174,22 @@ export function AboutTab() {
     <>
       <DeveloperSection />
 
-      <Section title="Melo Mail">
+      <Section title={t("settings.about.sections.meloMail")}>
         <div className="flex items-center gap-3 mb-2">
           <img src={appIcon} alt="Melo" className="w-12 h-12 rounded-xl" />
           <div>
             <h3 className="text-base font-semibold text-text-primary">Melo</h3>
             <p className="text-sm text-text-tertiary">
-              {appVersion ? `Version ${appVersion}` : "Loading..."}
+              {appVersion ? `Version ${appVersion}` : t("settings.about.loadingVersion")}
             </p>
           </div>
         </div>
         <p className="text-sm text-text-secondary leading-relaxed">
-          A fast, open-source desktop email client built with privacy in mind. Your emails stay on your
-          machine — no cloud, no tracking.
+          {t("settings.about.appDescription")}
         </p>
       </Section>
 
-      <Section title="Links">
+      <Section title={t("settings.about.sections.links")}>
         <div className="space-y-1">
           <button
             onClick={() => openExternal("https://velomail.app")}
@@ -197,7 +197,7 @@ export function AboutTab() {
           >
             <Globe size={16} className="text-text-tertiary shrink-0" />
             <div className="min-w-0 flex-1">
-              <span className="text-sm text-text-primary">Website</span>
+              <span className="text-sm text-text-primary">{t("settings.about.website")}</span>
               <p className="text-xs text-text-tertiary">velomail.app</p>
             </div>
             <ExternalLink size={14} className="text-text-tertiary shrink-0" />
@@ -209,7 +209,7 @@ export function AboutTab() {
           >
             <Github size={16} className="text-text-tertiary shrink-0" />
             <div className="min-w-0 flex-1">
-              <span className="text-sm text-text-primary">GitHub Repository</span>
+              <span className="text-sm text-text-primary">{t("settings.about.githubRepo")}</span>
               <p className="text-xs text-text-tertiary">avihaymenahem/velo</p>
             </div>
             <ExternalLink size={14} className="text-text-tertiary shrink-0" />
@@ -221,7 +221,7 @@ export function AboutTab() {
           >
             <Mail size={16} className="text-text-tertiary shrink-0" />
             <div className="min-w-0 flex-1">
-              <span className="text-sm text-text-primary">Contact</span>
+              <span className="text-sm text-text-primary">{t("settings.about.contact")}</span>
               <p className="text-xs text-text-tertiary">info@velomail.app</p>
             </div>
             <ExternalLink size={14} className="text-text-tertiary shrink-0" />
@@ -229,14 +229,14 @@ export function AboutTab() {
         </div>
       </Section>
 
-      <Section title="License">
+      <Section title={t("settings.about.sections.license")}>
         <div className="px-4 py-3 bg-bg-secondary rounded-lg">
           <div className="flex items-center gap-2 mb-2">
             <Scale size={15} className="text-text-tertiary" />
-            <span className="text-sm font-medium text-text-primary">Apache License 2.0</span>
+            <span className="text-sm font-medium text-text-primary">{t("settings.about.apacheLicense")}</span>
           </div>
           <p className="text-xs text-text-secondary leading-relaxed mb-3">
-            Licensed under the Apache License, Version 2.0. You may obtain a copy of the License at{" "}
+            {t("settings.about.licenseText")}{" "}
             <button
               onClick={() => openExternal("https://www.apache.org/licenses/LICENSE-2.0")}
               className="text-accent hover:text-accent-hover transition-colors"
@@ -245,9 +245,7 @@ export function AboutTab() {
             </button>
           </p>
           <p className="text-xs text-text-tertiary leading-relaxed">
-            Copyright 2025 Melo Mail. You may use, distribute, and modify this software under the terms of
-            the Apache 2.0 license. This software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
-            CONDITIONS OF ANY KIND.
+            {t("settings.about.licenseText2")}
           </p>
         </div>
       </Section>

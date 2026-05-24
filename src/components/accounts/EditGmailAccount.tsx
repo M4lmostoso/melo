@@ -8,6 +8,7 @@ import { reauthorizeAccount } from "@/services/gmail/tokenManager";
 import { updateAccountMeta, getAllAccounts } from "@/services/db/accounts";
 import { useAccountStore } from "@/stores/accountStore";
 import { ACCOUNT_COLOR_PRESETS } from "@/constants/accountColors";
+import { t } from "@/i18n";
 
 const labelClass = "block text-xs font-medium text-text-secondary mb-1";
 
@@ -109,7 +110,7 @@ export function EditGmailAccount({
 
         {/* Display label */}
         <div>
-          <label className={labelClass}>Display Label</label>
+          <label className={labelClass}>{t("accounts.displayLabel")}</label>
           <input
             type="text"
             value={label}
@@ -117,12 +118,12 @@ export function EditGmailAccount({
             placeholder="e.g. Work, Personal…"
             className="w-full px-3 py-2 bg-bg-secondary border border-border-primary rounded-lg text-sm text-text-primary outline-none focus:border-accent transition-colors"
           />
-          <p className="text-xs text-text-tertiary mt-1">Shown instead of your name in the sidebar and account switcher.</p>
+          <p className="text-xs text-text-tertiary mt-1">{t("accounts.displayLabelDesc")}</p>
         </div>
 
         {/* Account color */}
         <div>
-          <label className={labelClass}>Account Color</label>
+          <label className={labelClass}>{t("accounts.accountColor")}</label>
           <div className="flex items-center gap-2 flex-wrap">
             {ACCOUNT_COLOR_PRESETS.map((preset) => (
               <button
@@ -142,7 +143,7 @@ export function EditGmailAccount({
                 onClick={() => setColor(null)}
                 className="text-xs text-text-tertiary hover:text-text-secondary transition-colors"
               >
-                Clear
+                {t("accounts.clearColor")}
               </button>
             )}
           </div>
@@ -165,15 +166,15 @@ export function EditGmailAccount({
             className="text-sm text-text-secondary cursor-pointer select-none"
             onClick={() => setIncludeInGlobal((v) => !v)}
           >
-            Include in unified inbox
+            {t("accounts.includeInUnified")}
           </label>
         </div>
 
         {/* Authorization */}
         <div className="space-y-2">
-          <div className="text-xs font-medium text-text-secondary uppercase tracking-wide">Authorization</div>
+          <div className="text-xs font-medium text-text-secondary uppercase tracking-wide">{t("accounts.authorization")}</div>
           <p className="text-xs text-text-tertiary">
-            Re-authorize if you're experiencing authentication errors.
+            {t("accounts.reauthorizeDesc")}
           </p>
           <Button
             variant="secondary"
@@ -181,31 +182,31 @@ export function EditGmailAccount({
             onClick={handleReauthorize}
             disabled={reauthStatus === "authorizing"}
           >
-            {reauthStatus === "authorizing" && "Waiting..."}
-            {reauthStatus === "done" && "Done!"}
-            {reauthStatus === "error" && "Failed"}
-            {reauthStatus === "idle" && "Re-authorize"}
+            {reauthStatus === "authorizing" && t("accounts.authorizing")}
+            {reauthStatus === "done" && t("accounts.reauthorizeDone")}
+            {reauthStatus === "error" && t("accounts.reauthorizeFailed")}
+            {reauthStatus === "idle" && t("accounts.reauthorize")}
           </Button>
         </div>
 
         {/* Google API */}
         <div className="space-y-3">
-          <div className="text-xs font-medium text-text-secondary uppercase tracking-wide">Google API</div>
+          <div className="text-xs font-medium text-text-secondary uppercase tracking-wide">{t("accounts.googleApi")}</div>
           <TextField
-            label="Client ID"
+            label={t("accounts.clientId")}
             size="md"
             type="text"
             value={clientId}
             onChange={(e) => setClientId(e.target.value)}
-            placeholder="Google OAuth Client ID"
+            placeholder={t("accounts.googleClientId")}
           />
           <TextField
-            label="Client Secret"
+            label={t("accounts.clientSecret")}
             size="md"
             type="password"
             value={clientSecret}
             onChange={(e) => setClientSecret(e.target.value)}
-            placeholder="Google OAuth Client Secret"
+            placeholder={t("accounts.googleClientSecret")}
           />
           <Button
             variant="primary"
@@ -213,7 +214,7 @@ export function EditGmailAccount({
             onClick={handleSaveApi}
             disabled={!clientId.trim()}
           >
-            {apiSaved ? "Saved!" : "Save"}
+            {apiSaved ? t("accounts.savedApi") : t("accounts.save")}
           </Button>
         </div>
         <div className="flex justify-end gap-2 pt-1">
@@ -221,14 +222,14 @@ export function EditGmailAccount({
             onClick={onClose}
             className="px-4 py-2 text-sm text-text-secondary hover:text-text-primary transition-colors"
           >
-            Cancel
+            {t("accounts.cancel")}
           </button>
           <button
             onClick={handleSave}
             disabled={saving}
             className="px-4 py-2 text-sm bg-accent text-white rounded-lg hover:bg-accent-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {saving ? "Saving..." : "Save Changes"}
+            {saving ? t("accounts.saving") : t("accounts.saveChanges")}
           </button>
         </div>
       </div>

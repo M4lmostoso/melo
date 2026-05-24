@@ -6,6 +6,7 @@ import { getAccount, updateImapAccount, updateAccountMeta, getAllAccounts } from
 import { getDefaultImapPort, getDefaultSmtpPort, type SecurityType } from "@/services/imap/autoDiscovery";
 import { ACCOUNT_COLOR_PRESETS } from "@/constants/accountColors";
 import { useAccountStore } from "@/stores/accountStore";
+import { t } from "@/i18n";
 
 interface EditImapAccountProps {
   accountId: string;
@@ -207,7 +208,7 @@ export function EditImapAccount({ accountId, onClose, onSaved }: EditImapAccount
 
   if (loading) {
     return (
-      <Modal isOpen onClose={onClose} title="Edit Account" width="w-full max-w-lg">
+      <Modal isOpen onClose={onClose} title={t("accounts.editGmailAccount")} width="w-full max-w-lg">
         <div className="p-8 flex justify-center">
           <Loader2 className="w-5 h-5 animate-spin text-accent" />
         </div>
@@ -218,18 +219,18 @@ export function EditImapAccount({ accountId, onClose, onSaved }: EditImapAccount
   const isOAuth = authMethod === "oauth2";
 
   return (
-    <Modal isOpen onClose={onClose} title="Edit IMAP Account" width="w-full max-w-lg">
+    <Modal isOpen onClose={onClose} title={t("accounts.editImapAccount")} width="w-full max-w-lg">
       <div className="p-4 space-y-5 max-h-[80vh] overflow-y-auto">
 
         {/* Identity */}
         <div className="space-y-3">
-          <h3 className="text-xs font-semibold text-text-tertiary uppercase tracking-wider">Identity</h3>
+          <h3 className="text-xs font-semibold text-text-tertiary uppercase tracking-wider">{t("accounts.identity")}</h3>
           <div>
-            <label className={labelClass}>Email Address</label>
+            <label className={labelClass}>{t("accounts.emailAddress")}</label>
             <input type="email" value={email} disabled className={`${inputClass} opacity-50 cursor-not-allowed`} />
           </div>
           <div>
-            <label className={labelClass}>Display Name (optional)</label>
+            <label className={labelClass}>{t("accounts.displayName")}</label>
             <input
               type="text"
               value={form.displayName}
@@ -239,7 +240,7 @@ export function EditImapAccount({ accountId, onClose, onSaved }: EditImapAccount
             />
           </div>
           <div>
-            <label className={labelClass}>Display Label (optional)</label>
+            <label className={labelClass}>{t("accounts.displayLabel")}</label>
             <input
               type="text"
               value={form.label}
@@ -247,11 +248,11 @@ export function EditImapAccount({ accountId, onClose, onSaved }: EditImapAccount
               placeholder="e.g. Work, Personal…"
               className={inputClass}
             />
-            <p className="text-xs text-text-tertiary mt-1">Shown instead of your name in the sidebar and account switcher.</p>
+            <p className="text-xs text-text-tertiary mt-1">{t("accounts.displayLabelDesc")}</p>
           </div>
           {/* Account color */}
           <div>
-            <label className={labelClass}>Account Color</label>
+            <label className={labelClass}>{t("accounts.accountColor")}</label>
             <div className="flex items-center gap-2 flex-wrap">
               {ACCOUNT_COLOR_PRESETS.map((color) => (
                 <button
@@ -271,7 +272,7 @@ export function EditImapAccount({ accountId, onClose, onSaved }: EditImapAccount
                   onClick={() => update("color", null)}
                   className="text-xs text-text-tertiary hover:text-text-secondary transition-colors"
                 >
-                  Clear
+                  {t("accounts.clearColor")}
                 </button>
               )}
             </div>
@@ -290,13 +291,13 @@ export function EditImapAccount({ accountId, onClose, onSaved }: EditImapAccount
               />
             </button>
             <label className="text-sm text-text-secondary cursor-pointer select-none" onClick={() => update("includeInGlobal", !form.includeInGlobal)}>
-              Include in unified inbox
+              {t("accounts.includeInUnified")}
             </label>
           </div>
           {!isOAuth && (
             <>
               <div>
-                <label className={labelClass}>Username (optional)</label>
+                <label className={labelClass}>{t("accounts.username")}</label>
                 <input
                   type="text"
                   value={form.imapUsername}
@@ -304,15 +305,15 @@ export function EditImapAccount({ accountId, onClose, onSaved }: EditImapAccount
                   placeholder="Leave blank to use email address"
                   className={inputClass}
                 />
-                <p className="text-xs text-text-tertiary mt-1">Only needed if your login username differs from your email.</p>
+                <p className="text-xs text-text-tertiary mt-1">{t("accounts.usernameOptionalNote")}</p>
               </div>
               <div>
-                <label className={labelClass}>Password</label>
+                <label className={labelClass}>{t("accounts.password")}</label>
                 <input
                   type="password"
                   value={form.password}
                   onChange={(e) => update("password", e.target.value)}
-                  placeholder="Leave blank to keep current password"
+                  placeholder={t("accounts.keepCurrentPassword")}
                   className={inputClass}
                   autoComplete="current-password"
                 />
@@ -323,9 +324,9 @@ export function EditImapAccount({ accountId, onClose, onSaved }: EditImapAccount
 
         {/* IMAP */}
         <div className="space-y-3">
-          <h3 className="text-xs font-semibold text-text-tertiary uppercase tracking-wider">Incoming Mail (IMAP)</h3>
+          <h3 className="text-xs font-semibold text-text-tertiary uppercase tracking-wider">{t("accounts.incomingMail")}</h3>
           <div>
-            <label className={labelClass}>IMAP Server</label>
+            <label className={labelClass}>{t("accounts.imapServerLabel")}</label>
             <input
               type="text"
               value={form.imapHost}
@@ -336,7 +337,7 @@ export function EditImapAccount({ accountId, onClose, onSaved }: EditImapAccount
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className={labelClass}>Port</label>
+              <label className={labelClass}>{t("accounts.port")}</label>
               <input
                 type="number"
                 value={form.imapPort}
@@ -345,7 +346,7 @@ export function EditImapAccount({ accountId, onClose, onSaved }: EditImapAccount
               />
             </div>
             <div>
-              <label className={labelClass}>Security</label>
+              <label className={labelClass}>{t("accounts.security")}</label>
               <select
                 value={form.imapSecurity}
                 onChange={(e) => handleImapSecurityChange(e.target.value as SecurityType)}
@@ -366,7 +367,7 @@ export function EditImapAccount({ accountId, onClose, onSaved }: EditImapAccount
               className="rounded border-border-primary text-accent focus:ring-accent"
             />
             <label htmlFor="edit-accept-certs" className="text-sm text-text-secondary">
-              Accept self-signed certificates
+              {t("accounts.acceptSelfSigned")}
             </label>
           </div>
           <button
@@ -375,7 +376,7 @@ export function EditImapAccount({ accountId, onClose, onSaved }: EditImapAccount
             className="flex items-center gap-2 px-3 py-1.5 text-xs border border-border-primary rounded-lg text-text-secondary hover:bg-bg-hover transition-colors disabled:opacity-50"
           >
             {renderTestIcon(imapTest)}
-            {imapTest.state === "testing" ? "Testing..." : "Test IMAP"}
+            {imapTest.state === "testing" ? t("accounts.testing") : t("accounts.testImap")}
             {imapTest.state === "error" && (
               <span className="text-danger truncate max-w-xs">{imapTest.message}</span>
             )}
@@ -387,9 +388,9 @@ export function EditImapAccount({ accountId, onClose, onSaved }: EditImapAccount
 
         {/* SMTP */}
         <div className="space-y-3">
-          <h3 className="text-xs font-semibold text-text-tertiary uppercase tracking-wider">Outgoing Mail (SMTP)</h3>
+          <h3 className="text-xs font-semibold text-text-tertiary uppercase tracking-wider">{t("accounts.outgoingMail")}</h3>
           <div>
-            <label className={labelClass}>SMTP Server</label>
+            <label className={labelClass}>{t("accounts.smtpServerLabel")}</label>
             <input
               type="text"
               value={form.smtpHost}
@@ -400,7 +401,7 @@ export function EditImapAccount({ accountId, onClose, onSaved }: EditImapAccount
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className={labelClass}>Port</label>
+              <label className={labelClass}>{t("accounts.port")}</label>
               <input
                 type="number"
                 value={form.smtpPort}
@@ -409,7 +410,7 @@ export function EditImapAccount({ accountId, onClose, onSaved }: EditImapAccount
               />
             </div>
             <div>
-              <label className={labelClass}>Security</label>
+              <label className={labelClass}>{t("accounts.security")}</label>
               <select
                 value={form.smtpSecurity}
                 onChange={(e) => handleSmtpSecurityChange(e.target.value as SecurityType)}
@@ -432,17 +433,17 @@ export function EditImapAccount({ accountId, onClose, onSaved }: EditImapAccount
                   className="rounded border-border-primary text-accent focus:ring-accent"
                 />
                 <label htmlFor="edit-smtp-same" className="text-sm text-text-secondary">
-                  Use same password as IMAP
+                  {t("accounts.useSamePassword")}
                 </label>
               </div>
               {!form.smtpSameAsImap && (
                 <div>
-                  <label className={labelClass}>SMTP Password</label>
+                  <label className={labelClass}>{t("accounts.smtpPasswordLabel")}</label>
                   <input
                     type="password"
                     value={form.smtpPassword}
                     onChange={(e) => update("smtpPassword", e.target.value)}
-                    placeholder="Leave blank to keep current password"
+                    placeholder={t("accounts.keepCurrentPassword")}
                     className={inputClass}
                   />
                 </div>
@@ -455,7 +456,7 @@ export function EditImapAccount({ accountId, onClose, onSaved }: EditImapAccount
             className="flex items-center gap-2 px-3 py-1.5 text-xs border border-border-primary rounded-lg text-text-secondary hover:bg-bg-hover transition-colors disabled:opacity-50"
           >
             {renderTestIcon(smtpTest)}
-            {smtpTest.state === "testing" ? "Testing..." : "Test SMTP"}
+            {smtpTest.state === "testing" ? t("accounts.testing") : t("accounts.testSmtp")}
             {smtpTest.state === "error" && (
               <span className="text-danger truncate max-w-xs">{smtpTest.message}</span>
             )}
@@ -476,14 +477,14 @@ export function EditImapAccount({ accountId, onClose, onSaved }: EditImapAccount
             onClick={onClose}
             className="px-4 py-2 text-sm text-text-secondary hover:text-text-primary transition-colors"
           >
-            Cancel
+            {t("accounts.cancel")}
           </button>
           <button
             onClick={handleSave}
             disabled={saving || !form.imapHost.trim() || !form.smtpHost.trim()}
             className="px-4 py-2 text-sm bg-accent text-white rounded-lg hover:bg-accent-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {saving ? "Saving..." : "Save Changes"}
+            {saving ? t("accounts.saving") : t("accounts.saveChanges")}
           </button>
         </div>
       </div>

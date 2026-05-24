@@ -1,5 +1,6 @@
 import type { DbCalendarEvent } from "@/services/db/calendarEvents";
 import { chipStyle, accentBarStyle } from "./calendarColors";
+import { t } from "@/i18n";
 
 interface EventCardProps {
   event: DbCalendarEvent;
@@ -11,7 +12,7 @@ interface EventCardProps {
 export function EventCard({ event, color, compact, onClick }: EventCardProps) {
   const startDate = new Date(event.start_time * 1000);
   const timeStr = event.is_all_day
-    ? "All day"
+    ? t("calendar.eventCard.allDay")
     : startDate.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
   if (compact) {
@@ -22,9 +23,9 @@ export function EventCard({ event, color, compact, onClick }: EventCardProps) {
           color ? "" : "bg-accent/10 text-accent"
         }`}
         style={color ? chipStyle(color) : undefined}
-        title={event.summary ?? "Event"}
+        title={event.summary ?? t("calendar.eventCard.event")}
       >
-        {event.summary ?? "Event"}
+        {event.summary ?? t("calendar.eventCard.event")}
       </button>
     );
   }
@@ -41,7 +42,7 @@ export function EventCard({ event, color, compact, onClick }: EventCardProps) {
         />
         <div className="min-w-0">
           <div className="text-sm font-medium text-text-primary truncate">
-            {event.summary ?? "(No title)"}
+            {event.summary ?? t("calendar.eventCard.noTitle")}
           </div>
           <div className="text-xs text-text-tertiary mt-0.5">
             {timeStr}

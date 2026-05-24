@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { DbCalendarEvent } from "@/services/db/calendarEvents";
 import { chipStyle } from "./calendarColors";
 import { layoutDayEvents } from "./calendarLayout";
+import { t } from "@/i18n";
 
 interface DayViewProps {
   currentDate: Date;
@@ -85,7 +86,7 @@ export function DayView({ currentDate, events, colorMap, onEventClick }: DayView
                 }`}
                 style={color ? chipStyle(color) : undefined}
               >
-                {e.summary ?? "Event"} · All day
+                {e.summary ?? t("calendar.eventCard.event")} · {t("calendar.eventCard.allDay")}
               </button>
             );
           })}
@@ -169,11 +170,11 @@ export function DayView({ currentDate, events, colorMap, onEventClick }: DayView
                     width: `calc(${(1 / colCount) * 100}% - 4px)`,
                     ...(color ? chipStyle(color) : {}),
                   }}
-                  title={`${event.summary ?? "Event"} · ${timeStr}`}
+                  title={`${event.summary ?? t("calendar.eventCard.event")} · ${timeStr}`}
                 >
                   <div className="px-1.5 py-0.5 h-full flex flex-col overflow-hidden">
                     <span className="text-xs font-semibold leading-tight truncate">
-                      {event.summary ?? "Event"}
+                      {event.summary ?? t("calendar.eventCard.event")}
                     </span>
                     {height >= 36 && (
                       <span className="text-[0.625rem] opacity-75 leading-tight truncate mt-0.5">

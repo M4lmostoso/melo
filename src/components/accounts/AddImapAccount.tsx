@@ -23,6 +23,7 @@ import {
 } from "@/services/imap/autoDiscovery";
 import { getOAuthProvider } from "@/services/oauth/providers";
 import { startProviderOAuthFlow } from "@/services/oauth/oauthFlow";
+import { t } from "@/i18n";
 
 interface AddImapAccountProps {
   onClose: () => void;
@@ -84,12 +85,12 @@ const initialFormState: FormState = {
 
 const steps: Step[] = ["basic", "imap", "smtp", "test"];
 
-const stepLabels: Record<Step, string> = {
-  basic: "Account",
-  imap: "Incoming",
-  smtp: "Outgoing",
-  test: "Verify",
-};
+const getStepLabels = (): Record<Step, string> => ({
+  basic: t("accounts.stepAccount"),
+  imap: t("accounts.stepIncoming"),
+  smtp: t("accounts.stepOutgoing"),
+  test: t("accounts.stepVerify"),
+});
 
 const stepIcons: Record<Step, React.ReactNode> = {
   basic: <Mail className="w-4 h-4" />,
@@ -411,35 +412,38 @@ export function AddImapAccount({
     }
   };
 
-  const renderStepIndicator = () => (
-    <div className="flex items-center justify-center gap-1 mb-6">
-      {steps.map((step, i) => {
-        const isActive = i === currentStepIndex;
-        const isCompleted = i < currentStepIndex;
-        return (
-          <div key={step} className="flex items-center gap-1">
-            {i > 0 && (
+  const renderStepIndicator = () => {
+    const stepLabels = getStepLabels();
+    return (
+      <div className="flex items-center justify-center gap-1 mb-6">
+        {steps.map((step, i) => {
+          const isActive = i === currentStepIndex;
+          const isCompleted = i < currentStepIndex;
+          return (
+            <div key={step} className="flex items-center gap-1">
+              {i > 0 && (
+                <div
+                  className={`w-6 h-px ${isCompleted ? "bg-accent" : "bg-border-primary"}`}
+                />
+              )}
               <div
-                className={`w-6 h-px ${isCompleted ? "bg-accent" : "bg-border-primary"}`}
-              />
-            )}
-            <div
-              className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium transition-colors ${
-                isActive
-                  ? "bg-accent/10 text-accent"
-                  : isCompleted
-                    ? "text-accent"
-                    : "text-text-tertiary"
-              }`}
-            >
-              {stepIcons[step]}
-              <span className="hidden sm:inline">{stepLabels[step]}</span>
+                className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium transition-colors ${
+                  isActive
+                    ? "bg-accent/10 text-accent"
+                    : isCompleted
+                      ? "text-accent"
+                      : "text-text-tertiary"
+                }`}
+              >
+                {stepIcons[step]}
+                <span className="hidden sm:inline">{stepLabels[step]}</span>
+              </div>
             </div>
-          </div>
-        );
-      })}
-    </div>
-  );
+          );
+        })}
+      </div>
+    );
+  };
 
   const renderAuthModeSelector = () => {
     const showOAuth = detectedAuthMethods.includes("oauth2") || form.authMode === "oauth2";
@@ -447,7 +451,7 @@ export function AddImapAccount({
 
     return (
       <div className="mb-4">
-        <label className={labelClass}>Authentication Method</label>
+        <label className={labelClass}>{t("accounts.authMethod")}</label>
         <div className="flex gap-2">
           {detectedAuthMethods.includes("password") && (
             <button
@@ -460,7 +464,7 @@ export function AddImapAccount({
               }`}
             >
               <KeyRound className="w-4 h-4" />
-              Password
+              {t("accounts.authPassword")}
             </button>
           )}
           <button
@@ -478,7 +482,7 @@ export function AddImapAccount({
             }`}
           >
             <ShieldCheck className="w-4 h-4" />
-            OAuth2
+            {t("accounts.authOAuth2")}
           </button>
         </div>
       </div>
@@ -493,7 +497,7 @@ export function AddImapAccount({
       <div className="space-y-3">
         <div>
           <label htmlFor="oauth-client-id" className={labelClass}>
-            Client ID
+            {t("accounts.oauthClientIdLabel")}
           </label>
           <input
             id="oauth-client-id"
@@ -507,14 +511,14 @@ export function AddImapAccount({
         </div>
         <div>
           <label htmlFor="oauth-client-secret" className={labelClass}>
-            Client Secret (optional)
+            {t("accounts.oauthClientSecretLabel")}
           </label>
           <input
             id="oauth-client-secret"
             type="password"
             value={form.oauthClientSecret}
             onChange={(e) => updateForm("oauthClientSecret", e.target.value)}
-            placeholder="Leave blank for public clients"
+            placeholder={t("accounts.oauthClientSecretPlaceholder")}
             className={inputClass}
             disabled={hasOAuthTokens}
           />
@@ -524,7 +528,7 @@ export function AddImapAccount({
           <div className="flex items-center gap-2 p-3 rounded-lg bg-success/10 border border-success/20">
             <CheckCircle2 className="w-4 h-4 text-success flex-shrink-0" />
             <div className="text-sm text-success">
-              Connected as <span className="font-medium">{form.oauthEmail}</span>
+              {t("accounts.connectedAs", { email: form.oauthEmail ?? "" })}
             </div>
           </div>
         ) : (
@@ -536,12 +540,12 @@ export function AddImapAccount({
             {oauthConnecting ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                Connecting...
+                {t("accounts.connecting")}
               </>
             ) : (
               <>
                 <ShieldCheck className="w-4 h-4" />
-                Sign in with {providerName}
+                {t("accounts.signInWithProvider", { provider: providerName })}
               </>
             )}
           </button>
@@ -570,7 +574,7 @@ export function AddImapAccount({
     <div className="space-y-4">
       <div>
         <label htmlFor="imap-email" className={labelClass}>
-          Email Address
+          {t("accounts.emailAddress")}
         </label>
         <input
           id="imap-email"
@@ -593,7 +597,7 @@ export function AddImapAccount({
         <>
           <div>
             <label htmlFor="imap-display-name" className={labelClass}>
-              Display Name (optional)
+              {t("accounts.displayName")}
             </label>
             <input
               id="imap-display-name"
@@ -606,7 +610,7 @@ export function AddImapAccount({
           </div>
           <div>
             <label htmlFor="imap-username" className={labelClass}>
-              Username (optional)
+              {t("accounts.username")}
             </label>
             <input
               id="imap-username"
@@ -617,12 +621,12 @@ export function AddImapAccount({
               className={inputClass}
             />
             <p className="text-xs text-text-tertiary mt-1">
-              Only needed if your login username differs from your email address.
+              {t("accounts.usernameOptionalNote")}
             </p>
           </div>
           <div>
             <label htmlFor="imap-password" className={labelClass}>
-              Password
+              {t("accounts.password")}
             </label>
             <input
               id="imap-password"
@@ -633,7 +637,7 @@ export function AddImapAccount({
               className={inputClass}
             />
             <p className="text-xs text-text-tertiary mt-1">
-              If your provider requires it, use an app-specific password.
+              {t("accounts.passwordNote")}
             </p>
           </div>
         </>
@@ -642,7 +646,7 @@ export function AddImapAccount({
       {isOAuth && hasOAuthTokens && (
         <div>
           <label htmlFor="imap-display-name" className={labelClass}>
-            Display Name (optional)
+            {t("accounts.displayName")}
           </label>
           <input
             id="imap-display-name"
@@ -661,12 +665,12 @@ export function AddImapAccount({
     <div className="space-y-4">
       {isOAuth && (
         <p className="text-xs text-text-tertiary">
-          Server settings have been auto-configured for your provider. You can adjust them if needed.
+          {t("accounts.autoConfiguredNote")}
         </p>
       )}
       <div>
         <label htmlFor="imap-host" className={labelClass}>
-          IMAP Server
+          {t("accounts.imapServerLabel")}
         </label>
         <input
           id="imap-host"
@@ -681,7 +685,7 @@ export function AddImapAccount({
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label htmlFor="imap-port" className={labelClass}>
-            Port
+            {t("accounts.port")}
           </label>
           <input
             id="imap-port"
@@ -695,7 +699,7 @@ export function AddImapAccount({
         </div>
         <div>
           <label htmlFor="imap-security" className={labelClass}>
-            Security
+            {t("accounts.security")}
           </label>
           <select
             id="imap-security"
@@ -723,11 +727,11 @@ export function AddImapAccount({
           htmlFor="accept-invalid-certs"
           className="text-sm text-text-secondary"
         >
-          Accept self-signed certificates
+          {t("accounts.acceptSelfSigned")}
         </label>
       </div>
       <p className="text-xs text-text-tertiary -mt-2 ml-6">
-        Enable for local mail bridges like ProtonMail Bridge
+        {t("accounts.localBridgeNote")}
       </p>
     </div>
   );
@@ -736,12 +740,12 @@ export function AddImapAccount({
     <div className="space-y-4">
       {isOAuth && (
         <p className="text-xs text-text-tertiary">
-          Server settings have been auto-configured for your provider. You can adjust them if needed.
+          {t("accounts.autoConfiguredNote")}
         </p>
       )}
       <div>
         <label htmlFor="smtp-host" className={labelClass}>
-          SMTP Server
+          {t("accounts.smtpServerLabel")}
         </label>
         <input
           id="smtp-host"
@@ -756,7 +760,7 @@ export function AddImapAccount({
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label htmlFor="smtp-port" className={labelClass}>
-            Port
+            {t("accounts.port")}
           </label>
           <input
             id="smtp-port"
@@ -770,7 +774,7 @@ export function AddImapAccount({
         </div>
         <div>
           <label htmlFor="smtp-security" className={labelClass}>
-            Security
+            {t("accounts.security")}
           </label>
           <select
             id="smtp-security"
@@ -800,13 +804,13 @@ export function AddImapAccount({
               htmlFor="smtp-same-password"
               className="text-sm text-text-secondary"
             >
-              Use same password as IMAP
+              {t("accounts.useSamePassword")}
             </label>
           </div>
           {!form.samePassword && (
             <div>
               <label htmlFor="smtp-password" className={labelClass}>
-                SMTP Password
+                {t("accounts.smtpPasswordLabel")}
               </label>
               <input
                 id="smtp-password"
@@ -861,12 +865,12 @@ export function AddImapAccount({
   const renderTestStep = () => (
     <div className="space-y-4">
       <div className="text-sm text-text-secondary mb-2">
-        Test your connection settings before adding the account.
+        {t("accounts.testConnectionNote")}
       </div>
 
       <div className="space-y-3">
-        {renderTestResult("IMAP Connection", imapTest)}
-        {renderTestResult("SMTP Connection", smtpTest)}
+        {renderTestResult(t("accounts.imapConnection"), imapTest)}
+        {renderTestResult(t("accounts.smtpConnection"), smtpTest)}
       </div>
 
       <button
@@ -875,10 +879,10 @@ export function AddImapAccount({
         className="w-full px-4 py-2 text-sm bg-bg-secondary border border-border-primary rounded-lg text-text-primary hover:bg-bg-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {imapTest.state === "testing" || smtpTest.state === "testing"
-          ? "Testing..."
+          ? t("accounts.testing")
           : imapTest.state === "idle" && smtpTest.state === "idle"
-            ? "Test Connection"
-            : "Re-test Connection"}
+            ? t("accounts.testConnection")
+            : t("accounts.reTestConnection")}
       </button>
 
       {saveError && (
@@ -906,7 +910,7 @@ export function AddImapAccount({
     <Modal
       isOpen={true}
       onClose={onClose}
-      title="Add IMAP/SMTP Account"
+      title={t("accounts.addImapAccount")}
       width="w-full max-w-lg"
     >
       <div className="p-4" onKeyDown={handleKeyDown}>
@@ -919,7 +923,7 @@ export function AddImapAccount({
             className="flex items-center gap-1 px-3 py-2 text-sm text-text-secondary hover:text-text-primary transition-colors"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
-            Back
+            {t("accounts.back")}
           </button>
 
           <div className="flex gap-2">
@@ -927,7 +931,7 @@ export function AddImapAccount({
               onClick={onClose}
               className="px-4 py-2 text-sm text-text-secondary hover:text-text-primary transition-colors"
             >
-              Cancel
+              {t("accounts.cancel")}
             </button>
 
             {currentStep === "test" ? (
@@ -936,7 +940,7 @@ export function AddImapAccount({
                 disabled={!bothTestsPassed || saving}
                 className="px-4 py-2 text-sm bg-accent text-white rounded-lg hover:bg-accent-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {saving ? "Adding..." : "Add Account"}
+                {saving ? t("accounts.adding") : t("accounts.addAccountBtn")}
               </button>
             ) : (
               <button
@@ -944,7 +948,7 @@ export function AddImapAccount({
                 disabled={!canGoNext()}
                 className="flex items-center gap-1 px-4 py-2 text-sm bg-accent text-white rounded-lg hover:bg-accent-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Next
+                {t("accounts.next")}
                 <ArrowRight className="w-3.5 h-3.5" />
               </button>
             )}

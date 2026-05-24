@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Plus, ChevronDown, ChevronRight, Loader2 } from "lucide-react";
 import { useAccountStore } from "@/stores/accountStore";
 import { getAccount, type DbAccount } from "@/services/db/accounts";
+import { t } from "@/i18n";
 import {
   getCalendarsForAccount,
   setCalendarVisibility,
@@ -52,7 +53,7 @@ function CalendarCheckbox({
         {calDisplayName(cal)}
       </span>
       {!!cal.is_primary && (
-        <span className="text-[0.6rem] text-text-tertiary shrink-0">Primary</span>
+        <span className="text-[0.6rem] text-text-tertiary shrink-0">{t("settings.calendar.calendarPrimary")}</span>
       )}
     </label>
   );
@@ -70,7 +71,7 @@ function AccountCalendarList({
   if (calendars.length === 0) {
     return (
       <p className="text-xs text-text-tertiary px-3 py-1.5">
-        No calendars synced yet. Open the calendar view to trigger a sync.
+        {t("settings.calendar.noCalendarsSynced")}
       </p>
     );
   }
@@ -103,14 +104,14 @@ function ImapCalendarSection({
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-xs text-text-secondary truncate">{account.caldav_url}</span>
             <span className="text-[0.6rem] px-1.5 py-0.5 rounded-full bg-success/15 text-success shrink-0">
-              Connected
+              {t("settings.calendar.caldavConnected")}
             </span>
           </div>
           <button
             onClick={() => setExpanded((v) => !v)}
             className="text-xs text-accent hover:text-accent-hover transition-colors ml-3 shrink-0"
           >
-            {expanded ? "Close" : "Edit"}
+            {expanded ? t("settings.calendar.caldavClose") : t("settings.calendar.caldavEdit")}
           </button>
         </div>
       ) : (
@@ -120,7 +121,7 @@ function ImapCalendarSection({
         >
           {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
           <Plus size={13} />
-          Add CalDAV calendar
+          {t("settings.calendar.addCalDav")}
         </button>
       )}
 
@@ -197,7 +198,7 @@ function AccountCalendarBlock({
       {loading ? (
         <div className="flex items-center gap-2 px-3 py-2 text-xs text-text-tertiary">
           <Loader2 size={13} className="animate-spin" />
-          Loading…
+          {t("common.loading")}
         </div>
       ) : (
         <>
@@ -230,7 +231,7 @@ function StandaloneCalDavSection({ onRemove }: { onRemove: (id: string) => void 
   if (caldavAccounts.length === 0) return null;
 
   return (
-    <Section title="Calendar-only Accounts">
+    <Section title={t("settings.calendar.sections.calendarOnlyAccounts")}>
       <div className="space-y-2">
         {caldavAccounts.map((account) => (
           <div
@@ -250,7 +251,7 @@ function StandaloneCalDavSection({ onRemove }: { onRemove: (id: string) => void 
               onClick={() => onRemove(account.id)}
               className="text-xs text-danger hover:text-danger/80 transition-colors"
             >
-              Remove
+              {t("settings.calendar.removeCalDav")}
             </button>
           </div>
         ))}
@@ -282,9 +283,9 @@ export function CalendarTab() {
 
   return (
     <>
-      <Section title="Calendars">
+      <Section title={t("settings.calendar.sections.calendars")}>
         {mailAccounts.length === 0 ? (
-          <p className="text-sm text-text-tertiary">No accounts connected.</p>
+          <p className="text-sm text-text-tertiary">{t("settings.calendar.noAccountsConnected")}</p>
         ) : (
           <div className="space-y-3">
             {mailAccounts.map((account) => (
@@ -300,9 +301,9 @@ export function CalendarTab() {
 
       <StandaloneCalDavSection onRemove={handleRemoveCalDav} />
 
-      <Section title="Add Calendar Account">
+      <Section title={t("settings.calendar.sections.addCalendarAccount")}>
         <p className="text-sm text-text-tertiary">
-          Support for standalone calendar accounts (e.g. iCloud, Nextcloud) is coming soon.
+          {t("settings.calendar.calendarComingSoon")}
         </p>
       </Section>
     </>

@@ -1,6 +1,7 @@
 import { X } from "lucide-react";
 import { calColor, calDisplayName, type DbCalendar } from "@/services/db/calendars";
 import type { Account } from "@/stores/accountStore";
+import { t } from "@/i18n";
 
 interface CalendarListProps {
   calendars: DbCalendar[];
@@ -39,7 +40,7 @@ function CalendarItem({ cal, onVisibilityChange }: { cal: DbCalendar; onVisibili
         {calDisplayName(cal)}
       </span>
       {!!cal.is_primary && (
-        <span className="text-[0.6rem] text-text-tertiary shrink-0">Primary</span>
+        <span className="text-[0.6rem] text-text-tertiary shrink-0">{t("calendar.list.primary")}</span>
       )}
     </label>
   );
@@ -52,12 +53,12 @@ export function CalendarList({ calendars, onVisibilityChange, onClose, accounts 
     <div className="w-56 border-l border-border-primary bg-bg-secondary overflow-y-auto shrink-0 flex flex-col">
       <div className="flex items-center justify-between px-3 pt-3 pb-2">
         <h3 className="text-xs font-medium text-text-tertiary uppercase tracking-wider">
-          Calendars
+          {t("calendar.list.calendars")}
         </h3>
         <button
           onClick={onClose}
           className="p-1 text-text-tertiary hover:text-text-primary hover:bg-bg-hover rounded transition-colors"
-          title="Close"
+          title={t("calendar.list.close")}
         >
           <X size={14} />
         </button>
@@ -82,7 +83,7 @@ export function CalendarList({ calendars, onVisibilityChange, onClose, accounts 
             );
           })}
           {calendars.length === 0 && (
-            <p className="px-4 py-2 text-xs text-text-tertiary">No calendars found</p>
+            <p className="px-4 py-2 text-xs text-text-tertiary">{t("calendar.list.noCalendarsFound")}</p>
           )}
         </div>
       ) : (
@@ -91,7 +92,7 @@ export function CalendarList({ calendars, onVisibilityChange, onClose, accounts 
             <CalendarItem key={cal.id} cal={cal} onVisibilityChange={onVisibilityChange} />
           ))}
           {calendars.length === 0 && (
-            <p className="px-2 py-2 text-xs text-text-tertiary">No calendars found</p>
+            <p className="px-2 py-2 text-xs text-text-tertiary">{t("calendar.list.noCalendarsFound")}</p>
           )}
         </div>
       )}

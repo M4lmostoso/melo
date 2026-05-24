@@ -4,6 +4,7 @@ import { getSetting, setSetting } from "@/services/db/settings";
 import { Section, SettingRow, ToggleRow } from "./shared";
 import { SignatureEditor } from "@/components/settings/SignatureEditor";
 import { TemplateEditor } from "@/components/settings/TemplateEditor";
+import { t } from "@/i18n";
 
 export function ComposingTab() {
   const defaultReplyMode = useUIStore((s) => s.defaultReplyMode);
@@ -32,28 +33,28 @@ export function ComposingTab() {
 
   return (
     <>
-      <Section title="Sending">
-        <SettingRow label="Undo send delay">
+      <Section title={t("settings.composing.sections.sending")}>
+        <SettingRow label={t("settings.composing.undoSendDelay")}>
           <select
             value={undoSendDelay}
             onChange={(e) => handleUndoDelayChange(e.target.value)}
             className="w-48 bg-bg-tertiary text-text-primary text-sm px-3 py-1.5 rounded-md border border-border-primary focus:border-accent outline-none"
           >
-            <option value="5">5 seconds</option>
-            <option value="10">10 seconds</option>
-            <option value="30">30 seconds</option>
+            <option value="5">{t("settings.composing.undoSendDelay5s")}</option>
+            <option value="10">{t("settings.composing.undoSendDelay10s")}</option>
+            <option value="30">{t("settings.composing.undoSendDelay30s")}</option>
           </select>
         </SettingRow>
         <ToggleRow
-          label="Send and archive"
-          description="Automatically archive threads after sending a reply"
+          label={t("settings.composing.sendAndArchive")}
+          description={t("settings.composing.sendAndArchiveDesc")}
           checked={sendAndArchive}
           onToggle={() => setSendAndArchive(!sendAndArchive)}
         />
       </Section>
 
-      <Section title="Behavior">
-        <SettingRow label="Default reply action">
+      <Section title={t("settings.composing.sections.behavior")}>
+        <SettingRow label={t("settings.composing.defaultReplyAction")}>
           <select
             value={defaultReplyMode}
             onChange={(e) => {
@@ -61,11 +62,11 @@ export function ComposingTab() {
             }}
             className="w-48 bg-bg-tertiary text-text-primary text-sm px-3 py-1.5 rounded-md border border-border-primary focus:border-accent outline-none"
           >
-            <option value="reply">Reply</option>
-            <option value="replyAll">Reply All</option>
+            <option value="reply">{t("settings.composing.replyActionReply")}</option>
+            <option value="replyAll">{t("settings.composing.replyActionReplyAll")}</option>
           </select>
         </SettingRow>
-        <SettingRow label="Mark as read">
+        <SettingRow label={t("settings.composing.markAsRead")}>
           <select
             value={markAsReadBehavior}
             onChange={(e) => {
@@ -73,21 +74,21 @@ export function ComposingTab() {
             }}
             className="w-48 bg-bg-tertiary text-text-primary text-sm px-3 py-1.5 rounded-md border border-border-primary focus:border-accent outline-none"
           >
-            <option value="instant">Instantly</option>
-            <option value="2s">After 2 seconds</option>
-            <option value="manual">Manually</option>
+            <option value="instant">{t("settings.composing.markAsReadInstant")}</option>
+            <option value="2s">{t("settings.composing.markAsRead2s")}</option>
+            <option value="manual">{t("settings.composing.markAsReadManual")}</option>
           </select>
         </SettingRow>
       </Section>
 
-      <Section title="Style">
-        <SettingRow label="Default font">
+      <Section title={t("settings.composing.sections.style")}>
+        <SettingRow label={t("settings.composing.defaultFont")}>
           <select
             value={composerFontFamily}
             onChange={(e) => setComposerFontFamily(e.target.value as ComposerFontFamily)}
             className="w-48 bg-bg-tertiary text-text-primary text-sm px-3 py-1.5 rounded-md border border-border-primary focus:border-accent outline-none"
           >
-            <option value="system">System</option>
+            <option value="system">{t("settings.composing.fontSystem")}</option>
             <option value="arial">Arial</option>
             <option value="calibri">Calibri</option>
             <option value="times">Times New Roman</option>
@@ -98,7 +99,7 @@ export function ComposingTab() {
             <option value="inter">Inter</option>
           </select>
         </SettingRow>
-        <SettingRow label="Default size">
+        <SettingRow label={t("settings.composing.defaultSize")}>
           <select
             value={composerFontSize}
             onChange={(e) => setComposerFontSize(e.target.value as ComposerFontSize)}
@@ -115,11 +116,11 @@ export function ComposingTab() {
         </SettingRow>
       </Section>
 
-      <Section title="Signatures">
+      <Section title={t("settings.composing.sections.signatures")}>
         <SignatureEditor />
       </Section>
 
-      <Section title="Templates">
+      <Section title={t("settings.composing.sections.templates")}>
         <TemplateEditor />
       </Section>
     </>

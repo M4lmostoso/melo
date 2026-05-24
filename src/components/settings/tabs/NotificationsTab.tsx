@@ -3,6 +3,7 @@ import { useAccountStore } from "@/stores/accountStore";
 import { getSetting, setSetting } from "@/services/db/settings";
 import { Section, ToggleRow } from "./shared";
 import { Button } from "@/components/ui/Button";
+import { t } from "@/i18n";
 
 export function NotificationsTab() {
   const accounts = useAccountStore((s) => s.accounts);
@@ -50,15 +51,15 @@ export function NotificationsTab() {
 
   return (
     <>
-      <Section title="Notifications">
+      <Section title={t("settings.notifications.sections.notifications")}>
         <ToggleRow
-          label="Enable notifications"
+          label={t("settings.notifications.enableNotifications")}
           checked={notificationsEnabled}
           onToggle={handleNotificationsToggle}
         />
         <ToggleRow
-          label="Smart notifications"
-          description="Only notify for selected categories and VIP senders"
+          label={t("settings.notifications.smartNotifications")}
+          description={t("settings.notifications.smartNotificationsDesc")}
           checked={smartNotifications}
           onToggle={async () => {
             const newVal = !smartNotifications;
@@ -70,9 +71,9 @@ export function NotificationsTab() {
 
       {smartNotifications && (
         <>
-          <Section title="Category Filters">
+          <Section title={t("settings.notifications.sections.categoryFilters")}>
             <div>
-              <span className="text-sm text-text-secondary">Notify for categories</span>
+              <span className="text-sm text-text-secondary">{t("settings.notifications.notifyForCategories")}</span>
               <div className="flex flex-wrap gap-2 mt-2">
                 {(["Primary", "Updates", "Promotions", "Social", "Newsletters"] as const).map((cat) => (
                   <button
@@ -97,9 +98,9 @@ export function NotificationsTab() {
             </div>
           </Section>
 
-          <Section title="VIP Senders">
+          <Section title={t("settings.notifications.sections.vipSenders")}>
             <p className="text-xs text-text-tertiary mb-2">
-              These senders always trigger notifications regardless of category
+              {t("settings.notifications.vipSendersDesc")}
             </p>
             <div className="space-y-1.5">
               {vipSenders.map((vip) => (
@@ -117,7 +118,7 @@ export function NotificationsTab() {
                     }}
                     className="text-xs text-danger hover:text-danger/80 ml-2 shrink-0"
                   >
-                    Remove
+                    {t("settings.notifications.removeVip")}
                   </button>
                 </div>
               ))}
@@ -127,7 +128,7 @@ export function NotificationsTab() {
                 type="email"
                 value={newVipEmail}
                 onChange={(e) => setNewVipEmail(e.target.value)}
-                placeholder="email@example.com"
+                placeholder={t("settings.notifications.vipEmailPlaceholder")}
                 className="flex-1 px-3 py-1.5 bg-bg-tertiary border border-border-primary rounded-md text-xs text-text-primary outline-none focus:border-accent"
                 onKeyDown={async (e) => {
                   if (e.key !== "Enter" || !newVipEmail.trim()) return;
@@ -152,7 +153,7 @@ export function NotificationsTab() {
                 }}
                 disabled={!newVipEmail.trim()}
               >
-                Add
+                {t("settings.notifications.addVip")}
               </Button>
             </div>
           </Section>
