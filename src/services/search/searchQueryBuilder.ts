@@ -129,7 +129,7 @@ export function buildSearchQuery(
   }
 
   const whereStr = whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "";
-  const orderBy = needsFts ? "ORDER BY rank" : "ORDER BY m.date DESC";
+  const orderBy = needsFts ? "ORDER BY rank, m.date DESC" : "ORDER BY m.date DESC";
 
   params.push(limit);
 
