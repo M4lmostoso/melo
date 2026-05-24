@@ -10,7 +10,7 @@ import { useAccountStore } from "@/stores/accountStore";
 import { useUIStore } from "@/stores/uiStore";
 import { useActiveLabel, useSelectedThreadId, useActiveCategory } from "@/hooks/useRouteNavigation";
 import { navigateToThread, navigateToLabel } from "@/router/navigate";
-import { getThreadsForAccount, getThreadsForCategory, getThreadLabelIds, deleteThread as deleteThreadFromDb } from "@/services/db/threads";
+import { getThreadsForAccount, getThreadsForCategory, getThreadLabelIds, deleteThread as deleteThreadFromDb, getUnifiedInboxThreads, getUnifiedFolderThreads } from "@/services/db/threads";
 import { getCategoriesForThreads, getCategoryUnreadCounts } from "@/services/db/threadCategories";
 import { getActiveFollowUpThreadIds } from "@/services/db/followUpReminders";
 import { getBundleRules, getHeldThreadIds, getBundleSummaries, type DbBundleRule } from "@/services/db/bundleRules";
@@ -56,6 +56,11 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
   const clearMultiSelect = useThreadStore((s) => s.clearMultiSelect);
   const selectAll = useThreadStore((s) => s.selectAll);
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
+  const accounts = useAccountStore((s) => s.accounts);
+  const globalAccountIds = useMemo(
+    () => accounts.filter((a) => a.includeInGlobal).map((a) => a.id),
+    [accounts],
+  );
   const activeLabel = useActiveLabel();
   const readFilter = useUIStore((s) => s.readFilter);
   const setReadFilter = useUIStore((s) => s.setReadFilter);
@@ -261,7 +266,30 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
 
   const loadThreads = useCallback(async () => {
     if (!activeAccountId) {
-      setThreads([]);
+      // Global / unified view: load from all included accounts
+      if (globalAccountIds.length === 0) {
+        setThreads([]);
+        return;
+      }
+      clearSearch();
+      setLoading(true);
+      setHasMore(true);
+      try {
+        let dbThreads: Awaited<ReturnType<typeof getThreadsForAccount>>;
+        if (activeLabel === "unified-inbox" || activeLabel === "inbox") {
+          dbThreads = await getUnifiedInboxThreads(globalAccountIds, PAGE_SIZE, 0);
+        } else {
+          const gmailLabelId = LABEL_MAP[activeLabel] ?? activeLabel;
+          dbThreads = await getUnifiedFolderThreads(globalAccountIds, gmailLabelId || "", PAGE_SIZE, 0);
+        }
+        const mapped = await mapDbThreads(dbThreads);
+        setThreads(mapped);
+        setHasMore(dbThreads.length === PAGE_SIZE);
+      } catch (err) {
+        console.error("Failed to load unified threads:", err);
+      } finally {
+        setLoading(false);
+      }
       return;
     }
 
@@ -305,16 +333,24 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     } finally {
       setLoading(false);
     }
-  }, [activeAccountId, activeLabel, activeCategory, isSmartFolder, activeSmartFolder, setThreads, setLoading, mapDbThreads, clearSearch]);
+  }, [activeAccountId, globalAccountIds, activeLabel, activeCategory, isSmartFolder, activeSmartFolder, setThreads, setLoading, mapDbThreads, clearSearch]);
 
   const loadMore = useCallback(async () => {
-    if (!activeAccountId || loadingMore || !hasMore) return;
+    if ((!activeAccountId && globalAccountIds.length === 0) || loadingMore || !hasMore) return;
 
     setLoadingMore(true);
     try {
       const offset = threads.length;
-      let dbThreads;
-      if (activeLabel === "inbox" && activeCategory !== "All") {
+      let dbThreads: Awaited<ReturnType<typeof getThreadsForAccount>>;
+      if (!activeAccountId) {
+        // Global view pagination
+        if (activeLabel === "unified-inbox" || activeLabel === "inbox") {
+          dbThreads = await getUnifiedInboxThreads(globalAccountIds, PAGE_SIZE, offset);
+        } else {
+          const gmailLabelId = LABEL_MAP[activeLabel] ?? activeLabel;
+          dbThreads = await getUnifiedFolderThreads(globalAccountIds, gmailLabelId || "", PAGE_SIZE, offset);
+        }
+      } else if (activeLabel === "inbox" && activeCategory !== "All") {
         dbThreads = await getThreadsForCategory(activeAccountId, activeCategory, PAGE_SIZE, offset);
       } else {
         const gmailLabelId = LABEL_MAP[activeLabel] ?? activeLabel;
@@ -336,7 +372,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     } finally {
       setLoadingMore(false);
     }
-  }, [activeAccountId, activeLabel, activeCategory, threads, loadingMore, hasMore, setThreads, mapDbThreads]);
+  }, [activeAccountId, globalAccountIds, activeLabel, activeCategory, threads, loadingMore, hasMore, setThreads, mapDbThreads]);
 
   useEffect(() => {
     loadThreads();
@@ -599,6 +635,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
             activeLabel={activeLabel}
             readFilter={readFilter}
             activeCategory={activeCategory}
+            hasGlobalAccounts={globalAccountIds.length > 0}
           />
         ) : (
           <>
@@ -709,12 +746,14 @@ function EmptyStateForContext({
   activeLabel,
   readFilter,
   activeCategory,
+  hasGlobalAccounts,
 }: {
   searchQuery: string | null;
   activeAccountId: string | null;
   activeLabel: string;
   readFilter: string;
   activeCategory: string;
+  hasGlobalAccounts: boolean;
 }) {
   if (searchQuery) {
     return <EmptyState illustration={NoSearchResultsIllustration} title={t("layout.emailList.emptySearch.title")} subtitle={t("layout.emailList.emptySearch.subtitle")} />;
@@ -722,11 +761,12 @@ function EmptyStateForContext({
   if (readFilter !== "all") {
     return <EmptyState icon={Filter} title={t("layout.emailList.emptyFilter.title", { filter: readFilter })} subtitle={t("layout.emailList.emptyFilter.subtitle")} />;
   }
-  if (!activeAccountId) {
+  if (!activeAccountId && !hasGlobalAccounts) {
     return <EmptyState illustration={NoAccountIllustration} title={t("layout.emailList.emptyNoAccount.title")} subtitle={t("layout.emailList.emptyNoAccount.subtitle")} />;
   }
 
   switch (activeLabel) {
+    case "unified-inbox":
     case "inbox":
       if (activeCategory !== "All") {
         const categoryMessages: Record<string, { title: string; subtitle: string }> = {

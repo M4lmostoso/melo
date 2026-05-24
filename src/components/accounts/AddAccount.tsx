@@ -57,6 +57,10 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
         displayName: userInfo.name,
         avatarUrl: userInfo.picture,
         isActive: true,
+        color: null,
+        includeInGlobal: true,
+        sortOrder: 0,
+        label: null,
       });
 
       onSuccess();

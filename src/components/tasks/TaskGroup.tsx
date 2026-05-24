@@ -34,8 +34,8 @@ export function TaskGroup({
   subtaskMap,
   onToggleComplete,
   onDelete,
-  onDueDateChange,
-  onEdit,
+  onDueDateChange: _onDueDateChange,
+  onEdit: _onEdit,
   onCompleteAll,
   selectedTaskId,
   onSelect,
@@ -151,10 +151,7 @@ export function TaskGroup({
               onToggleComplete={onToggleComplete}
               onSelect={onSelect}
               onDelete={onDelete}
-              onDueDateChange={onDueDateChange}
-              onEdit={onEdit}
               isSelected={selectedTaskId === task.id}
-              accountColor={accountColor}
             />
           ))}
         </div>

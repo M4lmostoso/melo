@@ -330,9 +330,8 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
           <AttachmentList
             accountId={message.account_id}
             messageId={message.id}
-            attachments={attachments}
+            attachments={calendarAttachment ? attachments.filter((a) => a.id !== calendarAttachment.id) : attachments}
             referencedCids={referencedCids}
-            excludeIds={calendarAttachment ? [calendarAttachment.id] : undefined}
           />
         </div>
       )}
