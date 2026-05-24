@@ -2,6 +2,7 @@ import { useRef, useState, useCallback, useEffect } from "react";
 import { ThreadCard } from "./ThreadCard";
 import type { Thread } from "@/stores/threadStore";
 import { Archive, Trash2 } from "lucide-react";
+import { t } from "@/i18n";
 import { useActiveLabel } from "@/hooks/useRouteNavigation";
 import { useAccountStore } from "@/stores/accountStore";
 import {
@@ -324,7 +325,7 @@ export function SwipeableThreadCard(props: SwipeableThreadCardProps) {
            }}>
              <Trash2 size={20} strokeWidth={2.5} />
              <span style={{ fontSize: "10px", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-               {isTrashView ? "Delete" : "Trash"}
+               {isTrashView ? t("common.delete") : t("contextMenu.delete")}
              </span>
            </div>
          </div>
@@ -351,7 +352,7 @@ export function SwipeableThreadCard(props: SwipeableThreadCardProps) {
              }}>
                <Archive size={20} strokeWidth={2.5} />
                <span style={{ fontSize: "10px", fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase" }}>
-                 Archive
+                 {t("contextMenu.archive")}
                </span>
              </div>
            </div>

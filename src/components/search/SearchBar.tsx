@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
+import { t } from "@/i18n";
 import {
   searchMessages,
   searchSendersByLabel,
@@ -314,7 +315,7 @@ export function SearchBar() {
             if (allSuggestions.length > 0) setShowSuggestions(true);
           }}
           onKeyDown={handleKeyDown}
-          placeholder="Search... (from: to: has:attachment)"
+          placeholder={t("search.placeholder")}
           className="w-full bg-bg-tertiary text-text-primary text-sm pl-8 pr-10 py-1.5 rounded-md border border-border-primary focus:border-accent focus:outline-none placeholder:text-text-tertiary resize-none leading-5 overflow-hidden"
           style={{ minHeight: "2rem", maxHeight: "6rem" }}
         />
@@ -324,7 +325,7 @@ export function SearchBar() {
               <button
                 onClick={handleSaveAsSmartFolder}
                 className="text-text-tertiary hover:text-accent transition-colors"
-                title="Save as Smart Folder"
+                title={t("search.saveAsSmartFolder")}
               >
                 <FolderPlus size={14} />
               </button>
@@ -342,7 +343,7 @@ export function SearchBar() {
         {showSuggestions && allSuggestions.length > 0 && (
           <div className="absolute left-0 right-0 top-full mt-1 z-50 bg-bg-secondary border border-border-primary rounded-md shadow-lg overflow-hidden">
             <div className="px-2.5 py-1.5 text-[10px] font-medium text-text-tertiary uppercase tracking-wider border-b border-border-primary">
-              {suggestionMode === "to" ? "Recipients" : "Senders"}
+              {suggestionMode === "to" ? t("search.recipients") : t("search.senders")}
             </div>
             {allSuggestions.map((s, i) => (
               <button
@@ -381,7 +382,7 @@ export function SearchBar() {
           openComposer({ accountId: fallbackAccountId });
         }}
         className="flex items-center justify-center w-8 h-8 rounded-full bg-accent hover:bg-accent-hover text-white transition-colors shrink-0"
-        title="Compose new email"
+        title={t("search.composeNew")}
       >
         <Pencil size={14} />
       </button>

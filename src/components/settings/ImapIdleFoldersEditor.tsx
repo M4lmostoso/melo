@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
+import { t } from "@/i18n";
 
 import { getLabelsForAccount } from "@/services/db/labels";
 import {
@@ -88,10 +89,10 @@ export function ImapIdleFoldersEditor({ accountId }: Props) {
         ) : (
           <ChevronRight className="w-3 h-3" />
         )}
-        Push (IDLE) folders
+        {t("imapIdle.pushIdleFolders")}
         {!globalEnabled && expanded && (
           <span className="ml-2 text-[0.65rem] text-text-tertiary">
-            (IDLE disabled in General settings)
+            {t("imapIdle.globalDisabledNote")}
           </span>
         )}
       </button>
@@ -99,11 +100,11 @@ export function ImapIdleFoldersEditor({ accountId }: Props) {
       {expanded && (
         <div className="mt-2 pl-4 space-y-1">
           {loading && (
-            <div className="text-xs text-text-tertiary">Loading folders…</div>
+            <div className="text-xs text-text-tertiary">{t("imapIdle.loadingFolders")}</div>
           )}
           {!loading && folders.length === 0 && (
             <div className="text-xs text-text-tertiary">
-              No IMAP folders found — sync the account first.
+              {t("imapIdle.noFoldersSync")}
             </div>
           )}
           {!loading &&
@@ -128,8 +129,7 @@ export function ImapIdleFoldersEditor({ accountId }: Props) {
             ))}
           {!loading && folders.length > 0 && (
             <p className="text-[0.65rem] text-text-tertiary mt-2">
-              Selected folders receive new mail in seconds via a persistent
-              connection. Unselected folders are checked every 60 s.
+              {t("imapIdle.selectedDesc")}
             </p>
           )}
         </div>

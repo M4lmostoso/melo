@@ -1,4 +1,5 @@
 import { Section } from "./shared";
+import { t } from "@/i18n";
 import { LabelEditor } from "@/components/settings/LabelEditor";
 import { FilterEditor } from "@/components/settings/FilterEditor";
 import { SmartLabelEditor } from "@/components/settings/SmartLabelEditor";
@@ -8,30 +9,30 @@ import { QuickStepEditor } from "@/components/settings/QuickStepEditor";
 export function MailRulesTab() {
   return (
     <>
-      <Section title="Labels">
+      <Section title={t("settings.mailRules.sections.labels")}>
         <p className="text-xs text-text-tertiary mb-3">
-          Create, rename, recolor, delete, or reorder your Gmail labels.
+          {t("settings.mailRules.labelsDesc")}
         </p>
         <LabelEditor />
       </Section>
 
-      <Section title="Filters">
+      <Section title={t("settings.mailRules.sections.filters")}>
         <p className="text-xs text-text-tertiary mb-3">
-          Filters automatically apply actions to new incoming emails during sync.
+          {t("settings.mailRules.filtersDesc")}
         </p>
         <FilterEditor />
       </Section>
 
-      <Section title="Smart Labels">
+      <Section title={t("settings.mailRules.sections.smartLabels")}>
         <p className="text-xs text-text-tertiary mb-3">
-          Describe what emails should get a label using plain English. AI automatically labels matching emails during sync.
+          {t("settings.mailRules.smartLabelsDesc")}
         </p>
         <SmartLabelEditor />
       </Section>
 
-      <Section title="Smart Folders">
+      <Section title={t("settings.mailRules.sections.smartFolders")}>
         <p className="text-xs text-text-tertiary mb-3">
-          Smart folders are saved searches that automatically show matching emails. Use search operators like{" "}
+          {t("settings.mailRules.smartFoldersDesc")}{" "}
           <code className="bg-bg-tertiary px-1 rounded">is:unread</code>,{" "}
           <code className="bg-bg-tertiary px-1 rounded">from:</code>,{" "}
           <code className="bg-bg-tertiary px-1 rounded">has:attachment</code>,{" "}
@@ -40,10 +41,9 @@ export function MailRulesTab() {
         <SmartFolderEditor />
       </Section>
 
-      <Section title="Quick Steps">
+      <Section title={t("settings.mailRules.sections.quickSteps")}>
         <p className="text-xs text-text-tertiary mb-3">
-          Quick steps let you chain multiple actions together into a single click.
-          Apply them from the right-click menu on any thread.
+          {t("settings.mailRules.quickStepsDesc")}
         </p>
         <QuickStepEditor />
       </Section>

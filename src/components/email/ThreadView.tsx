@@ -27,6 +27,7 @@ import { AiTaskExtractDialog } from "@/components/tasks/AiTaskExtractDialog";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
 import { MessageSkeleton } from "@/components/ui/Skeleton";
 import { RawMessageModal } from "./RawMessageModal";
+import { t } from "@/i18n";
 
 const INITIAL_MESSAGES_TO_SHOW = 20;
 
@@ -627,15 +628,17 @@ const handlePrint = useCallback(async () => {
         {/* Thread subject */}
         <div data-tauri-drag-region className="px-6 py-3 border-b border-border-primary">
           <h1 className="text-lg font-semibold text-text-primary flex items-center gap-2">
-            {thread.subject ?? "(No subject)"}
+            {thread.subject ?? t("threadView.noSubject")}
             {thread.isMuted && (
-              <span className="text-warning shrink-0" title="Muted">
+              <span className="text-warning shrink-0" title={t("threadView.muted")}>
                 <VolumeX size={16} />
               </span>
             )}
           </h1>
           <div className="text-xs text-text-tertiary mt-1">
-            {messages.length} message{messages.length !== 1 ? "s" : ""} in this thread
+            {messages.length !== 1
+              ? t("threadView.messageCountPlural", { count: messages.length })
+              : t("threadView.messageCount", { count: messages.length })}
           </div>
         </div>
 
@@ -657,7 +660,9 @@ const handlePrint = useCallback(async () => {
                   onClick={() => setVisibleStart((s) => s + INITIAL_MESSAGES_TO_SHOW)}
                   className="text-xs text-accent hover:text-accent-hover transition-colors"
                 >
-                  Load {Math.min(hiddenCount, INITIAL_MESSAGES_TO_SHOW)} earlier message{Math.min(hiddenCount, INITIAL_MESSAGES_TO_SHOW) !== 1 ? "s" : ""} ({hiddenCount} hidden)
+                  {Math.min(hiddenCount, INITIAL_MESSAGES_TO_SHOW) !== 1
+                    ? t("threadView.loadEarlierPlural", { count: Math.min(hiddenCount, INITIAL_MESSAGES_TO_SHOW), hidden: hiddenCount })
+                    : t("threadView.loadEarlier", { count: Math.min(hiddenCount, INITIAL_MESSAGES_TO_SHOW), hidden: hiddenCount })}
                 </button>
               </div>
             )}

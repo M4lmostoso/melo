@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { Calendar, MapPin, Clock, ExternalLink, Check, X, Minus, User, AlertCircle } from "lucide-react";
+import { t } from "@/i18n";
 import type { DbAttachment } from "@/services/db/attachments";
 import type { Account } from "@/stores/accountStore";
 import type { CalendarEventData } from "@/services/calendar/types";
@@ -28,7 +29,7 @@ function formatEventDate(startTime: number, endTime: number, isAllDay: boolean):
 }
 
 function formatDuration(startTime: number, endTime: number, isAllDay: boolean): string {
-  if (isAllDay) return "All day";
+  if (isAllDay) return t("calendarInvite.allDay");
   const mins = Math.round((endTime - startTime) / 60);
   if (mins < 60) return `${mins} min`;
   const h = Math.floor(mins / 60);
@@ -42,9 +43,9 @@ function isStartingSoon(startTime: number): boolean {
 }
 
 const RSVP_LABELS: Record<RsvpPartstat, string> = {
-  ACCEPTED: "You accepted",
-  DECLINED: "You declined",
-  TENTATIVE: "Tentative",
+  ACCEPTED: t("calendarInvite.youAccepted"),
+  DECLINED: t("calendarInvite.youDeclined"),
+  TENTATIVE: t("calendarInvite.tentative"),
 };
 
 const RSVP_COLORS: Record<RsvpPartstat, string> = {
@@ -97,7 +98,7 @@ export function CalendarInviteWidget({ attachment, messageId, threadId, account 
     return (
       <div className="mb-3 flex items-center gap-2 px-3 py-2 rounded-lg bg-bg-secondary text-text-tertiary text-xs">
         <Calendar size={14} />
-        <span>Loading invitation...</span>
+        <span>{t("calendarInvite.loadingInvitation")}</span>
       </div>
     );
   }
@@ -110,7 +111,7 @@ export function CalendarInviteWidget({ attachment, messageId, threadId, account 
         <AlertCircle size={16} className="text-red-500 mt-0.5 flex-shrink-0" />
         <div className="min-w-0">
           <div className="font-semibold text-red-700 dark:text-red-400 text-sm">
-            This event has been cancelled
+            {t("calendarInvite.eventCancelled")}
           </div>
           <div className="text-xs text-red-600 dark:text-red-500 mt-0.5 truncate">
             {event.summary ?? "Meeting"}
@@ -136,9 +137,9 @@ export function CalendarInviteWidget({ attachment, messageId, threadId, account 
           </div>
           <div className="min-w-0">
             <div className="font-semibold text-text-primary text-sm truncate">
-              {event.summary ?? "Meeting Invitation"}
+              {event.summary ?? t("calendarInvite.defaultTitle")}
             </div>
-            <div className="text-xs text-text-tertiary">Calendar invitation</div>
+            <div className="text-xs text-text-tertiary">{t("calendarInvite.invitation")}</div>
           </div>
         </div>
         {meetingUrl && (
@@ -153,7 +154,7 @@ export function CalendarInviteWidget({ attachment, messageId, threadId, account 
             }`}
           >
             <ExternalLink size={12} />
-            {startingSoon ? "Join Now" : "Join"}
+            {startingSoon ? t("calendarInvite.joinNow") : t("calendarInvite.join")}
           </a>
         )}
       </div>
@@ -180,7 +181,7 @@ export function CalendarInviteWidget({ attachment, messageId, threadId, account 
         {event.organizerEmail && (
           <div className="flex items-center gap-2 text-xs text-text-secondary">
             <User size={13} className="flex-shrink-0 text-text-tertiary" />
-            <span className="truncate">Organizer: {event.organizerEmail}</span>
+            <span className="truncate">{t("calendarInvite.organizer")}: {event.organizerEmail}</span>
           </div>
         )}
       </div>
@@ -198,7 +199,7 @@ export function CalendarInviteWidget({ attachment, messageId, threadId, account 
           )}
           <div className={`flex items-center gap-1.5 ${hasRsvped ? "ml-auto" : ""}`}>
             <RsvpButton
-              label="Accept"
+              label={t("calendarInvite.accept")}
               icon={<Check size={12} />}
               active={normalizedStatus === "ACCEPTED"}
               loading={responding === "ACCEPTED"}
@@ -207,7 +208,7 @@ export function CalendarInviteWidget({ attachment, messageId, threadId, account 
               activeClass="bg-green-500 hover:bg-green-600 text-white"
             />
             <RsvpButton
-              label="Maybe"
+              label={t("calendarInvite.maybe")}
               icon={<Minus size={12} />}
               active={normalizedStatus === "TENTATIVE"}
               loading={responding === "TENTATIVE"}
@@ -216,7 +217,7 @@ export function CalendarInviteWidget({ attachment, messageId, threadId, account 
               activeClass="bg-yellow-500 hover:bg-yellow-600 text-white"
             />
             <RsvpButton
-              label="Decline"
+              label={t("calendarInvite.decline")}
               icon={<X size={12} />}
               active={normalizedStatus === "DECLINED"}
               loading={responding === "DECLINED"}

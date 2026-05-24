@@ -493,8 +493,10 @@
     },
     "group": {
       "noSubject": "(No subject)",
+      "general": "General Tasks",
       "completeAll": "Complete all",
-      "overdueBadge": "Overdue"
+      "overdueBadge": "Overdue",
+      "openThread": "Open email thread"
     },
     "item": {
       "today": "Today",
@@ -711,6 +713,9 @@
       "loading": "Loading...",
       "image": "Image",
       "defaultPdf": "Document.pdf"
+    },
+    "renderer": {
+      "iframeTitle": "Email content"
     }
   },
   "composer": {
@@ -1305,6 +1310,28 @@
       "cache2gb": "2 GB",
       "resetToDefaults": "Reset to defaults"
     },
+    "mailRules": {
+      "sections": {
+        "labels": "Labels",
+        "filters": "Filters",
+        "smartLabels": "Smart Labels",
+        "smartFolders": "Smart Folders",
+        "quickSteps": "Quick Steps"
+      },
+      "labelsDesc": "Create, rename, recolor, delete, or reorder your Gmail labels.",
+      "filtersDesc": "Filters automatically apply actions to new incoming emails during sync.",
+      "smartLabelsDesc": "Describe what emails should get a label using plain English. AI automatically labels matching emails during sync.",
+      "smartFoldersDesc": "Smart folders are saved searches that automatically show matching emails.",
+      "quickStepsDesc": "Quick steps let you chain multiple actions together into a single click. Apply them from the right-click menu on any thread."
+    },
+    "people": {
+      "sections": {
+        "contacts": "Contacts",
+        "subscriptions": "Subscriptions"
+      },
+      "contactsDesc": "Contacts are automatically added when you send or receive emails. Edit display names or remove contacts below.",
+      "subscriptionsDesc": "View all detected newsletter and promotional senders. Unsubscribe using RFC 8058 one-click POST, mailto, or browser fallback."
+    },
     "ai": {
       "sections": {
         "provider": "Provider",
@@ -1652,7 +1679,8 @@
       "openThread": "Open thread"
     },
     "answerPanel": {
-      "sources": "Sources"
+      "sources": "Sources",
+      "title": "AI Answer"
     },
     "threadSummary": {
       "summarize": "Summarize",
@@ -1833,16 +1861,25 @@
     "accept": "Accept",
     "decline": "Decline",
     "tentative": "Tentative",
+    "maybe": "Maybe",
     "accepted": "Accepted",
     "declined": "Declined",
+    "youAccepted": "You accepted",
+    "youDeclined": "You declined",
     "loading": "Loading invite...",
+    "loadingInvitation": "Loading invitation...",
     "cancelled": "This event has been cancelled.",
+    "eventCancelled": "This event has been cancelled",
     "allDay": "All day",
     "startingSoon": "Starting soon",
     "respond": "Respond",
     "organizer": "Organizer",
     "location": "Location",
-    "openCalendar": "Open in Calendar"
+    "openCalendar": "Open in Calendar",
+    "invitation": "Calendar invitation",
+    "defaultTitle": "Meeting Invitation",
+    "join": "Join",
+    "joinNow": "Join Now"
   },
   "inlineReply": {
     "placeholder": "Write a reply...",
@@ -1897,7 +1934,9 @@
     "title": "Edit AI Soul",
     "save": "Save",
     "cancel": "Cancel",
-    "reset": "Reset to default"
+    "reset": "Reset to default",
+    "restartToApply": "Restart app to apply changes",
+    "placeholder": "Define the AI's personality and behavior..."
   },
   "titleBar": {
     "minimize": "Minimize",
@@ -1924,8 +1963,13 @@
     "idleFolders": "IDLE folders",
     "idleFoldersDesc": "Folders that use push (IDLE) for instant notification. Others use 60s polling.",
     "globalDisabled": "IMAP push is disabled globally (Settings → General → IMAP push)",
+    "globalDisabledNote": "(IDLE disabled in General settings)",
     "loading": "Loading folders...",
-    "noFolders": "No folders found"
+    "loadingFolders": "Loading folders…",
+    "noFolders": "No folders found",
+    "noFoldersSync": "No IMAP folders found — sync the account first.",
+    "pushIdleFolders": "Push (IDLE) folders",
+    "selectedDesc": "Selected folders receive new mail in seconds via a persistent connection. Unselected folders are checked every 60 s."
   },
   "dateTimePicker": {
     "customDate": "Custom date",

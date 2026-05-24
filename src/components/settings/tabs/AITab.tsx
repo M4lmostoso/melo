@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { t } from "@/i18n";
 import { useAccountStore } from "@/stores/accountStore";
 import { getSetting, setSetting, getSecureSetting, setSecureSetting } from "@/services/db/settings";
 import { PROVIDER_MODELS } from "@/services/ai/types";
@@ -72,7 +73,7 @@ function BundleSettings() {
                     onChange={() => saveRule(cat, { bundled: !(rule?.bundled ?? false) })}
                     className="accent-accent"
                   />
-                  Bundle
+                  {t("settings.ai.bundle")}
                 </label>
                 <label className="flex items-center gap-1.5 text-xs text-text-secondary">
                   <input
@@ -81,7 +82,7 @@ function BundleSettings() {
                     onChange={() => saveRule(cat, { delivery: !(rule?.delivery ?? false) })}
                     className="accent-accent"
                   />
-                  Schedule
+                  {t("settings.ai.schedule")}
                 </label>
               </div>
             </div>
@@ -245,11 +246,11 @@ export function AITab() {
 
   return (
     <>
-      <Section title="Provider">
+      <Section title={t("settings.ai.sections.provider")}>
         <p className="text-xs text-text-tertiary mb-3">
-          Choose which AI provider to use for summarization, compose assistance, and smart categorization.
+          {t("settings.ai.providerDesc")}
         </p>
-        <SettingRow label="AI Provider">
+        <SettingRow label={t("settings.ai.aiProvider")}>
           <select
             value={aiProvider}
             onChange={async (e) => {
@@ -262,11 +263,11 @@ export function AITab() {
             }}
             className="w-48 bg-bg-tertiary text-text-primary text-sm px-3 py-1.5 rounded-md border border-border-primary focus:border-accent outline-none"
           >
-            <option value="claude">Claude (Anthropic)</option>
-            <option value="openai">OpenAI</option>
-            <option value="gemini">Gemini (Google)</option>
-            <option value="ollama">Local AI (Ollama / LMStudio)</option>
-            <option value="copilot">GitHub Copilot</option>
+            <option value="claude">{t("settings.ai.providerClaude")}</option>
+            <option value="openai">{t("settings.ai.providerOpenAI")}</option>
+            <option value="gemini">{t("settings.ai.providerGemini")}</option>
+            <option value="ollama">{t("settings.ai.providerOllama")}</option>
+            <option value="copilot">{t("settings.ai.providerCopilot")}</option>
           </select>
         </SettingRow>
         <p className="text-xs text-text-tertiary">
@@ -276,24 +277,24 @@ export function AITab() {
             `Uses ${PROVIDER_MODELS.openai.find((m) => m.id === openaiModel)?.label ?? openaiModel}.`}
           {aiProvider === "gemini" &&
             `Uses ${PROVIDER_MODELS.gemini.find((m) => m.id === geminiModel)?.label ?? geminiModel}.`}
-          {aiProvider === "ollama" && "Connect to a local Ollama or LMStudio server. No API key required."}
+          {aiProvider === "ollama" && t("settings.ai.ollamaNoKey")}
           {aiProvider === "copilot" &&
             `Uses ${PROVIDER_MODELS.copilot.find((m) => m.id === copilotModel)?.label ?? copilotModel}. Requires a GitHub PAT with models:read permission.`}
         </p>
       </Section>
 
       {aiProvider === "ollama" ? (
-        <Section title="Local Server">
+        <Section title={t("settings.ai.sections.localServer")}>
           <div className="space-y-3">
             <TextField
-              label="Server URL"
+              label={t("settings.ai.serverUrl")}
               size="md"
               value={ollamaServerUrl}
               onChange={(e) => setOllamaServerUrl(e.target.value)}
               placeholder="http://localhost:11434"
             />
             <TextField
-              label="Model Name"
+              label={t("settings.ai.modelName")}
               size="md"
               value={ollamaModel}
               onChange={(e) => setOllamaModel(e.target.value)}
@@ -313,7 +314,7 @@ export function AITab() {
                 }}
                 disabled={!ollamaServerUrl.trim() || !ollamaModel.trim()}
               >
-                {aiKeySaved ? "Saved!" : "Save"}
+                {aiKeySaved ? t("settings.ai.saved") : t("settings.ai.save")}
               </Button>
               <Button
                 variant="secondary"
@@ -322,25 +323,25 @@ export function AITab() {
                 disabled={!ollamaServerUrl.trim() || !ollamaModel.trim() || aiTesting}
                 className="bg-bg-tertiary text-text-primary border border-border-primary"
               >
-                {aiTesting ? "Testing..." : "Test Connection"}
+                {aiTesting ? t("settings.ai.testing") : t("settings.ai.testConnection")}
               </Button>
-              {aiTestResult === "success" && <span className="text-xs text-success">Connected!</span>}
-              {aiTestResult === "fail" && <span className="text-xs text-danger">Connection failed</span>}
+              {aiTestResult === "success" && <span className="text-xs text-success">{t("settings.ai.connected")}</span>}
+              {aiTestResult === "fail" && <span className="text-xs text-danger">{t("settings.ai.connectionFailed")}</span>}
             </div>
           </div>
         </Section>
       ) : (
-        <Section title="API Key">
+        <Section title={t("settings.ai.sections.apiKey")}>
           <div className="space-y-3">
             <TextField
               label={
                 aiProvider === "claude"
-                  ? "Anthropic API Key"
+                  ? t("settings.ai.apiKeyClaude")
                   : aiProvider === "openai"
-                    ? "OpenAI API Key"
+                    ? t("settings.ai.apiKeyOpenAI")
                     : aiProvider === "copilot"
-                      ? "GitHub Personal Access Token"
-                      : "Google AI API Key"
+                      ? t("settings.ai.apiKeyCopilot")
+                      : t("settings.ai.apiKeyGemini")
               }
               size="md"
               type="password"
@@ -361,7 +362,7 @@ export function AITab() {
                       : "AI..."
               }
             />
-            <SettingRow label="Model">
+            <SettingRow label={t("settings.ai.model")}>
               <select
                 value={
                   aiProvider === "claude"
@@ -418,7 +419,7 @@ export function AITab() {
                 }}
                 disabled={!currentApiKey.trim()}
               >
-                {aiKeySaved ? "Saved!" : "Save Key"}
+                {aiKeySaved ? t("settings.ai.saved") : t("settings.ai.saveKey")}
               </Button>
               <Button
                 variant="secondary"
@@ -427,19 +428,19 @@ export function AITab() {
                 disabled={!currentApiKey.trim() || aiTesting}
                 className="bg-bg-tertiary text-text-primary border border-border-primary"
               >
-                {aiTesting ? "Testing..." : "Test Connection"}
+                {aiTesting ? t("settings.ai.testing") : t("settings.ai.testConnection")}
               </Button>
-              {aiTestResult === "success" && <span className="text-xs text-success">Connected!</span>}
-              {aiTestResult === "fail" && <span className="text-xs text-danger">Connection failed</span>}
+              {aiTestResult === "success" && <span className="text-xs text-success">{t("settings.ai.connected")}</span>}
+              {aiTestResult === "fail" && <span className="text-xs text-danger">{t("settings.ai.connectionFailed")}</span>}
             </div>
           </div>
         </Section>
       )}
 
-      <Section title="Features">
+      <Section title={t("settings.ai.sections.features")}>
         <ToggleRow
-          label="Enable AI features"
-          description="Master toggle for all AI functionality"
+          label={t("settings.ai.enableAI")}
+          description={t("settings.ai.enableAIDesc")}
           checked={aiEnabled}
           onToggle={async () => {
             const newVal = !aiEnabled;
@@ -448,8 +449,8 @@ export function AITab() {
           }}
         />
         <ToggleRow
-          label="Auto-categorize inbox"
-          description="Use AI to refine rule-based categorization"
+          label={t("settings.ai.autoCategorize")}
+          description={t("settings.ai.autoCategorizeDesc")}
           checked={aiAutoCategorize}
           onToggle={async () => {
             const newVal = !aiAutoCategorize;
@@ -458,8 +459,8 @@ export function AITab() {
           }}
         />
         <ToggleRow
-          label="Auto-summarize threads"
-          description="Show AI summaries on multi-message threads"
+          label={t("settings.ai.autoSummarize")}
+          description={t("settings.ai.autoSummarizeDesc")}
           checked={aiAutoSummarize}
           onToggle={async () => {
             const newVal = !aiAutoSummarize;
@@ -467,7 +468,7 @@ export function AITab() {
             await setSetting("ai_auto_summarize", newVal ? "true" : "false");
           }}
         />
-        <SettingRow label="AI Language">
+        <SettingRow label={t("settings.ai.aiLanguage")}>
           <select
             value={aiLanguage}
             onChange={async (e) => {
@@ -488,10 +489,10 @@ export function AITab() {
         </SettingRow>
       </Section>
 
-      <Section title="Auto-Draft Replies">
+      <Section title={t("settings.ai.sections.autoDraftReplies")}>
         <ToggleRow
-          label="Auto-draft replies"
-          description="Pre-populate the reply editor with an AI-generated draft"
+          label={t("settings.ai.autoDraft")}
+          description={t("settings.ai.autoDraftDesc")}
           checked={aiAutoDraftEnabled}
           onToggle={async () => {
             const newVal = !aiAutoDraftEnabled;
@@ -500,8 +501,8 @@ export function AITab() {
           }}
         />
         <ToggleRow
-          label="Learn writing style"
-          description="Analyze your sent emails to match your tone and voice"
+          label={t("settings.ai.learnWritingStyle")}
+          description={t("settings.ai.learnWritingStyleDesc")}
           checked={aiWritingStyleEnabled}
           onToggle={async () => {
             const newVal = !aiWritingStyleEnabled;

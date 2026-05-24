@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { t } from "@/i18n";
 import { ChevronDown, ChevronRight, Inbox, Send, FileEdit, Trash2, Ban, Loader2, AlertCircle } from "lucide-react";
 import type { Account } from "@/stores/accountStore";
 import { useUIStore } from "@/stores/uiStore";
@@ -6,11 +7,11 @@ import { useActiveLabel } from "@/hooks/useRouteNavigation";
 import { ACCOUNT_COLOR_PRESETS } from "@/constants/accountColors";
 
 const ACCOUNT_FOLDERS: { id: string; label: string; labelId: string; icon: typeof Inbox }[] = [
-  { id: "inbox", label: "Inbox", labelId: "INBOX", icon: Inbox },
-  { id: "sent", label: "Sent", labelId: "SENT", icon: Send },
-  { id: "drafts", label: "Drafts", labelId: "DRAFT", icon: FileEdit },
-  { id: "trash", label: "Trash", labelId: "TRASH", icon: Trash2 },
-  { id: "spam", label: "Spam", labelId: "SPAM", icon: Ban },
+  { id: "inbox", label: t("sidebar.nav.inbox"), labelId: "INBOX", icon: Inbox },
+  { id: "sent", label: t("sidebar.nav.sent"), labelId: "SENT", icon: Send },
+  { id: "drafts", label: t("sidebar.nav.drafts"), labelId: "DRAFT", icon: FileEdit },
+  { id: "trash", label: t("sidebar.nav.trash"), labelId: "TRASH", icon: Trash2 },
+  { id: "spam", label: t("sidebar.nav.spam"), labelId: "SPAM", icon: Ban },
 ];
 
 const DEFAULT_COLOR = ACCOUNT_COLOR_PRESETS[4]; // blue

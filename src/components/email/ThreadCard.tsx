@@ -8,6 +8,7 @@ import { formatRelativeDate } from "@/utils/date";
 import { decodeHtml } from "@/utils/sanitize";
 import { Paperclip, Star, Check, Pin, BellRing, VolumeX, Zap, Wind } from "lucide-react";
 import type { DragData } from "@/components/dnd/DndProvider";
+import { t } from "@/i18n";
 
 const CATEGORY_COLORS: Record<string, string> = {
   Updates: "bg-yellow-500/15 text-yellow-600 dark:text-yellow-400",
@@ -78,7 +79,7 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
       {...listeners}
       onClick={handleClick}
       onContextMenu={handleContextMenu}
-      aria-label={`${thread.isRead ? "" : "Unread "}email from ${thread.fromName ?? thread.fromAddress ?? "Unknown"}: ${thread.subject ?? "(No subject)"}`}
+      aria-label={`${thread.isRead ? "" : t("threadCard.unreadPrefix")}email from ${thread.fromName ?? thread.fromAddress ?? t("threadCard.unknown")}: ${thread.subject ?? t("threadCard.noSubject")}`}
       aria-selected={isSelected}
       className={`w-full text-left border-b border-border-secondary group hover-lift press-scale ${
         emailDensity === "compact" ? "px-3 py-1.5" : emailDensity === "spacious" ? "px-4 py-4" : "px-4 py-3"
@@ -115,7 +116,7 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
                   : "font-semibold text-text-primary"
               }`}
             >
-              {thread.allSenders ?? thread.fromName ?? thread.fromAddress ?? "Unknown"}
+              {thread.allSenders ?? thread.fromName ?? thread.fromAddress ?? t("threadCard.unknown")}
             </span>
             <span className="text-xs text-text-tertiary whitespace-nowrap shrink-0">
               {formatRelativeDate(thread.lastMessageAt)}
@@ -128,7 +129,7 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
               thread.isRead ? "text-text-secondary" : "text-text-primary"
             }`}
           >
-            {thread.subject ?? "(No subject)"}
+            {thread.subject ?? t("threadCard.noSubject")}
           </div>
 
           {/* Snippet + indicators */}
@@ -142,42 +143,42 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
               </span>
             )}
             {hasFollowUp && (
-              <span className="shrink-0 text-accent" title="Follow-up reminder set">
+              <span className="shrink-0 text-accent" title={t("threadCard.followUpReminder")}>
                 <BellRing size={12} />
               </span>
             )}
             {!thread.isMuted && !thread.isHeatExtinguished && (thread.urgencyScore ?? 0) >= 0.6 && (
-              <span className="shrink-0 text-danger" title="High urgency">
+              <span className="shrink-0 text-danger" title={t("threadCard.highUrgency")}>
                 <Zap size={12} className="fill-current" />
               </span>
             )}
             {!thread.isMuted && !thread.isHeatExtinguished && (thread.urgencyScore ?? 0) >= 0.3 && (thread.urgencyScore ?? 0) < 0.6 && (
-              <span className="shrink-0 text-warning" title="Moderate urgency">
+              <span className="shrink-0 text-warning" title={t("threadCard.moderateUrgency")}>
                 <Zap size={12} />
               </span>
             )}
             {!thread.isMuted && thread.isHeatExtinguished && (thread.urgencyScore ?? 0) === 0 && (
-              <span className="shrink-0 text-success" title="Urgency resolved">
+              <span className="shrink-0 text-success" title={t("threadCard.urgencyResolved")}>
                 <Wind size={12} />
               </span>
             )}
             {thread.isMuted && (
-              <span className="shrink-0 text-text-tertiary" title="Muted — urgency silenced">
+              <span className="shrink-0 text-text-tertiary" title={t("threadCard.mutedUrgency")}>
                 <VolumeX size={12} />
               </span>
             )}
             {thread.isPinned && (
-              <span className="shrink-0 text-accent" title="Pinned">
+              <span className="shrink-0 text-accent" title={t("threadCard.pinned")}>
                 <Pin size={12} className="fill-current" />
               </span>
             )}
             {thread.hasAttachments && (
-              <span className="shrink-0 text-text-tertiary" title="Has attachments">
+              <span className="shrink-0 text-text-tertiary" title={t("threadCard.hasAttachments")}>
                 <Paperclip size={12} />
               </span>
             )}
             {thread.isStarred && (
-              <span className="shrink-0 text-warning star-animate" title="Starred">
+              <span className="shrink-0 text-warning star-animate" title={t("threadCard.starred")}>
                 <Star size={12} className="fill-current" />
               </span>
             )}

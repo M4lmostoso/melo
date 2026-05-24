@@ -76,6 +76,41 @@ Semantic tokens: `bg-bg-*`, `text-text-*`, `border-border-*`, `bg-accent*`, `bg-
 
 Vitest + jsdom. `globals: true`. Tests colocated with source. Zustand pattern: `useStore.setState()` in `beforeEach`, assert via `.getState()`. ~132 test files.
 
+## Internationalization (i18n)
+
+All user-visible strings must go through the `t()` function from `src/i18n.ts`. **Any UI change that adds, removes, or modifies visible text must also update `public/locale/en-US.json`** (and any other locale files if they exist).
+
+**Usage:**
+```ts
+import { t } from "@/i18n";
+
+// Simple key lookup
+t("sidebar.nav.inbox")                          // → "Inbox"
+
+// With interpolation
+t("threadView.messageCount", { count: 5 })      // → "5 messages in this thread"
+t("layout.emailList.conversations", { count: 2 }) // → "2 conversations"
+```
+
+**Key structure:** Nested by component/section, e.g.:
+- `common.*` — shared labels (Cancel, Save, Delete, ...)
+- `sidebar.*` — sidebar nav and labels
+- `composer.*` — compose window
+- `settings.*` — all settings tabs (`settings.ai.*`, `settings.general.*`, ...)
+- `email.*` — thread/message display
+- `threadCard.*`, `threadView.*`, `messageItem.*` — thread list/view
+- `actionBar.*` — toolbar actions
+- `layout.*` — EmailList, TitleBar, ReadingPane, ScheduledPanel
+- `ui.*` — generic UI components (ConfirmDialog, ErrorBoundary, etc.)
+- `calendar.*`, `tasks.*`, `attachments.*`, `help.*`, `search.*` — feature sections
+
+**When adding new UI strings:**
+1. Add the English value under the appropriate nested key in `public/locale/en-US.json`
+2. Use `t("your.new.key")` in the component
+3. If other locale files exist, add the key there too (use English as fallback)
+
+The locale is bundled at build time via a static Vite import — no async loading needed.
+
 ## Key Gotchas
 
 - **Tauri SQL plugin config**: `preload` in tauri.conf.json must be an array `["sqlite:velo.db"]` — NOT an object

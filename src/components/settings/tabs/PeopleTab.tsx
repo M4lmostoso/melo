@@ -1,20 +1,21 @@
 import { Section } from "./shared";
+import { t } from "@/i18n";
 import { ContactEditor } from "@/components/settings/ContactEditor";
 import { SubscriptionManager } from "@/components/settings/SubscriptionManager";
 
 export function PeopleTab() {
   return (
     <>
-      <Section title="Contacts">
+      <Section title={t("settings.people.sections.contacts")}>
         <p className="text-xs text-text-tertiary mb-3">
-          Contacts are automatically added when you send or receive emails. Edit display names or remove contacts below.
+          {t("settings.people.contactsDesc")}
         </p>
         <ContactEditor />
       </Section>
 
-      <Section title="Subscriptions">
+      <Section title={t("settings.people.sections.subscriptions")}>
         <p className="text-xs text-text-tertiary mb-3">
-          View all detected newsletter and promotional senders. Unsubscribe using RFC 8058 one-click POST, mailto, or browser fallback.
+          {t("settings.people.subscriptionsDesc")}
         </p>
         <SubscriptionManager />
       </Section>

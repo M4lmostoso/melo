@@ -7,6 +7,7 @@ import type { SidebarNavItem } from "@/stores/uiStore";
 import { Check, ChevronUp, ChevronDown, RotateCcw } from "lucide-react";
 import { Section, SettingRow, ToggleRow } from "./shared";
 import { Button } from "@/components/ui/Button";
+import { t } from "@/i18n";
 import {
   isIdleEnabled,
   setIdleEnabled,
@@ -57,7 +58,7 @@ function SidebarNavEditor() {
       items.every((item, i) => item.id === ALL_NAV_ITEMS[i]?.id && item.visible));
 
   return (
-    <Section title="Sidebar">
+    <Section title={t("settings.general.sections.sidebar")}>
       <div className="space-y-1">
         {items.map((item, index) => {
           const nav = navLookup.get(item.id);
@@ -75,7 +76,7 @@ function SidebarNavEditor() {
                 onClick={() => moveItem(index, -1)}
                 disabled={index === 0}
                 className="p-0.5 rounded text-text-tertiary hover:text-text-primary disabled:opacity-25 disabled:cursor-not-allowed transition-colors"
-                title="Move up"
+                title={t("settings.general.moveUp")}
               >
                 <ChevronUp size={14} />
               </button>
@@ -83,7 +84,7 @@ function SidebarNavEditor() {
                 onClick={() => moveItem(index, 1)}
                 disabled={index === items.length - 1}
                 className="p-0.5 rounded text-text-tertiary hover:text-text-primary disabled:opacity-25 disabled:cursor-not-allowed transition-colors"
-                title="Move down"
+                title={t("settings.general.moveDown")}
               >
                 <ChevronDown size={14} />
               </button>
@@ -99,7 +100,7 @@ function SidebarNavEditor() {
                       ? "bg-accent cursor-pointer"
                       : "bg-bg-tertiary cursor-pointer"
                 }`}
-                title={isInbox ? "Inbox is always visible" : item.visible ? "Hide" : "Show"}
+                title={isInbox ? t("sidebar.inboxAlwaysVisible") : item.visible ? t("sidebar.hideItem") : t("sidebar.showItem")}
               >
                 <span
                   className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${
@@ -117,7 +118,7 @@ function SidebarNavEditor() {
           className="flex items-center gap-1.5 text-xs text-accent hover:text-accent-hover mt-2 transition-colors"
         >
           <RotateCcw size={12} />
-          Reset to defaults
+          {t("settings.general.resetToDefaults")}
         </button>
       )}
     </Section>
@@ -196,8 +197,8 @@ export function GeneralTab() {
 
   return (
     <>
-      <Section title="Appearance">
-        <SettingRow label="Theme">
+      <Section title={t("settings.general.sections.appearance")}>
+        <SettingRow label={t("settings.general.theme")}>
           <select
             value={theme}
             onChange={(e) => {
@@ -207,12 +208,12 @@ export function GeneralTab() {
             }}
             className="w-48 bg-bg-tertiary text-text-primary text-sm px-3 py-1.5 rounded-md border border-border-primary focus:border-accent outline-none"
           >
-            <option value="system">System</option>
-            <option value="light">Light</option>
-            <option value="dark">Dark</option>
+            <option value="system">{t("settings.general.themeSystem")}</option>
+            <option value="light">{t("settings.general.themeLight")}</option>
+            <option value="dark">{t("settings.general.themeDark")}</option>
           </select>
         </SettingRow>
-        <SettingRow label="Reading pane">
+        <SettingRow label={t("settings.general.readingPane")}>
           <select
             value={readingPanePosition}
             onChange={(e) => {
@@ -220,12 +221,12 @@ export function GeneralTab() {
             }}
             className="w-48 bg-bg-tertiary text-text-primary text-sm px-3 py-1.5 rounded-md border border-border-primary focus:border-accent outline-none"
           >
-            <option value="right">Right</option>
-            <option value="bottom">Bottom</option>
-            <option value="hidden">Off</option>
+            <option value="right">{t("settings.general.readingPaneRight")}</option>
+            <option value="bottom">{t("settings.general.readingPaneBottom")}</option>
+            <option value="hidden">{t("settings.general.readingPaneOff")}</option>
           </select>
         </SettingRow>
-        <SettingRow label="Email density">
+        <SettingRow label={t("settings.general.emailDensity")}>
           <select
             value={emailDensity}
             onChange={(e) => {
@@ -233,12 +234,12 @@ export function GeneralTab() {
             }}
             className="w-48 bg-bg-tertiary text-text-primary text-sm px-3 py-1.5 rounded-md border border-border-primary focus:border-accent outline-none"
           >
-            <option value="compact">Compact</option>
-            <option value="default">Default</option>
-            <option value="spacious">Spacious</option>
+            <option value="compact">{t("settings.general.emailDensityCompact")}</option>
+            <option value="default">{t("settings.general.emailDensityDefault")}</option>
+            <option value="spacious">{t("settings.general.emailDensitySpaciuos")}</option>
           </select>
         </SettingRow>
-        <SettingRow label="Font size">
+        <SettingRow label={t("settings.general.fontSize")}>
           <select
             value={fontScale}
             onChange={(e) => {
@@ -246,13 +247,13 @@ export function GeneralTab() {
             }}
             className="w-48 bg-bg-tertiary text-text-primary text-sm px-3 py-1.5 rounded-md border border-border-primary focus:border-accent outline-none"
           >
-            <option value="small">Small</option>
-            <option value="default">Default</option>
-            <option value="large">Large</option>
-            <option value="xlarge">Extra Large</option>
+            <option value="small">{t("settings.general.fontSizeSmall")}</option>
+            <option value="default">{t("settings.general.fontSizeDefault")}</option>
+            <option value="large">{t("settings.general.fontSizeLarge")}</option>
+            <option value="xlarge">{t("settings.general.fontSizeXLarge")}</option>
           </select>
         </SettingRow>
-        <SettingRow label="Accent color">
+        <SettingRow label={t("settings.general.accentColor")}>
           <div className="flex items-center gap-2">
             {COLOR_THEMES.map((t) => {
               const isSelected = colorTheme === t.id;
@@ -281,7 +282,7 @@ export function GeneralTab() {
             })}
           </div>
         </SettingRow>
-        <SettingRow label="Inbox view mode">
+        <SettingRow label={t("settings.general.inboxViewMode")}>
           <select
             value={inboxViewMode}
             onChange={(e) => {
@@ -289,38 +290,38 @@ export function GeneralTab() {
             }}
             className="w-48 bg-bg-tertiary text-text-primary text-sm px-3 py-1.5 rounded-md border border-border-primary focus:border-accent outline-none"
           >
-            <option value="unified">Unified</option>
-            <option value="split">Split (Categories)</option>
+            <option value="unified">{t("settings.general.inboxViewUnified")}</option>
+            <option value="split">{t("settings.general.inboxViewSplit")}</option>
           </select>
         </SettingRow>
-        <SettingRow label="Background style">
+        <SettingRow label={t("settings.general.backgroundStyle")}>
           <select
             value={backgroundMode}
             onChange={(e) => setBackgroundMode(e.target.value as "flat" | "aurora" | "spotlight")}
             className="w-48 bg-bg-tertiary text-text-primary text-sm px-3 py-1.5 rounded-md border border-border-primary focus:border-accent outline-none"
           >
-            <option value="flat">Flat (no animation)</option>
-            <option value="aurora">Aurora (subtle glow)</option>
-            <option value="spotlight">Spotlight (follows cursor)</option>
+            <option value="flat">{t("settings.general.backgroundFlat")}</option>
+            <option value="aurora">{t("settings.general.backgroundAurora")}</option>
+            <option value="spotlight">{t("settings.general.backgroundSpotlight")}</option>
           </select>
         </SettingRow>
       </Section>
 
       <SidebarNavEditor />
 
-      <Section title="Startup">
+      <Section title={t("settings.general.sections.startup")}>
         <ToggleRow
-          label="Launch at login"
-          description="Start Melo automatically when you log in (minimized to tray)"
+          label={t("settings.general.launchAtLogin")}
+          description={t("settings.general.launchAtLoginDesc")}
           checked={autostartEnabled}
           onToggle={handleAutostartToggle}
         />
       </Section>
 
-      <Section title="Mail sync">
+      <Section title={t("settings.general.sections.mailSync")}>
         <ToggleRow
-          label="IMAP push (IDLE)"
-          description="Use a persistent connection per IMAP folder so new mail arrives in seconds instead of waiting for the next poll. Falls back to polling when the server does not support IDLE."
+          label={t("settings.general.imapPush")}
+          description={t("settings.general.imapPushDesc")}
           checked={idlePushEnabled}
           onToggle={async () => {
             const newVal = !idlePushEnabled;
@@ -337,10 +338,10 @@ export function GeneralTab() {
         />
       </Section>
 
-      <Section title="Privacy & Security">
+      <Section title={t("settings.general.sections.privacySecurity")}>
         <ToggleRow
-          label="Block remote images"
-          description="Hides tracking pixels and remote images until you choose to load them"
+          label={t("settings.general.blockRemoteImages")}
+          description={t("settings.general.blockRemoteImagesDesc")}
           checked={blockRemoteImages}
           onToggle={async () => {
             const newVal = !blockRemoteImages;
@@ -349,8 +350,8 @@ export function GeneralTab() {
           }}
         />
         <ToggleRow
-          label="Phishing link detection"
-          description="Scan message links for phishing indicators and show warnings"
+          label={t("settings.general.phishingDetection")}
+          description={t("settings.general.phishingDetectionDesc")}
           checked={phishingDetectionEnabled}
           onToggle={async () => {
             const newVal = !phishingDetectionEnabled;
@@ -359,7 +360,7 @@ export function GeneralTab() {
           }}
         />
         {phishingDetectionEnabled && (
-          <SettingRow label="Detection sensitivity">
+          <SettingRow label={t("settings.general.detectionSensitivity")}>
             <select
               value={phishingSensitivity}
               onChange={async (e) => {
@@ -369,20 +370,20 @@ export function GeneralTab() {
               }}
               className="w-48 bg-bg-tertiary text-text-primary text-sm px-3 py-1.5 rounded-md border border-border-primary focus:border-accent outline-none"
             >
-              <option value="low">Low (fewer warnings)</option>
-              <option value="default">Default</option>
-              <option value="high">High (more warnings)</option>
+              <option value="low">{t("settings.general.sensitivityLow")}</option>
+              <option value="default">{t("settings.general.sensitivityDefault")}</option>
+              <option value="high">{t("settings.general.sensitivityHigh")}</option>
             </select>
           </SettingRow>
         )}
       </Section>
 
-      <Section title="Storage">
+      <Section title={t("settings.general.sections.storage")}>
         <div className="flex items-center justify-between">
           <div>
-            <span className="text-sm text-text-secondary">Attachment cache</span>
+            <span className="text-sm text-text-secondary">{t("settings.general.attachmentCache")}</span>
             <p className="text-xs text-text-tertiary mt-0.5">
-              {cacheSizeMb !== null ? `${cacheSizeMb} MB used` : "Calculating..."}
+              {cacheSizeMb !== null ? t("settings.general.mbUsed", { size: cacheSizeMb }) : t("settings.general.calculating")}
             </p>
           </div>
           <Button
@@ -402,10 +403,10 @@ export function GeneralTab() {
             disabled={clearingCache}
             className="bg-bg-tertiary text-text-primary border border-border-primary"
           >
-            {clearingCache ? "Clearing..." : "Clear Cache"}
+            {clearingCache ? t("settings.general.clearingCache") : t("settings.general.clearCache")}
           </Button>
         </div>
-        <SettingRow label="Max cache size">
+        <SettingRow label={t("settings.general.maxCacheSize")}>
           <select
             value={cacheMaxMb}
             onChange={async (e) => {
@@ -415,11 +416,11 @@ export function GeneralTab() {
             }}
             className="w-48 bg-bg-tertiary text-text-primary text-sm px-3 py-1.5 rounded-md border border-border-primary focus:border-accent outline-none"
           >
-            <option value="100">100 MB</option>
-            <option value="250">250 MB</option>
-            <option value="500">500 MB</option>
-            <option value="1000">1 GB</option>
-            <option value="2000">2 GB</option>
+            <option value="100">{t("settings.general.cache100mb")}</option>
+            <option value="250">{t("settings.general.cache250mb")}</option>
+            <option value="500">{t("settings.general.cache500mb")}</option>
+            <option value="1000">{t("settings.general.cache1gb")}</option>
+            <option value="2000">{t("settings.general.cache2gb")}</option>
           </select>
         </SettingRow>
       </Section>

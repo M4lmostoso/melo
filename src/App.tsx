@@ -1,5 +1,4 @@
 import { useEffect, useState, useCallback, useRef } from "react";
-import { loadLocale } from "./i18n";
 import { Outlet } from "@tanstack/react-router";
 import { Sidebar } from "./components/layout/Sidebar";
 import { AddAccount } from "./components/accounts/AddAccount";
@@ -360,11 +359,6 @@ export default function App() {
   useEffect(() => {
     async function init() {
       try {
-        // Load locale as early as possible (runs in parallel with migrations)
-        loadLocale("en-US").catch((err) =>
-          console.error("[App] locale load failed:", err),
-        );
-
         try {
           await runMigrations();
         } catch (migErr) {

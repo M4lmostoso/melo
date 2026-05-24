@@ -1,4 +1,5 @@
 import { useParams } from "@tanstack/react-router";
+import { t } from "@/i18n";
 import { navigateToLabel, navigateToSettings } from "@/router/navigate";
 import {
   ArrowLeft,
@@ -44,18 +45,18 @@ type SettingsTab =
   | "about";
 
 const tabs: { id: SettingsTab; label: string; icon: LucideIcon }[] = [
-  { id: "general", label: "General", icon: Settings },
-  { id: "notifications", label: "Notifications", icon: Bell },
-  { id: "composing", label: "Composing", icon: PenLine },
-  { id: "mail-rules", label: "Mail Rules", icon: Filter },
-  { id: "people", label: "People", icon: Users },
-  { id: "accounts", label: "Accounts", icon: UserCircle },
-  { id: "calendar", label: "Calendar", icon: CalendarDays },
-  { id: "shortcuts", label: "Shortcuts", icon: Keyboard },
-  { id: "ai", label: "AI", icon: Sparkles },
-  { id: "intelligence", label: "Intelligence", icon: Brain },
-  { id: "tasks", label: "Tasks", icon: CheckSquare },
-  { id: "about", label: "About", icon: Info },
+  { id: "general", label: t("settings.tabs.general"), icon: Settings },
+  { id: "notifications", label: t("settings.tabs.notifications"), icon: Bell },
+  { id: "composing", label: t("settings.tabs.composing"), icon: PenLine },
+  { id: "mail-rules", label: t("settings.tabs.mailRules"), icon: Filter },
+  { id: "people", label: t("settings.tabs.people"), icon: Users },
+  { id: "accounts", label: t("settings.tabs.accounts"), icon: UserCircle },
+  { id: "calendar", label: t("settings.tabs.calendar"), icon: CalendarDays },
+  { id: "shortcuts", label: t("settings.tabs.shortcuts"), icon: Keyboard },
+  { id: "ai", label: t("settings.tabs.ai"), icon: Sparkles },
+  { id: "intelligence", label: t("settings.tabs.intelligence"), icon: Brain },
+  { id: "tasks", label: t("settings.tabs.tasks"), icon: CheckSquare },
+  { id: "about", label: t("settings.tabs.about"), icon: Info },
 ];
 
 export function SettingsPage() {
@@ -71,11 +72,11 @@ export function SettingsPage() {
         <button
           onClick={() => navigateToLabel("inbox")}
           className="p-1.5 -ml-1 rounded-md text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors"
-          title="Back to Inbox"
+          title={t("settings.backToInbox")}
         >
           <ArrowLeft size={18} />
         </button>
-        <h1 className="text-base font-semibold text-text-primary">Settings</h1>
+        <h1 className="text-base font-semibold text-text-primary">{t("settings.title")}</h1>
       </div>
 
       {/* Body: sidebar nav + content */}

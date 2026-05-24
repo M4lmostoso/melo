@@ -2,6 +2,7 @@ import { useState, useRef, useCallback } from "react";
 import { ChevronDown, Check } from "lucide-react";
 import type { Account } from "@/stores/accountStore";
 import { useClickOutside } from "@/hooks/useClickOutside";
+import { t } from "@/i18n";
 
 interface ComposerAccountSwitcherProps {
   accounts: Account[];
@@ -43,7 +44,7 @@ export function ComposerAccountSwitcher({
         className="flex items-center gap-1 px-2 py-0.5 text-xs text-text-secondary hover:text-text-primary hover:bg-bg-hover rounded transition-colors"
       >
         <span className="truncate max-w-[150px]">
-          {currentAccount?.email ?? "Select account"}
+          {currentAccount?.email ?? t("composer.selectAccount")}
         </span>
         <ChevronDown
           size={12}

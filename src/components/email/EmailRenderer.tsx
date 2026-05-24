@@ -1,5 +1,6 @@
 import { useRef, useCallback, useEffect, useMemo, useState } from "react";
 import { ImageOff } from "lucide-react";
+import { t } from "@/i18n";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { stripRemoteImages, hasBlockedImages } from "@/utils/imageBlocker";
 import { addToAllowlist } from "@/services/db/imageAllowlist";
@@ -305,7 +306,7 @@ export function EmailRenderer({
         sandbox="allow-scripts"
         className={`w-full border-0 ${isDark && !isPlainText ? "rounded-lg ring-1 ring-inset ring-black/10" : ""}`}
         style={{ overflow: "hidden", minHeight: "120px" }}
-        title="Email content"
+        title={t("email.renderer.iframeTitle")}
       />
     </div>
   );

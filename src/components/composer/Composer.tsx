@@ -58,6 +58,7 @@ import {
 import { readFileAsBase64 } from "@/utils/fileUtils";
 import { interpolateVariables } from "@/utils/templateVariables";
 import { sanitizeHtml } from "@/utils/sanitize";
+import { t } from "@/i18n";
 
 const COMPOSER_FONT_MAP: Record<ComposerFontFamily, string> = {
   system: "-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif",
@@ -123,7 +124,7 @@ export function Composer() {
         link: { openOnClick: false },
       }),
       Placeholder.configure({
-        placeholder: "Write your message...",
+        placeholder: t("composer.placeholder"),
       }),
       Image.configure({
         inline: true,
@@ -617,16 +618,16 @@ const getFullHtml = useCallback(() => {
   const isFullpage = viewMode === "fullpage";
   const modeLabel =
     mode === "reply"
-      ? "Reply"
+      ? t("composer.reply")
       : mode === "replyAll"
-        ? "Reply All"
+        ? t("composer.replyAll")
         : mode === "forward"
-          ? "Forward"
-          : "New Message";
+          ? t("composer.forward")
+          : t("composer.newMessage");
   const savedLabel = isSaving
-    ? "Saving..."
+    ? t("composer.saving")
     : lastSavedAt
-      ? "Draft saved"
+      ? t("composer.draftSaved")
       : null;
 
   // Sync native window title with subject
@@ -651,7 +652,7 @@ const getFullHtml = useCallback(() => {
       {isDragging && (
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-accent/10 rounded-lg pointer-events-none">
           <span className="text-sm font-medium text-accent">
-            Drop files to attach
+            {t("composer.dropFiles")}
           </span>
         </div>
       )}
@@ -670,11 +671,11 @@ const getFullHtml = useCallback(() => {
 
       {/* Address fields */}
       <div className="px-3 py-2 space-y-1.5 border-b border-border-secondary shrink-0">
-        <AddressInput label="To" addresses={to} onChange={setTo} />
+        <AddressInput label={t("composer.to")} addresses={to} onChange={setTo} />
         {showCcBcc ? (
           <>
-            <AddressInput label="Cc" addresses={cc} onChange={setCc} />
-            <AddressInput label="Bcc" addresses={bcc} onChange={setBcc} />
+            <AddressInput label={t("composer.cc")} addresses={cc} onChange={setCc} />
+            <AddressInput label={t("composer.bcc")} addresses={bcc} onChange={setBcc} />
           </>
         ) : (
           <div className="flex items-center gap-2 ml-14">
@@ -682,14 +683,14 @@ const getFullHtml = useCallback(() => {
               onClick={() => setShowCcBcc(true)}
               className="text-xs text-accent hover:text-accent-hover"
             >
-              Cc / Bcc
+              {t("composer.ccBcc")}
             </button>
           </div>
         )}
 
         {/* From line with selector */}
         <div className="flex items-center gap-2 pt-0.5">
-          <span className="text-xs text-text-tertiary w-12 shrink-0">From</span>
+          <span className="text-xs text-text-tertiary w-12 shrink-0">{t("composer.from")}</span>
           <div className="flex items-center gap-2">
             <FromSelector
               aliases={aliases}
@@ -715,7 +716,7 @@ const getFullHtml = useCallback(() => {
             type="text"
             value={subject}
             onChange={(e) => setSubject(e.target.value)}
-            placeholder="Subject"
+            placeholder={t("composer.subject")}
             className="flex-1 bg-transparent text-sm text-text-primary outline-none placeholder:text-text-tertiary"
           />
         </div>
@@ -783,12 +784,12 @@ const getFullHtml = useCallback(() => {
             onClick={handleDiscard}
             disabled={isSending}
           >
-            Discard
+            {t("composer.discard")}
           </Button>
           <div className="flex flex-col items-end gap-1">
             {pendingScheduledAt && (
               <span className="text-[10px] text-text-tertiary">
-                Scheduled for{" "}
+                {t("composer.scheduledFor")}{" "}
                 {new Date(pendingScheduledAt * 1000).toLocaleString(undefined, {
                   weekday: "short",
                   month: "short",
@@ -804,13 +805,13 @@ const getFullHtml = useCallback(() => {
                 disabled={to.length === 0 || isSending}
                 className="px-4 py-1.5 text-xs font-medium text-white bg-accent hover:bg-accent-hover rounded-l-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isSending ? "Sending..." : pendingScheduledAt ? "Schedule" : "Send"}
+                {isSending ? t("composer.sending") : pendingScheduledAt ? t("composer.scheduleSend.submitLabel") : t("composer.send")}
               </button>
               <button
                 onClick={pendingScheduledAt ? () => setPendingScheduledAt(null) : () => setShowSchedule(true)}
                 disabled={to.length === 0 || isSending}
                 className="px-2 py-1.5 text-white bg-accent hover:bg-accent-hover border-l border-white/20 rounded-r-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                title={pendingScheduledAt ? "Cancel scheduled send" : "Schedule send"}
+                title={pendingScheduledAt ? t("composer.cancelScheduledSend") : t("composer.scheduleSend.title")}
               >
                 {pendingScheduledAt ? <X size={12} /> : <Clock size={12} />}
               </button>

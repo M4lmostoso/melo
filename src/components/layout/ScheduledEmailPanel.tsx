@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { t } from "@/i18n";
 import { X, Clock, Edit2, Trash2, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { DateTimePickerDialog } from "@/components/ui/DateTimePickerDialog";
@@ -34,7 +35,7 @@ function getSchedulePresets() {
 
   return [
     {
-      label: "Tomorrow morning",
+      label: t("layout.scheduledPanel.tomorrowMorning"),
       detail:
         tomorrowMorning.toLocaleDateString(undefined, {
           weekday: "short",
@@ -44,7 +45,7 @@ function getSchedulePresets() {
       timestamp: Math.floor(tomorrowMorning.getTime() / 1000),
     },
     {
-      label: "Tomorrow afternoon",
+      label: t("layout.scheduledPanel.tomorrowAfternoon"),
       detail:
         tomorrowAfternoon.toLocaleDateString(undefined, {
           weekday: "short",
@@ -54,7 +55,7 @@ function getSchedulePresets() {
       timestamp: Math.floor(tomorrowAfternoon.getTime() / 1000),
     },
     {
-      label: "Monday morning",
+      label: t("layout.scheduledPanel.mondayMorning"),
       detail:
         monday.toLocaleDateString(undefined, {
           weekday: "short",
@@ -146,7 +147,7 @@ export function ScheduledEmailPanel({
         <div className="flex items-center justify-between px-5 py-4 border-b border-border-primary shrink-0">
           <div className="flex items-center gap-2.5">
             <Clock size={16} className="text-accent shrink-0" />
-            <span className="text-sm font-semibold text-text-primary">Scheduled email</span>
+            <span className="text-sm font-semibold text-text-primary">{/* TODO: add i18n key */}Scheduled email</span>
           </div>
           <button
             onClick={onClose}
@@ -203,7 +204,7 @@ export function ScheduledEmailPanel({
             onClick={() => onEdit(email)}
             className="flex-1"
           >
-            Edit
+            {/* TODO: add i18n key */}Edit
           </Button>
           <Button
             variant="secondary"
@@ -212,7 +213,7 @@ export function ScheduledEmailPanel({
             onClick={() => setShowRescheduler(true)}
             className="flex-1"
           >
-            Reschedule
+            {t("layout.scheduledPanel.editSchedule")}
           </Button>
           <Button
             variant="secondary"
@@ -222,7 +223,7 @@ export function ScheduledEmailPanel({
             disabled={cancelling}
             className="text-danger border-danger/30 hover:bg-danger/10"
           >
-            {cancelling ? "Cancelling…" : "Cancel send"}
+            {cancelling ? "{/* TODO: add i18n key */}Cancelling…" : t("layout.scheduledPanel.cancelSchedule")}
           </Button>
         </div>
       </div>

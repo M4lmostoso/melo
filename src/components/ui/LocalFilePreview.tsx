@@ -4,6 +4,7 @@ import { save } from "@tauri-apps/plugin-dialog";
 import { writeFile } from "@tauri-apps/plugin-fs";
 import { Modal } from "./Modal";
 import { isImage, isPdf, isText, canPreview, getFileIcon, formatFileSize } from "@/utils/fileTypeHelpers";
+import { t } from "@/i18n";
 
 interface LocalFilePreviewProps {
   file: File;
@@ -119,7 +120,7 @@ function TextPreview({ url }: { url: string }) {
   }, [url]);
   return (
     <pre className="text-xs text-text-primary whitespace-pre-wrap break-words max-h-[70vh] overflow-auto w-full">
-      {text ?? "Loading..."}
+      {text ?? t("common.loading")}
     </pre>
   );
 }

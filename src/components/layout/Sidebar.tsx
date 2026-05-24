@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback, useMemo, Fragment } from "react";
+import { t } from "@/i18n";
 import { useDroppable } from "@dnd-kit/core";
 import { AccountSwitcher } from "../accounts/AccountSwitcher";
 import { LabelForm } from "../labels/LabelForm";
@@ -58,28 +59,28 @@ interface SidebarProps {
 
 export const ALL_NAV_ITEMS: { id: string; label: string; icon: LucideIcon }[] =
   [
-    { id: "inbox", label: "Inbox", icon: Inbox },
-    { id: "starred", label: "Starred", icon: Star },
-    { id: "snoozed", label: "Snoozed", icon: Clock },
-    { id: "sent", label: "Sent", icon: Send },
-    { id: "scheduled", label: "Scheduled", icon: ClockArrowUp },
-    { id: "drafts", label: "Drafts", icon: FileEdit },
-    { id: "trash", label: "Trash", icon: Trash2 },
-    { id: "spam", label: "Spam", icon: Ban },
-    { id: "all", label: "All Mail", icon: Mail },
-    { id: "tasks", label: "Tasks", icon: CheckSquare },
-    { id: "calendar", label: "Calendar", icon: Calendar },
-    { id: "attachments", label: "Attachments", icon: Paperclip },
-    { id: "smart-folders", label: "Smart Folders", icon: FolderSearch },
-    { id: "labels", label: "Labels", icon: Tag },
+    { id: "inbox", label: t("sidebar.nav.inbox"), icon: Inbox },
+    { id: "starred", label: t("sidebar.nav.starred"), icon: Star },
+    { id: "snoozed", label: t("sidebar.nav.snoozed"), icon: Clock },
+    { id: "sent", label: t("sidebar.nav.sent"), icon: Send },
+    { id: "scheduled", label: t("sidebar.nav.scheduled"), icon: ClockArrowUp },
+    { id: "drafts", label: t("sidebar.nav.drafts"), icon: FileEdit },
+    { id: "trash", label: t("sidebar.nav.trash"), icon: Trash2 },
+    { id: "spam", label: t("sidebar.nav.spam"), icon: Ban },
+    { id: "all", label: t("sidebar.nav.allMail"), icon: Mail },
+    { id: "tasks", label: t("sidebar.nav.tasks"), icon: CheckSquare },
+    { id: "calendar", label: t("sidebar.nav.calendar"), icon: Calendar },
+    { id: "attachments", label: t("sidebar.nav.attachments"), icon: Paperclip },
+    { id: "smart-folders", label: t("sidebar.smartFolders"), icon: FolderSearch },
+    { id: "labels", label: t("sidebar.labels"), icon: Tag },
   ];
 
 const CATEGORY_ITEMS: { id: string; label: string; icon: LucideIcon }[] = [
-  { id: "Primary", label: "Primary", icon: Inbox },
-  { id: "Updates", label: "Updates", icon: Bell },
-  { id: "Promotions", label: "Promotions", icon: Tag },
-  { id: "Social", label: "Social", icon: Users },
-  { id: "Newsletters", label: "Newsletters", icon: Newspaper },
+  { id: "Primary", label: t("sidebar.categories.primary"), icon: Inbox },
+  { id: "Updates", label: t("sidebar.categories.updates"), icon: Bell },
+  { id: "Promotions", label: t("sidebar.categories.promotions"), icon: Tag },
+  { id: "Social", label: t("sidebar.categories.social"), icon: Users },
+  { id: "Newsletters", label: t("sidebar.categories.newsletters"), icon: Newspaper },
 ];
 
 function DroppableNavItem({
@@ -184,7 +185,7 @@ function ExpandableNavItem({
       <button
         onClick={onToggleExpand}
         className="py-2 pr-3 pl-1 text-sidebar-text/40 hover:text-sidebar-text transition-colors shrink-0"
-        title={expanded ? "Collapse accounts" : "Expand accounts"}
+        title={expanded ? t("sidebar.collapseAccounts") : t("sidebar.expandAccounts")}
       >
         {expanded ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
       </button>
@@ -271,7 +272,7 @@ function DroppableLabelItem({
               }
             }}
             className="opacity-0 group-hover:opacity-100 p-0.5 text-sidebar-text/40 hover:text-sidebar-text transition-opacity shrink-0"
-            title="Edit label"
+            title={t("sidebar.editLabel")}
           >
             <Pencil size={12} />
           </span>
@@ -306,17 +307,17 @@ const FOLDER_UNREAD_KEY: Record<string, string> = {
 };
 
 const GLOBAL_FOLDER_ITEMS: { id: string; label: string; icon: LucideIcon }[] = [
-  { id: "starred",     label: "Starred",     icon: Star },
-  { id: "snoozed",     label: "Snoozed",     icon: Clock },
-  { id: "sent",        label: "Sent",        icon: Send },
-  { id: "scheduled",   label: "Scheduled",   icon: ClockArrowUp },
-  { id: "drafts",      label: "Drafts",      icon: FileEdit },
-  { id: "trash",       label: "Trash",       icon: Trash2 },
-  { id: "spam",        label: "Spam",        icon: Ban },
-  { id: "all",         label: "All Mail",    icon: Mail },
-  { id: "tasks",       label: "Tasks",       icon: CheckSquare },
-  { id: "calendar",    label: "Calendar",    icon: Calendar },
-  { id: "attachments", label: "Attachments", icon: Paperclip },
+  { id: "starred",     label: t("sidebar.nav.starred"),     icon: Star },
+  { id: "snoozed",     label: t("sidebar.nav.snoozed"),     icon: Clock },
+  { id: "sent",        label: t("sidebar.nav.sent"),        icon: Send },
+  { id: "scheduled",   label: t("sidebar.nav.scheduled"),   icon: ClockArrowUp },
+  { id: "drafts",      label: t("sidebar.nav.drafts"),      icon: FileEdit },
+  { id: "trash",       label: t("sidebar.nav.trash"),       icon: Trash2 },
+  { id: "spam",        label: t("sidebar.nav.spam"),        icon: Ban },
+  { id: "all",         label: t("sidebar.nav.allMail"),     icon: Mail },
+  { id: "tasks",       label: t("sidebar.nav.tasks"),       icon: CheckSquare },
+  { id: "calendar",    label: t("sidebar.nav.calendar"),    icon: Calendar },
+  { id: "attachments", label: t("sidebar.nav.attachments"), icon: Paperclip },
 ];
 
 export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
@@ -669,7 +670,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
             {!collapsed && (
               <div className="px-3 pt-2 pb-1">
                 <span className="text-xs font-medium text-sidebar-text/50 uppercase tracking-wider">
-                  Global
+                  {t("sidebar.global")}
                 </span>
               </div>
             )}
@@ -688,7 +689,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
               <Inbox size={18} className="shrink-0" />
               {!collapsed && (
                 <>
-                  <span className="flex-1 truncate">Inbox</span>
+                  <span className="flex-1 truncate">{t("sidebar.nav.inbox")}</span>
                   {(() => {
                     const total = globalAccounts.reduce(
                       (sum, a) => sum + (globalUnreadCounts[a.id]?.["INBOX"] ?? 0),
@@ -863,7 +864,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                         <Rocket size={18} className="shrink-0 text-amber-500" />
                         {!collapsed && (
                           <>
-                            <span className="flex-1 truncate">Outgoing</span>
+                            <span className="flex-1 truncate">{/* TODO: add i18n key */}Outgoing</span>
                             <span className="text-[0.625rem] bg-amber-500/15 text-amber-500 px-1.5 min-w-[1.25rem] h-[1.125rem] rounded-full inline-flex items-center justify-center tabular-nums">
                               {outgoingTotal}
                             </span>
@@ -911,7 +912,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
             {showSmartFolders && smartFolders.length > 0 && !collapsed && (
               <div className="mx-3 mt-2 mb-1 flex items-center gap-2">
                 <div className="flex-1 border-t border-border-primary/50" />
-                <span className="text-[0.65rem] font-medium text-sidebar-text/40 uppercase tracking-wider">Smart Folders</span>
+                <span className="text-[0.65rem] font-medium text-sidebar-text/40 uppercase tracking-wider">{t("sidebar.smartFolders")}</span>
                 <div className="flex-1 border-t border-border-primary/50" />
               </div>
             )}
@@ -1001,7 +1002,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
             {!collapsed && (
               <div className="px-3 pt-1 pb-1">
                 <span className="text-xs font-medium text-sidebar-text/50 uppercase tracking-wider">
-                  Accounts
+                  {t("sidebar.accounts")}
                 </span>
               </div>
             )}
@@ -1103,8 +1104,8 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                         }}
                         title={
                           inboxViewMode === "split"
-                            ? "Switch to unified inbox"
-                            : "Switch to split inbox"
+                            ? t("sidebar.switchToUnifiedInbox")
+                            : t("sidebar.switchToSplitInbox")
                         }
                         className={`p-1 rounded transition-colors ${inboxViewMode === "split"
                           ? "text-accent hover:bg-accent/10"
@@ -1157,12 +1158,12 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
             {!collapsed && (
               <div className="flex items-center justify-between px-3 pt-4 pb-1">
                 <span className="text-xs font-medium text-sidebar-text/60 uppercase tracking-wider">
-                  Smart Folders
+                  {t("sidebar.smartFolders")}
                 </span>
                 <button
                   onClick={handleAddSmartFolder}
                   className="p-0.5 text-sidebar-text/40 hover:text-sidebar-text transition-colors"
-                  title="Add smart folder"
+                  title={t("sidebar.addSmartFolder")}
                 >
                   <Plus size={14} />
                 </button>
@@ -1209,13 +1210,13 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
           <>
             <div className="flex items-center justify-between px-3 pt-4 pb-1">
               <span className="text-xs font-medium text-sidebar-text/60 uppercase tracking-wider">
-                Labels
+                {t("sidebar.labels")}
               </span>
               {activeAccountId && (
                 <button
                   onClick={handleAddLabel}
                   className="p-0.5 text-sidebar-text/40 hover:text-sidebar-text transition-colors"
-                  title="Add label"
+                  title={t("sidebar.addLabel")}
                 >
                   <Plus size={14} />
                 </button>
@@ -1348,12 +1349,12 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                     {labelsExpanded ? (
                       <>
                         <ChevronUp size={12} />
-                        <span>Show less</span>
+                        <span>{t("sidebar.showLess")}</span>
                       </>
                     ) : (
                       <>
                         <ChevronDown size={12} />
-                        <span>{labels.length - LABELS_COLLAPSED_COUNT} more</span>
+                        <span>{t("sidebar.moreLabels", { count: labels.length - LABELS_COLLAPSED_COUNT })}</span>
                       </>
                     )}
                   </button>
@@ -1386,10 +1387,10 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
               ? "bg-accent/10 text-accent font-medium"
               : "text-sidebar-text hover:bg-sidebar-hover"
             }`}
-          title="Settings"
+          title={t("sidebar.settings")}
         >
           <Settings size={18} className="shrink-0" />
-          {!collapsed && <span>Settings</span>}
+          {!collapsed && <span>{t("sidebar.settings")}</span>}
         </button>
         <button
           onClick={() => navigateToLabel("help")}
@@ -1398,14 +1399,14 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
               ? "bg-accent/10 text-accent font-medium"
               : "text-sidebar-text hover:bg-sidebar-hover"
             }`}
-          title="Help"
+          title={t("sidebar.help")}
         >
           <HelpCircle size={18} className="shrink-0" />
         </button>
         <button
           onClick={toggleSidebar}
           className="p-2 text-sidebar-text/60 hover:text-sidebar-text hover:bg-sidebar-hover rounded-md transition-colors"
-          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+          title={collapsed ? t("sidebar.expandSidebar") : t("sidebar.collapseSidebar")}
         >
           {collapsed ? (
             <PanelLeftOpen size={16} />
@@ -1456,8 +1457,9 @@ function PendingOpsIndicator({ collapsed }: { collapsed: boolean }) {
         </div>
       ) : (
         <div className="text-xs text-text-secondary">
-          {pendingOpsCount} pending{" "}
-          {pendingOpsCount === 1 ? "change" : "changes"}
+          {pendingOpsCount === 1
+            ? t("sidebar.pendingChange", { count: pendingOpsCount })
+            : t("sidebar.pendingChanges", { count: pendingOpsCount })}
         </div>
       )}
     </div>

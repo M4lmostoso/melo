@@ -3,6 +3,7 @@ import type { Editor } from "@tiptap/react";
 import { InputDialog } from "@/components/ui/InputDialog";
 import { Sparkles, Type } from "lucide-react";
 import "@/components/composer/tiptapExtensions";
+import { t } from "@/i18n";
 
 interface EditorToolbarProps {
   editor: Editor | null;
@@ -173,6 +174,7 @@ export function EditorToolbar({ editor, onToggleAiAssist, aiAssistOpen, classNam
               }}
               className="w-full text-[11px] text-text-tertiary hover:text-text-primary text-center py-0.5 border-t border-border-secondary pt-1.5"
             >
+              {/* TODO: add i18n key */}
               Rimuovi colore
             </button>
           </div>
@@ -217,7 +219,7 @@ export function EditorToolbar({ editor, onToggleAiAssist, aiAssistOpen, classNam
         <button
           type="button"
           onClick={onToggleAiAssist}
-          title="AI Assist"
+          title={t("composer.aiAssist.title")}
           className={`px-1.5 py-1 text-xs rounded hover:bg-bg-hover transition-colors flex items-center gap-1 ${
             aiAssistOpen ? "bg-accent/10 text-accent font-semibold" : "text-text-secondary"
           }`}

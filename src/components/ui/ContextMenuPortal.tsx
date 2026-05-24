@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu";
 import { useContextMenuStore } from "@/stores/contextMenuStore";
+import { t } from "@/i18n";
 import { useThreadStore } from "@/stores/threadStore";
 import { useAccountStore } from "@/stores/accountStore";
 import { getActiveLabel } from "@/router/navigate";
@@ -459,7 +460,7 @@ function ThreadMenu({
   const items: ContextMenuItem[] = [
     {
       id: "reply",
-      label: "Reply",
+      label: t("contextMenu.reply"),
       icon: Reply,
       shortcut: "r",
       disabled: isMulti,
@@ -467,7 +468,7 @@ function ThreadMenu({
     },
     {
       id: "reply-all",
-      label: "Reply All",
+      label: t("contextMenu.replyAll"),
       icon: ReplyAll,
       shortcut: "a",
       disabled: isMulti,
@@ -475,7 +476,7 @@ function ThreadMenu({
     },
     {
       id: "forward",
-      label: "Forward",
+      label: t("contextMenu.forward"),
       icon: Forward,
       shortcut: "f",
       disabled: isMulti,
@@ -484,14 +485,14 @@ function ThreadMenu({
     { id: "sep-1", label: "", separator: true },
     {
       id: "archive",
-      label: "Archive",
+      label: t("contextMenu.archive"),
       icon: Archive,
       shortcut: "e",
       action: handleArchive,
     },
     {
       id: "delete",
-      label: isTrashView ? "Delete Permanently" : "Delete Thread",
+      label: isTrashView ? "Delete Permanently" : "Delete Thread", // TODO: add i18n key
       icon: Trash2,
       shortcut: "#",
       danger: isTrashView,
@@ -499,13 +500,13 @@ function ThreadMenu({
     },
     {
       id: "toggle-read",
-      label: isRead ? "Mark as Unread" : "Mark as Read",
+      label: isRead ? t("contextMenu.markUnread") : t("contextMenu.markRead"),
       icon: isRead ? Mail : MailOpen,
       action: handleToggleRead,
     },
     {
       id: "toggle-star",
-      label: isStarred ? "Unstar" : "Star",
+      label: isStarred ? t("contextMenu.unstar") : t("contextMenu.star"),
       icon: Star,
       shortcut: "s",
       action: handleToggleStar,
@@ -513,21 +514,21 @@ function ThreadMenu({
     { id: "sep-2", label: "", separator: true },
     {
       id: "snooze",
-      label: "Snooze...",
+      label: t("contextMenu.snooze"),
       icon: Clock,
       shortcut: "h",
       action: handleSnooze,
     },
     {
       id: "toggle-pin",
-      label: isPinned ? "Unpin" : "Pin",
+      label: isPinned ? t("contextMenu.unpin") : t("contextMenu.pin"),
       icon: Pin,
       shortcut: "p",
       action: handleTogglePin,
     },
     {
       id: "toggle-mute",
-      label: isMuted ? "Unmute" : "Mute",
+      label: isMuted ? t("contextMenu.unmute") : t("contextMenu.mute"),
       icon: VolumeX,
       shortcut: "m",
       action: handleToggleMute,
@@ -562,7 +563,7 @@ function ThreadMenu({
       : []),
     {
       id: "move-to-folder",
-      label: "Move to Folder",
+      label: t("contextMenu.moveToFolder"),
       icon: FolderInput,
       shortcut: "v",
       action: () => {
@@ -761,21 +762,21 @@ function MessageMenu({
   const items: ContextMenuItem[] = [
     {
       id: "reply",
-      label: "Reply",
+      label: t("contextMenu.reply"),
       icon: Reply,
       shortcut: "r",
       action: handleReply,
     },
     {
       id: "reply-all",
-      label: "Reply All",
+      label: t("contextMenu.replyAll"),
       icon: ReplyAll,
       shortcut: "a",
       action: handleReplyAll,
     },
     {
       id: "forward",
-      label: "Forward",
+      label: t("contextMenu.forward"),
       icon: Forward,
       shortcut: "f",
       action: handleForward,
@@ -783,7 +784,7 @@ function MessageMenu({
     { id: "sep-1", label: "", separator: true },
     {
       id: "copy-text",
-      label: "Copy Message Text",
+      label: "Copy Message Text", // TODO: add i18n key
       icon: Copy,
       action: handleCopy,
     },
@@ -792,7 +793,7 @@ function MessageMenu({
           { id: "sep-2", label: "", separator: true },
           {
             id: "view-source",
-            label: "View Source",
+            label: t("contextMenu.viewSource"),
             icon: Code,
             action: () => {
               window.dispatchEvent(
@@ -807,7 +808,7 @@ function MessageMenu({
     { id: "sep-delete", label: "", separator: true },
     {
       id: "delete-message",
-      label: isTrashView ? "Delete Permanently" : "Delete Message",
+      label: isTrashView ? "Delete Permanently" : "Delete Message", // TODO: add i18n key
       icon: Trash,
       shortcut: "d",
       danger: isTrashView,

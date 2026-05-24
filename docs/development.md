@@ -93,6 +93,46 @@ For non-Gmail providers (Outlook, Yahoo, iCloud, Fastmail, etc.):
 
 > No Google Cloud project or Client ID needed. Passwords are encrypted with AES-256-GCM in the local database. Some providers (e.g., Gmail, Yahoo) require an app-specific password instead of your main password.
 
+## Internationalization (i18n)
+
+All user-visible strings are stored in `public/locale/en-US.json` and accessed via the `t()` helper in `src/i18n.ts`. The locale is bundled at build time (Vite static import), so `t()` is synchronous with no async loading step.
+
+### Adding or changing UI strings
+
+1. **Add the key** to `public/locale/en-US.json` under the appropriate nested section:
+   ```json
+   "myComponent": {
+     "myLabel": "My Label",
+     "myPlaceholder": "Type something...",
+     "countMessage": "{count} item found"
+   }
+   ```
+
+2. **Use `t()` in the component:**
+   ```ts
+   import { t } from "@/i18n";
+
+   // Simple lookup
+   t("myComponent.myLabel")                       // → "My Label"
+
+   // With interpolation
+   t("myComponent.countMessage", { count: 3 })    // → "3 items found"
+   ```
+
+3. **If other locale files exist** (e.g., `public/locale/it-IT.json`), add the key there too. Missing keys fall back to the last segment of the key path.
+
+### Key naming conventions
+
+- Use camelCase for keys: `myComponent.buttonLabel`
+- Group by component/feature at the top level: `sidebar`, `composer`, `settings`, `email`, `tasks`, `calendar`, `attachments`, `help`, `search`, `ui`, `common`
+- Settings subtabs go under `settings.*`: `settings.ai.*`, `settings.general.*`, etc.
+- For plural forms, use separate keys: `messageCount` / `messageCountPlural`
+- For parameterized strings, use `{name}` placeholders: `"Found {count} results"`
+
+### Rule
+
+**Any PR that changes, adds, or removes user-visible UI text must also update `public/locale/en-US.json`** and any other locale files present in `public/locale/`.
+
 ## AI Setup (Optional)
 
 To enable AI features, add your API key for one or more providers in Settings:

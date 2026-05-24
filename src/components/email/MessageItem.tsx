@@ -11,6 +11,7 @@ import { AuthBadge } from "./AuthBadge";
 import { AuthWarningBanner } from "./AuthWarningBanner";
 import { isCalendarInvite } from "@/utils/fileTypeHelpers";
 import { useAccountStore } from "@/stores/accountStore";
+import { t } from "@/i18n";
 
 // ---------------------------------------------------------------------------
 // Module-level semaphore — caps concurrent Gmail CID fetches.
@@ -232,7 +233,7 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
     return cids;
   }, [message.body_html]);
 
-  const fromDisplay = message.from_name ?? message.from_address ?? "Unknown";
+  const fromDisplay = message.from_name ?? message.from_address ?? t("messageItem.unknown");
 
   return (
     <div ref={ref} className={`border-b border-border-secondary last:border-b-0 ${isSpam ? "bg-red-500/8 dark:bg-red-500/10" : ""} ${focused ? "ring-2 ring-inset ring-accent/50" : ""}`} onContextMenu={onContextMenu}>
@@ -265,7 +266,7 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
         {expanded && (
           <div className="mt-1 text-xs text-text-tertiary">
             {message.to_addresses && (
-              <span>To: {message.to_addresses}</span>
+              <span>{t("messageItem.to")} {message.to_addresses}</span>
             )}
           </div>
         )}
@@ -315,7 +316,7 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
               cidFailed={cidFailed}
             />
           ) : (
-            <div className="py-8 text-center text-text-tertiary text-sm">Loading...</div>
+            <div className="py-8 text-center text-text-tertiary text-sm">{t("messageItem.loading")}</div>
           )}
 
           <InlineAttachmentPreview
@@ -411,10 +412,10 @@ function UnsubscribeLink({
       }`}
     >
       <MailMinus size={12} />
-      {status === "loading" && "Unsubscribing..."}
-      {status === "done" && "Unsubscribed"}
-      {status === "failed" && "Unsubscribe failed — click to retry"}
-      {status === "idle" && "Unsubscribe"}
+      {status === "loading" && t("messageItem.unsubscribing")}
+      {status === "done" && t("messageItem.unsubscribed")}
+      {status === "failed" && t("messageItem.unsubscribeFailed")}
+      {status === "idle" && t("messageItem.unsubscribe")}
     </button>
   );
 }

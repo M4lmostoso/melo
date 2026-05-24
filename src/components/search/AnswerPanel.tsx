@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { CSSTransition } from "react-transition-group";
 import { Sparkles } from "lucide-react";
+import { t } from "@/i18n";
 import {
   isQuestionQuery,
   getSearchAnswer,
@@ -162,7 +163,7 @@ export function AnswerPanel({
       <div ref={panelRef} className="mx-4 my-2 p-3 rounded-lg bg-accent/5 border border-accent/20">
         <div className="flex items-center gap-2 mb-2">
           <Sparkles size={14} className="text-accent" />
-          <span className="text-xs font-medium text-accent flex-1">AI Answer</span>
+          <span className="text-xs font-medium text-accent flex-1">{t("ai.answerPanel.title")}</span>
         </div>
 
         {loading && !result && (
@@ -181,7 +182,7 @@ export function AnswerPanel({
             {result.citations.length > 0 && (
               <div className="mt-3 pt-3 border-t border-accent/10">
                 <span className="text-[0.65rem] font-semibold text-accent uppercase tracking-wider mb-2 block">
-                  Sources
+                  {t("ai.answerPanel.sources")}
                 </span>
                 <div className="flex flex-wrap gap-1.5">
                   {result.citations.map((c) => (

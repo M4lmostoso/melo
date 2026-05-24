@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import { Mail, ExternalLink, CheckCircle2, ChevronDown, ChevronRight, AlertTriangle } from "lucide-react";
+import { t } from "@/i18n";
 import type { DbTask } from "@/services/db/tasks";
 import { TaskItem } from "./TaskItem";
 import { navigateToLabel } from "@/router/navigate";
@@ -60,8 +61,8 @@ export function TaskGroup({
   }, [incompleteTasks, onCompleteAll]);
 
   const displaySubject = isGeneral
-    ? "Attività Generali"
-    : (threadSubject?.trim() || "Thread senza oggetto");
+    ? t("tasks.group.general")
+    : (threadSubject?.trim() || t("tasks.group.noSubject"));
 
   return (
     <div className="rounded-lg border border-border-primary overflow-hidden">
@@ -107,7 +108,7 @@ export function TaskGroup({
         {overdueAlert && (
           <span className="flex items-center gap-0.5 text-[0.6rem] text-red-400 shrink-0 font-semibold uppercase tracking-wide">
             <AlertTriangle size={10} />
-            Overdue
+            {t("tasks.group.overdueBadge")}
           </span>
         )}
 
@@ -121,7 +122,7 @@ export function TaskGroup({
           {!isGeneral && incompleteTasks.length > 0 && onCompleteAll && (
             <button
               onClick={handleCompleteAll}
-              title="Mark all tasks in this thread as complete"
+              title={t("tasks.markAllComplete")}
               className="p-0.5 text-text-tertiary hover:text-success transition-colors"
             >
               <CheckCircle2 size={13} />
@@ -130,7 +131,7 @@ export function TaskGroup({
           {!isGeneral && (
             <button
               onClick={handleOpenThread}
-              title="Open email thread"
+              title={t("tasks.group.openThread")}
               className="p-0.5 text-text-tertiary hover:text-accent transition-colors"
             >
               <ExternalLink size={13} />
