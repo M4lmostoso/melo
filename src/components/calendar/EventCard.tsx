@@ -17,14 +17,35 @@ export function EventCard({ event, compact, onClick, color }: EventCardProps) {
   const accentColor = color ?? "var(--color-accent)";
 
   if (compact) {
+    if (event.is_all_day) {
+      return (
+        <button
+          onClick={onClick}
+          className="w-full text-left text-[0.625rem] px-1 py-0.5 rounded truncate transition-colors hover:opacity-80"
+          style={{ backgroundColor: `${accentColor}1a`, color: accentColor }}
+          title={event.summary ?? t("calendar.eventFallback")}
+        >
+          {event.summary ?? t("calendar.eventFallback")}
+        </button>
+      );
+    }
+
     return (
       <button
         onClick={onClick}
-        className="w-full text-left text-[0.625rem] px-1 py-0.5 rounded line-clamp-2 transition-colors hover:opacity-80"
-        style={{ backgroundColor: `${accentColor}1a`, color: accentColor }}
+        className="w-full text-left text-[0.625rem] px-1 py-0.5 rounded flex items-start gap-1 transition-colors hover:bg-bg-hover group"
         title={event.summary ?? t("calendar.eventFallback")}
       >
-        {event.summary ?? t("calendar.eventFallback")}
+        <span
+          className="w-1.5 h-1.5 rounded-full shrink-0 mt-[0.15rem]"
+          style={{ backgroundColor: accentColor }}
+        />
+        <span className="line-clamp-2 flex-1 text-text-primary">
+          {event.summary ?? t("calendar.eventFallback")}
+        </span>
+        <span className="shrink-0 text-text-tertiary">
+          {startDate.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+        </span>
       </button>
     );
   }

@@ -329,6 +329,7 @@ export function CalendarPage() {
         onToday={handleToday}
         onViewChange={setView}
         onCreateEvent={() => setShowCreate(true)}
+        onDateSelect={setCurrentDate}
         onToggleCalendarList={() => setShowCalendarList((v) => !v)}
         showCalendarListButton={calendars.length > 1}
       />

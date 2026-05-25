@@ -721,15 +721,17 @@
   "composer": {
     "aiAssist": {
       "title": "Assistente AI",
+      "notAvailable": "AI non disponibile. Configura nelle Impostazioni.",
+      "emptyStateWithContent": "Chiedimi di modificare, ampliare o migliorare la tua email",
+      "emptyStateEmpty": "Chiedimi aiuto con la tua email",
+      "insertToEmail": "Inserisci nell'email",
+      "promptPlaceholderModify": "Modifica, aggiungi o amplia...",
       "promptPlaceholderReply": "Istruzioni per la risposta (opzionale)...",
-      "promptPlaceholderCompose": "Descrivi cosa scrivere...",
-      "generateReply": "Genera risposta",
-      "generate": "Genera",
+      "promptPlaceholderCompose": "Chiedi aiuto all'AI...",
       "transform": "Trasforma:",
       "improve": "Migliora",
       "shorter": "Più breve",
-      "formal": "Formale",
-      "generatingLoading": "..."
+      "formal": "Formale"
     },
     "scheduleSend": {
       "title": "Programmazione invio",
@@ -929,15 +931,26 @@
     "signatureEditor": {
       "title": "Firme",
       "newSignature": "Nuova firma",
-      "name": "Nome",
+      "name": "Nome firma",
       "body": "Corpo",
       "default": "Predefinita",
       "setDefault": "Imposta come predefinita",
       "save": "Salva",
+      "update": "Aggiorna",
       "cancel": "Annulla",
       "delete": "Elimina",
       "noSignatures": "Nessuna firma",
-      "addSignature": "Aggiungi firma"
+      "addSignature": "+ Aggiungi firma",
+      "selectAccount": "Seleziona account",
+      "availableFromOtherAccounts": "Disponibili da altri account",
+      "htmlSource": "Sorgente HTML",
+      "switchToVisual": "Passa all'editor visuale",
+      "editHtmlSource": "Modifica sorgente HTML",
+      "removeFromAccount": "Rimuovi da questo account",
+      "activateForAccount": "Attiva per questo account",
+      "writeSignaturePlaceholder": "Scrivi la tua firma...",
+      "saveFailed": "Salvataggio firma non riuscito. Riavvia l'app e riprova.",
+      "importFailed": "Attivazione firma non riuscita. Riavvia l'app e riprova."
     },
     "templateEditor": {
       "title": "Modelli",
@@ -1514,6 +1527,10 @@
         "title": "Tutto letto",
         "subtitle": "Nessuna email non letta"
       },
+      "emptyStarredRecent": {
+        "title": "Nessuna email con stella questa settimana",
+        "subtitle": "Aggiungi una stella alle email per trovarle qui"
+      },
       "emptyLabel": {
         "title": "Niente qui",
         "subtitle": "Nessuna conversazione con questa etichetta"
@@ -1570,7 +1587,7 @@
     "defaultSmartFolders": {
       "sfUnread": "Non lette",
       "sfAttachments": "Con Allegati",
-      "sfStarredRecent": "Preferiti di questa settimana"
+      "sfStarredRecent": "Importanti - questa settimana"
     },
     "addSmartFolder": "Aggiungi cartella smart",
     "addLabel": "Aggiungi etichetta",

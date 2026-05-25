@@ -8,3 +8,5 @@ export { TasksEmptyIllustration } from "./TasksEmptyIllustration";
 export { SnoozedEmptyIllustration } from "./SnoozedEmptyIllustration";
 export { DraftsEmptyIllustration } from "./DraftsEmptyIllustration";
 export { UnreadEmptyIllustration } from "./UnreadEmptyIllustration";
+export { StarredEmptyIllustration } from "./StarredEmptyIllustration";
+export { StarredRecentIllustration } from "./StarredRecentIllustration";

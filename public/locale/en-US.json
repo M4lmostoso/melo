@@ -721,16 +721,18 @@
   },
   "composer": {
     "aiAssist": {
-      "title": "AI Assist",
+      "title": "AI Assistant",
+      "notAvailable": "AI not available. Configure in Settings.",
+      "emptyStateWithContent": "Ask me to modify, extend, or improve your email",
+      "emptyStateEmpty": "Ask me to help with your email",
+      "insertToEmail": "Insert to email",
+      "promptPlaceholderModify": "Modify, add or extend...",
       "promptPlaceholderReply": "Instructions for reply (optional)...",
-      "promptPlaceholderCompose": "Describe what to write...",
-      "generateReply": "Generate Reply",
-      "generate": "Generate",
+      "promptPlaceholderCompose": "Ask AI for help...",
       "transform": "Transform:",
       "improve": "Improve",
       "shorter": "Shorter",
-      "formal": "Formal",
-      "generatingLoading": "..."
+      "formal": "Formal"
     },
     "scheduleSend": {
       "title": "Schedule send",
@@ -930,15 +932,26 @@
     "signatureEditor": {
       "title": "Signatures",
       "newSignature": "New Signature",
-      "name": "Name",
+      "name": "Signature name",
       "body": "Body",
       "default": "Default",
       "setDefault": "Set as default",
       "save": "Save",
+      "update": "Update",
       "cancel": "Cancel",
       "delete": "Delete",
       "noSignatures": "No signatures",
-      "addSignature": "Add Signature"
+      "addSignature": "+ Add signature",
+      "selectAccount": "Select account",
+      "availableFromOtherAccounts": "Available from other accounts",
+      "htmlSource": "HTML source",
+      "switchToVisual": "Switch to visual editor",
+      "editHtmlSource": "Edit HTML source",
+      "removeFromAccount": "Remove from this account",
+      "activateForAccount": "Activate for this account",
+      "writeSignaturePlaceholder": "Write your signature...",
+      "saveFailed": "Failed to save signature. Please restart the app and try again.",
+      "importFailed": "Failed to activate signature. Please restart the app and try again."
     },
     "templateEditor": {
       "title": "Templates",
@@ -1514,6 +1527,10 @@
       "emptyUnread": {
         "title": "All caught up",
         "subtitle": "No unread emails"
+      },
+      "emptyStarredRecent": {
+        "title": "No starred emails this week",
+        "subtitle": "Star emails to find them here"
       },
       "emptyLabel": {
         "title": "Nothing here",

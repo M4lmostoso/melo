@@ -58,21 +58,32 @@ export function MonthView({ currentDate, events, colorMap = {}, onEventClick }: 
       {/* Day cells */}
       <div className="grid grid-cols-7 flex-1 auto-rows-fr overflow-y-auto">
         {cells.map((day, idx) => {
+          const isWeekend = idx % 7 >= 5;
+
           if (day === null) {
-            return <div key={`empty-${idx}`} className="border-b border-r border-border-secondary bg-bg-tertiary/30" />;
+            const outBg = isWeekend
+              ? "bg-black/[0.06] dark:bg-white/[0.09]"
+              : "bg-black/[0.04] dark:bg-white/[0.03]";
+            return <div key={`empty-${idx}`} className={`border-b border-r border-border-secondary ${outBg}`} />;
           }
+
           const isToday = `${year}-${month}-${day}` === todayStr;
           const dayEvents = eventsByDay.get(day) ?? [];
+
+          const cellBg = isToday
+            ? "bg-white/35 dark:bg-black/20"
+            : isWeekend
+              ? "bg-black/[0.05] dark:bg-white/[0.02]"
+              : "";
 
           return (
             <div
               key={day}
-              className="border-b border-r border-border-secondary p-1 min-h-[80px]"
+              className={`border-b border-r border-border-secondary p-1 min-h-[80px] ${cellBg}`}
             >
               <div className="flex justify-end mb-1">
-                <div className={`text-xs font-medium w-6 h-6 flex items-center justify-center rounded-full ${
-                  isToday ? "bg-accent text-white" : "text-text-secondary"
-                }`}>
+                <div className={`text-xs font-medium w-6 h-6 flex items-center justify-center rounded-full ${isToday ? "bg-accent text-white" : "text-text-secondary"
+                  }`}>
                   {day}
                 </div>
               </div>
@@ -82,7 +93,7 @@ export function MonthView({ currentDate, events, colorMap = {}, onEventClick }: 
                     key={event.id}
                     event={event}
                     compact
-                    color={colorMap[event.calendar_id ?? ""] }
+                    color={colorMap[event.calendar_id ?? ""]}
                     onClick={() => onEventClick(event)}
                   />
                 ))}

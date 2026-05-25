@@ -13,53 +13,60 @@ export function UnreadEmptyIllustration({ size = 140, className }: Props) {
       xmlns="http://www.w3.org/2000/svg"
       className={className}
     >
-      {/* Open envelope body */}
+      {/* Outer glow rings */}
+      <circle cx="70" cy="54" r="36" fill="var(--color-accent)" opacity="0.06" />
+      <circle cx="70" cy="54" r="28" fill="var(--color-accent)" opacity="0.10" />
+      {/* Badge circle */}
+      <circle
+        cx="70"
+        cy="54"
+        r="22"
+        fill="var(--color-accent)"
+        opacity="0.18"
+      />
+      <circle
+        cx="70"
+        cy="54"
+        r="22"
+        fill="none"
+        stroke="var(--color-accent)"
+        strokeWidth="1.5"
+        opacity="0.55"
+      />
+      {/* Bold checkmark inside badge */}
+      <path
+        d="M60,54 L67,62 L81,44"
+        stroke="var(--color-accent)"
+        strokeWidth="3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        fill="none"
+      />
+      {/* Closed envelope (secondary, below badge) */}
       <rect
-        x="22"
-        y="58"
-        width="90"
-        height="58"
-        rx="6"
+        x="38"
+        y="88"
+        width="64"
+        height="36"
+        rx="5"
         fill="var(--color-bg-tertiary)"
         stroke="var(--color-border-primary)"
         strokeWidth="1.5"
       />
-      {/* Open flap (lifted) */}
+      {/* Sealed flap */}
       <path
-        d="M22 64 L67 38 L112 64"
-        fill="var(--color-bg-secondary)"
+        d="M38 94 L70 109 L102 94"
         stroke="var(--color-border-primary)"
         strokeWidth="1.5"
-        strokeLinejoin="round"
-      />
-      {/* Letter peeking out */}
-      <rect
-        x="38"
-        y="62"
-        width="58"
-        height="46"
-        rx="3"
-        fill="var(--color-bg-secondary)"
-        stroke="var(--color-border-primary)"
-        strokeWidth="1"
-      />
-      {/* Checkmark on letter */}
-      <path
-        d="M54 83 L63 92 L80 74"
-        stroke="var(--color-accent)"
-        strokeWidth="2.5"
         fill="none"
-        strokeLinecap="round"
         strokeLinejoin="round"
       />
-      {/* Checkmark glow circle */}
-      <circle cx="67" cy="83" r="14" fill="var(--color-accent)" opacity="0.08" />
       {/* Sparkles */}
-      <circle cx="20" cy="46" r="2.5" fill="var(--color-accent)" opacity="0.35" />
-      <circle cx="114" cy="42" r="2" fill="var(--color-accent)" opacity="0.3" />
-      <circle cx="16" cy="68" r="1.5" fill="var(--color-accent)" opacity="0.2" />
-      <circle cx="122" cy="60" r="1.5" fill="var(--color-accent)" opacity="0.18" />
-      <circle cx="108" cy="110" r="2" fill="var(--color-accent)" opacity="0.15" />
+      <circle cx="28" cy="28" r="2.5" fill="var(--color-accent)" opacity="0.35" />
+      <circle cx="108" cy="22" r="2" fill="var(--color-accent)" opacity="0.28" />
+      <circle cx="20" cy="48" r="1.5" fill="var(--color-accent)" opacity="0.22" />
+      <circle cx="118" cy="50" r="1.5" fill="var(--color-accent)" opacity="0.18" />
+      <circle cx="110" cy="108" r="2" fill="var(--color-accent)" opacity="0.15" />
     </svg>
   );
 }

@@ -4,13 +4,14 @@ import { t } from "@/i18n";
 import { SwipeableThreadCard } from "../email/SwipeableThreadCard";
 import { CategoryTabs } from "../email/CategoryTabs";
 import { SearchBar } from "../search/SearchBar";
+import { AnswerPanel } from "../search/AnswerPanel";
 import { EmailListSkeleton } from "../ui/Skeleton";
 import { useThreadStore, type Thread } from "@/stores/threadStore";
 import { useAccountStore } from "@/stores/accountStore";
 import { useUIStore } from "@/stores/uiStore";
 import { useActiveLabel, useSelectedThreadId, useActiveCategory } from "@/hooks/useRouteNavigation";
 import { navigateToThread, navigateToLabel } from "@/router/navigate";
-import { getThreadsForAccount, getThreadsForCategory, getThreadLabelIds, deleteThread as deleteThreadFromDb, getUnifiedInboxThreads, getUnifiedFolderThreads } from "@/services/db/threads";
+import { getThreadsForAccount, getThreadsForCategory, getThreadLabelIds, deleteThread as deleteThreadFromDb, getUnifiedInboxThreads, getUnifiedFolderThreads, getThreadById, getThreadsByIdsBatch, getThreadLabelsByIdsBatch } from "@/services/db/threads";
 import { getCategoriesForThreads, getCategoryUnreadCounts } from "@/services/db/threadCategories";
 import { getActiveFollowUpThreadIds } from "@/services/db/followUpReminders";
 import { getBundleRules, getHeldThreadIds, getBundleSummaries, type DbBundleRule } from "@/services/db/bundleRules";
@@ -34,6 +35,8 @@ import {
   SnoozedEmptyIllustration,
   DraftsEmptyIllustration,
   UnreadEmptyIllustration,
+  StarredEmptyIllustration,
+  StarredRecentIllustration,
 } from "../ui/illustrations";
 
 const PAGE_SIZE = 50;
@@ -61,6 +64,11 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
   const removeThreads = useThreadStore((s) => s.removeThreads);
   const clearMultiSelect = useThreadStore((s) => s.clearMultiSelect);
   const selectAll = useThreadStore((s) => s.selectAll);
+  const selectThread = useThreadStore((s) => s.selectThread);
+  const threadMap = useThreadStore((s) => s.threadMap);
+  const addThreads = useThreadStore((s) => s.addThreads);
+  const setSelectedMessageId = useThreadStore((s) => s.setSelectedMessageId);
+  const mergeSemanticResults = useThreadStore((s) => s.mergeSemanticResults);
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
   const accounts = useAccountStore((s) => s.accounts);
   const globalAccountIds = useMemo(
@@ -269,6 +277,90 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
   }, []);
 
   const clearSearch = useThreadStore((s) => s.clearSearch);
+
+  const handleCitationClick = useCallback(async (threadId: string, messageId?: string) => {
+    if (!activeAccountId) return;
+    if (!threadMap.has(threadId)) {
+      try {
+        const dbThread = await getThreadById(activeAccountId, threadId);
+        if (dbThread) {
+          const labelIds = await getThreadLabelIds(activeAccountId, threadId);
+          const mapped: Thread = {
+            id: dbThread.id,
+            accountId: dbThread.account_id,
+            subject: dbThread.subject,
+            snippet: dbThread.snippet,
+            lastMessageAt: dbThread.last_message_at ?? 0,
+            messageCount: dbThread.message_count,
+            isRead: dbThread.is_read === 1,
+            isStarred: dbThread.is_starred === 1,
+            isPinned: dbThread.is_pinned === 1,
+            isMuted: dbThread.is_muted === 1,
+            hasAttachments: dbThread.has_attachments === 1,
+            labelIds,
+            fromName: dbThread.from_name,
+            fromAddress: dbThread.from_address,
+            allSenders: dbThread.all_senders ?? null,
+            urgencyScore: dbThread.urgency_score ?? 0,
+            sentimentScore: dbThread.sentiment_score ?? 0,
+            isHeatExtinguished: dbThread.is_heat_extinguished === 1,
+          };
+          addThreads([mapped]);
+        }
+      } catch (err) {
+        console.error("Failed to fetch thread for citation click:", err);
+      }
+    }
+    selectThread(threadId);
+    clearMultiSelect();
+    navigateToThread(threadId);
+    if (messageId) {
+      setSelectedMessageId(messageId);
+    }
+  }, [activeAccountId, threadMap, addThreads, selectThread, clearMultiSelect, setSelectedMessageId]);
+
+  const handleSemanticResult = useCallback(async (result: { citations: Array<{ threadId: string; messageId?: string }>; hits: Array<{ account_id: string; thread_id: string }> }) => {
+    const citedThreadIds = new Set(result.citations.map((c) => c.threadId));
+    if (citedThreadIds.size === 0) return;
+    const accountById = new Map(result.hits.map((h) => [h.thread_id, h.account_id]));
+    const seen = new Set<string>();
+    const pairs: Array<{ accountId: string; threadId: string }> = [];
+    for (const threadId of citedThreadIds) {
+      if (seen.has(threadId)) continue;
+      seen.add(threadId);
+      const accountId = accountById.get(threadId);
+      if (accountId) pairs.push({ accountId, threadId });
+    }
+    try {
+      const [dbThreads, labelsByKey] = await Promise.all([
+        getThreadsByIdsBatch(pairs),
+        getThreadLabelsByIdsBatch(pairs),
+      ]);
+      const threads: Thread[] = dbThreads.map((t) => ({
+        id: t.id,
+        accountId: t.account_id,
+        subject: t.subject,
+        snippet: t.snippet,
+        lastMessageAt: t.last_message_at ?? 0,
+        messageCount: t.message_count,
+        isRead: t.is_read === 1,
+        isStarred: t.is_starred === 1,
+        isPinned: t.is_pinned === 1,
+        isMuted: t.is_muted === 1,
+        hasAttachments: t.has_attachments === 1,
+        labelIds: labelsByKey.get(`${t.account_id}:${t.id}`) ?? [],
+        fromName: t.from_name,
+        fromAddress: t.from_address,
+        allSenders: t.all_senders,
+        urgencyScore: t.urgency_score ?? undefined,
+        sentimentScore: t.sentiment_score ?? undefined,
+        isHeatExtinguished: t.is_heat_extinguished === 1,
+      }));
+      mergeSemanticResults(threads);
+    } catch (err) {
+      console.error("Failed to merge semantic search results:", err);
+    }
+  }, [mergeSemanticResults]);
 
   const loadThreads = useCallback(async () => {
     clearSearch();
@@ -611,6 +703,14 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
         <SearchBar />
       </div>
 
+      {/* AI Answer Panel — shown only when search query looks like a question */}
+      <AnswerPanel
+        query={searchQuery}
+        accountId={activeAccountId}
+        onCitationClick={handleCitationClick}
+        onResult={handleSemanticResult}
+      />
+
       {/* Header */}
       <div className="px-4 py-2 border-b border-border-primary flex items-center justify-between">
         <div>
@@ -860,7 +960,7 @@ function EmptyStateForContext({
       }
       return <EmptyState illustration={InboxClearIllustration} title={t("layout.emailList.emptyInbox.title")} subtitle={t("layout.emailList.emptyInbox.subtitle")} />;
     case "starred":
-      return <EmptyState illustration={GenericEmptyIllustration} title={t("layout.emailList.emptyStarred.title")} subtitle={t("layout.emailList.emptyStarred.subtitle")} />;
+      return <EmptyState illustration={StarredEmptyIllustration} title={t("layout.emailList.emptyStarred.title")} subtitle={t("layout.emailList.emptyStarred.subtitle")} />;
     case "snoozed":
       return <EmptyState illustration={SnoozedEmptyIllustration} title={t("layout.emailList.emptySnoozed.title")} subtitle={t("layout.emailList.emptySnoozed.subtitle")} />;
     case "scheduled":
@@ -878,6 +978,9 @@ function EmptyStateForContext({
     default:
       if (activeLabel === "smart-folder:sf-unread") {
         return <EmptyState illustration={UnreadEmptyIllustration} title={t("layout.emailList.emptyUnread.title")} subtitle={t("layout.emailList.emptyUnread.subtitle")} />;
+      }
+      if (activeLabel === "smart-folder:sf-starred-recent") {
+        return <EmptyState illustration={StarredRecentIllustration} title={t("layout.emailList.emptyStarredRecent.title")} subtitle={t("layout.emailList.emptyStarredRecent.subtitle")} />;
       }
       if (activeLabel.startsWith("smart-folder:")) {
         return <EmptyState icon={FolderSearch} title={t("layout.emailList.emptySmartFolder.title")} subtitle={t("layout.emailList.emptySmartFolder.subtitle")} />;
