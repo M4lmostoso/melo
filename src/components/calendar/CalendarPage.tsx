@@ -362,18 +362,6 @@ export function CalendarPage() {
       )}
 
       <div className="flex flex-1 min-h-0 relative">
-        {showCalendarList && calendars.length > 1 && (
-          <CalendarList
-            calendars={calendars}
-            onVisibilityChange={async (calendarId, visible) => {
-              const { setCalendarVisibility } = await import("@/services/db/calendars");
-              await setCalendarVisibility(calendarId, visible);
-              await loadCalendars();
-              loadEvents();
-            }}
-          />
-        )}
-
         <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
           {view === "month" && (
             <MonthView
@@ -401,6 +389,18 @@ export function CalendarPage() {
             />
           )}
         </div>
+
+        {showCalendarList && calendars.length > 1 && (
+          <CalendarList
+            calendars={calendars}
+            onVisibilityChange={async (calendarId, visible) => {
+              const { setCalendarVisibility } = await import("@/services/db/calendars");
+              await setCalendarVisibility(calendarId, visible);
+              await loadCalendars();
+              loadEvents();
+            }}
+          />
+        )}
 
         {loading && events.length === 0 && (
           <div className="absolute bottom-3 left-3 text-[0.625rem] text-text-tertiary pointer-events-none">

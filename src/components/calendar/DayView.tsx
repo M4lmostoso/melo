@@ -262,9 +262,9 @@ export function DayView({
                     </div>
 
                     {/* Events column */}
-                    <div className="flex-1 min-w-0 py-3 pr-3 pl-2 flex flex-col justify-center gap-0.5">
+                    <div className="flex-1 min-w-0 py-3 pr-3 flex flex-col justify-center gap-0.5">
                       {dayEvents.length === 0 ? (
-                        <span className="text-xs text-text-tertiary flex items-center gap-1.5 opacity-40">
+                        <span className="text-xs text-text-tertiary flex items-center gap-1.5 opacity-40 pl-2">
                           <CalendarX2 size={11} />
                           {t("calendar.dayView.noEvents")}
                         </span>
@@ -287,7 +287,7 @@ export function DayView({
                               key={e.id}
                               className="text-xs flex items-center gap-1 min-w-0"
                             >
-                              <span className="text-text-tertiary shrink-0 tabular-nums">
+                              <span className="w-14 shrink-0 text-center text-text-tertiary tabular-nums">
                                 {prefix}
                               </span>
                               <span
@@ -434,7 +434,7 @@ export function DayView({
                       <div className="text-xs font-semibold leading-tight whitespace-nowrap text-text-tertiary">
                         {startLabel}–{endLabel}
                       </div>
-                      <div className="text-xs leading-tight text-white">
+                      <div className="text-xs leading-tight text-text-primary">
                         {e.summary ?? t("calendar.eventFallback")}
                         {e.location && (
                           <span className="opacity-70"> · {e.location}</span>
@@ -445,8 +445,8 @@ export function DayView({
                           onClick={(ev) => { ev.stopPropagation(); openUrl(meetingUrl).catch(() => {}); }}
                           className={`mt-auto self-end mb-1 flex items-center gap-0.5 text-[0.6rem] font-semibold px-1.5 py-0.5 rounded-full transition-all ${
                             isActive
-                              ? "bg-white/90 text-accent animate-pulse shadow-sm"
-                              : "bg-white/20 text-white hover:bg-white/30"
+                              ? "bg-accent/90 text-white animate-pulse shadow-sm"
+                              : "bg-black/10 text-text-primary hover:bg-black/20 dark:bg-white/20 dark:text-white dark:hover:bg-white/30"
                           }`}
                         >
                           <Video size={9} />
@@ -461,7 +461,7 @@ export function DayView({
 
             {isToday && (
               <div
-                className="absolute left-0 right-0 pointer-events-none z-10 flex items-center"
+                className="absolute left-0 right-0 pointer-events-none z-10 flex items-center -translate-y-1/2"
                 style={{ top: `${(nowMinutes / 60) * HOUR_HEIGHT}px` }}
               >
                 <div className="w-24 flex justify-end pr-1.5 shrink-0">

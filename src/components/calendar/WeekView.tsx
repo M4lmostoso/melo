@@ -209,7 +209,7 @@ export function WeekView({ currentDate, events, colorMap = {}, onEventClick }: W
                           <div className="text-[0.625rem] font-semibold leading-tight whitespace-nowrap text-text-tertiary">
                             {startLabel}–{endLabel}
                           </div>
-                          <div className="text-[0.625rem] leading-tight text-white">
+                          <div className="text-[0.625rem] leading-tight text-text-primary">
                             {e.summary ?? t("calendar.eventFallback")}
                           </div>
                           {showJoin && (
@@ -217,8 +217,8 @@ export function WeekView({ currentDate, events, colorMap = {}, onEventClick }: W
                               onClick={(ev) => { ev.stopPropagation(); openUrl(meetingUrl).catch(() => {}); }}
                               className={`mt-auto self-end mb-1 flex items-center gap-0.5 text-[0.55rem] font-semibold px-1 py-0.5 rounded transition-all ${
                                 isActive
-                                  ? "bg-white/90 text-accent animate-pulse shadow-sm"
-                                  : "bg-white/20 text-white hover:bg-white/30"
+                                  ? "bg-accent/90 text-white animate-pulse shadow-sm"
+                                  : "bg-black/10 text-text-primary hover:bg-black/20 dark:bg-white/20 dark:text-white dark:hover:bg-white/30"
                               }`}
                             >
                               <Video size={8} />
@@ -237,7 +237,7 @@ export function WeekView({ currentDate, events, colorMap = {}, onEventClick }: W
           {/* Current time indicator — spans the full width of the time grid */}
           {isCurrentWeek && (
             <div
-              className="absolute left-0 right-0 pointer-events-none z-10 flex items-center"
+              className="absolute left-0 right-0 pointer-events-none z-10 flex items-center -translate-y-1/2"
               style={{ top: `${(nowMinutes / 60) * HOUR_HEIGHT}px` }}
             >
               <div className="w-[90px] flex justify-end pr-1.5 shrink-0">
