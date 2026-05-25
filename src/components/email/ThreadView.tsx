@@ -69,6 +69,8 @@ async function handlePopOut(thread: Thread) {
 
 export function ThreadView({ thread }: ThreadViewProps) {
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
+  // In global/unified view activeAccountId is null; fall back to the thread's own account.
+  const threadAccountId = activeAccountId ?? thread.accountId;
   const contactSidebarVisible = useUIStore((s) => s.contactSidebarVisible);
   const toggleContactSidebar = useUIStore((s) => s.toggleContactSidebar);
   const taskSidebarVisible = useUIStore((s) => s.taskSidebarVisible);
@@ -95,9 +97,8 @@ const updateThread = useThreadStore((s) => s.updateThread);
 
   // Load all messages for the thread immediately.
   useEffect(() => {
-    if (!activeAccountId) return;
     setLoading(true);
-    getMessagesForThread(activeAccountId, thread.id)
+    getMessagesForThread(threadAccountId, thread.id)
       .then((msgs) => {
         setMessages(msgs);
         if (storeSelectedMessageId && msgs.some((m) => m.id === storeSelectedMessageId)) {
@@ -106,42 +107,42 @@ const updateThread = useThreadStore((s) => s.updateThread);
       })
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [activeAccountId, thread.id]);
+  }, [threadAccountId, thread.id]);
 
-// Check per-sender allowlist (single batch query instead of N queries)
-   useEffect(() => {
-     if (!activeAccountId || messages.length === 0) return;
-     let cancelled = false;
+  // Check per-sender allowlist (single batch query instead of N queries)
+  useEffect(() => {
+    if (messages.length === 0) return;
+    let cancelled = false;
 
-     const senders: string[] = [];
-     for (const msg of messages) {
-       if (msg.from_address) senders.push(msg.from_address);
-     }
-     const uniqueSenders = [...new Set(senders)];
+    const senders: string[] = [];
+    for (const msg of messages) {
+      if (msg.from_address) senders.push(msg.from_address);
+    }
+    const uniqueSenders = [...new Set(senders)];
 
-     getAllowlistedSenders(activeAccountId, uniqueSenders).then((allowed) => {
-       if (!cancelled) setAllowlistedSenders(allowed);
-     });
+    getAllowlistedSenders(threadAccountId, uniqueSenders).then((allowed) => {
+      if (!cancelled) setAllowlistedSenders(allowed);
+    });
 
-     return () => { cancelled = true; };
-   }, [activeAccountId, messages]);
+    return () => { cancelled = true; };
+  }, [threadAccountId, messages]);
 
-   // Update selected message when store value changes (e.g., from citation click)
-   useEffect(() => {
-     if (storeSelectedMessageId && messages.some(m => m.id === storeSelectedMessageId)) {
-       setLocalSelectedMessageId(storeSelectedMessageId);
-     }
-   }, [storeSelectedMessageId, messages]);
+  // Update selected message when store value changes (e.g., from citation click)
+  useEffect(() => {
+    if (storeSelectedMessageId && messages.some(m => m.id === storeSelectedMessageId)) {
+      setLocalSelectedMessageId(storeSelectedMessageId);
+    }
+  }, [storeSelectedMessageId, messages]);
 
   // Auto-mark unread threads as read when opened (respects mark-as-read setting)
   const markAsReadBehavior = useUIStore((s) => s.markAsReadBehavior);
   useEffect(() => {
-    if (!activeAccountId || thread.isRead || markedReadRef.current === thread.id) return;
+    if (thread.isRead || markedReadRef.current === thread.id) return;
     if (markAsReadBehavior === "manual") return;
 
     const markRead = () => {
       markedReadRef.current = thread.id;
-      markThreadRead(activeAccountId, thread.id, [], true).catch((err) => {
+      markThreadRead(threadAccountId, thread.id, [], true).catch((err) => {
         console.error("Failed to mark thread as read:", err);
       });
     };
@@ -153,7 +154,7 @@ const updateThread = useThreadStore((s) => s.updateThread);
 
     // instant
     markRead();
-  }, [activeAccountId, thread.id, thread.isRead, updateThread, markAsReadBehavior]);
+  }, [threadAccountId, thread.id, thread.isRead, updateThread, markAsReadBehavior]);
 
   const openComposer = useComposerStore((s) => s.openComposer);
   const openMenu = useContextMenuStore((s) => s.openMenu);
@@ -161,7 +162,7 @@ const updateThread = useThreadStore((s) => s.updateThread);
   const lastMessage = messages[messages.length - 1];
 
   const accounts = useAccountStore((s) => s.accounts);
-  const activeAccount = accounts.find((a) => a.id === activeAccountId);
+  const activeAccount = accounts.find((a) => a.id === threadAccountId);
 
 // Get selected message - either explicitly selected or last message as fallback
   const selectedMessage = messages.find(m => m.id === selectedMessageId) || lastMessage;
@@ -278,7 +279,7 @@ const handlePrint = useCallback(async () => {
 
     let signatureHtml = "";
     try {
-      const sig = await getDefaultSignature(activeAccountId ?? "");
+      const sig = await getDefaultSignature(threadAccountId);
       if (sig) signatureHtml = sig.body_html;
     } catch {
       // ignore
@@ -381,7 +382,7 @@ const handlePrint = useCallback(async () => {
     window.addEventListener("afterprint", cleanup);
     // Increased to 5 minutes so it doesn't destroy the DOM before "Save as PDF" completes
     setTimeout(cleanup, 300000);
-  }, [messages, thread.subject, selectedMessage, lastMessage, activeAccountId]);
+  }, [messages, thread.subject, selectedMessage, lastMessage, threadAccountId]);
 
   // Message-level keyboard navigation (ArrowUp / ArrowDown)
   const [focusedMsgIdx, setFocusedMsgIdx] = useState(-1);
@@ -492,8 +493,8 @@ const handlePrint = useCallback(async () => {
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail as { messageId: string; threadId: string };
-      if (detail.threadId !== thread.id || !activeAccountId) return;
-      getMessagesForThread(activeAccountId, thread.id)
+      if (detail.threadId !== thread.id) return;
+      getMessagesForThread(threadAccountId, thread.id)
         .then((msgs) => {
           setMessages(msgs);
           setSelectedMessageId(null);
@@ -502,7 +503,7 @@ const handlePrint = useCallback(async () => {
     };
     window.addEventListener("velo-message-deleted", handler);
     return () => window.removeEventListener("velo-message-deleted", handler);
-  }, [thread.id, activeAccountId, setSelectedMessageId]);
+  }, [thread.id, threadAccountId, setSelectedMessageId]);
 
   // Listen for "View Source" event from context menu
   useEffect(() => {
@@ -643,13 +644,11 @@ const handlePrint = useCallback(async () => {
         </div>
 
         {/* AI Summary */}
-        {activeAccountId && (
-          <ThreadSummary
-            threadId={thread.id}
-            accountId={activeAccountId}
-            messages={messages}
-          />
-        )}
+        <ThreadSummary
+          threadId={thread.id}
+          accountId={threadAccountId}
+          messages={messages}
+        />
 
         {/* Messages */}
         <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
@@ -687,35 +686,32 @@ const handlePrint = useCallback(async () => {
           </ErrorBoundary>
 
           {/* Smart Reply Suggestions */}
-          {activeAccountId && messages.length > 0 && (
+          {messages.length > 0 && (
             <SmartReplySuggestions
               threadId={thread.id}
-              accountId={activeAccountId}
+              accountId={threadAccountId}
               messages={messages}
               noReply={noReply}
             />
           )}
 
           {/* Inline Reply */}
-          {activeAccountId && (
-            <InlineReply
-              thread={thread}
-              messages={messages}
-              accountId={activeAccountId}
-              noReply={noReply}
-              onSent={() => {
-                // Reload messages after sending
-                getMessagesForThread(activeAccountId, thread.id)
-                  .then(setMessages)
-                  .catch(console.error);
-              }}
-            />
-          )}
+          <InlineReply
+            thread={thread}
+            messages={messages}
+            accountId={threadAccountId}
+            noReply={noReply}
+            onSent={() => {
+              getMessagesForThread(threadAccountId, thread.id)
+                .then(setMessages)
+                .catch(console.error);
+            }}
+          />
         </div>
       </div>
 
       {/* Contact sidebar — overlay at narrow widths, inline at wide */}
-      {contactSidebarVisible && primarySender && activeAccountId && (
+      {contactSidebarVisible && primarySender && (
         <>
           {/* Backdrop for overlay mode (narrow widths) */}
           <div
@@ -726,7 +722,7 @@ const handlePrint = useCallback(async () => {
             <ContactSidebar
               email={primarySender}
               name={primarySenderName}
-              accountId={activeAccountId}
+              accountId={threadAccountId}
               onClose={toggleContactSidebar}
             />
           </div>
@@ -734,7 +730,7 @@ const handlePrint = useCallback(async () => {
       )}
 
       {/* Task sidebar */}
-      {taskSidebarVisible && activeAccountId && (
+      {taskSidebarVisible && (
         <TaskSidebar accountId={thread.accountId} threadId={thread.id} messages={messages} />
       )}
 
@@ -749,10 +745,10 @@ const handlePrint = useCallback(async () => {
       )}
 
       {/* AI Task Extraction Dialog */}
-      {showTaskExtract && activeAccountId && (
+      {showTaskExtract && (
         <AiTaskExtractDialog
           threadId={thread.id}
-          accountId={activeAccountId}
+          accountId={threadAccountId}
           messages={messages}
           onClose={() => setShowTaskExtract(false)}
         />

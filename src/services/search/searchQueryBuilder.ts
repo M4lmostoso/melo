@@ -71,10 +71,10 @@ export function buildSearchQuery(
     paramIdx++;
   }
 
-  // has:attachment
+  // has:attachment — exclude inline CID images (e.g. signature logos)
   if (parsed.hasAttachment) {
     whereClauses.push(
-      `EXISTS (SELECT 1 FROM attachments a WHERE a.account_id = m.account_id AND a.message_id = m.id)`,
+      `EXISTS (SELECT 1 FROM attachments a WHERE a.account_id = m.account_id AND a.message_id = m.id AND a.is_inline = 0)`,
     );
   }
 

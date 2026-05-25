@@ -1,5 +1,12 @@
 import { getDb, buildDynamicUpdate, selectFirstBy } from "./connection";
 
+/** Maps default smart folder IDs to their i18n keys. User-created folders have no entry. */
+export const DEFAULT_SMART_FOLDER_I18N_KEYS: Record<string, string> = {
+  "sf-unread": "sidebar.defaultSmartFolders.sfUnread",
+  "sf-attachments": "sidebar.defaultSmartFolders.sfAttachments",
+  "sf-starred-recent": "sidebar.defaultSmartFolders.sfStarredRecent",
+};
+
 export interface DbSmartFolder {
   id: string;
   account_id: string | null;

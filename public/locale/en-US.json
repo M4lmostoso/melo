@@ -1548,6 +1548,11 @@
     "help": "Help",
     "expandSidebar": "Expand sidebar",
     "collapseSidebar": "Collapse sidebar",
+    "defaultSmartFolders": {
+      "sfUnread": "Unread",
+      "sfAttachments": "Has Attachments",
+      "sfStarredRecent": "Starred This Week"
+    },
     "addSmartFolder": "Add smart folder",
     "addLabel": "Add label",
     "editLabel": "Edit label",

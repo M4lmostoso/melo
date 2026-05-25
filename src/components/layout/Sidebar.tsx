@@ -9,6 +9,7 @@ import { useAccountStore } from "@/stores/accountStore";
 import { useLabelStore, type Label } from "@/stores/labelStore";
 import { useContextMenuStore } from "@/stores/contextMenuStore";
 import { useSmartFolderStore } from "@/stores/smartFolderStore";
+import { DEFAULT_SMART_FOLDER_I18N_KEYS } from "@/services/db/smartFolders";
 import { useActiveLabel, useActiveCategory } from "@/hooks/useRouteNavigation";
 import { navigateToLabel } from "@/router/navigate";
 import { AccountSection } from "./AccountSection";
@@ -48,6 +49,11 @@ import {
 } from "lucide-react";
 
 const isMac = navigator.userAgent.includes("Macintosh");
+
+function smartFolderName(id: string, fallback: string): string {
+  const key = DEFAULT_SMART_FOLDER_I18N_KEYS[id];
+  return key ? t(key) : fallback;
+}
 import { useTaskStore } from "@/stores/taskStore";
 import { useOutgoingStore } from "@/stores/outgoingStore";
 import { getOutgoingDbCountByAccount } from "@/services/db/outgoing";
@@ -926,7 +932,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                 <div key={`global-smart-${folder.id}`}>
                   <ExpandableNavItem
                     id={`global-smart-${folder.id}`}
-                    label={folder.name}
+                    label={smartFolderName(folder.id, folder.name)}
                     isActive={activeLabel === `smart-folder:${folder.id}` && activeAccountId === null}
                     collapsed={collapsed}
                     expanded={!!expandedGlobalItems[`global-smart-${folder.id}`]}
@@ -940,7 +946,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                     <GIcon size={18} className="shrink-0" style={folder.color ? { color: folder.color } : undefined} />
                     {!collapsed && (
                       <>
-                        <span className="flex-1 truncate">{folder.name}</span>
+                        <span className="flex-1 truncate">{smartFolderName(folder.id, folder.name)}</span>
                         {count > 0 && (
                           <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 min-w-[1.25rem] h-[1.125rem] rounded-full inline-flex items-center justify-center tabular-nums">
                             {count}

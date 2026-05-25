@@ -17,6 +17,7 @@ import { getBundleRules, getHeldThreadIds, getBundleSummaries, type DbBundleRule
 import { getGmailClient } from "@/services/gmail/tokenManager";
 import { useLabelStore } from "@/stores/labelStore";
 import { useSmartFolderStore } from "@/stores/smartFolderStore";
+import { DEFAULT_SMART_FOLDER_I18N_KEYS } from "@/services/db/smartFolders";
 import { useContextMenuStore } from "@/stores/contextMenuStore";
 import { useComposerStore } from "@/stores/composerStore";
 import { getMessagesForThread } from "@/services/db/messages";
@@ -265,15 +266,45 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
   const clearSearch = useThreadStore((s) => s.clearSearch);
 
   const loadThreads = useCallback(async () => {
+    clearSearch();
+    setLoading(true);
+    setHasMore(true);
+
+    // Smart folder: always handled first, regardless of account mode.
+    // In global view pass all included account IDs; in single-account view pass the active ID.
+    if (isSmartFolder && activeSmartFolder) {
+      const accountArg: string | string[] = activeAccountId ?? globalAccountIds;
+      if (!activeAccountId && globalAccountIds.length === 0) {
+        setThreads([]);
+        setLoading(false);
+        return;
+      }
+      try {
+        const { sql, params } = getSmartFolderSearchQuery(
+          activeSmartFolder.query,
+          accountArg,
+          PAGE_SIZE,
+        );
+        const db = await getDb();
+        const rows = await db.select<SmartFolderRow[]>(sql, params);
+        const mapped = await mapSmartFolderRows(rows);
+        setThreads(mapped);
+        setHasMore(false);
+      } catch (err) {
+        console.error("Failed to load smart folder threads:", err);
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
     if (!activeAccountId) {
       // Global / unified view: load from all included accounts
       if (globalAccountIds.length === 0) {
         setThreads([]);
+        setLoading(false);
         return;
       }
-      clearSearch();
-      setLoading(true);
-      setHasMore(true);
       try {
         let dbThreads: Awaited<ReturnType<typeof getThreadsForAccount>>;
         if (activeLabel === "unified-inbox" || activeLabel === "inbox") {
@@ -293,41 +324,23 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
       return;
     }
 
-    clearSearch();
-    setLoading(true);
-    setHasMore(true);
     try {
-      // Smart folder query path
-      if (isSmartFolder && activeSmartFolder) {
-        const { sql, params } = getSmartFolderSearchQuery(
-          activeSmartFolder.query,
-          activeAccountId,
-          PAGE_SIZE,
-        );
-        const db = await getDb();
-        const rows = await db.select<SmartFolderRow[]>(sql, params);
-        const mapped = await mapSmartFolderRows(rows);
-        setThreads(mapped);
-        setHasMore(false); // Smart folders load all at once
+      let dbThreads;
+      if (activeLabel === "inbox" && activeCategory !== "All") {
+        dbThreads = await getThreadsForCategory(activeAccountId, activeCategory, PAGE_SIZE, 0);
       } else {
-        let dbThreads;
-        // Server-side category filtering for inbox
-        if (activeLabel === "inbox" && activeCategory !== "All") {
-          dbThreads = await getThreadsForCategory(activeAccountId, activeCategory, PAGE_SIZE, 0);
-        } else {
-          const gmailLabelId = LABEL_MAP[activeLabel] ?? activeLabel;
-          dbThreads = await getThreadsForAccount(
-            activeAccountId,
-            gmailLabelId || undefined,
-            PAGE_SIZE,
-            0,
-          );
-        }
-
-        const mapped = await mapDbThreads(dbThreads);
-        setThreads(mapped);
-        setHasMore(dbThreads.length === PAGE_SIZE);
+        const gmailLabelId = LABEL_MAP[activeLabel] ?? activeLabel;
+        dbThreads = await getThreadsForAccount(
+          activeAccountId,
+          gmailLabelId || undefined,
+          PAGE_SIZE,
+          0,
+        );
       }
+
+      const mapped = await mapDbThreads(dbThreads);
+      setThreads(mapped);
+      setHasMore(dbThreads.length === PAGE_SIZE);
     } catch (err) {
       console.error("Failed to load threads:", err);
     } finally {
@@ -542,7 +555,11 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
           <h2 className="text-sm font-semibold text-text-primary capitalize flex items-center gap-1.5">
             {isSmartFolder && <FolderSearch size={14} className="text-accent shrink-0" />}
             {isSmartFolder
-              ? activeSmartFolder?.name ?? t("layout.emailList.smartFolder")
+              ? (() => {
+                  if (!activeSmartFolder) return t("layout.emailList.smartFolder");
+                  const key = DEFAULT_SMART_FOLDER_I18N_KEYS[activeSmartFolder.id];
+                  return key ? t(key) : activeSmartFolder.name;
+                })()
               : activeLabel === "inbox" && inboxViewMode === "split" && activeCategory !== "All"
                 ? `${t("sidebar.nav.inbox")} — ${activeCategory}`
                 : LABEL_MAP[activeLabel] !== undefined
