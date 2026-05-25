@@ -292,7 +292,26 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
         );
         const db = await getDb();
         const rows = await db.select<SmartFolderRow[]>(sql, params);
-        const mapped = await mapSmartFolderRows(rows);
+        let mapped = await mapSmartFolderRows(rows);
+
+        // Preserve selected thread if it was already in the list to prevent it from disappearing while being read
+        if (selectedThreadId) {
+          const prevThreads = useThreadStore.getState().threads;
+          const currentThread = prevThreads.find((t) => t.id === selectedThreadId);
+          if (currentThread && !mapped.some((t) => t.id === selectedThreadId)) {
+            const originalIndex = prevThreads.findIndex((t) => t.id === selectedThreadId);
+            if (originalIndex !== -1) {
+              mapped = [
+                ...mapped.slice(0, originalIndex),
+                currentThread,
+                ...mapped.slice(originalIndex),
+              ];
+            } else {
+              mapped.push(currentThread);
+            }
+          }
+        }
+
         setThreads(mapped);
         setHasMore(false);
       } catch (err) {
@@ -311,14 +330,33 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
         return;
       }
       try {
-        let dbThreads: Awaited<ReturnType<typeof getThreadsForAccount>>;
+        let dbThreads: Awaited<ReturnType<typeof getUnifiedInboxThreads>>;
         if (activeLabel === "unified-inbox" || activeLabel === "inbox") {
           dbThreads = await getUnifiedInboxThreads(globalAccountIds, PAGE_SIZE, 0);
         } else {
           const gmailLabelId = LABEL_MAP[activeLabel] ?? activeLabel;
           dbThreads = await getUnifiedFolderThreads(globalAccountIds, gmailLabelId || "", PAGE_SIZE, 0);
         }
-        const mapped = await mapDbThreads(dbThreads);
+        let mapped = await mapDbThreads(dbThreads);
+
+        // Preserve selected thread if it was already in the list to prevent it from disappearing while being read
+        if (selectedThreadId) {
+          const prevThreads = useThreadStore.getState().threads;
+          const currentThread = prevThreads.find((t) => t.id === selectedThreadId);
+          if (currentThread && !mapped.some((t) => t.id === selectedThreadId)) {
+            const originalIndex = prevThreads.findIndex((t) => t.id === selectedThreadId);
+            if (originalIndex !== -1) {
+              mapped = [
+                ...mapped.slice(0, originalIndex),
+                currentThread,
+                ...mapped.slice(originalIndex),
+              ];
+            } else {
+              mapped.push(currentThread);
+            }
+          }
+        }
+
         setThreads(mapped);
         setHasMore(dbThreads.length === PAGE_SIZE);
       } catch (err) {
@@ -343,7 +381,26 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
         );
       }
 
-      const mapped = await mapDbThreads(dbThreads);
+      let mapped = await mapDbThreads(dbThreads);
+
+      // Preserve selected thread if it was already in the list to prevent it from disappearing while being read
+      if (selectedThreadId) {
+        const prevThreads = useThreadStore.getState().threads;
+        const currentThread = prevThreads.find((t) => t.id === selectedThreadId);
+        if (currentThread && !mapped.some((t) => t.id === selectedThreadId)) {
+          const originalIndex = prevThreads.findIndex((t) => t.id === selectedThreadId);
+          if (originalIndex !== -1) {
+            mapped = [
+              ...mapped.slice(0, originalIndex),
+              currentThread,
+              ...mapped.slice(originalIndex),
+            ];
+          } else {
+            mapped.push(currentThread);
+          }
+        }
+      }
+
       setThreads(mapped);
       setHasMore(dbThreads.length === PAGE_SIZE);
     } catch (err) {
@@ -351,7 +408,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     } finally {
       setLoading(false);
     }
-  }, [activeAccountId, globalAccountIds, activeLabel, activeCategory, isSmartFolder, activeSmartFolder, setThreads, setLoading, mapDbThreads, clearSearch]);
+  }, [activeAccountId, globalAccountIds, activeLabel, activeCategory, isSmartFolder, activeSmartFolder, selectedThreadId, setThreads, setLoading, mapDbThreads, clearSearch]);
 
   const loadMore = useCallback(async () => {
     if ((!activeAccountId && globalAccountIds.length === 0) || loadingMore || !hasMore) return;
