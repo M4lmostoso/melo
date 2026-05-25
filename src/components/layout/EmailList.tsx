@@ -544,9 +544,9 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
             {isSmartFolder
               ? activeSmartFolder?.name ?? t("layout.emailList.smartFolder")
               : activeLabel === "inbox" && inboxViewMode === "split" && activeCategory !== "All"
-                ? `Inbox — ${activeCategory}`
+                ? `${t("sidebar.nav.inbox")} — ${activeCategory}`
                 : LABEL_MAP[activeLabel] !== undefined
-                  ? activeLabel
+                  ? t(`sidebar.nav.${activeLabel === "all" ? "allMail" : activeLabel}`)
                   : userLabels.find((l) => l.id === activeLabel)?.name ?? activeLabel}
           </h2>
           <span className="text-xs text-text-tertiary">

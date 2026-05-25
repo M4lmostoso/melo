@@ -55,7 +55,7 @@
       "signInWithGoogle": "Sign in with Google",
       "waitingForSignIn": "Waiting for Google sign-in...",
       "completeSignInBrowser": "Complete the sign-in in your browser, then return here.",
-      "connectGmailDesc": "Sign in with your Google account to connect it to Velo."
+      "connectGmailDesc": "Sign in with your Google account to connect it to Melo."
     },
     "addImap": {
       "title": "Add IMAP/SMTP Account",
@@ -857,7 +857,7 @@
       "message": "You're offline — changes will sync when you reconnect"
     },
     "updateToast": {
-      "available": "Velo v{version} is available",
+      "available": "Melo v{version} is available",
       "later": "Later",
       "updateNow": "Update Now",
       "updating": "Updating..."
@@ -1283,6 +1283,10 @@
       "backgroundFlat": "Flat (no animation)",
       "backgroundAurora": "Aurora (subtle glow)",
       "backgroundSpotlight": "Spotlight (follows cursor)",
+      "language": "Language",
+      "languageEnUS": "English",
+      "languageItIT": "Italiano",
+      "languageRestartNote": "Restart the app to apply the new language.",
       "moveUp": "Move up",
       "moveDown": "Move down",
       "launchAtLogin": "Launch at login",
@@ -1512,7 +1516,7 @@
       }
     },
     "titleBar": {
-      "appName": "Velo",
+      "appName": "Melo",
       "minimize": "Minimize",
       "maximize": "Maximize",
       "restore": "Restore",

@@ -25,6 +25,9 @@ export function TitleBar() {
   const handleMaximize = () => getCurrentWindow().toggleMaximize();
   const handleClose = () => getCurrentWindow().close();
 
+  // On macOS traffic lights live in the sidebar — no top bar needed
+  if (isMac) return null;
+
   return (
     <div
       data-tauri-drag-region

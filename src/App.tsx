@@ -12,6 +12,7 @@ import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { runMigrations, repairMojibakeData } from "./services/db/migrations";
 import { getAllAccounts } from "./services/db/accounts";
 import { getSetting, deleteSetting } from "./services/db/settings";
+import { setLocale } from "./i18n";
 import {
   startBackgroundSync,
   stopBackgroundSync,
@@ -511,6 +512,12 @@ export default function App() {
         const savedBgMode = await getSetting("background_mode");
         if (savedBgMode === "aurora" || savedBgMode === "spotlight" || savedBgMode === "flat") {
           ui.setBackgroundMode(savedBgMode);
+        }
+
+        // Restore UI language preference
+        const savedLanguage = await getSetting("ui_language");
+        if (savedLanguage) {
+          setLocale(savedLanguage);
         }
 
         // Restore task sidebar visibility

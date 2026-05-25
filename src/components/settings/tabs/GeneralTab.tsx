@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useUIStore } from "@/stores/uiStore";
 import { getSetting, setSetting } from "@/services/db/settings";
+import { setLocale, getLocale } from "@/i18n";
 import { COLOR_THEMES } from "@/constants/themes";
 import { ALL_NAV_ITEMS } from "@/components/layout/Sidebar";
 import type { SidebarNavItem } from "@/stores/uiStore";
@@ -149,6 +150,7 @@ export function GeneralTab() {
   const [cacheSizeMb, setCacheSizeMb] = useState<number | null>(null);
   const [clearingCache, setClearingCache] = useState(false);
   const [idlePushEnabled, setIdlePushEnabled] = useState(true);
+  const [uiLanguage, setUiLanguage] = useState(() => getLocale());
 
   useEffect(() => {
     async function load() {
@@ -303,6 +305,22 @@ export function GeneralTab() {
             <option value="flat">{t("settings.general.backgroundFlat")}</option>
             <option value="aurora">{t("settings.general.backgroundAurora")}</option>
             <option value="spotlight">{t("settings.general.backgroundSpotlight")}</option>
+          </select>
+        </SettingRow>
+        <SettingRow label={t("settings.general.language")}>
+          <select
+            value={uiLanguage}
+            onChange={async (e) => {
+              const val = e.target.value;
+              setUiLanguage(val);
+              setLocale(val);
+              await setSetting("ui_language", val);
+              window.location.reload();
+            }}
+            className="w-48 bg-bg-tertiary text-text-primary text-sm px-3 py-1.5 rounded-md border border-border-primary focus:border-accent outline-none"
+          >
+            <option value="en-US">{t("settings.general.languageEnUS")}</option>
+            <option value="it-IT">{t("settings.general.languageItIT")}</option>
           </select>
         </SettingRow>
       </Section>

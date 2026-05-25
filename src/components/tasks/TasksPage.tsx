@@ -215,6 +215,7 @@ export function TasksPage() {
       await uncompleteTask(id);
     }
     await loadTasks();
+    await useTaskStore.getState().refreshTaskBadges();
   }, [allTasks, loadTasks]);
 
   const handleDelete = useCallback(async (id: string) => {

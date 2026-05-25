@@ -116,6 +116,7 @@ export function TaskSidebar({ accountId, threadId, messages = [] }: TaskSidebarP
       await uncompleteTask(id);
     }
     await refreshTasks();
+    await useTaskStore.getState().refreshTaskBadges();
   }, [threadTasks, refreshTasks]);
 
   const handleDelete = useCallback(async (id: string) => {

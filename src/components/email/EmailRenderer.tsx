@@ -33,7 +33,6 @@ export function EmailRenderer({
 }: EmailRendererProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const rafRef = useRef<number>(0);
-  const blobUrlRef = useRef<string | null>(null);
   // Per-instance nonce so the parent can identify messages from THIS iframe
   // without relying on e.source, which WKWebView returns as an opaque proxy
   // object for sandboxed null-origin iframes (never === contentWindow).
@@ -204,21 +203,21 @@ export function EmailRenderer({
     };
   }, []);
 
-  // Blob URL management + message handling.
+  // srcdoc + message handling.
   //
-  // The message listener is attached BEFORE setting iframe.src so we never miss
+  // The message listener is attached BEFORE setting iframe.srcdoc so we never miss
   // the initial ResizeObserver height report that fires as soon as the iframe
   // document renders — previously the listener was attached in onLoad (too late).
   //
+  // srcdoc is used instead of blob: URLs because WebKit's frame-src CSP enforcement
+  // does not reliably allow blob: as same-origin even when frame-src includes 'self'.
+  // srcdoc is inline content and is never subject to frame-src restrictions. ✓
+  //
   // Security: sandbox="allow-scripts" is preserved. A sandboxed iframe always gets
-  // null origin regardless of blob: vs srcdoc, so the model is identical. ✓
+  // null origin regardless of srcdoc vs blob:, so the model is identical. ✓
   useEffect(() => {
     const iframe = iframeRef.current;
     if (!iframe) return;
-
-    if (blobUrlRef.current) {
-      URL.revokeObjectURL(blobUrlRef.current);
-    }
 
     const instanceNonce = nonceRef.current;
     const onMessage = (e: MessageEvent) => {
@@ -241,7 +240,7 @@ export function EmailRenderer({
       }
     };
 
-    // Attach before setting src — ResizeObserver inside the iframe fires early
+    // Attach before setting srcdoc — ResizeObserver inside the iframe fires early
     window.addEventListener("message", onMessage);
 
     // Belt-and-suspenders: explicitly request height after load in case the
@@ -251,18 +250,11 @@ export function EmailRenderer({
     };
     iframe.addEventListener("load", onLoad);
 
-    const blob = new Blob([srcdoc], { type: "text/html; charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    blobUrlRef.current = url;
-    iframe.src = url;
+    iframe.srcdoc = srcdoc;
 
     return () => {
       window.removeEventListener("message", onMessage);
       iframe.removeEventListener("load", onLoad);
-      if (blobUrlRef.current) {
-        URL.revokeObjectURL(blobUrlRef.current);
-        blobUrlRef.current = null;
-      }
     };
   }, [srcdoc]);
 
