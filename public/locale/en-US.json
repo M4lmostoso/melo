@@ -397,7 +397,8 @@
       "noEvents": "No events",
       "allDayShort": "Day",
       "weekSubtitle": "Week {n} of {year}"
-    }
+    },
+    "joinButton": "Join"
   },
   "tasks": {
     "title": "Tasks",

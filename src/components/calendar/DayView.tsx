@@ -1,6 +1,8 @@
 import { useMemo, useRef, useEffect, useState, useCallback } from "react";
 import { t, getLocale } from "@/i18n";
-import { CalendarX2 } from "lucide-react";
+import { CalendarX2, Video } from "lucide-react";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { getMeetingUrl, isMeetingActive } from "@/utils/meetingUrl";
 import type { DbCalendarEvent } from "@/services/db/calendarEvents";
 
 interface DayViewProps {
@@ -162,18 +164,20 @@ export function DayView({
 
   const isToday = currentDate.toDateString() === todayStr;
   const rightScrollRef = useRef<HTMLDivElement>(null);
-  const [nowMinutes, setNowMinutes] = useState(() => {
-    const n = new Date();
-    return n.getHours() * 60 + n.getMinutes();
-  });
+  const [nowTs, setNowTs] = useState(() => Math.floor(Date.now() / 1000));
+  const nowMinutes = useMemo(() => {
+    const d = new Date(nowTs * 1000);
+    return d.getHours() * 60 + d.getMinutes();
+  }, [nowTs]);
 
   useEffect(() => {
     const interval = setInterval(() => {
-      const n = new Date();
-      setNowMinutes(n.getHours() * 60 + n.getMinutes());
+      setNowTs(Math.floor(Date.now() / 1000));
     }, 60_000);
     return () => clearInterval(interval);
   }, []);
+
+  const todayMidnightTs = Math.floor(today.getTime() / 1000);
 
   useEffect(() => {
     if (!isToday || !rightScrollRef.current) return;
@@ -222,10 +226,13 @@ export function DayView({
                   .toUpperCase();
 
                 return (
-                  <button
+                  <div
                     key={date.getTime()}
                     onClick={() => handleDayClick(date)}
-                    className={`w-full flex items-stretch border-b border-border-secondary text-left transition-colors hover:bg-bg-hover ${
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(ev) => { if (ev.key === "Enter" || ev.key === " ") handleDayClick(date); }}
+                    className={`w-full flex items-stretch border-b border-border-secondary cursor-pointer transition-colors hover:bg-bg-hover ${
                       isThisToday
                         ? "bg-accent/15"
                         : isSelected
@@ -271,6 +278,10 @@ export function DayView({
                                 hour: "2-digit",
                                 minute: "2-digit",
                               });
+                          const meetingUrl = !e.is_all_day && e.start_time >= todayMidnightTs
+                            ? getMeetingUrl(e)
+                            : null;
+                          const isActive = meetingUrl ? isMeetingActive(e, nowTs) : false;
                           return (
                             <div
                               key={e.id}
@@ -283,15 +294,28 @@ export function DayView({
                                 className="w-1.5 h-1.5 rounded-full shrink-0"
                                 style={{ backgroundColor: c }}
                               />
-                              <span className="text-text-primary truncate">
+                              <span className="text-text-primary truncate flex-1">
                                 {e.summary ?? t("calendar.eventFallback")}
                               </span>
+                              {meetingUrl && (
+                                <button
+                                  onClick={(ev) => { ev.stopPropagation(); openUrl(meetingUrl).catch(() => {}); }}
+                                  className={`ml-1 shrink-0 flex items-center gap-0.5 text-[0.6rem] font-semibold px-1.5 py-0.5 rounded-full transition-all ${
+                                    isActive
+                                      ? "bg-accent text-white animate-pulse shadow-sm shadow-accent/40"
+                                      : "bg-accent/15 text-accent hover:bg-accent/25"
+                                  }`}
+                                >
+                                  <Video size={8} />
+                                  {t("calendar.joinButton")}
+                                </button>
+                              )}
                             </div>
                           );
                         })
                       )}
                     </div>
-                  </button>
+                  </div>
                 );
               })}
             </div>
@@ -389,18 +413,24 @@ export function DayView({
                   hour: "2-digit",
                   minute: "2-digit",
                 });
+                const meetingUrl = e.start_time >= todayMidnightTs ? getMeetingUrl(e) : null;
+                const isActive = meetingUrl ? isMeetingActive(e, nowTs) : false;
+                const showJoin = meetingUrl && height >= 48;
                 return (
-                  <button
+                  <div
                     key={e.id}
                     onClick={() => onEventClick(e)}
-                    className="absolute inset-x-1 overflow-hidden rounded text-left transition-opacity hover:opacity-80 flex"
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(ev) => { if (ev.key === "Enter" || ev.key === " ") onEventClick(e); }}
+                    className="absolute inset-x-1 overflow-hidden rounded text-left transition-opacity hover:opacity-80 flex cursor-pointer"
                     style={{ top, height, backgroundColor: `${c}26` }}
                   >
                     <div
                       className="w-0.5 shrink-0 rounded-l"
                       style={{ backgroundColor: c }}
                     />
-                    <div className="flex flex-col min-w-0 px-1.5 py-0.5">
+                    <div className="flex flex-col min-w-0 px-1.5 py-0.5 flex-1">
                       <div className="text-xs font-semibold leading-tight whitespace-nowrap text-text-tertiary">
                         {startLabel}–{endLabel}
                       </div>
@@ -410,8 +440,21 @@ export function DayView({
                           <span className="opacity-70"> · {e.location}</span>
                         )}
                       </div>
+                      {showJoin && (
+                        <button
+                          onClick={(ev) => { ev.stopPropagation(); openUrl(meetingUrl).catch(() => {}); }}
+                          className={`mt-auto self-end mb-1 flex items-center gap-0.5 text-[0.6rem] font-semibold px-1.5 py-0.5 rounded-full transition-all ${
+                            isActive
+                              ? "bg-white/90 text-accent animate-pulse shadow-sm"
+                              : "bg-white/20 text-white hover:bg-white/30"
+                          }`}
+                        >
+                          <Video size={9} />
+                          {t("calendar.joinButton")}
+                        </button>
+                      )}
                     </div>
-                  </button>
+                  </div>
                 );
               })}
             </div>

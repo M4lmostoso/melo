@@ -1,6 +1,7 @@
-import { useState, useCallback } from "react";
-import { MapPin, Clock, User, Pencil, Trash2, Check, X, HelpCircle } from "lucide-react";
+import { useState, useCallback, useMemo } from "react";
+import { MapPin, Clock, User, Pencil, Trash2, Check, X, HelpCircle, Video } from "lucide-react";
 import { t, getLocale } from "@/i18n";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { TextField } from "@/components/ui/TextField";
@@ -8,6 +9,7 @@ import type { DbCalendarEvent } from "@/services/db/calendarEvents";
 import type { DbCalendar } from "@/services/db/calendars";
 import { getCalendarProvider } from "@/services/calendar/providerFactory";
 import { deleteCalendarEvent as deleteCalendarEventDb } from "@/services/db/calendarEvents";
+import { getMeetingUrl, isMeetingActive } from "@/utils/meetingUrl";
 
 interface EventDetailModalProps {
   event: DbCalendarEvent;
@@ -29,6 +31,12 @@ export function EventDetailModal({ event, calendars, accountId, onClose, onUpdat
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const calendar = calendars.find((c) => c.id === event.calendar_id);
+
+  const meetingUrl = useMemo(() => getMeetingUrl(event), [event]);
+  const nowTs = Math.floor(Date.now() / 1000);
+  const todayMidnightTs = useMemo(() => { const d = new Date(); d.setHours(0,0,0,0); return Math.floor(d.getTime() / 1000); }, []);
+  const isUpcoming = event.start_time >= todayMidnightTs;
+  const isActive = meetingUrl && isUpcoming ? isMeetingActive(event, nowTs) : false;
 
   const handleSave = useCallback(async () => {
     setSaving(true);
@@ -205,6 +213,22 @@ export function EventDetailModal({ event, calendars, accountId, onClose, onUpdat
                 );
               })}
             </div>
+          </div>
+        )}
+
+        {meetingUrl && isUpcoming && (
+          <div className="pt-2 border-t border-border-primary">
+            <button
+              onClick={() => openUrl(meetingUrl).catch(() => {})}
+              className={`w-full flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-semibold transition-all ${
+                isActive
+                  ? "bg-accent text-white animate-pulse shadow-md shadow-accent/30"
+                  : "bg-accent/10 text-accent hover:bg-accent/20"
+              }`}
+            >
+              <Video size={15} />
+              {t("calendar.joinButton")}
+            </button>
           </div>
         )}
 

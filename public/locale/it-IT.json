@@ -396,7 +396,8 @@
       "noEvents": "Nessun impegno",
       "allDayShort": "Giorno",
       "weekSubtitle": "Settimana {n} del {year}"
-    }
+    },
+    "joinButton": "Partecipa"
   },
   "tasks": {
     "title": "Attività",

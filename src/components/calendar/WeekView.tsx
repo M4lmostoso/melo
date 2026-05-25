@@ -1,5 +1,8 @@
 import { useMemo, useRef, useEffect, useState } from "react";
 import { t, getLocale } from "@/i18n";
+import { Video } from "lucide-react";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { getMeetingUrl, isMeetingActive } from "@/utils/meetingUrl";
 import type { DbCalendarEvent } from "@/services/db/calendarEvents";
 
 interface WeekViewProps {
@@ -34,6 +37,7 @@ export function WeekView({ currentDate, events, colorMap = {}, onEventClick }: W
   const isCurrentWeek = days.some((d) => d.toDateString() === todayStr);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [nowTs, setNowTs] = useState(() => Math.floor(Date.now() / 1000));
   const [nowMinutes, setNowMinutes] = useState(() => {
     const n = new Date();
     return n.getHours() * 60 + n.getMinutes();
@@ -43,8 +47,15 @@ export function WeekView({ currentDate, events, colorMap = {}, onEventClick }: W
     const interval = setInterval(() => {
       const n = new Date();
       setNowMinutes(n.getHours() * 60 + n.getMinutes());
+      setNowTs(Math.floor(Date.now() / 1000));
     }, 60_000);
     return () => clearInterval(interval);
+  }, []);
+
+  const todayMidnightTs = useMemo(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return Math.floor(d.getTime() / 1000);
   }, []);
 
   useEffect(() => {
@@ -179,23 +190,43 @@ export function WeekView({ currentDate, events, colorMap = {}, onEventClick }: W
                     const height = Math.max(((endTs - e.start_time) / 3600) * HOUR_HEIGHT, MIN_EVENT_HEIGHT);
                     const startLabel = new Date(e.start_time * 1000).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
                     const endLabel = new Date(e.end_time * 1000).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
+                    const meetingUrl = getMeetingUrl(e);
+                    const isUpcoming = e.start_time >= todayMidnightTs;
+                    const isActive = meetingUrl && isMeetingActive(e, nowTs);
+                    const showJoin = meetingUrl && isUpcoming && height >= 48;
                     return (
-                      <button
+                      <div
                         key={e.id}
                         onClick={() => onEventClick(e)}
-                        className="pointer-events-auto absolute inset-x-0.5 overflow-hidden rounded text-left transition-opacity hover:opacity-80 flex"
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(ev) => { if (ev.key === "Enter" || ev.key === " ") onEventClick(e); }}
+                        className="pointer-events-auto absolute inset-x-0.5 overflow-hidden rounded text-left transition-opacity hover:opacity-80 flex cursor-pointer"
                         style={{ top, height, backgroundColor: `${c}26` }}
                       >
                         <div className="w-0.5 shrink-0 rounded-l" style={{ backgroundColor: c }} />
-                        <div className="flex flex-col min-w-0 px-1 py-0.5">
+                        <div className="flex flex-col min-w-0 px-1 py-0.5 flex-1">
                           <div className="text-[0.625rem] font-semibold leading-tight whitespace-nowrap text-text-tertiary">
                             {startLabel}–{endLabel}
                           </div>
                           <div className="text-[0.625rem] leading-tight text-white">
                             {e.summary ?? t("calendar.eventFallback")}
                           </div>
+                          {showJoin && (
+                            <button
+                              onClick={(ev) => { ev.stopPropagation(); openUrl(meetingUrl).catch(() => {}); }}
+                              className={`mt-auto self-end mb-1 flex items-center gap-0.5 text-[0.55rem] font-semibold px-1 py-0.5 rounded transition-all ${
+                                isActive
+                                  ? "bg-white/90 text-accent animate-pulse shadow-sm"
+                                  : "bg-white/20 text-white hover:bg-white/30"
+                              }`}
+                            >
+                              <Video size={8} />
+                              {t("calendar.joinButton")}
+                            </button>
+                          )}
                         </div>
-                      </button>
+                      </div>
                     );
                   })}
                 </div>
