@@ -20,7 +20,7 @@ export function EventCard({ event, compact, onClick, color }: EventCardProps) {
     return (
       <button
         onClick={onClick}
-        className="w-full text-left text-[0.625rem] px-1 py-0.5 rounded truncate transition-colors hover:opacity-80"
+        className="w-full text-left text-[0.625rem] px-1 py-0.5 rounded line-clamp-2 transition-colors hover:opacity-80"
         style={{ backgroundColor: `${accentColor}1a`, color: accentColor }}
         title={event.summary ?? t("calendar.eventFallback")}
       >

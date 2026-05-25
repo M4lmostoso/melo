@@ -353,13 +353,7 @@ export function CalendarPage() {
         </div>
       )}
 
-      {loading && events.length === 0 && (
-        <div className="flex-1 flex items-center justify-center text-text-tertiary text-sm">
-          {t("calendar.loadingCalendar")}
-        </div>
-      )}
-
-      <div className="flex flex-1 min-h-0">
+      <div className="flex flex-1 min-h-0 relative">
         {showCalendarList && calendars.length > 1 && (
           <CalendarList
             calendars={calendars}
@@ -372,7 +366,7 @@ export function CalendarPage() {
           />
         )}
 
-        <div className="flex-1 min-w-0">
+        <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
           {view === "month" && (
             <MonthView
               currentDate={currentDate}
@@ -398,6 +392,12 @@ export function CalendarPage() {
             />
           )}
         </div>
+
+        {loading && events.length === 0 && (
+          <div className="absolute bottom-3 left-3 text-[0.625rem] text-text-tertiary pointer-events-none">
+            {t("calendar.loadingCalendar")}
+          </div>
+        )}
       </div>
 
       {showCreate && (
