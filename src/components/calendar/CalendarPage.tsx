@@ -52,15 +52,17 @@ export function CalendarPage() {
     const d = new Date(currentDate);
     if (view === "month") {
       const start = new Date(d.getFullYear(), d.getMonth(), 1);
-      start.setDate(start.getDate() - start.getDay());
+      // Monday-first: pad back to the previous Monday
+      start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
       const end = new Date(d.getFullYear(), d.getMonth() + 1, 0);
-      end.setDate(end.getDate() + (6 - end.getDay()));
+      // Pad forward to the next Sunday
+      end.setDate(end.getDate() + ((7 - end.getDay()) % 7));
       end.setHours(23, 59, 59, 999);
       return { start, end };
     }
     if (view === "week") {
       const start = new Date(d);
-      start.setDate(start.getDate() - start.getDay());
+      start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
       start.setHours(0, 0, 0, 0);
       const end = new Date(start);
       end.setDate(end.getDate() + 6);

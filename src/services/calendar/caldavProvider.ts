@@ -61,14 +61,27 @@ export class CalDAVProvider implements CalendarProvider {
     const objects = await fetchCalDavEvents(calendarRemoteId, username, account.caldav_password, timeMin, timeMax);
     const rangeStartTs = Math.floor(new Date(timeMin).getTime() / 1000);
     const rangeEndTs = Math.floor(new Date(timeMax).getTime() / 1000);
+    const debug = (globalThis as { __VELO_CALDAV_DEBUG__?: boolean }).__VELO_CALDAV_DEBUG__;
+    if (debug) {
+      console.log("[caldav] fetchEvents response", {
+        calendarRemoteId,
+        timeMin,
+        timeMax,
+        objectCount: objects.length,
+      });
+    }
     const allEvents: CalendarEventData[] = [];
     for (const obj of objects) {
+      if (debug && /RRULE/i.test(obj.icalData)) {
+        console.log("[caldav] raw iCal with RRULE", { url: obj.url, icalData: obj.icalData });
+      }
       const events = expandVEvents(obj.icalData, obj.url, rangeStartTs, rangeEndTs);
       for (const event of events) {
         event.etag = obj.etag;
         allEvents.push(event);
       }
     }
+    if (debug) console.log("[caldav] fetchEvents total events after expansion", allEvents.length);
     return allEvents;
   }
 

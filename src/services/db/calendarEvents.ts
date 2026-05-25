@@ -66,11 +66,16 @@ export async function upsertCalendarEvent(event: {
   );
   // Remove any orphan row that was created from an email invite with the same uid
   // (upsertEmailInviteEvent uses uid as google_event_id, so a different google_event_id
-  // but identical uid means a stale duplicate from a prior RSVP flow)
+  // but identical uid means a stale duplicate from a prior RSVP flow).
+  // IMPORTANT: scope to email-invite rows (source_message_id IS NOT NULL).
+  // Recurring CalDAV instances all share the master's uid but have distinct
+  // google_event_id values (`uid_<startTs>`), so an unscoped DELETE here would
+  // wipe every sibling instance and leave only the last-upserted occurrence.
   if (event.uid) {
     await db.execute(
       `DELETE FROM calendar_events
-       WHERE account_id = $1 AND uid = $2 AND google_event_id != $3`,
+       WHERE account_id = $1 AND uid = $2 AND google_event_id != $3
+         AND source_message_id IS NOT NULL`,
       [event.accountId, event.uid, event.googleEventId],
     );
   }

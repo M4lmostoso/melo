@@ -11,13 +11,15 @@ interface WeekViewProps {
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 const HOUR_HEIGHT = 48; // h-12 = 3rem = 48px
+// Monday-first week — Jan 2 2023 is a Monday, so i+2 maps to Mon..Sun
 const DAY_NAMES = Array.from({ length: 7 }, (_, i) =>
-  new Date(2023, 0, i + 1).toLocaleDateString(undefined, { weekday: "short" }),
+  new Date(2023, 0, i + 2).toLocaleDateString(undefined, { weekday: "short" }),
 );
 
 export function WeekView({ currentDate, events, colorMap = {}, onEventClick }: WeekViewProps) {
   const weekStart = new Date(currentDate);
-  weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+  // Roll back to Monday: Mon→0, Tue→1, ..., Sun→6
+  weekStart.setDate(weekStart.getDate() - ((weekStart.getDay() + 6) % 7));
   weekStart.setHours(0, 0, 0, 0);
 
   const days = Array.from({ length: 7 }, (_, i) => {
@@ -98,7 +100,7 @@ export function WeekView({ currentDate, events, colorMap = {}, onEventClick }: W
             const isToday = day.toDateString() === todayStr;
             return (
               <div key={i} className="px-2 py-2 text-center border-r border-border-secondary">
-                <div className="text-xs text-text-tertiary">{DAY_NAMES[day.getDay()]}</div>
+                <div className="text-xs text-text-tertiary">{DAY_NAMES[(day.getDay() + 6) % 7]}</div>
                 <div className={`text-sm font-medium mt-0.5 w-7 h-7 flex items-center justify-center mx-auto rounded-full ${isToday ? "bg-accent text-white" : "text-text-primary"
                   }`}>
                   {day.getDate()}

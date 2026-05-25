@@ -65,6 +65,8 @@ export function parseVEvent(icalData: string, href?: string): CalendarEventData 
   let status = "confirmed";
   let organizerEmail: string | null = null;
   let isAllDay = false;
+  let recurrenceId: number | null = null;
+  let recurrenceIdIsAllDay = false;
   const attendees: { email: string; displayName?: string; responseStatus?: string }[] = [];
 
   for (const line of lines) {
@@ -97,6 +99,11 @@ export function parseVEvent(icalData: string, href?: string): CalendarEventData 
       case "DTEND":
         dtend = value;
         break;
+      case "RECURRENCE-ID": {
+        recurrenceIdIsAllDay = params.includes("VALUE=DATE") && !params.includes("VALUE=DATE-TIME");
+        try { recurrenceId = parseICalDateTime(value, recurrenceIdIsAllDay); } catch { /* ignore */ }
+        break;
+      }
       case "STATUS":
         status = value.toLowerCase();
         break;
@@ -142,6 +149,7 @@ export function parseVEvent(icalData: string, href?: string): CalendarEventData 
     attendeesJson: attendees.length > 0 ? JSON.stringify(attendees) : null,
     htmlLink: null,
     icalData,
+    recurrenceId,
   };
 }
 
@@ -188,8 +196,32 @@ interface RRuleParsed {
   byMonthDay: number[];
 }
 
+/**
+ * Return only the lines inside the VEVENT block, skipping VTIMEZONE/VALARM
+ * subcomponents. Crucial because VTIMEZONE blocks contain their own RRULE
+ * (DST transition rules) that must NOT be confused with the event's RRULE.
+ */
+function veventLines(icalData: string): string[] {
+  const all = unfoldLines(icalData);
+  const out: string[] = [];
+  let inVevent = false;
+  let nestedDepth = 0; // depth of nested components inside VEVENT (e.g. VALARM)
+  for (const line of all) {
+    const upper = line.toUpperCase();
+    if (!inVevent) {
+      if (upper === "BEGIN:VEVENT") inVevent = true;
+      continue;
+    }
+    if (upper === "END:VEVENT") { inVevent = false; nestedDepth = 0; continue; }
+    if (upper.startsWith("BEGIN:")) { nestedDepth++; continue; }
+    if (upper.startsWith("END:")) { if (nestedDepth > 0) nestedDepth--; continue; }
+    if (nestedDepth === 0) out.push(line);
+  }
+  return out;
+}
+
 function extractRRuleValue(icalData: string): string | null {
-  for (const line of unfoldLines(icalData)) {
+  for (const line of veventLines(icalData)) {
     if (line.toUpperCase().startsWith("RRULE:")) return line.slice(6).trim();
   }
   return null;
@@ -197,7 +229,7 @@ function extractRRuleValue(icalData: string): string | null {
 
 function extractExDates(icalData: string): Set<number> {
   const out = new Set<number>();
-  for (const line of unfoldLines(icalData)) {
+  for (const line of veventLines(icalData)) {
     if (!line.toUpperCase().startsWith("EXDATE")) continue;
     const colonIdx = line.indexOf(":");
     if (colonIdx < 0) continue;
@@ -366,32 +398,99 @@ export function expandVEvents(
   rangeEnd: number,
 ): CalendarEventData[] {
   const events = parseVEvents(icalData, href);
+  const debug = (globalThis as { __VELO_CALDAV_DEBUG__?: boolean }).__VELO_CALDAV_DEBUG__;
 
-  // Server already expanded recurring instances into multiple VEVENTs
-  if (events.length > 1) return events;
+  if (events.length === 0) return [];
 
-  const event = events[0];
-  if (!event) return [];
+  // Exchange and many other CalDAV servers return a recurring series as:
+  //   - one "master" VEVENT (carries the RRULE, no RECURRENCE-ID)
+  //   - zero or more "override" VEVENTs (each with a RECURRENCE-ID matching the
+  //     instance slot they replace; may have modified summary/time/etc.)
+  // We must expand the master's RRULE AND splice in the overrides.
+  const masters = events.filter((e) => e.recurrenceId == null);
+  const overrides = events.filter((e) => e.recurrenceId != null);
 
-  const rruleValue = extractRRuleValue(icalData);
-  if (!rruleValue) return events;
+  // Pathological: only overrides, no master → treat them as standalone events
+  if (masters.length === 0) {
+    if (debug) console.log("[caldav] orphan overrides", { href, count: overrides.length });
+    return overrides.map((ov) => ({
+      ...ov,
+      remoteEventId: `${ov.uid ?? ov.remoteEventId}_${ov.recurrenceId}`,
+    }));
+  }
+
+  // Multiple masters in one .ics: not expected from Exchange; bail out and
+  // return everything as-is (likely already-expanded instances from a server
+  // that uses <C:expand>).
+  if (masters.length > 1) {
+    if (debug) console.log("[caldav] multiple masters — returning as-is", { href, count: events.length });
+    return events;
+  }
+
+  const master = masters[0]!;
+  // RRULE/EXDATE may live in the wrapped master icalData (from parseVEvents) or
+  // in the original blob if there's only one VEVENT. Look in both.
+  const masterIcal = master.icalData ?? "";
+  const rruleValue = extractRRuleValue(masterIcal) ?? extractRRuleValue(icalData);
+
+  if (!rruleValue) {
+    if (debug) {
+      console.log("[caldav] no RRULE — returning master+overrides as-is", {
+        href, summary: master.summary, overrides: overrides.length,
+      });
+    }
+    return events;
+  }
 
   const rrule = parseRRuleStr(rruleValue);
-  if (!rrule) return events;
+  if (!rrule) {
+    if (debug) console.warn("[caldav] RRULE present but failed to parse", { href, rruleValue });
+    return events;
+  }
 
-  const exDates = extractExDates(icalData);
-  const duration = Math.max(0, event.endTime - event.startTime);
+  const exDates = extractExDates(masterIcal);
+  for (const ex of extractExDates(icalData)) exDates.add(ex);
+  // Overrides replace specific slots — exclude those from RRULE expansion to
+  // avoid showing both the original and the override.
+  for (const ov of overrides) {
+    if (ov.recurrenceId != null) exDates.add(ov.recurrenceId);
+  }
 
-  const times = generateOccurrences(event.startTime, rrule, rangeStart, rangeEnd, exDates);
-  if (times.length === 0) return events;
+  const duration = Math.max(0, master.endTime - master.startTime);
+  const times = generateOccurrences(master.startTime, rrule, rangeStart, rangeEnd, exDates);
 
-  return times.map((startTs) => ({
-    ...event,
+  if (debug) {
+    console.log("[caldav] expanded RRULE", {
+      href,
+      summary: master.summary,
+      rrule: rruleValue,
+      parsedRrule: rrule,
+      dtStart: new Date(master.startTime * 1000).toISOString(),
+      rangeStart: new Date(rangeStart * 1000).toISOString(),
+      rangeEnd: new Date(rangeEnd * 1000).toISOString(),
+      occurrences: times.length,
+      overrideCount: overrides.length,
+      firstFew: times.slice(0, 5).map((t) => new Date(t * 1000).toISOString()),
+    });
+  }
+
+  const generated: CalendarEventData[] = times.map((startTs) => ({
+    ...master,
     startTime: startTs,
     endTime: startTs + duration,
-    // Stable per-instance ID so upsert deduplicates correctly
-    remoteEventId: `${event.uid ?? event.remoteEventId}_${startTs}`,
+    remoteEventId: `${master.uid ?? master.remoteEventId}_${startTs}`,
+    recurrenceId: null,
   }));
+
+  // Include overrides whose actual instance time falls inside the range
+  const visibleOverrides = overrides
+    .filter((ov) => ov.startTime < rangeEnd && ov.endTime > rangeStart)
+    .map((ov) => ({
+      ...ov,
+      remoteEventId: `${ov.uid ?? ov.remoteEventId}_override_${ov.recurrenceId}`,
+    }));
+
+  return [...generated, ...visibleOverrides];
 }
 
 /** Extract the METHOD property from iCalendar data (REQUEST, REPLY, CANCEL, etc.) */

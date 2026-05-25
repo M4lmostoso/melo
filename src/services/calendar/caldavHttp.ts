@@ -118,7 +118,12 @@ export async function fetchCalDavEvents(
       Depth: "1",
       "Content-Type": "application/xml; charset=utf-8",
     },
-    body: `<?xml version="1.0" encoding="utf-8"?><C:calendar-query xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav"><D:prop><D:getetag/><C:calendar-data><C:expand start="${fmtTs(timeMin)}" end="${fmtTs(timeMax)}"/></C:calendar-data></D:prop><C:filter><C:comp-filter name="VCALENDAR"><C:comp-filter name="VEVENT"><C:time-range start="${fmtTs(timeMin)}" end="${fmtTs(timeMax)}"/></C:comp-filter></C:comp-filter></C:filter></C:calendar-query>`,
+    // Note: we deliberately do NOT send <C:expand> — many CalDAV servers
+    // (iCloud, Fastmail, Nextcloud) implement it inconsistently, sometimes
+    // returning only the first instance of a recurring series. Instead we
+    // fetch the master VEVENT (with RRULE intact) and run client-side
+    // expansion in expandVEvents().
+    body: `<?xml version="1.0" encoding="utf-8"?><C:calendar-query xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav"><D:prop><D:getetag/><C:calendar-data/></D:prop><C:filter><C:comp-filter name="VCALENDAR"><C:comp-filter name="VEVENT"><C:time-range start="${fmtTs(timeMin)}" end="${fmtTs(timeMax)}"/></C:comp-filter></C:comp-filter></C:filter></C:calendar-query>`,
   });
 
   if (response.status !== 207 && !response.ok) {

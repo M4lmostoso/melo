@@ -10,8 +10,9 @@ interface MonthViewProps {
   onEventClick: (event: DbCalendarEvent) => void;
 }
 
+// Monday-first week — Jan 2 2023 is a Monday, so i+2 maps to Mon..Sun
 const DAY_NAMES = Array.from({ length: 7 }, (_, i) =>
-  new Date(2023, 0, i + 1).toLocaleDateString(undefined, { weekday: "short" }),
+  new Date(2023, 0, i + 2).toLocaleDateString(undefined, { weekday: "short" }),
 );
 
 export function MonthView({ currentDate, events, colorMap = {}, onEventClick }: MonthViewProps) {
@@ -19,7 +20,8 @@ export function MonthView({ currentDate, events, colorMap = {}, onEventClick }: 
   const month = currentDate.getMonth();
   const firstDay = new Date(year, month, 1);
   const lastDay = new Date(year, month + 1, 0);
-  const startOffset = firstDay.getDay();
+  // Monday-first: Mon→0, Tue→1, ..., Sun→6
+  const startOffset = (firstDay.getDay() + 6) % 7;
   const totalDays = lastDay.getDate();
   const today = new Date();
   const todayStr = `${today.getFullYear()}-${today.getMonth()}-${today.getDate()}`;
