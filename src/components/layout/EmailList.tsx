@@ -1,7 +1,7 @@
 import { useEffect, useCallback, useMemo, useRef, useState } from "react";
 import { CSSTransition } from "react-transition-group";
 import { t } from "@/i18n";
-import { ThreadCard } from "../email/ThreadCard";
+import { SwipeableThreadCard } from "../email/SwipeableThreadCard";
 import { CategoryTabs } from "../email/CategoryTabs";
 import { SearchBar } from "../search/SearchBar";
 import { EmailListSkeleton } from "../ui/Skeleton";
@@ -762,7 +762,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
                   </button>
                   {isExpanded && bundledThreads.map((thread) => (
                     <div key={thread.id} className="pl-4">
-                      <ThreadCard
+                      <SwipeableThreadCard
                         thread={thread}
                         isSelected={thread.id === selectedThreadId}
                         onClick={handleThreadClick}
@@ -790,7 +790,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
                       {t("layout.emailList.otherEmails")}
                     </div>
                   )}
-                  <ThreadCard
+                  <SwipeableThreadCard
                     thread={thread}
                     isSelected={thread.id === selectedThreadId}
                     onClick={handleThreadClick}
