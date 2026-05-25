@@ -8,6 +8,7 @@ import {
   RotateCcw,
   X,
 } from "lucide-react";
+import { TasksEmptyIllustration } from "@/components/ui/illustrations";
 import { t } from "@/i18n";
 import { useAccountStore } from "@/stores/accountStore";
 import { useTaskStore, type TaskFilterStatus, type TaskDirectionFilter } from "@/stores/taskStore";
@@ -385,8 +386,8 @@ export function TasksPage() {
               </>
             ) : (
               <>
-                <CheckSquare size={48} className="text-text-tertiary/30 mb-4" />
-                <p className="text-sm text-text-secondary mb-1">{t("tasks.emptyTitle")}</p>
+                <TasksEmptyIllustration size={120} className="mb-3 opacity-80" />
+                <p className="text-sm font-medium text-text-tertiary mb-1">{t("tasks.emptyTitle")}</p>
                 <p className="text-xs text-text-tertiary">
                   {searchQuery ? t("tasks.emptySearchHint") : t("tasks.emptyAddHint")}
                 </p>

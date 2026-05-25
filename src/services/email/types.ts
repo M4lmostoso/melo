@@ -22,6 +22,7 @@ export interface SyncResult {
   };
   latestSyncToken?: string;
   storedCount?: number;
+  flagChangedCount?: number;
 }
 
 export interface EmailProvider {

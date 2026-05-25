@@ -452,7 +452,7 @@ async function syncReadFlagsForFolder(
   config: ImapConfig,
   accountId: string,
   folderPath: string,
-): Promise<void> {
+): Promise<number> {
   const { getDb } = await import("../db/connection");
   const db = await getDb();
 
@@ -462,20 +462,20 @@ async function syncReadFlagsForFolder(
      WHERE account_id = $1 AND imap_folder = $2 AND imap_uid IS NOT NULL AND is_read = 0`,
     [accountId, folderPath],
   );
-  if (rows.length === 0) return;
+  if (rows.length === 0) return 0;
 
   // Ask the server which of those UIDs have \Seen set
   let seenUids: number[];
   try {
     seenUids = await imapCheckSeenUids(config, folderPath, rows.map((r) => r.uid));
   } catch {
-    return;
+    return 0;
   }
-  if (seenUids.length === 0) return;
+  if (seenUids.length === 0) return 0;
 
   const seenSet = new Set(seenUids);
   const toMark = rows.filter((r) => seenSet.has(r.uid));
-  if (toMark.length === 0) return;
+  if (toMark.length === 0) return 0;
 
   console.log(`[imapSync] syncReadFlags: marking ${toMark.length} message(s) as read in ${folderPath}`);
 
@@ -505,6 +505,8 @@ async function syncReadFlagsForFolder(
       [accountId, ...chunk],
     );
   }
+
+  return toMark.length;
 }
 
 // ---------------------------------------------------------------------------
@@ -828,6 +830,7 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
   const pendingFolderStates: FolderSyncState[] = [];
 
   let consecutiveFailures = 0;
+  let flagChangedCount = 0;
   const deltaFolderErrors: string[] = [];
 
   // ---- New folders ----
@@ -986,10 +989,12 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
           });
           if (isMaintenanceCycle) {
             await reconcileDeletedMessages(config, accountId, folder.raw_path);
-            await syncReadFlagsForFolder(config, accountId, folder.raw_path).catch((err) =>
-              console.error(`[imapSync] syncReadFlagsForFolder error:`, err),
-            );
           }
+          const changed = await syncReadFlagsForFolder(config, accountId, folder.raw_path).catch((err) => {
+            console.error(`[imapSync] syncReadFlagsForFolder error:`, err);
+            return 0;
+          });
+          flagChangedCount += changed;
           continue;
         }
 
@@ -1011,9 +1016,11 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
 
         if (isMaintenanceCycle) {
           await reconcileDeletedMessages(config, accountId, folder.raw_path);
-          await syncReadFlagsForFolder(config, accountId, folder.raw_path).catch((err) =>
-            console.error(`[imapSync] syncReadFlagsForFolder error:`, err),
-          );
+          const changed = await syncReadFlagsForFolder(config, accountId, folder.raw_path).catch((err) => {
+            console.error(`[imapSync] syncReadFlagsForFolder error:`, err);
+            return 0;
+          });
+          flagChangedCount += changed;
         }
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err ?? "Unknown error");
@@ -1031,7 +1038,7 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
   if (storedHeaders.length === 0) {
     // No new messages, but still persist folder states (records last_uid / last_sync_at)
     await Promise.all(pendingFolderStates.map(upsertFolderSyncState));
-    return { messages: [], storedCount: 0 };
+    return { messages: [], storedCount: 0, flagChangedCount };
   }
 
   // JWZ threading + subject-based merge with existing threads (for forwards/replies without headers)
@@ -1087,7 +1094,7 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
 
   await updateAccountSyncState(accountId, `imap-synced-${Date.now()}`);
 
-  return { messages: storedHeaders as unknown as ParsedMessage[], storedCount: storedHeaders.length };
+  return { messages: storedHeaders as unknown as ParsedMessage[], storedCount: storedHeaders.length, flagChangedCount };
 }
 
 // ---------------------------------------------------------------------------

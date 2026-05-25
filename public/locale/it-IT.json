@@ -1510,9 +1510,17 @@
         "title": "Nessuna email corrispondente",
         "subtitle": "Prova a modificare la query della cartella smart"
       },
+      "emptyUnread": {
+        "title": "Tutto letto",
+        "subtitle": "Nessuna email non letta"
+      },
       "emptyLabel": {
         "title": "Niente qui",
         "subtitle": "Nessuna conversazione con questa etichetta"
+      },
+      "emptyScheduled": {
+        "title": "Nessuna programmata",
+        "subtitle": "Le email programmate dal compositore appariranno qui"
       }
     },
     "titleBar": {
@@ -1530,10 +1538,21 @@
       "errorReload": "Ricarica"
     },
     "scheduledPanel": {
+      "title": "Email programmata",
       "scheduledFor": "Programmato per",
+      "edit": "Modifica",
       "editSchedule": "Riprogramma",
       "cancelSchedule": "Annulla",
+      "cancelling": "Annullamento…",
+      "rescheduleTitle": "Riprogramma invio",
+      "rescheduleSubmit": "Riprogramma",
       "close": "Chiudi",
+      "labelTo": "A",
+      "labelCc": "Cc",
+      "labelBcc": "Ccn",
+      "labelSubject": "Ogg",
+      "noSubject": "(nessun oggetto)",
+      "noContent": "(nessun contenuto)",
       "tomorrowMorning": "Domani mattina",
       "tomorrowAfternoon": "Domani pomeriggio",
       "mondayMorning": "Lunedì mattina"
@@ -1672,7 +1691,6 @@
     "loadingFolders": "Caricamento cartelle…",
     "noAccountSelected": "Nessun account attivo selezionato.",
     "addGmailAccount": "Aggiungi un account Gmail per iniziare",
-    "emptyScheduled": "Le email programmate dal compositore appariranno qui",
     "emptyOutgoing": "Le email in attesa di essere inviate appaiono qui"
   },
   "ai": {

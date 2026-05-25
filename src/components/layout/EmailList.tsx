@@ -30,6 +30,10 @@ import {
   NoSearchResultsIllustration,
   NoAccountIllustration,
   GenericEmptyIllustration,
+  ScheduledEmptyIllustration,
+  SnoozedEmptyIllustration,
+  DraftsEmptyIllustration,
+  UnreadEmptyIllustration,
 } from "../ui/illustrations";
 
 const PAGE_SIZE = 50;
@@ -43,6 +47,7 @@ const LABEL_MAP: Record<string, string> = {
   trash: "TRASH",
   spam: "SPAM",
   snoozed: "SNOOZED",
+  scheduled: "SCHEDULED",
   all: "", // no filter
 };
 
@@ -800,11 +805,13 @@ function EmptyStateForContext({
     case "starred":
       return <EmptyState illustration={GenericEmptyIllustration} title={t("layout.emailList.emptyStarred.title")} subtitle={t("layout.emailList.emptyStarred.subtitle")} />;
     case "snoozed":
-      return <EmptyState illustration={GenericEmptyIllustration} title={t("layout.emailList.emptySnoozed.title")} subtitle={t("layout.emailList.emptySnoozed.subtitle")} />;
+      return <EmptyState illustration={SnoozedEmptyIllustration} title={t("layout.emailList.emptySnoozed.title")} subtitle={t("layout.emailList.emptySnoozed.subtitle")} />;
+    case "scheduled":
+      return <EmptyState illustration={ScheduledEmptyIllustration} title={t("layout.emailList.emptyScheduled.title")} subtitle={t("layout.emailList.emptyScheduled.subtitle")} />;
     case "sent":
       return <EmptyState illustration={GenericEmptyIllustration} title={t("layout.emailList.emptySent.title")} />;
     case "drafts":
-      return <EmptyState illustration={GenericEmptyIllustration} title={t("layout.emailList.emptyDrafts.title")} />;
+      return <EmptyState illustration={DraftsEmptyIllustration} title={t("layout.emailList.emptyDrafts.title")} />;
     case "trash":
       return <EmptyState illustration={GenericEmptyIllustration} title={t("layout.emailList.emptyTrash.title")} />;
     case "spam":
@@ -812,6 +819,9 @@ function EmptyStateForContext({
     case "all":
       return <EmptyState illustration={GenericEmptyIllustration} title={t("layout.emailList.emptyAll.title")} />;
     default:
+      if (activeLabel === "smart-folder:sf-unread") {
+        return <EmptyState illustration={UnreadEmptyIllustration} title={t("layout.emailList.emptyUnread.title")} subtitle={t("layout.emailList.emptyUnread.subtitle")} />;
+      }
       if (activeLabel.startsWith("smart-folder:")) {
         return <EmptyState icon={FolderSearch} title={t("layout.emailList.emptySmartFolder.title")} subtitle={t("layout.emailList.emptySmartFolder.subtitle")} />;
       }

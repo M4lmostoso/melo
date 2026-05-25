@@ -674,7 +674,7 @@ export default function App() {
   // Listen for sync status updates
   const backfillDoneRef = useRef(false);
   useEffect(() => {
-    const unsub = onSyncStatus((accountId, status, progress, error, storedCount) => {
+    const unsub = onSyncStatus((accountId, status, progress, error, storedCount, flagChangedCount) => {
       const { setAccountSyncPhase } = useUIStore.getState();
       if (status === "syncing") {
         setAccountSyncPhase(accountId, "syncing");
@@ -702,6 +702,9 @@ export default function App() {
           setSyncStatus("Sync complete");
           setTimeout(() => setSyncStatus(null), 2_000);
           window.dispatchEvent(new Event("velo-sync-done"));
+        } else if (flagChangedCount && flagChangedCount > 0) {
+          window.dispatchEvent(new Event("velo-sync-done"));
+          setSyncStatus(null);
         } else {
           setSyncStatus(null);
         }

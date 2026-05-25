@@ -147,7 +147,7 @@ export function ScheduledEmailPanel({
         <div className="flex items-center justify-between px-5 py-4 border-b border-border-primary shrink-0">
           <div className="flex items-center gap-2.5">
             <Clock size={16} className="text-accent shrink-0" />
-            <span className="text-sm font-semibold text-text-primary">{/* TODO: add i18n key */}Scheduled email</span>
+            <span className="text-sm font-semibold text-text-primary">{t("layout.scheduledPanel.title")}</span>
           </div>
           <button
             onClick={onClose}
@@ -167,31 +167,31 @@ export function ScheduledEmailPanel({
         {/* Email metadata */}
         <div className="px-5 py-4 border-b border-border-primary space-y-2 shrink-0">
           <div className="flex gap-3 text-sm">
-            <span className="w-8 shrink-0 text-text-tertiary text-right">To</span>
+            <span className="w-8 shrink-0 text-text-tertiary text-right">{t("layout.scheduledPanel.labelTo")}</span>
             <span className="text-text-primary">{recipients.join(", ")}</span>
           </div>
           {email.cc_addresses && (
             <div className="flex gap-3 text-sm">
-              <span className="w-8 shrink-0 text-text-tertiary text-right">Cc</span>
+              <span className="w-8 shrink-0 text-text-tertiary text-right">{t("layout.scheduledPanel.labelCc")}</span>
               <span className="text-text-primary">{email.cc_addresses}</span>
             </div>
           )}
           {email.bcc_addresses && (
             <div className="flex gap-3 text-sm">
-              <span className="w-8 shrink-0 text-text-tertiary text-right">Bcc</span>
+              <span className="w-8 shrink-0 text-text-tertiary text-right">{t("layout.scheduledPanel.labelBcc")}</span>
               <span className="text-text-primary">{email.bcc_addresses}</span>
             </div>
           )}
           <div className="flex gap-3 text-sm">
-            <span className="w-8 shrink-0 text-text-tertiary text-right">Sub</span>
-            <span className="text-text-primary font-medium">{email.subject ?? "(no subject)"}</span>
+            <span className="w-8 shrink-0 text-text-tertiary text-right">{t("layout.scheduledPanel.labelSubject")}</span>
+            <span className="text-text-primary font-medium">{email.subject ?? t("layout.scheduledPanel.noSubject")}</span>
           </div>
         </div>
 
         {/* Body preview */}
         <div className="flex-1 overflow-y-auto px-5 py-4">
           <p className="text-sm text-text-secondary whitespace-pre-wrap leading-relaxed">
-            {bodyText || <span className="text-text-tertiary italic">(no content)</span>}
+            {bodyText || <span className="text-text-tertiary italic">{t("layout.scheduledPanel.noContent")}</span>}
           </p>
         </div>
 
@@ -204,7 +204,7 @@ export function ScheduledEmailPanel({
             onClick={() => onEdit(email)}
             className="flex-1"
           >
-            {/* TODO: add i18n key */}Edit
+            {t("layout.scheduledPanel.edit")}
           </Button>
           <Button
             variant="secondary"
@@ -223,7 +223,7 @@ export function ScheduledEmailPanel({
             disabled={cancelling}
             className="text-danger border-danger/30 hover:bg-danger/10"
           >
-            {cancelling ? "{/* TODO: add i18n key */}Cancelling…" : t("layout.scheduledPanel.cancelSchedule")}
+            {cancelling ? t("layout.scheduledPanel.cancelling") : t("layout.scheduledPanel.cancelSchedule")}
           </Button>
         </div>
       </div>
@@ -232,10 +232,10 @@ export function ScheduledEmailPanel({
         <DateTimePickerDialog
           isOpen={true}
           onClose={() => setShowRescheduler(false)}
-          title="Reschedule send"
+          title={t("layout.scheduledPanel.rescheduleTitle")}
           presets={getSchedulePresets()}
           onSelect={handleReschedule}
-          submitLabel="Reschedule"
+          submitLabel={t("layout.scheduledPanel.rescheduleSubmit")}
           zIndex="z-[60]"
         />
       )}
