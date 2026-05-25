@@ -502,17 +502,28 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
     if (allIds.length > 0) {
       refreshGlobalUnreadCounts(allIds);
       refreshScheduledCounts(allIds);
+    }
+  }, [accounts, refreshGlobalUnreadCounts, refreshScheduledCounts]);
+
+  // Load global smart folder counts when accounts or folders change
+  useEffect(() => {
+    const allIds = accounts.map((a) => a.id);
+    if (allIds.length > 0 && smartFolders.length > 0) {
       refreshSmartFolderGlobalCounts(allIds);
     }
-  }, [accounts, refreshGlobalUnreadCounts, refreshScheduledCounts, refreshSmartFolderGlobalCounts]);
+  }, [accounts, smartFolders, refreshSmartFolderGlobalCounts]);
 
   // Load smart folders when active account changes
   useEffect(() => {
     loadSmartFolders(activeAccountId ?? undefined);
-    if (activeAccountId) {
+  }, [activeAccountId, loadSmartFolders]);
+
+  // Refresh smart folder counts when active account or folders change
+  useEffect(() => {
+    if (activeAccountId && smartFolders.length > 0) {
       refreshSmartFolderCounts(activeAccountId);
     }
-  }, [activeAccountId, loadSmartFolders, refreshSmartFolderCounts]);
+  }, [activeAccountId, smartFolders, refreshSmartFolderCounts]);
 
   // Reload labels, smart folder counts, and global counts on sync completion
   useEffect(() => {
