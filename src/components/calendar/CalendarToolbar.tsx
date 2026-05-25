@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { ChevronLeft, ChevronRight, ChevronDown, Plus, CalendarDays } from "lucide-react";
-import { t } from "@/i18n";
+import { t, getLocale } from "@/i18n";
 
 export type CalendarView = "day" | "week" | "month";
 
@@ -137,9 +137,12 @@ export function CalendarToolbar({
     return () => document.removeEventListener("mousedown", handle);
   }, [pickerOpen]);
 
-  const monthName = currentDate.toLocaleDateString(undefined, { month: "long" });
+  const locale = getLocale();
+  const monthName = currentDate.toLocaleDateString(locale, { month: "long" });
   const yearStr = String(currentDate.getFullYear());
-  const showPicker = view === "month" && !!onDateSelect;
+  const showPicker = (view === "month" || view === "week" || view === "day") && !!onDateSelect;
+  const weekRangeLabel = (view === "week" || view === "day") ? formatWeekRange(currentDate, locale) : null;
+  const weekYear = (view === "week" || view === "day") ? String(weekRangeStart(currentDate).getFullYear()) : null;
 
   return (
     <div className="flex items-center justify-between px-6 py-3 border-b border-border-primary">
@@ -150,10 +153,17 @@ export function CalendarToolbar({
               onClick={() => setPickerOpen((v) => !v)}
               className="flex items-center gap-1.5 hover:opacity-75 transition-opacity"
             >
-              <span className="text-lg font-semibold text-text-primary capitalize">
-                {monthName}
-              </span>
-              <span className="text-lg font-semibold text-text-tertiary">{yearStr}</span>
+              {(view === "week" || view === "day") ? (
+                <>
+                  <span className="text-lg font-semibold text-text-primary">{weekRangeLabel}</span>
+                  <span className="text-lg font-semibold text-text-tertiary">{weekYear}</span>
+                </>
+              ) : (
+                <>
+                  <span className="text-lg font-semibold text-text-primary capitalize">{monthName}</span>
+                  <span className="text-lg font-semibold text-text-tertiary">{yearStr}</span>
+                </>
+              )}
               <ChevronDown
                 size={14}
                 className={`text-text-tertiary transition-transform ${pickerOpen ? "rotate-180" : ""}`}
@@ -237,21 +247,32 @@ export function CalendarToolbar({
   );
 }
 
+function weekRangeStart(date: Date): Date {
+  const start = new Date(date);
+  start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
+  return start;
+}
+
+function formatWeekRange(date: Date, locale: string): string {
+  const start = weekRangeStart(date);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 6);
+  if (start.getMonth() === end.getMonth()) {
+    const monthName = start.toLocaleDateString(locale, { month: "long" });
+    return `${start.getDate()}–${end.getDate()} ${monthName}`;
+  }
+  const startStr = start.toLocaleDateString(locale, { day: "numeric", month: "short" });
+  const endStr = end.toLocaleDateString(locale, { day: "numeric", month: "short" });
+  return `${startStr} – ${endStr}`;
+}
+
 function formatMonthPart(date: Date, view: CalendarView): string {
+  const locale = getLocale();
   if (view === "month") {
-    return date.toLocaleDateString(undefined, { month: "long" });
+    return date.toLocaleDateString(locale, { month: "long" });
   }
   if (view === "week") {
-    const start = new Date(date);
-    start.setDate(start.getDate() - start.getDay());
-    const end = new Date(start);
-    end.setDate(end.getDate() + 6);
-    if (start.getMonth() === end.getMonth()) {
-      return `${start.toLocaleDateString(undefined, { month: "long" })} ${start.getDate()}–${end.getDate()}`;
-    }
-    const startStr = start.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-    const endStr = end.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-    return `${startStr} – ${endStr}`;
+    return formatWeekRange(date, locale);
   }
-  return date.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
+  return date.toLocaleDateString(locale, { weekday: "long", month: "long", day: "numeric" });
 }

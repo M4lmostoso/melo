@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import { MapPin, Clock, User, Pencil, Trash2, Check, X, HelpCircle } from "lucide-react";
-import { t } from "@/i18n";
+import { t, getLocale } from "@/i18n";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { TextField } from "@/components/ui/TextField";
@@ -74,7 +74,7 @@ export function EventDetailModal({ event, calendars, accountId, onClose, onUpdat
   }, [accountId, calendar, event, onUpdated]);
 
   const formatTime = (ts: number) => {
-    return new Date(ts * 1000).toLocaleString(undefined, {
+    return new Date(ts * 1000).toLocaleString(getLocale(), {
       weekday: "short",
       month: "short",
       day: "numeric",

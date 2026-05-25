@@ -69,11 +69,16 @@ export function CalendarPage() {
       end.setHours(23, 59, 59, 999);
       return { start, end };
     }
-    const start = new Date(d);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(d);
-    end.setHours(23, 59, 59, 999);
-    return { start, end };
+    // Day view: fetch ±8 weeks from today (list shows ±52 but syncs ±8)
+    const todayForDay = new Date();
+    todayForDay.setHours(0, 0, 0, 0);
+    const dayOffset = (todayForDay.getDay() + 6) % 7;
+    const weekStart = new Date(todayForDay);
+    weekStart.setDate(weekStart.getDate() - dayOffset - 56); // 8 weeks back
+    const weekEnd = new Date(todayForDay);
+    weekEnd.setDate(weekEnd.getDate() - dayOffset + 6 + 56); // 8 weeks forward
+    weekEnd.setHours(23, 59, 59, 999);
+    return { start: weekStart, end: weekEnd };
   }, [currentDate, view]);
 
   const loadCalendars = useCallback(async () => {
@@ -220,7 +225,7 @@ export function CalendarPage() {
       const next = new Date(d);
       if (view === "month") next.setMonth(next.getMonth() - 1);
       else if (view === "week") next.setDate(next.getDate() - 7);
-      else next.setDate(next.getDate() - 1);
+      else next.setDate(next.getDate() - 7);
       return next;
     });
   }, [view]);
@@ -230,7 +235,7 @@ export function CalendarPage() {
       const next = new Date(d);
       if (view === "month") next.setMonth(next.getMonth() + 1);
       else if (view === "week") next.setDate(next.getDate() + 7);
-      else next.setDate(next.getDate() + 1);
+      else next.setDate(next.getDate() + 7);
       return next;
     });
   }, [view]);
@@ -392,6 +397,7 @@ export function CalendarPage() {
               events={events}
               colorMap={colorMap}
               onEventClick={handleEventClick}
+              onDayClick={setCurrentDate}
             />
           )}
         </div>

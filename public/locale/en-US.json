@@ -388,6 +388,15 @@
       "desc": "Your account was connected before calendar permissions were added. Re-authorize to grant calendar access — your emails and data will not be affected.",
       "reauthorize": "Re-authorize",
       "authorizing": "Waiting for authorization..."
+    },
+    "dayView": {
+      "lastWeek": "Last week",
+      "thisWeek": "This week",
+      "nextWeek": "Next week",
+      "weekNumber": "Week {n}",
+      "noEvents": "No events",
+      "allDayShort": "Day",
+      "weekSubtitle": "Week {n} of {year}"
     }
   },
   "tasks": {

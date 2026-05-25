@@ -1,4 +1,4 @@
-import { t } from "@/i18n";
+import { t, getLocale } from "@/i18n";
 import type { DbCalendarEvent } from "@/services/db/calendarEvents";
 
 interface EventCardProps {
@@ -12,7 +12,7 @@ export function EventCard({ event, compact, onClick, color }: EventCardProps) {
   const startDate = new Date(event.start_time * 1000);
   const timeStr = event.is_all_day
     ? t("calendar.eventAllDay")
-    : startDate.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    : startDate.toLocaleTimeString(getLocale(), { hour: "numeric", minute: "2-digit" });
 
   const accentColor = color ?? "var(--color-accent)";
 
@@ -44,7 +44,7 @@ export function EventCard({ event, compact, onClick, color }: EventCardProps) {
           {event.summary ?? t("calendar.eventFallback")}
         </span>
         <span className="shrink-0 text-text-tertiary">
-          {startDate.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}
+          {startDate.toLocaleTimeString(getLocale(), { hour: "numeric", minute: "2-digit" })}
         </span>
       </button>
     );

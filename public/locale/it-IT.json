@@ -387,6 +387,15 @@
       "desc": "Il tuo account è stato connesso prima che venissero aggiunte le autorizzazioni per il calendario. Ri-autorizza per consentire l'accesso — le tue email e i tuoi dati non saranno influenzati.",
       "reauthorize": "Ri-autorizza",
       "authorizing": "In attesa dell'autorizzazione..."
+    },
+    "dayView": {
+      "lastWeek": "Ultima settimana",
+      "thisWeek": "Questa settimana",
+      "nextWeek": "Settimana prossima",
+      "weekNumber": "Settimana {n}",
+      "noEvents": "Nessun impegno",
+      "allDayShort": "Giorno",
+      "weekSubtitle": "Settimana {n} del {year}"
     }
   },
   "tasks": {
