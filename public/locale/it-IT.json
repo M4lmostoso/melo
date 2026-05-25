@@ -1570,7 +1570,7 @@
     "defaultSmartFolders": {
       "sfUnread": "Non lette",
       "sfAttachments": "Con Allegati",
-      "sfStarredRecent": "Preferiti questa settimana"
+      "sfStarredRecent": "Preferiti di questa settimana"
     },
     "addSmartFolder": "Aggiungi cartella smart",
     "addLabel": "Aggiungi etichetta",

@@ -174,6 +174,226 @@ export function parseVEvents(icalData: string, href?: string): CalendarEventData
   return events.length > 0 ? events : [parseVEvent(icalData, href)];
 }
 
+// ---------------------------------------------------------------------------
+// RRULE client-side expansion
+// Used when the CalDAV server does not support the <C:expand> report element
+// ---------------------------------------------------------------------------
+
+interface RRuleParsed {
+  freq: "DAILY" | "WEEKLY" | "MONTHLY" | "YEARLY";
+  interval: number;
+  until: number | null;    // unix seconds
+  count: number | null;
+  byDay: number[];         // 0=Sun … 6=Sat
+  byMonthDay: number[];
+}
+
+function extractRRuleValue(icalData: string): string | null {
+  for (const line of unfoldLines(icalData)) {
+    if (line.toUpperCase().startsWith("RRULE:")) return line.slice(6).trim();
+  }
+  return null;
+}
+
+function extractExDates(icalData: string): Set<number> {
+  const out = new Set<number>();
+  for (const line of unfoldLines(icalData)) {
+    if (!line.toUpperCase().startsWith("EXDATE")) continue;
+    const colonIdx = line.indexOf(":");
+    if (colonIdx < 0) continue;
+    const params = line.slice(0, colonIdx).toUpperCase();
+    const isDate = params.includes("VALUE=DATE") && !params.includes("VALUE=DATE-TIME");
+    for (const v of line.slice(colonIdx + 1).split(",")) {
+      try { out.add(parseICalDateTime(v.trim(), isDate)); } catch { /* skip malformed */ }
+    }
+  }
+  return out;
+}
+
+function parseRRuleStr(raw: string): RRuleParsed | null {
+  const parts: Record<string, string> = {};
+  for (const part of raw.split(";")) {
+    const eq = part.indexOf("=");
+    if (eq > 0) parts[part.slice(0, eq).toUpperCase()] = part.slice(eq + 1);
+  }
+  const freq = parts["FREQ"]?.toUpperCase();
+  if (!freq || !["DAILY", "WEEKLY", "MONTHLY", "YEARLY"].includes(freq)) return null;
+
+  const interval = parts["INTERVAL"] ? Math.max(1, parseInt(parts["INTERVAL"], 10)) : 1;
+
+  let until: number | null = null;
+  if (parts["UNTIL"]) {
+    const u = parts["UNTIL"];
+    try { until = parseICalDateTime(u, u.length === 8); } catch { /* ignore */ }
+  }
+  const count = parts["COUNT"] ? parseInt(parts["COUNT"], 10) : null;
+
+  const DAY_MAP: Record<string, number> = { SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6 };
+  const byDay = (parts["BYDAY"] ?? "").split(",")
+    .map((d) => DAY_MAP[d.replace(/^[+-]?\d+/, "").toUpperCase()])
+    .filter((n): n is number => n !== undefined);
+  const byMonthDay = (parts["BYMONTHDAY"] ?? "").split(",")
+    .map((s) => parseInt(s, 10)).filter((n) => !isNaN(n));
+
+  return { freq: freq as RRuleParsed["freq"], interval, until, count, byDay, byMonthDay };
+}
+
+function generateOccurrences(
+  dtStart: number,
+  rrule: RRuleParsed,
+  rangeStart: number,
+  rangeEnd: number,
+  exDates: Set<number>,
+): number[] {
+  if (rrule.freq === "WEEKLY" && rrule.byDay.length > 0) {
+    return generateWeeklyByDay(dtStart, rrule, rangeStart, rangeEnd, exDates);
+  }
+
+  const results: number[] = [];
+  let current = dtStart;
+  let n = 0;
+
+  // Fast-forward past occurrences before the query window to avoid hitting
+  // the 500-iteration cap for events that started years ago.
+  if (current < rangeStart) {
+    const diff = rangeStart - current;
+    let stepsToSkip = 0;
+    const d = new Date(current * 1000);
+    switch (rrule.freq) {
+      case "DAILY":
+        stepsToSkip = Math.max(0, Math.floor(diff / (rrule.interval * 86400)) - 1);
+        d.setDate(d.getDate() + rrule.interval * stepsToSkip);
+        break;
+      case "WEEKLY":
+        stepsToSkip = Math.max(0, Math.floor(diff / (rrule.interval * 7 * 86400)) - 1);
+        d.setDate(d.getDate() + 7 * rrule.interval * stepsToSkip);
+        break;
+      case "MONTHLY":
+        stepsToSkip = Math.max(0, Math.floor(diff / (rrule.interval * 30 * 86400)) - 2);
+        d.setMonth(d.getMonth() + rrule.interval * stepsToSkip);
+        break;
+      case "YEARLY":
+        stepsToSkip = Math.max(0, Math.floor(diff / (rrule.interval * 365 * 86400)) - 1);
+        d.setFullYear(d.getFullYear() + rrule.interval * stepsToSkip);
+        break;
+    }
+    n += stepsToSkip;
+    current = Math.floor(d.getTime() / 1000);
+  }
+
+  while (results.length + n < 500) {
+    if (rrule.until !== null && current > rrule.until) break;
+    if (rrule.count !== null && n >= rrule.count) break;
+    if (current > rangeEnd) break;
+
+    if (current >= rangeStart && !exDates.has(current)) results.push(current);
+    n++;
+
+    const d = new Date(current * 1000);
+    switch (rrule.freq) {
+      case "DAILY":   d.setDate(d.getDate() + rrule.interval); break;
+      case "WEEKLY":  d.setDate(d.getDate() + 7 * rrule.interval); break;
+      case "MONTHLY": d.setMonth(d.getMonth() + rrule.interval); break;
+      case "YEARLY":  d.setFullYear(d.getFullYear() + rrule.interval); break;
+    }
+    current = Math.floor(d.getTime() / 1000);
+  }
+
+  return results;
+}
+
+function generateWeeklyByDay(
+  dtStart: number,
+  rrule: RRuleParsed,
+  rangeStart: number,
+  rangeEnd: number,
+  exDates: Set<number>,
+): number[] {
+  const results: number[] = [];
+  const sortedDays = [...rrule.byDay].sort((a, b) => a - b);
+  let count = 0;
+
+  // Anchor on the Sunday of the week containing dtStart, preserving event time
+  const startDate = new Date(dtStart * 1000);
+  const weekAnchor = new Date(startDate);
+  weekAnchor.setDate(weekAnchor.getDate() - weekAnchor.getDay());
+
+  // Fast-forward to near rangeStart to avoid iterating all past weeks
+  const anchorTs = Math.floor(weekAnchor.getTime() / 1000);
+  if (anchorTs < rangeStart) {
+    const weeksToSkip = Math.max(
+      0,
+      Math.floor((rangeStart - anchorTs) / (7 * 86400 * rrule.interval)) - 1,
+    );
+    if (weeksToSkip > 0) {
+      count += weeksToSkip * sortedDays.length;
+      weekAnchor.setDate(weekAnchor.getDate() + 7 * rrule.interval * weeksToSkip);
+    }
+  }
+
+  while (results.length + count < 500) {
+    for (const dow of sortedDays) {
+      const d = new Date(weekAnchor);
+      d.setDate(d.getDate() + dow);
+      const ts = Math.floor(d.getTime() / 1000);
+
+      if (ts < dtStart) continue;
+      if (rrule.until !== null && ts > rrule.until) return results;
+      if (rrule.count !== null && count >= rrule.count) return results;
+      if (ts > rangeEnd) return results;
+
+      count++;
+      if (ts >= rangeStart && !exDates.has(ts)) results.push(ts);
+    }
+    weekAnchor.setDate(weekAnchor.getDate() + 7 * rrule.interval);
+    if (Math.floor(weekAnchor.getTime() / 1000) > rangeEnd) break;
+  }
+
+  return results;
+}
+
+/**
+ * Like parseVEvents but also expands RRULE recurring events for servers that
+ * do not support CalDAV <C:expand> (Nextcloud, Fastmail, etc.).
+ * When the server already expanded instances, they come back as multiple VEVENT
+ * blocks → parseVEvents returns >1 → we skip expansion and return as-is.
+ * rangeStart/rangeEnd are unix timestamps defining the query window.
+ */
+export function expandVEvents(
+  icalData: string,
+  href: string | undefined,
+  rangeStart: number,
+  rangeEnd: number,
+): CalendarEventData[] {
+  const events = parseVEvents(icalData, href);
+
+  // Server already expanded recurring instances into multiple VEVENTs
+  if (events.length > 1) return events;
+
+  const event = events[0];
+  if (!event) return [];
+
+  const rruleValue = extractRRuleValue(icalData);
+  if (!rruleValue) return events;
+
+  const rrule = parseRRuleStr(rruleValue);
+  if (!rrule) return events;
+
+  const exDates = extractExDates(icalData);
+  const duration = Math.max(0, event.endTime - event.startTime);
+
+  const times = generateOccurrences(event.startTime, rrule, rangeStart, rangeEnd, exDates);
+  if (times.length === 0) return events;
+
+  return times.map((startTs) => ({
+    ...event,
+    startTime: startTs,
+    endTime: startTs + duration,
+    // Stable per-instance ID so upsert deduplicates correctly
+    remoteEventId: `${event.uid ?? event.remoteEventId}_${startTs}`,
+  }));
+}
+
 /** Extract the METHOD property from iCalendar data (REQUEST, REPLY, CANCEL, etc.) */
 export function extractIcsMethod(icalData: string): string {
   const match = icalData.match(/^METHOD:(.+)$/im);

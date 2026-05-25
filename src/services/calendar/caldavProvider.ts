@@ -8,7 +8,7 @@ import type {
   CreateEventInput,
   UpdateEventInput,
 } from "./types";
-import { generateVEvent, parseVEvent, parseVEvents } from "./icalHelper";
+import { generateVEvent, parseVEvent, expandVEvents } from "./icalHelper";
 import { getAccount } from "@/services/db/accounts";
 import { listCalDavCalendars, fetchCalDavEvents } from "./caldavHttp";
 
@@ -59,9 +59,11 @@ export class CalDAVProvider implements CalendarProvider {
     const username = account.caldav_username ?? account.email;
 
     const objects = await fetchCalDavEvents(calendarRemoteId, username, account.caldav_password, timeMin, timeMax);
+    const rangeStartTs = Math.floor(new Date(timeMin).getTime() / 1000);
+    const rangeEndTs = Math.floor(new Date(timeMax).getTime() / 1000);
     const allEvents: CalendarEventData[] = [];
     for (const obj of objects) {
-      const events = parseVEvents(obj.icalData, obj.url);
+      const events = expandVEvents(obj.icalData, obj.url, rangeStartTs, rangeEndTs);
       for (const event of events) {
         event.etag = obj.etag;
         allEvents.push(event);
@@ -166,9 +168,11 @@ export class CalDAVProvider implements CalendarProvider {
       timeMax.toISOString(),
     );
 
+    const rangeStartTs = Math.floor(timeMin.getTime() / 1000);
+    const rangeEndTs = Math.floor(timeMax.getTime() / 1000);
     const created: CalendarEventData[] = [];
     for (const obj of objects) {
-      const events = parseVEvents(obj.icalData, obj.url);
+      const events = expandVEvents(obj.icalData, obj.url, rangeStartTs, rangeEndTs);
       for (const event of events) {
         event.etag = obj.etag;
         created.push(event);

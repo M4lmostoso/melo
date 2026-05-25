@@ -1016,6 +1016,10 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
 
         if (isMaintenanceCycle) {
           await reconcileDeletedMessages(config, accountId, folder.raw_path);
+        }
+        // Always sync read flags even when new messages arrived — ensures
+        // messages read on another device clear their badge in this cycle.
+        {
           const changed = await syncReadFlagsForFolder(config, accountId, folder.raw_path).catch((err) => {
             console.error(`[imapSync] syncReadFlagsForFolder error:`, err);
             return 0;

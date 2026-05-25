@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { MapPin, Clock, User, Pencil, Trash2 } from "lucide-react";
+import { MapPin, Clock, User, Pencil, Trash2, Check, X, HelpCircle } from "lucide-react";
 import { t } from "@/i18n";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
@@ -83,7 +83,10 @@ export function EventDetailModal({ event, calendars, accountId, onClose, onUpdat
     });
   };
 
-  const attendees = event.attendees_json ? JSON.parse(event.attendees_json) as { email: string; displayName?: string }[] : [];
+  const attendees = event.attendees_json
+    ? (JSON.parse(event.attendees_json) as { email: string; displayName?: string; responseStatus?: string }[])
+        .filter((a) => a.email !== event.organizer_email)
+    : [];
 
   if (editing) {
     return (
@@ -178,16 +181,29 @@ export function EventDetailModal({ event, calendars, accountId, onClose, onUpdat
           </div>
         )}
 
-        {attendees.length > 0 && (
+        {(event.organizer_email || attendees.length > 0) && (
           <div className="border-t border-border-primary pt-3">
             <div className="text-xs text-text-tertiary mb-1.5">{t("calendar.eventAttendees")}</div>
             <div className="space-y-1">
-              {attendees.map((a, i) => (
-                <div key={i} className="flex items-center gap-2 text-sm text-text-secondary">
-                  <User size={12} className="text-text-tertiary" />
-                  <span>{a.displayName ?? a.email}</span>
+              {event.organizer_email && (
+                <div className="flex items-center gap-2 text-sm text-text-secondary">
+                  <User size={12} className="text-accent" />
+                  <span className="flex-1 min-w-0 truncate">{event.organizer_email}</span>
+                  <span className="text-[0.625rem] text-text-tertiary shrink-0">{t("calendar.eventOrganizer")}</span>
                 </div>
-              ))}
+              )}
+              {attendees.map((a, i) => {
+                const status = a.responseStatus?.toLowerCase();
+                return (
+                  <div key={i} className="flex items-center gap-2 text-sm text-text-secondary">
+                    <User size={12} className="text-text-tertiary shrink-0" />
+                    <span className="flex-1 min-w-0 truncate">{a.displayName ?? a.email}</span>
+                    {status === "accepted" && <Check size={11} className="text-emerald-500 shrink-0" />}
+                    {status === "declined" && <X size={11} className="text-danger shrink-0" />}
+                    {status === "tentative" && <HelpCircle size={11} className="text-amber-400 shrink-0" />}
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}

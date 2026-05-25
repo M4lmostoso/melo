@@ -64,6 +64,16 @@ export async function upsertCalendarEvent(event: {
       event.icalData ?? null, event.uid ?? null,
     ],
   );
+  // Remove any orphan row that was created from an email invite with the same uid
+  // (upsertEmailInviteEvent uses uid as google_event_id, so a different google_event_id
+  // but identical uid means a stale duplicate from a prior RSVP flow)
+  if (event.uid) {
+    await db.execute(
+      `DELETE FROM calendar_events
+       WHERE account_id = $1 AND uid = $2 AND google_event_id != $3`,
+      [event.accountId, event.uid, event.googleEventId],
+    );
+  }
 }
 
 export async function getCalendarEventsInRange(

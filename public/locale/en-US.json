@@ -302,6 +302,7 @@
     "eventDescription": "Description",
     "eventDescriptionPlaceholder": "Add description",
     "eventAttendees": "Attendees",
+    "eventOrganizer": "organizer",
     "eventDeleteConfirm": "Delete this event?",
     "eventDelete": "Delete",
     "eventYesDelete": "Yes, delete",

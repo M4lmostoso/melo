@@ -574,10 +574,13 @@ export class ImapSmtpProvider implements EmailProvider {
       throw new Error(`SMTP send failed: ${result.message}`);
     }
 
-    // Append to server Sent folder first so we can use the real IMAP UID as the
-    // message ID — prevents a duplicate when the background sync imports the same
-    // message a few seconds later (upsert on the same ID is a no-op).
-    let messageId = `imap-sent-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    // Append to server Sent folder. If we get the real IMAP UID back we can
+    // build a stable message ID and save locally — the background sync will
+    // upsert on the same ID so it's a no-op (no duplicate).
+    // If the append fails or returns uid=0 we skip the local save entirely so
+    // we don't create a random-ID row that duplicates the real one when the
+    // next delta sync imports it.
+    let messageId = `imap-${this.accountId}-sent-${Date.now()}`;
     let resolvedSentFolder: string | undefined;
     let resolvedUid: number | undefined;
     try {
@@ -589,21 +592,20 @@ export class ImapSmtpProvider implements EmailProvider {
         messageId = `imap-${this.accountId}-${sentFolder}-${uid}`;
         resolvedSentFolder = sentFolder;
         resolvedUid = uid;
+        // Save locally with the real IMAP UID so the message appears in Sent
+        // immediately and delta sync de-dupes on the same ID.
+        try {
+          await this.saveSentMessageLocally(rawBase64Url, messageId, _threadId, resolvedSentFolder, resolvedUid);
+        } catch (err) {
+          console.warn("[IMAP] Failed to save sent message to local DB:", err);
+        }
       }
+      // uid === 0: server didn't return UID; let the next delta sync import it.
     } catch (err) {
       console.error(
         "[IMAP] Failed to copy sent message to Sent folder on server:",
         err,
       );
-    }
-
-    // Save to local DB with the definitive ID so it appears in Sent immediately.
-    // Pass imap_folder and imap_uid so resolveGrouped() can find the message when
-    // the user deletes it before the next delta sync updates the DB.
-    try {
-      await this.saveSentMessageLocally(rawBase64Url, messageId, _threadId, resolvedSentFolder, resolvedUid);
-    } catch (err) {
-      console.warn("[IMAP] Failed to save sent message to local DB:", err);
     }
 
     return { id: messageId };
