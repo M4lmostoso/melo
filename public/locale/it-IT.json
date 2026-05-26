@@ -1129,7 +1129,8 @@
       "sections": {
         "calendars": "Calendari",
         "calendarOnlyAccounts": "Account solo calendario",
-        "addCalendarAccount": "Aggiungi account calendario"
+        "addCalendarAccount": "Aggiungi account calendario",
+        "calendarInvites": "Inviti al Calendario"
       },
       "noAccountsConnected": "Nessun account connesso.",
       "noCalendarsSynced": "Nessun calendario sincronizzato. Apri la vista calendario per avviare la sincronizzazione.",
@@ -1139,7 +1140,13 @@
       "caldavEdit": "Modifica",
       "caldavClose": "Chiudi",
       "removeCalDav": "Rimuovi",
-      "calendarComingSoon": "Il supporto per account calendario standalone (es. iCloud, Nextcloud) sarà disponibile presto."
+      "calendarComingSoon": "Il supporto per account calendario standalone (es. iCloud, Nextcloud) sarà disponibile presto.",
+      "invitePruningLabel": "Archivia automaticamente dopo",
+      "invitePruningDesc": "Gli inviti al calendario più vecchi del periodo selezionato vengono archiviati automaticamente all'avvio e rimossi dalla posta in arrivo.",
+      "pruning3months": "3 mesi",
+      "pruning6months": "6 mesi",
+      "pruning12months": "12 mesi",
+      "pruningNever": "Mai"
     },
     "shortcuts": {
       "globalShortcut": "Scorciatoia globale",
@@ -1666,7 +1673,8 @@
     "defaultSmartFolders": {
       "sfUnread": "Non lette",
       "sfAttachments": "Con Allegati",
-      "sfStarredRecent": "Importanti - questa settimana"
+      "sfStarredRecent": "Importanti - questa settimana",
+      "sfCalendar": "Inviti al Calendario"
     },
     "addSmartFolder": "Aggiungi cartella smart",
     "addLabel": "Aggiungi etichetta",

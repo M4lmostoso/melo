@@ -33,6 +33,24 @@ export function resolveQueryTokens(query: string): string {
     resolved = resolved.replace(/__LAST_30_DAYS__/g, formatDate(d));
   }
 
+  if (resolved.includes("__LAST_3_MONTHS__")) {
+    const d = new Date(now);
+    d.setMonth(d.getMonth() - 3);
+    resolved = resolved.replace(/__LAST_3_MONTHS__/g, formatDate(d));
+  }
+
+  if (resolved.includes("__LAST_6_MONTHS__")) {
+    const d = new Date(now);
+    d.setMonth(d.getMonth() - 6);
+    resolved = resolved.replace(/__LAST_6_MONTHS__/g, formatDate(d));
+  }
+
+  if (resolved.includes("__LAST_12_MONTHS__")) {
+    const d = new Date(now);
+    d.setMonth(d.getMonth() - 12);
+    resolved = resolved.replace(/__LAST_12_MONTHS__/g, formatDate(d));
+  }
+
   if (resolved.includes("__TODAY__")) {
     resolved = resolved.replace(/__TODAY__/g, formatDate(now));
   }

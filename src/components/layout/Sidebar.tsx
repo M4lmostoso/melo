@@ -25,6 +25,8 @@ import {
   Mail,
   CheckSquare,
   Calendar,
+  CalendarDays,
+  CalendarSearch,
   Settings,
   Plus,
   Tag,
@@ -297,10 +299,16 @@ const SMART_FOLDER_ICON_MAP: Record<string, LucideIcon> = {
   Inbox,
   Clock,
   Tag,
+  CalendarDays,
+  CalendarSearch,
 };
 
+function kebabToPascal(s: string): string {
+  return s.replace(/(^|-)([a-z])/g, (_, _sep, ch) => ch.toUpperCase());
+}
+
 function getSmartFolderIcon(iconName: string): LucideIcon {
-  return SMART_FOLDER_ICON_MAP[iconName] ?? Search;
+  return SMART_FOLDER_ICON_MAP[iconName] ?? SMART_FOLDER_ICON_MAP[kebabToPascal(iconName)] ?? Search;
 }
 
 const LABELS_COLLAPSED_COUNT = 3;

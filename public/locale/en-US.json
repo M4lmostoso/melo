@@ -1130,7 +1130,8 @@
       "sections": {
         "calendars": "Calendars",
         "calendarOnlyAccounts": "Calendar-only Accounts",
-        "addCalendarAccount": "Add Calendar Account"
+        "addCalendarAccount": "Add Calendar Account",
+        "calendarInvites": "Calendar Invites"
       },
       "noAccountsConnected": "No accounts connected.",
       "noCalendarsSynced": "No calendars synced yet. Open the calendar view to trigger a sync.",
@@ -1140,7 +1141,13 @@
       "caldavEdit": "Edit",
       "caldavClose": "Close",
       "removeCalDav": "Remove",
-      "calendarComingSoon": "Support for standalone calendar accounts (e.g. iCloud, Nextcloud) is coming soon."
+      "calendarComingSoon": "Support for standalone calendar accounts (e.g. iCloud, Nextcloud) is coming soon.",
+      "invitePruningLabel": "Auto-archive invites after",
+      "invitePruningDesc": "Calendar invites older than this period are automatically archived and removed from your inbox on launch.",
+      "pruning3months": "3 months",
+      "pruning6months": "6 months",
+      "pruning12months": "12 months",
+      "pruningNever": "Never"
     },
     "shortcuts": {
       "globalShortcut": "Global Shortcut",
@@ -1667,7 +1674,8 @@
     "defaultSmartFolders": {
       "sfUnread": "Unread",
       "sfAttachments": "Has Attachments",
-      "sfStarredRecent": "Starred This Week"
+      "sfStarredRecent": "Starred This Week",
+      "sfCalendar": "Calendar Invites"
     },
     "addSmartFolder": "Add smart folder",
     "addLabel": "Add label",

@@ -10,6 +10,7 @@ export interface ParsedSearchQuery {
   to?: string;
   subject?: string;
   hasAttachment?: boolean;
+  hasCalendar?: boolean;
   isUnread?: boolean;
   isRead?: boolean;
   isStarred?: boolean;
@@ -68,6 +69,8 @@ export function parseSearchQuery(input: string): ParsedSearchQuery {
       case "has":
         if (value.toLowerCase() === "attachment") {
           result.hasAttachment = true;
+        } else if (value.toLowerCase() === "calendar") {
+          result.hasCalendar = true;
         }
         break;
       case "is":

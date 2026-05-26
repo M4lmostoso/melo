@@ -5,6 +5,7 @@ export const DEFAULT_SMART_FOLDER_I18N_KEYS: Record<string, string> = {
   "sf-unread": "sidebar.defaultSmartFolders.sfUnread",
   "sf-attachments": "sidebar.defaultSmartFolders.sfAttachments",
   "sf-starred-recent": "sidebar.defaultSmartFolders.sfStarredRecent",
+  "sf-calendar": "sidebar.defaultSmartFolders.sfCalendar",
 };
 
 export interface DbSmartFolder {

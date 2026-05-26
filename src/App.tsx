@@ -74,6 +74,7 @@ import { useShortcutStore } from "./stores/shortcutStore";
 import { useContactsStore } from "./stores/contactsStore";
 import { useTaskStore } from "./stores/taskStore";
 import { purgeOldDeletedTasks, purgeOldCompletedTasks } from "./services/tasks/taskManager";
+import { pruneCalendarInvites } from "./services/calendarInviteManager";
 import { ContextMenuPortal } from "./components/ui/ContextMenuPortal";
 import { LocalFilePreview } from "./components/ui/LocalFilePreview";
 import { MoveToFolderDialog } from "./components/email/MoveToFolderDialog";
@@ -643,6 +644,7 @@ export default function App() {
         // Purge soft-deleted and completed tasks per user-configured retention settings — fire-and-forget
         purgeOldDeletedTasks();
         purgeOldCompletedTasks();
+        pruneCalendarInvites();
 
         // Start auto-update checker
         startUpdateChecker();

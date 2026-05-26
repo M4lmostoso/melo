@@ -1066,6 +1066,13 @@ const MIGRATIONS = [
           ON messages(account_id, message_id_header, imap_folder, imap_uid)
           WHERE message_id_header IS NOT NULL AND imap_folder IS NOT NULL AND imap_uid IS NOT NULL;`,
   },
+  {
+    version: 49,
+    description: "Add Calendar Invites default smart folder and pruning setting",
+    sql: `INSERT OR IGNORE INTO smart_folders (id, account_id, name, query, icon, sort_order, is_default)
+          VALUES ('sf-calendar', NULL, 'Calendar Invites', 'has:calendar after:__LAST_6_MONTHS__', 'CalendarDays', 3, 1);
+          INSERT OR IGNORE INTO settings (key, value) VALUES ('calendar_invite_pruning_months', '6');`,
+  },
 ];
 
 // ---------------------------------------------------------------------------

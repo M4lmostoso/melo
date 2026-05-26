@@ -3,6 +3,7 @@ import { useDraggable } from "@dnd-kit/core";
 import type { Thread } from "@/stores/threadStore";
 import { useThreadStore } from "@/stores/threadStore";
 import { useUIStore } from "@/stores/uiStore";
+import { useAccountStore } from "@/stores/accountStore";
 import { useActiveLabel } from "@/hooks/useRouteNavigation";
 import { formatRelativeDate } from "@/utils/date";
 import { decodeHtml } from "@/utils/sanitize";
@@ -37,6 +38,7 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
   const emailDensity = useUIStore((s) => s.emailDensity);
   const contactsMap = useContactsStore((s) => s.contactsMap);
   const isSpam = thread.labelIds.includes("SPAM");
+  const accountColor = useAccountStore((s) => s.accounts.find((a) => a.id === thread.accountId)?.color ?? null);
 
   const senderDisplay = (
     (thread.fromAddress && contactsMap[thread.fromAddress.toLowerCase()]) ||
@@ -87,8 +89,8 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
       onContextMenu={handleContextMenu}
       aria-label={`${thread.isRead ? "" : t("threadCard.unreadPrefix")}email from ${senderDisplay}: ${thread.subject ?? t("threadCard.noSubject")}`}
       aria-selected={isSelected}
-      className={`w-full text-left border-b border-border-secondary group hover-lift press-scale ${
-        emailDensity === "compact" ? "px-3 py-1.5" : emailDensity === "spacious" ? "px-4 py-4" : "px-4 py-3"
+      className={`relative w-full text-left border-b border-border-secondary group hover-lift press-scale ${
+        emailDensity === "compact" ? "pl-4 pr-3 py-1.5" : emailDensity === "spacious" ? "pl-5 pr-4 py-4" : "pl-5 pr-4 py-3"
       } ${
         isDragging
           ? "opacity-50"
@@ -99,6 +101,12 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
               : "hover:bg-bg-hover"
       } ${isSpam ? "bg-red-500/8 dark:bg-red-500/10" : ""}`}
     >
+      {accountColor && (
+        <span
+          className="absolute left-0 top-0 -bottom-px w-0.5"
+          style={{ backgroundColor: accountColor }}
+        />
+      )}
       <div className="flex items-start gap-3">
         {/* Avatar */}
         <div

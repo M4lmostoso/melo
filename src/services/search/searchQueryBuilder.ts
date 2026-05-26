@@ -79,6 +79,13 @@ export function buildSearchQuery(
     );
   }
 
+  // has:calendar — messages with .ics attachments or calendar MIME type
+  if (parsed.hasCalendar) {
+    whereClauses.push(
+      `EXISTS (SELECT 1 FROM attachments a WHERE a.account_id = m.account_id AND a.message_id = m.id AND (a.mime_type LIKE '%calendar%' OR a.filename LIKE '%.ics'))`,
+    );
+  }
+
   // is:unread
   if (parsed.isUnread) {
     whereClauses.push(`m.is_read = 0`);

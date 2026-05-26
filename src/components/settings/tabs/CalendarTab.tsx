@@ -10,6 +10,8 @@ import {
   calDisplayName,
   type DbCalendar,
 } from "@/services/db/calendars";
+import { getSetting } from "@/services/db/settings";
+import { updateCalendarPruningMonths } from "@/services/calendarInviteManager";
 import { CalDavSettings } from "@/components/settings/CalDavSettings";
 import { Section } from "./shared";
 
@@ -260,6 +262,46 @@ function StandaloneCalDavSection({ onRemove }: { onRemove: (id: string) => void 
   );
 }
 
+// ---- Sezione pruning inviti al calendario ----
+
+function CalendarInvitesPruningSection() {
+  const [months, setMonths] = useState("6");
+
+  useEffect(() => {
+    getSetting("calendar_invite_pruning_months").then((v) => {
+      if (v) setMonths(v);
+    });
+  }, []);
+
+  async function handleChange(value: string) {
+    setMonths(value);
+    await updateCalendarPruningMonths(value);
+  }
+
+  return (
+    <Section title={t("settings.calendar.sections.calendarInvites")}>
+      <p className="text-xs text-text-tertiary mb-4">
+        {t("settings.calendar.invitePruningDesc")}
+      </p>
+      <div className="flex items-center justify-between gap-4">
+        <p className="text-sm text-text-primary font-medium">
+          {t("settings.calendar.invitePruningLabel")}
+        </p>
+        <select
+          value={months}
+          onChange={(e) => handleChange(e.target.value)}
+          className="bg-bg-tertiary border border-border-primary rounded-lg px-2.5 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
+        >
+          <option value="3">{t("settings.calendar.pruning3months")}</option>
+          <option value="6">{t("settings.calendar.pruning6months")}</option>
+          <option value="12">{t("settings.calendar.pruning12months")}</option>
+          <option value="0">{t("settings.calendar.pruningNever")}</option>
+        </select>
+      </div>
+    </Section>
+  );
+}
+
 // ---- Tab principale ----
 
 export function CalendarTab() {
@@ -300,6 +342,8 @@ export function CalendarTab() {
       </Section>
 
       <StandaloneCalDavSection onRemove={handleRemoveCalDav} />
+
+      <CalendarInvitesPruningSection />
 
       <Section title={t("settings.calendar.sections.addCalendarAccount")}>
         <p className="text-sm text-text-tertiary">
