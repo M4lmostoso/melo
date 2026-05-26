@@ -5,10 +5,10 @@ import {
   scoreUrgencyFromText,
   adjustUrgencyWithReputation,
   ragPriorityDomainBoost,
-  detectSollecito,
-  detectLegalSender,
   sanitizeForUrgencyScoring,
 } from "./reputationEngine";
+import { scoreUrgencyWithAi } from "./aiService";
+import { isAiAvailable } from "./providerManager";
 
 const SKIP_LABELS = new Set(["SENT", "DRAFT", "TRASH", "SPAM"]);
 // Gmail category labels that indicate non-Primary threads — urgency is suppressed for these.
@@ -24,6 +24,7 @@ interface UrgencySettings {
   behaviorEnabled: boolean;
   urgencyEnabled: boolean;
   priorityDomains: string;
+  decayStartDays: number;
   decayFloorDays: number;
 }
 
@@ -34,20 +35,27 @@ const CACHE_TTL = 60_000;
 async function getUrgencySettings(): Promise<UrgencySettings> {
   const now = Date.now();
   if (_cache && now - _cacheTime < CACHE_TTL) return _cache;
-  const [behaviorEnabled, urgencyEnabled, priorityDomains, decayFloor] = await Promise.all([
+  const [behaviorEnabled, urgencyEnabled, priorityDomains, decayStart, decayFloor] = await Promise.all([
     getSetting("ai_behavior_enabled"),
     getSetting("ai_urgency_enabled"),
     getSetting("rag_priority_domains"),
+    getSetting("ai_urgency_decay_start_days"),
     getSetting("ai_urgency_decay_floor_days"),
   ]);
   _cache = {
     behaviorEnabled: behaviorEnabled !== "false",
     urgencyEnabled: urgencyEnabled !== "false",
     priorityDomains: priorityDomains ?? "",
+    decayStartDays: parseInt(decayStart ?? "20", 10),
     decayFloorDays: parseInt(decayFloor ?? "30", 10),
   };
   _cacheTime = now;
   return _cache;
+}
+
+export async function getDecaySettings(): Promise<{ decayStartDays: number; decayFloorDays: number }> {
+  const s = await getUrgencySettings();
+  return { decayStartDays: s.decayStartDays, decayFloorDays: s.decayFloorDays };
 }
 
 /** Invalidate the settings cache — call whenever urgency-related settings change. */
@@ -68,6 +76,7 @@ export interface ThreadUrgencyParams {
 
 /**
  * Score urgency for a newly synced thread and persist the result.
+ * Uses the active AI provider when available; falls back to keyword heuristics.
  * All errors are swallowed — urgency is best-effort and must never block sync.
  */
 export async function processThreadUrgency(params: ThreadUrgencyParams): Promise<void> {
@@ -76,8 +85,15 @@ export async function processThreadUrgency(params: ThreadUrgencyParams): Promise
     if (!settings.behaviorEnabled || !settings.urgencyEnabled) return;
 
     if (params.labelIds.some((l) => SKIP_LABELS.has(l))) return;
-    // Non-Primary Gmail categories: no urgency scoring
     if (params.labelIds.some((l) => NON_PRIMARY_GMAIL_LABELS.has(l))) return;
+
+    // Skip muted threads — their urgency score is managed by the mute action
+    const db = await getDb();
+    const rows = await db.select<{ is_muted: number }[]>(
+      "SELECT is_muted FROM threads WHERE account_id = ?1 AND id = ?2",
+      [params.accountId, params.threadId],
+    );
+    if (rows[0]?.is_muted === 1) return;
 
     const ageDays = (Date.now() - params.lastMessageAt) / 86_400_000;
     if (ageDays > settings.decayFloorDays) return;
@@ -87,31 +103,42 @@ export async function processThreadUrgency(params: ThreadUrgencyParams): Promise
     const fromAddress = params.fromAddress ?? "";
     const fromName = params.fromName ?? "";
 
-    const isSollecito = detectSollecito(subject, bodyText);
-    const isLegalSender = detectLegalSender(fromName, fromAddress);
+    let rawScore: number;
 
-    let rawScore = scoreUrgencyFromText(subject, sanitizeForUrgencyScoring(bodyText));
+    const aiAvailable = await isAiAvailable();
+    if (aiAvailable) {
+      const aiScore = await scoreUrgencyWithAi(
+        params.accountId,
+        params.threadId,
+        subject,
+        sanitizeForUrgencyScoring(bodyText),
+        fromAddress,
+        fromName,
+      );
+      if (aiScore !== null) {
+        rawScore = aiScore;
+      } else {
+        // AI call failed — fall back to keywords
+        rawScore = scoreUrgencyFromText(subject, sanitizeForUrgencyScoring(bodyText));
+      }
+    } else {
+      rawScore = scoreUrgencyFromText(subject, sanitizeForUrgencyScoring(bodyText));
+    }
 
-    // Sollecito floor: pending follow-ups are never below 0.4
-    if (isSollecito) rawScore = Math.max(rawScore, 0.4);
+    // Skip threads with no urgency signal at all
+    if (rawScore === 0) return;
 
-    // Skip threads with no urgency signal unless legal sender
-    if (rawScore === 0 && !isLegalSender) return;
-
+    // Apply user-configured priority domain boost (context AI doesn't have)
     const boost = ragPriorityDomainBoost(fromAddress, bodyText, settings.priorityDomains);
-    let boostedScore = Math.min(1, rawScore + boost);
+    const boostedScore = Math.min(1, rawScore + boost);
 
-    // Legal sender: guaranteed minimum of 0.8 — role beats tone
-    if (isLegalSender) boostedScore = Math.max(boostedScore + 0.4, 0.8);
-    boostedScore = Math.min(1, boostedScore);
-
+    // Apply behavioral reputation penalty (history AI doesn't have)
     const finalScore = fromAddress
       ? await adjustUrgencyWithReputation(params.accountId, fromAddress, boostedScore)
       : boostedScore;
 
     await setThreadUrgency(params.accountId, params.threadId, finalScore);
 
-    // Reset heat-extinguished if a new urgent message re-opens the thread
     if (finalScore >= EXTINGUISH_RESET_THRESHOLD) {
       await setHeatExtinguished(params.accountId, params.threadId, false);
     }

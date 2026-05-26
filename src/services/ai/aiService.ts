@@ -18,20 +18,23 @@ import {
   SMART_LABEL_PROMPT,
   EXTRACT_TASK_PROMPT,
   HEAT_EXTINGUISH_JUDGE_PROMPT,
+  URGENCY_SCORE_PROMPT,
 } from "./prompts";
 import { getSoul } from "./soulService";
 
-async function callAi(systemPrompt: string, userContent: string, options?: { skipLanguage?: boolean }): Promise<string> {
+async function callAi(systemPrompt: string, userContent: string, options?: { skipLanguage?: boolean; skipSoul?: boolean }): Promise<string> {
   let finalSystemPrompt = systemPrompt;
 
   // Prepend SOUL.md content as base personality
-  try {
-    const soul = getSoul();
-    if (soul) {
-      finalSystemPrompt = soul + "\n\n---\n\n" + systemPrompt;
+  if (!options?.skipSoul) {
+    try {
+      const soul = getSoul();
+      if (soul) {
+        finalSystemPrompt = soul + "\n\n---\n\n" + systemPrompt;
+      }
+    } catch {
+      // Continue without soul if unavailable
     }
-  } catch {
-    // Continue without soul if unavailable
   }
 
   // Append language instruction for text-heavy responses if a non-English language is set
@@ -324,5 +327,51 @@ export async function judgeUrgencyResolved(urgentEmailText: string): Promise<boo
     return result.trim().toUpperCase().startsWith("RESOLVED");
   } catch {
     return true;
+  }
+}
+
+/**
+ * Score urgency for an email thread using the active AI provider.
+ * Returns a value in [0, 1], or null if AI is not available / fails.
+ * Results are cached in ai_cache (type "urgency") to avoid repeated calls.
+ */
+export async function scoreUrgencyWithAi(
+  accountId: string,
+  threadId: string,
+  subject: string,
+  bodyText: string,
+  fromAddress: string,
+  fromName: string,
+): Promise<number | null> {
+  const cached = await getAiCache(accountId, threadId, "urgency");
+  if (cached !== null) {
+    try {
+      const parsed = JSON.parse(cached) as { score: number };
+      return typeof parsed.score === "number" ? Math.min(1, Math.max(0, parsed.score)) : null;
+    } catch {
+      // Corrupted cache — fall through to re-score
+    }
+  }
+
+  const header = `From: ${fromName ? `${fromName} ` : ""}<${fromAddress}>\nSubject: ${subject}`;
+  const content = `${header}\n\n${bodyText}`.slice(0, 2000);
+  const result = await callAi(
+    URGENCY_SCORE_PROMPT,
+    `<email_content>${content}</email_content>`,
+    { skipLanguage: true, skipSoul: true },
+  );
+
+  try {
+    const jsonMatch = result.match(/\{[\s\S]*?\}/);
+    const parsed = jsonMatch ? (JSON.parse(jsonMatch[0]) as { score: number }) : null;
+    const score = parsed && typeof parsed.score === "number"
+      ? Math.min(1, Math.max(0, parsed.score))
+      : null;
+    if (score !== null) {
+      await setAiCache(accountId, threadId, "urgency", JSON.stringify({ score }));
+    }
+    return score;
+  } catch {
+    return null;
   }
 }

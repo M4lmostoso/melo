@@ -5,6 +5,7 @@ import { useAccountStore } from "@/stores/accountStore";
 import { useActiveLabel } from "@/hooks/useRouteNavigation";
 import { archiveThread, trashThread, permanentDeleteThread, markThreadRead, starThread, spamThread, deleteDraftThread, deleteSingleMessage } from "@/services/emailActions";
 import { deleteThread as deleteThreadFromDb, pinThread as pinThreadDb, unpinThread as unpinThreadDb, muteThread as muteThreadDb, unmuteThread as unmuteThreadDb } from "@/services/db/threads";
+import { logInteraction } from "@/services/ai/reputationEngine";
 import { snoozeThread } from "@/services/snooze/snoozeManager";
 import { SnoozeDialog } from "./SnoozeDialog";
 import { FollowUpDialog } from "./FollowUpDialog";
@@ -157,21 +158,25 @@ export function ActionBar({ thread, messages, noReply, defaultReplyMode = "reply
   };
 
   const handleToggleMute = async () => {
-    if (!activeAccountId) return;
+    const accountId = activeAccountId ?? thread.accountId;
+    if (!accountId) return;
     const newMuted = !thread.isMuted;
     if (newMuted) {
       updateThread(thread.id, { isMuted: true, urgencyScore: 0.05 });
       try {
-        await muteThreadDb(activeAccountId, thread.id);
+        await muteThreadDb(accountId, thread.id);
+        if (thread.fromAddress) {
+          logInteraction(accountId, thread.fromAddress, "MUTE_URGENCY", thread.id).catch(() => {});
+        }
       } catch (err) {
         console.error("Failed to mute:", err);
-        await unmuteThreadDb(activeAccountId, thread.id);
+        await unmuteThreadDb(accountId, thread.id);
         updateThread(thread.id, { isMuted: false });
       }
     } else {
       updateThread(thread.id, { isMuted: false });
       try {
-        await unmuteThreadDb(activeAccountId, thread.id);
+        await unmuteThreadDb(accountId, thread.id);
       } catch (err) {
         console.error("Failed to unmute:", err);
         updateThread(thread.id, { isMuted: true });

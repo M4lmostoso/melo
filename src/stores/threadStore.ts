@@ -120,7 +120,10 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       const threadMap = new Map(state.threadMap);
       const existing = threadMap.get(id);
       if (existing) threadMap.set(id, { ...existing, ...updates });
-      return { threads, threadMap };
+      const searchResults = state.searchResults
+        ? state.searchResults.map((t) => t.id === id ? { ...t, ...updates } : t)
+        : null;
+      return { threads, threadMap, searchResults };
     }),
   removeThread: (id) =>
     set((state) => {

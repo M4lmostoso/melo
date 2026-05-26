@@ -99,6 +99,7 @@ import {
   stopEmbeddingBackfill,
   isEmbeddingBackfillRunning,
 } from "./services/ai/embeddingBackfill";
+import { runUrgencyBackfill } from "./services/ai/urgencyPipeline";
 
 /**
  * Sync bridge: subscribes to router state changes and writes the selected
@@ -651,6 +652,9 @@ export default function App() {
 
         // Kick off embedding backfill (fire-and-forget; no-ops if rag_enabled != 'true')
         runEmbeddingBackfill().catch(() => {});
+
+        // Kick off AI urgency backfill (fire-and-forget; no-ops if behavioral intelligence is off)
+        runUrgencyBackfill().catch(() => {});
       } catch (err) {
         console.error("Failed to initialize:", err);
       }

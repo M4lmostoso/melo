@@ -23,6 +23,8 @@ import { useContextMenuStore } from "@/stores/contextMenuStore";
 import { useComposerStore } from "@/stores/composerStore";
 import { getMessagesForThread } from "@/services/db/messages";
 import { getSmartFolderSearchQuery, mapSmartFolderRows, type SmartFolderRow } from "@/services/search/smartFolderQuery";
+import { applyTemporalDecay } from "@/services/ai/reputationEngine";
+import { getDecaySettings } from "@/services/ai/urgencyPipeline";
 import { getDb } from "@/services/db/connection";
 import { Archive, Trash2, X, Ban, Filter, ChevronRight, Package, FolderSearch } from "lucide-react";
 import { EmptyState } from "../ui/EmptyState";
@@ -255,15 +257,19 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
   }, [filteredThreads, activeLabel, activeCategory, isSearchActive, categoryMap, bundledCategorySet, heldThreadIds]);
 
   const mapDbThreads = useCallback(async (dbThreads: Awaited<ReturnType<typeof getThreadsForAccount>>): Promise<Thread[]> => {
+    const decay = await getDecaySettings();
     return Promise.all(
       dbThreads.map(async (t) => {
         const labelIds = await getThreadLabelIds(t.account_id, t.id);
+        const lastMessageAt = t.last_message_at ?? 0;
+        const rawUrgency = t.urgency_score ?? 0;
+        const urgencyScore = applyTemporalDecay(rawUrgency, lastMessageAt, decay.decayStartDays, decay.decayFloorDays);
         return {
           id: t.id,
           accountId: t.account_id,
           subject: t.subject,
           snippet: t.snippet,
-          lastMessageAt: t.last_message_at ?? 0,
+          lastMessageAt,
           messageCount: t.message_count,
           unreadCount: t.unread_count,
           isRead: t.is_read === 1,
@@ -274,6 +280,10 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
           labelIds,
           fromName: t.from_name,
           fromAddress: t.from_address,
+          allSenders: t.all_senders ?? null,
+          urgencyScore,
+          sentimentScore: t.sentiment_score ?? undefined,
+          isHeatExtinguished: t.is_heat_extinguished === 1,
         };
       }),
     );
@@ -290,12 +300,15 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
         const dbThread = await getThreadById(accountIdForThread, threadId);
         if (dbThread) {
           const labelIds = await getThreadLabelIds(accountIdForThread, threadId);
+          const lastMessageAt = dbThread.last_message_at ?? 0;
+          const decay = await getDecaySettings();
+          const urgencyScore = applyTemporalDecay(dbThread.urgency_score ?? 0, lastMessageAt, decay.decayStartDays, decay.decayFloorDays);
           const mapped: Thread = {
             id: dbThread.id,
             accountId: dbThread.account_id,
             subject: dbThread.subject,
             snippet: dbThread.snippet,
-            lastMessageAt: dbThread.last_message_at ?? 0,
+            lastMessageAt,
             messageCount: dbThread.message_count,
             unreadCount: dbThread.unread_count,
             isRead: dbThread.is_read === 1,
@@ -307,8 +320,8 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
             fromName: dbThread.from_name,
             fromAddress: dbThread.from_address,
             allSenders: dbThread.all_senders ?? null,
-            urgencyScore: dbThread.urgency_score ?? 0,
-            sentimentScore: dbThread.sentiment_score ?? 0,
+            urgencyScore,
+            sentimentScore: dbThread.sentiment_score ?? undefined,
             isHeatExtinguished: dbThread.is_heat_extinguished === 1,
           };
           addThreads([mapped]);

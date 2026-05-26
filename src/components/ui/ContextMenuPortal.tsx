@@ -9,6 +9,7 @@ import { useComposerStore } from "@/stores/composerStore";
 import { useLabelStore, type Label } from "@/stores/labelStore";
 import { archiveThread, trashThread, permanentDeleteThread, markThreadRead, starThread, spamThread, addThreadLabel, removeThreadLabel, deleteDraftThread, deleteSingleMessage } from "@/services/emailActions";
 import { deleteThread as deleteThreadFromDb, pinThread as pinThreadDb, unpinThread as unpinThreadDb, muteThread as muteThreadDb, unmuteThread as unmuteThreadDb } from "@/services/db/threads";
+import { logInteraction } from "@/services/ai/reputationEngine";
 import { getMessagesForThread } from "@/services/db/messages";
 import { snoozeThread } from "@/services/snooze/snoozeManager";
 import { getEnabledQuickStepsForAccount, type DbQuickStep } from "@/services/db/quickSteps";
@@ -391,6 +392,9 @@ function ThreadMenu({
       if (newMuted) {
         await muteThreadDb(activeAccountId, id);
         useThreadStore.getState().updateThread(id, { isMuted: true, urgencyScore: 0.05 });
+        if (t.fromAddress) {
+          logInteraction(activeAccountId, t.fromAddress, "MUTE_URGENCY", id).catch(() => {});
+        }
       } else {
         await unmuteThreadDb(activeAccountId, id);
         useThreadStore.getState().updateThread(id, { isMuted: false });

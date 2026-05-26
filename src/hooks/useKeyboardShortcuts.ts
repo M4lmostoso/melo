@@ -8,6 +8,7 @@ import { useContextMenuStore } from "@/stores/contextMenuStore";
 import { navigateToLabel, navigateToThread, navigateBack, getActiveLabel, getSelectedThreadId } from "@/router/navigate";
 import { archiveThread, trashThread, permanentDeleteThread, starThread, spamThread, markThreadRead, deleteDraftThread, deleteSingleMessage } from "@/services/emailActions";
 import { deleteThread as deleteThreadFromDb, pinThread as pinThreadDb, unpinThread as unpinThreadDb, muteThread as muteThreadDb, unmuteThread as unmuteThreadDb } from "@/services/db/threads";
+import { logInteraction } from "@/services/ai/reputationEngine";
 import { getMessagesForThread, type DbMessage } from "@/services/db/messages";
 import { escapeHtml, sanitizeHtml } from "@/utils/sanitize";
 import { parseUnsubscribeUrl } from "@/components/email/MessageItem";
@@ -528,6 +529,9 @@ case "action.reply": {
           } else {
             await muteThreadDb(activeAccountId, id);
             useThreadStore.getState().updateThread(id, { isMuted: true, urgencyScore: 0.05 });
+            if (t?.fromAddress) {
+              logInteraction(activeAccountId, t.fromAddress, "MUTE_URGENCY", id).catch(() => {});
+            }
           }
         }
       } else if (selectedId && activeAccountId) {
@@ -539,6 +543,9 @@ case "action.reply": {
           } else {
             await muteThreadDb(activeAccountId, selectedId);
             useThreadStore.getState().updateThread(selectedId, { isMuted: true, urgencyScore: 0.05 });
+            if (thread.fromAddress) {
+              logInteraction(activeAccountId, thread.fromAddress, "MUTE_URGENCY", selectedId).catch(() => {});
+            }
           }
         }
       }

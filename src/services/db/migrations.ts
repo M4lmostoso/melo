@@ -1073,6 +1073,14 @@ const MIGRATIONS = [
           VALUES ('sf-calendar', NULL, 'Calendar Invites', 'has:calendar after:__LAST_6_MONTHS__', 'CalendarDays', 3, 1);
           INSERT OR IGNORE INTO settings (key, value) VALUES ('calendar_invite_pruning_months', '6');`,
   },
+  {
+    version: 50,
+    description: "Reset keyword-based urgency scores so AI backfill can re-score all threads",
+    sql: `UPDATE threads SET urgency_score = 0
+          WHERE (manual_urgency_override IS NULL OR manual_urgency_override = 0)
+            AND is_muted = 0;
+          DELETE FROM ai_cache WHERE type = 'urgency';`,
+  },
 ];
 
 // ---------------------------------------------------------------------------
