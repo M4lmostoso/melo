@@ -57,6 +57,8 @@ const LABEL_MAP: Record<string, string> = {
 export function EmailList({ width, listRef }: { width?: number; listRef?: React.Ref<HTMLDivElement> }) {
   const threads = useThreadStore((s) => s.threads);
   const selectedThreadId = useSelectedThreadId();
+  const selectedThreadIdRef = useRef(selectedThreadId);
+  useEffect(() => { selectedThreadIdRef.current = selectedThreadId; }, [selectedThreadId]);
   const selectedThreadIds = useThreadStore((s) => s.selectedThreadIds);
   const isLoading = useThreadStore((s) => s.isLoading);
   const setThreads = useThreadStore((s) => s.setThreads);
@@ -398,11 +400,12 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
         let mapped = await mapSmartFolderRows(rows);
 
         // Preserve selected thread if it was already in the list to prevent it from disappearing while being read
-        if (selectedThreadId) {
+        const selId = selectedThreadIdRef.current;
+        if (selId) {
           const prevThreads = useThreadStore.getState().threads;
-          const currentThread = prevThreads.find((t) => t.id === selectedThreadId);
-          if (currentThread && !mapped.some((t) => t.id === selectedThreadId)) {
-            const originalIndex = prevThreads.findIndex((t) => t.id === selectedThreadId);
+          const currentThread = prevThreads.find((t) => t.id === selId);
+          if (currentThread && !mapped.some((t) => t.id === selId)) {
+            const originalIndex = prevThreads.findIndex((t) => t.id === selId);
             if (originalIndex !== -1) {
               mapped = [
                 ...mapped.slice(0, originalIndex),
@@ -443,11 +446,12 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
         let mapped = await mapDbThreads(dbThreads);
 
         // Preserve selected thread if it was already in the list to prevent it from disappearing while being read
-        if (selectedThreadId) {
+        const selId = selectedThreadIdRef.current;
+        if (selId) {
           const prevThreads = useThreadStore.getState().threads;
-          const currentThread = prevThreads.find((t) => t.id === selectedThreadId);
-          if (currentThread && !mapped.some((t) => t.id === selectedThreadId)) {
-            const originalIndex = prevThreads.findIndex((t) => t.id === selectedThreadId);
+          const currentThread = prevThreads.find((t) => t.id === selId);
+          if (currentThread && !mapped.some((t) => t.id === selId)) {
+            const originalIndex = prevThreads.findIndex((t) => t.id === selId);
             if (originalIndex !== -1) {
               mapped = [
                 ...mapped.slice(0, originalIndex),
@@ -487,11 +491,12 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
       let mapped = await mapDbThreads(dbThreads);
 
       // Preserve selected thread if it was already in the list to prevent it from disappearing while being read
-      if (selectedThreadId) {
+      const selId = selectedThreadIdRef.current;
+      if (selId) {
         const prevThreads = useThreadStore.getState().threads;
-        const currentThread = prevThreads.find((t) => t.id === selectedThreadId);
-        if (currentThread && !mapped.some((t) => t.id === selectedThreadId)) {
-          const originalIndex = prevThreads.findIndex((t) => t.id === selectedThreadId);
+        const currentThread = prevThreads.find((t) => t.id === selId);
+        if (currentThread && !mapped.some((t) => t.id === selId)) {
+          const originalIndex = prevThreads.findIndex((t) => t.id === selId);
           if (originalIndex !== -1) {
             mapped = [
               ...mapped.slice(0, originalIndex),
@@ -511,7 +516,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     } finally {
       setLoading(false);
     }
-  }, [activeAccountId, globalAccountIds, activeLabel, activeCategory, isSmartFolder, activeSmartFolder, selectedThreadId, setThreads, setLoading, mapDbThreads, clearSearch]);
+  }, [activeAccountId, globalAccountIds, activeLabel, activeCategory, isSmartFolder, activeSmartFolder, setThreads, setLoading, mapDbThreads, clearSearch]);
 
   const loadMore = useCallback(async () => {
     if ((!activeAccountId && globalAccountIds.length === 0) || loadingMore || !hasMore) return;

@@ -150,7 +150,13 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       };
     }),
   setSearch: (query, threadIds) => set({ searchQuery: query, searchThreadIds: threadIds }),
-  setSearchResults: (searchResults) => set({ searchResults }),
+  setSearchResults: (searchResults) =>
+    set((state) => {
+      if (!searchResults) return { searchResults };
+      const threadMap = new Map(state.threadMap);
+      for (const t of searchResults) threadMap.set(t.id, t);
+      return { searchResults, threadMap };
+    }),
   setSearchLoading: (searchLoading) => set({ searchLoading }),
   clearSearch: () => set({ searchQuery: "", searchThreadIds: null, searchResults: null, searchLoading: false }),
   mergeSemanticResults: (results) =>
