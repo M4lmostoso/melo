@@ -56,7 +56,6 @@ windows = { version = "0.58", features = ["Win32_UI_Shell"] }
 tray-item = { version = "0.10.0", default-features = false, features = ["ksni"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-cocoa = "0.26"
 tikv-jemallocator = "0.6"
 tikv-jemalloc-sys = "0.6"
 
