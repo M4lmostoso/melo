@@ -199,7 +199,7 @@ export async function generateSmartReplies(
 
 export async function askInbox(
   question: string,
-  _accountId: string,
+  _accountId: string | null,
   context: string,
 ): Promise<string> {
   const userContent = `<email_content>${context}</email_content>\n\nQuestion: ${question}`;

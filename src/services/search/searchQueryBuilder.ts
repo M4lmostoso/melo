@@ -17,6 +17,7 @@ export function buildSearchQuery(
   accountId?: string | string[],
   limit = 50,
   excludeSystemLabels = false,
+  orderByDate = false,
 ): BuiltQuery {
   const params: unknown[] = [];
   let paramIdx = 1;
@@ -129,7 +130,7 @@ export function buildSearchQuery(
   }
 
   const whereStr = whereClauses.length > 0 ? `WHERE ${whereClauses.join(" AND ")}` : "";
-  const orderBy = needsFts ? "ORDER BY rank, m.date DESC" : "ORDER BY m.date DESC";
+  const orderBy = orderByDate ? "ORDER BY m.date DESC" : needsFts ? "ORDER BY rank, m.date DESC" : "ORDER BY m.date DESC";
 
   params.push(limit);
 

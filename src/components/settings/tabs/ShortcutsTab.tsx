@@ -118,7 +118,7 @@ export function ShortcutsTab() {
         )}
       </div>
       {SHORTCUTS.map((section) => (
-        <Section key={section.category} title={section.category}>
+        <Section key={section.category} title={t(`settings.shortcuts.categories.${section.category.toLowerCase()}`)}>
           <div className="space-y-1">
             {section.items.map((item) => {
               const currentKey = keyMap[item.id] ?? item.keys;
@@ -131,7 +131,7 @@ export function ShortcutsTab() {
                   className="flex items-center justify-between py-2 px-1"
                 >
                   <span className="text-sm text-text-secondary">
-                    {item.desc}
+                    {t(`settings.shortcuts.items.${item.id}`)}
                   </span>
                   <div className="flex items-center gap-2 ml-4 shrink-0">
                     <button

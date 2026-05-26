@@ -17,7 +17,7 @@ export function ShortcutsHelp({ isOpen, onClose }: ShortcutsHelpProps) {
         {SHORTCUTS.map((section) => (
           <div key={section.category}>
             <h3 className="text-xs font-semibold uppercase tracking-wider text-text-tertiary mb-2">
-              {section.category}
+              {t(`settings.shortcuts.categories.${section.category.toLowerCase()}`)}
             </h3>
             <div className="space-y-1">
               {section.items.map((item) => (
@@ -26,7 +26,7 @@ export function ShortcutsHelp({ isOpen, onClose }: ShortcutsHelpProps) {
                   className="flex items-center justify-between py-1"
                 >
                   <span className="text-sm text-text-secondary">
-                    {item.desc}
+                    {t(`settings.shortcuts.items.${item.id}`)}
                   </span>
                   <kbd className="text-xs text-text-tertiary bg-bg-tertiary px-2 py-0.5 rounded font-mono">
                     {keyMap[item.id] ?? item.keys}

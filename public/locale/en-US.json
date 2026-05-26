@@ -726,7 +726,10 @@
       "defaultPdf": "Document.pdf"
     },
     "renderer": {
-      "iframeTitle": "Email content"
+      "iframeTitle": "Email content",
+      "imagesHidden": "Images hidden to protect your privacy.",
+      "loadImages": "Load images",
+      "alwaysLoadFromSender": "Always load from sender"
     }
   },
   "composer": {
@@ -1148,7 +1151,61 @@
       "rebindHint": "Click a shortcut to rebind it. Press any key or key combination to set.",
       "resetAll": "Reset all",
       "pressKey": "Press key...",
-      "resetToDefault": "Reset to {key}"
+      "resetToDefault": "Reset to {key}",
+      "categories": {
+        "navigation": "Navigation",
+        "actions": "Actions",
+        "app": "App"
+      },
+      "items": {
+        "nav": {
+          "next": "Next thread",
+          "prev": "Previous thread",
+          "open": "Open thread",
+          "msgNext": "Next message in thread",
+          "msgPrev": "Previous message in thread",
+          "goInbox": "Go to Inbox",
+          "goStarred": "Go to Starred",
+          "goSent": "Go to Sent",
+          "goDrafts": "Go to Drafts",
+          "goPrimary": "Go to Primary",
+          "goUpdates": "Go to Updates",
+          "goPromotions": "Go to Promotions",
+          "goSocial": "Go to Social",
+          "goNewsletters": "Go to Newsletters",
+          "goTasks": "Go to Tasks",
+          "goAttachments": "Go to Attachments",
+          "escape": "Close / Go back"
+        },
+        "action": {
+          "compose": "Compose new email",
+          "reply": "Reply",
+          "replyAll": "Reply All",
+          "forward": "Forward",
+          "archive": "Archive",
+          "delete": "Delete thread",
+          "deleteMessage": "Delete message",
+          "spam": "Report Spam / Not Spam",
+          "star": "Star / Unstar",
+          "markRead": "Mark as read",
+          "markUnread": "Mark as unread",
+          "pin": "Pin / Unpin",
+          "unsubscribe": "Unsubscribe",
+          "mute": "Mute / Unmute",
+          "createTaskFromEmail": "Create task from email (AI)",
+          "moveToFolder": "Move to folder/label",
+          "selectAll": "Select all",
+          "selectFromHere": "Select all from here"
+        },
+        "app": {
+          "commandPalette": "Command palette",
+          "toggleSidebar": "Toggle sidebar",
+          "send": "Send email",
+          "askInbox": "Ask AI about your inbox",
+          "help": "Show keyboard shortcuts",
+          "syncFolder": "Sync current folder"
+        }
+      }
     },
     "intelligence": {
       "sections": {
@@ -1434,7 +1491,19 @@
       "smartAutoExtinguish": "Smart Auto-Extinguish on Reply",
       "smartAutoExtinguishDesc": "When you reply to an urgent thread, Melo uses AI to evaluate if the reply resolves the concern — and clears the urgency indicator only if it does",
       "categoriesDesc": "Incoming emails are automatically sorted using rule-based heuristics (Gmail labels, sender domain, headers). When AI is enabled, it refines results for better accuracy.",
-      "categoriesAutoArchiveDesc": "Enable auto-archive to skip the inbox for specific categories."
+      "categoriesAutoArchiveDesc": "Enable auto-archive to skip the inbox for specific categories.",
+      "at": "at",
+      "usesModel": "Uses {model}.",
+      "copilotDesc": "Uses {model}. Requires a GitHub PAT with models:read permission.",
+      "days": {
+        "sun": "Sun",
+        "mon": "Mon",
+        "tue": "Tue",
+        "wed": "Wed",
+        "thu": "Thu",
+        "fri": "Fri",
+        "sat": "Sat"
+      }
     }
   },
   "labels": {

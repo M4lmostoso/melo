@@ -275,20 +275,20 @@ export function EmailRenderer({
         <div className="flex items-center gap-2 px-3 py-2 mb-2 text-xs bg-bg-tertiary rounded-md border border-border-secondary">
           <ImageOff size={14} className="text-text-tertiary shrink-0" />
           <span className="text-text-secondary">
-            Images hidden to protect your privacy.
+            {t("email.renderer.imagesHidden")}
           </span>
           <button
             onClick={handleLoadImages}
             className="text-accent hover:text-accent-hover font-medium"
           >
-            Load images
+            {t("email.renderer.loadImages")}
           </button>
           {senderAddress && accountId && (
             <button
               onClick={handleAlwaysLoad}
               className="text-accent hover:text-accent-hover font-medium"
             >
-              Always load from sender
+              {t("email.renderer.alwaysLoadFromSender")}
             </button>
           )}
         </div>

@@ -160,11 +160,14 @@ export async function searchMessages(
   query: string,
   accountId?: string,
   limit = 50,
+  orderByDate = false,
 ): Promise<SearchResult[]> {
   const db = await getDb();
 
   const ftsQuery = query.trim();
   if (!ftsQuery) return [];
+
+  const order = orderByDate ? "m.date DESC" : "rank, m.date DESC";
 
   // Check if query contains search operators
   if (hasSearchOperators(ftsQuery)) {
@@ -174,7 +177,7 @@ export async function searchMessages(
         parsed.hasAttachment || parsed.isUnread || parsed.isRead ||
         parsed.isStarred || parsed.before !== undefined || parsed.after !== undefined ||
         parsed.label) {
-      const { sql, params } = buildSearchQuery(parsed, accountId, limit);
+      const { sql, params } = buildSearchQuery(parsed, accountId, limit, false, orderByDate);
       return db.select<SearchResult[]>(sql, params);
     }
   }
@@ -195,7 +198,7 @@ export async function searchMessages(
       FROM messages_fts
       JOIN messages m ON m.rowid = messages_fts.rowid
       WHERE messages_fts MATCH $1 AND m.account_id = $2
-      ORDER BY rank, m.date DESC
+      ORDER BY ${order}
       LIMIT $3`,
       [ftsQuery, accountId, limit],
     );
@@ -215,7 +218,7 @@ export async function searchMessages(
     FROM messages_fts
     JOIN messages m ON m.rowid = messages_fts.rowid
     WHERE messages_fts MATCH $1
-    ORDER BY rank, m.date DESC
+    ORDER BY ${order}
     LIMIT $2`,
     [ftsQuery, limit],
   );

@@ -19,7 +19,7 @@ export function AskInbox({ isOpen, onClose }: AskInboxProps) {
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
 
   const handleAsk = useCallback(async () => {
-    if (!question.trim() || !activeAccountId || loading) return;
+    if (!question.trim() || loading) return;
     setLoading(true);
     setResult(null);
     try {
@@ -126,7 +126,7 @@ export function AskInbox({ isOpen, onClose }: AskInboxProps) {
               {result.sourceMessages.length > 0 && (
                 <div>
                   <div className="text-xs font-medium text-text-tertiary uppercase tracking-wider mb-2">
-                    Sources ({result.sourceMessages.length})
+                    {t("search.askInbox.sources", { count: result.sourceMessages.length })}
                   </div>
                   <div className="space-y-1.5">
                     {result.sourceMessages.slice(0, 5).map((msg) => (
@@ -137,14 +137,14 @@ export function AskInbox({ isOpen, onClose }: AskInboxProps) {
                       >
                         <div className="flex items-center justify-between">
                           <span className="text-xs font-medium text-text-primary truncate">
-                            {msg.from_name ?? msg.from_address ?? "Unknown"}
+                            {msg.from_name ?? msg.from_address ?? t("search.askInbox.unknownSender")}
                           </span>
                           <span className="text-[0.625rem] text-text-tertiary shrink-0 ml-2">
                             {new Date(msg.date).toLocaleDateString()}
                           </span>
                         </div>
                         <div className="text-xs text-text-secondary truncate mt-0.5 flex items-center gap-1">
-                          {msg.subject ?? "(no subject)"}
+                          {msg.subject ?? t("search.askInbox.noSubject")}
                           <ExternalLink size={10} className="opacity-0 group-hover:opacity-100 shrink-0" />
                         </div>
                       </button>
@@ -158,14 +158,14 @@ export function AskInbox({ isOpen, onClose }: AskInboxProps) {
                 onClick={handleClear}
                 className="text-xs text-accent hover:text-accent-hover transition-colors"
               >
-                Ask another question
+                {t("search.askInbox.askAnother")}
               </button>
             </div>
           )}
 
           {!loading && !result && (
             <div className="px-4 py-8 text-center text-sm text-text-tertiary">
-              Ask anything about your emails — meetings, conversations, attachments, and more.
+              {t("search.askInbox.emptyHint")}
             </div>
           )}
         </div>

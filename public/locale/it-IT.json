@@ -725,7 +725,10 @@
       "defaultPdf": "Documento.pdf"
     },
     "renderer": {
-      "iframeTitle": "Contenuto email"
+      "iframeTitle": "Contenuto email",
+      "imagesHidden": "Immagini nascoste per proteggere la tua privacy.",
+      "loadImages": "Carica immagini",
+      "alwaysLoadFromSender": "Carica sempre da questo mittente"
     }
   },
   "composer": {
@@ -1147,7 +1150,61 @@
       "rebindHint": "Clicca una scorciatoia per ridefinirla. Premi qualsiasi tasto o combinazione per impostare.",
       "resetAll": "Ripristina tutto",
       "pressKey": "Premi tasto...",
-      "resetToDefault": "Ripristina a {key}"
+      "resetToDefault": "Ripristina a {key}",
+      "categories": {
+        "navigation": "Navigazione",
+        "actions": "Azioni",
+        "app": "App"
+      },
+      "items": {
+        "nav": {
+          "next": "Thread successivo",
+          "prev": "Thread precedente",
+          "open": "Apri thread",
+          "msgNext": "Messaggio successivo nel thread",
+          "msgPrev": "Messaggio precedente nel thread",
+          "goInbox": "Vai a Posta in arrivo",
+          "goStarred": "Vai a Speciali",
+          "goSent": "Vai a Inviati",
+          "goDrafts": "Vai a Bozze",
+          "goPrimary": "Vai a Principale",
+          "goUpdates": "Vai ad Aggiornamenti",
+          "goPromotions": "Vai a Promozioni",
+          "goSocial": "Vai a Social",
+          "goNewsletters": "Vai a Newsletter",
+          "goTasks": "Vai ad Attività",
+          "goAttachments": "Vai ad Allegati",
+          "escape": "Chiudi / Torna indietro"
+        },
+        "action": {
+          "compose": "Componi nuova email",
+          "reply": "Rispondi",
+          "replyAll": "Rispondi a tutti",
+          "forward": "Inoltra",
+          "archive": "Archivia",
+          "delete": "Elimina thread",
+          "deleteMessage": "Elimina messaggio",
+          "spam": "Segnala Spam / Non Spam",
+          "star": "Speciale / Rimuovi speciale",
+          "markRead": "Segna come letto",
+          "markUnread": "Segna come non letto",
+          "pin": "Fissa / Rimuovi fissaggio",
+          "unsubscribe": "Cancella iscrizione",
+          "mute": "Silenzia / Riattiva",
+          "createTaskFromEmail": "Crea attività dall'email (AI)",
+          "moveToFolder": "Sposta in cartella/etichetta",
+          "selectAll": "Seleziona tutto",
+          "selectFromHere": "Seleziona tutto da qui"
+        },
+        "app": {
+          "commandPalette": "Riquadro comandi",
+          "toggleSidebar": "Mostra/nascondi barra laterale",
+          "send": "Invia email",
+          "askInbox": "Chiedi all'AI sulla tua posta",
+          "help": "Mostra scorciatoie da tastiera",
+          "syncFolder": "Sincronizza cartella corrente"
+        }
+      }
     },
     "intelligence": {
       "sections": {
@@ -1433,7 +1490,19 @@
       "smartAutoExtinguish": "Auto-estinzione smart alla risposta",
       "smartAutoExtinguishDesc": "Quando rispondi a un thread urgente, Melo usa l'AI per valutare se la risposta risolve il problema — e cancella l'indicatore di urgenza solo se è così",
       "categoriesDesc": "Le email in arrivo vengono ordinate automaticamente usando euristiche basate su regole (etichette Gmail, dominio mittente, intestazioni). Quando l'AI è abilitata, perfeziona i risultati per maggiore precisione.",
-      "categoriesAutoArchiveDesc": "Abilita l'archiviazione automatica per saltare la posta in arrivo per categorie specifiche."
+      "categoriesAutoArchiveDesc": "Abilita l'archiviazione automatica per saltare la posta in arrivo per categorie specifiche.",
+      "at": "alle",
+      "usesModel": "Usa {model}.",
+      "copilotDesc": "Usa {model}. Richiede un PAT GitHub con permesso models:read.",
+      "days": {
+        "sun": "Dom",
+        "mon": "Lun",
+        "tue": "Mar",
+        "wed": "Mer",
+        "thu": "Gio",
+        "fri": "Ven",
+        "sat": "Sab"
+      }
     }
   },
   "labels": {

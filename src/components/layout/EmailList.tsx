@@ -219,21 +219,20 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     }
   };
 
-  const searchThreadIds = useThreadStore((s) => s.searchThreadIds);
+  const searchResults = useThreadStore((s) => s.searchResults);
+  const searchLoading = useThreadStore((s) => s.searchLoading);
   const searchQuery = useThreadStore((s) => s.searchQuery);
+  const isSearchActive = searchResults !== null;
 
   const filteredThreads = useMemo(() => {
-    let filtered = threads;
-    // Apply search filter
-    if (searchThreadIds !== null) {
-      filtered = filtered.filter((t) => searchThreadIds.has(t.id));
-    }
+    // When search is active, use searchResults directly — they may contain threads
+    // from any folder/account, not just the current folder cache.
+    let filtered: Thread[] = isSearchActive ? searchResults! : threads;
     // Apply read filter
     if (readFilter === "unread") filtered = filtered.filter((t) => !t.isRead);
     else if (readFilter === "read") filtered = filtered.filter((t) => t.isRead);
-    // Category filtering is now server-side (Phase 4) — no client-side filter needed
     return filtered;
-  }, [threads, readFilter, searchThreadIds]);
+  }, [threads, readFilter, searchResults, isSearchActive]);
 
   // Pre-compute bundled category Set for O(1) lookups in filter
   const bundledCategorySet = useMemo(
@@ -241,16 +240,17 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     [bundleRules],
   );
 
-  // Memoize visible threads (excludes bundled/held threads in "All" inbox view)
+  // Memoize visible threads (excludes bundled/held threads in "All" inbox view).
+  // When search is active bypass bundle/held filtering so every match is visible.
   const visibleThreads = useMemo(() => {
-    if (activeLabel !== "inbox" || activeCategory !== "All") return filteredThreads;
+    if (activeLabel !== "inbox" || activeCategory !== "All" || isSearchActive) return filteredThreads;
     return filteredThreads.filter((t) => {
       const cat = categoryMap.get(t.id);
       if (cat && bundledCategorySet.has(cat)) return false;
       if (heldThreadIds.has(t.id)) return false;
       return true;
     });
-  }, [filteredThreads, activeLabel, activeCategory, categoryMap, bundledCategorySet, heldThreadIds]);
+  }, [filteredThreads, activeLabel, activeCategory, isSearchActive, categoryMap, bundledCategorySet, heldThreadIds]);
 
   const mapDbThreads = useCallback(async (dbThreads: Awaited<ReturnType<typeof getThreadsForAccount>>): Promise<Thread[]> => {
     return Promise.all(
@@ -279,12 +279,14 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
   const clearSearch = useThreadStore((s) => s.clearSearch);
 
   const handleCitationClick = useCallback(async (threadId: string, messageId?: string) => {
-    if (!activeAccountId) return;
-    if (!threadMap.has(threadId)) {
+    const existingThread = threadMap.get(threadId);
+    const accountIdForThread = activeAccountId ?? existingThread?.accountId;
+    if (!accountIdForThread) return;
+    if (!existingThread) {
       try {
-        const dbThread = await getThreadById(activeAccountId, threadId);
+        const dbThread = await getThreadById(accountIdForThread, threadId);
         if (dbThread) {
-          const labelIds = await getThreadLabelIds(activeAccountId, threadId);
+          const labelIds = await getThreadLabelIds(accountIdForThread, threadId);
           const mapped: Thread = {
             id: dbThread.id,
             accountId: dbThread.account_id,
@@ -805,9 +807,9 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
 
       {/* Thread list */}
       <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
-        {isLoading && threads.length === 0 ? (
+        {(isLoading && threads.length === 0) || (searchLoading && !isSearchActive) ? (
           <EmailListSkeleton />
-        ) : filteredThreads.length === 0 && bundleRules.length === 0 ? (
+        ) : filteredThreads.length === 0 && (isSearchActive || bundleRules.length === 0) ? (
           <EmptyStateForContext
             searchQuery={searchQuery}
             activeAccountId={activeAccountId}

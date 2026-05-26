@@ -181,6 +181,17 @@ export async function markThreadUnreadInDb(accountId: string, threadId: string):
     "UPDATE threads SET is_read = 0 WHERE account_id = $1 AND id = $2 AND is_read = 1",
     [accountId, threadId],
   );
+  // Keep messages table consistent: mark the latest message as unread so
+  // message-level queries (smart folder) agree with the thread-level state.
+  await db.execute(
+    `UPDATE messages SET is_read = 0
+     WHERE account_id = $1 AND id = (
+       SELECT id FROM messages
+       WHERE account_id = $1 AND thread_id = $2
+       ORDER BY date DESC LIMIT 1
+     )`,
+    [accountId, threadId],
+  );
 }
 
 export async function recalculateThreadStats(
@@ -408,7 +419,11 @@ export async function getUnreadCountsByLabel(
        AND NOT EXISTS (
          SELECT 1 FROM thread_labels tl_ex
          WHERE tl_ex.account_id = t.account_id AND tl_ex.thread_id = t.id
-           AND tl_ex.label_id IN ('DRAFT', 'TRASH')
+           AND tl_ex.label_id = 'TRASH'
+       )
+       AND NOT (
+         EXISTS (SELECT 1 FROM thread_labels tl_d WHERE tl_d.account_id = t.account_id AND tl_d.thread_id = t.id AND tl_d.label_id = 'DRAFT')
+         AND NOT EXISTS (SELECT 1 FROM thread_labels tl_i WHERE tl_i.account_id = t.account_id AND tl_i.thread_id = t.id AND tl_i.label_id = 'INBOX')
        )
      GROUP BY tl.label_id`,
     [accountId],
@@ -450,7 +465,7 @@ export async function getUnreadInboxCount(accountId?: string): Promise<number> {
          AND NOT EXISTS (
            SELECT 1 FROM thread_labels tl_ex
            WHERE tl_ex.account_id = t.account_id AND tl_ex.thread_id = t.id
-             AND tl_ex.label_id IN ('DRAFT', 'TRASH')
+             AND tl_ex.label_id = 'TRASH'
          )`
     : `SELECT COUNT(*) as count FROM threads t
        INNER JOIN thread_labels tl ON tl.account_id = t.account_id AND tl.thread_id = t.id
@@ -458,7 +473,7 @@ export async function getUnreadInboxCount(accountId?: string): Promise<number> {
          AND NOT EXISTS (
            SELECT 1 FROM thread_labels tl_ex
            WHERE tl_ex.account_id = t.account_id AND tl_ex.thread_id = t.id
-             AND tl_ex.label_id IN ('DRAFT', 'TRASH')
+             AND tl_ex.label_id = 'TRASH'
          )`;
   const params = accountId ? [accountId] : [];
   const rows = await db.select<{ count: number }[]>(sql, params);
@@ -726,7 +741,7 @@ export async function getGlobalUnreadCounts(
        AND NOT EXISTS (
          SELECT 1 FROM thread_labels tl_ex
          WHERE tl_ex.account_id = tl.account_id AND tl_ex.thread_id = tl.thread_id
-           AND tl_ex.label_id IN ('DRAFT', 'TRASH')
+           AND tl_ex.label_id = 'TRASH'
        )
      GROUP BY tl.account_id, tl.label_id`,
     accountIds,

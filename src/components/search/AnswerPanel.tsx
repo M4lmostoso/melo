@@ -17,6 +17,7 @@ interface AnswerPanelProps {
   onResult?: (result: SearchAnswerResult) => void;
 }
 
+
 function getThreadIdFromUrl(url: string): string | null {
   try {
     const u = new URL(url);
@@ -117,7 +118,7 @@ export function AnswerPanel({
   const panelRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  const isActive = isQuestionQuery(query) && !!accountId;
+  const isActive = isQuestionQuery(query);
 
   useEffect(() => {
     if (!isActive) {
@@ -135,7 +136,7 @@ export function AnswerPanel({
       setLoading(true);
       setResult(null);
       try {
-        const r = await getSearchAnswer(query, accountId!);
+        const r = await getSearchAnswer(query, accountId);
         if (!ctrl.signal.aborted) {
           setResult(r);
           onResult?.(r);

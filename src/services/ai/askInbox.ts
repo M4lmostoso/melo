@@ -75,26 +75,75 @@ function rustHitToSearchResult(h: RustSearchHit): SearchResult {
   };
 }
 
+function buildFtsQuery(terms: string): string {
+  // FTS5 trigram tokenizer treats "word1 word2" as a literal phrase (substring including space),
+  // so multi-word queries almost always return 0 results. Use explicit OR instead.
+  const words = terms.split(/\s+/).filter((w) => w.length >= 3);
+  if (words.length === 0) return terms;
+  return words.join(" OR ");
+}
+
+function pad(n: number): string {
+  return String(n).padStart(2, "0");
+}
+
+function formatDate(d: Date): string {
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function extractDateConstraint(question: string): string | null {
+  const q = question.toLowerCase();
+  const now = new Date();
+
+  const daysAgo = (n: number) => {
+    const d = new Date(now);
+    d.setDate(d.getDate() - n);
+    return formatDate(d);
+  };
+
+  if (/\boggi\b|\btoday\b/.test(q)) return `after:${daysAgo(0)}`;
+  if (/\bieri\b|\byesterday\b/.test(q)) return `after:${daysAgo(1)}`;
+  if (/ultime?\s+24\s+ore|last\s+24\s+hours?|past\s+24\s+hours?/.test(q)) return `after:${daysAgo(1)}`;
+  if (/ultime?\s+48\s+ore|last\s+48\s+hours?/.test(q)) return `after:${daysAgo(2)}`;
+  if (/questa\s+settimana|this\s+week/.test(q)) return `after:${daysAgo(7)}`;
+  if (/settimana\s+scorsa|last\s+week/.test(q)) return `after:${daysAgo(14)}`;
+  if (/questo\s+mese|this\s+month/.test(q)) return `after:${daysAgo(30)}`;
+  if (/mese\s+scorso|last\s+month/.test(q)) return `after:${daysAgo(60)}`;
+
+  const nDays = q.match(/ultim[io]\s+(\d+)\s+giorn[io]i?|last\s+(\d+)\s+days?/);
+  if (nDays) return `after:${daysAgo(parseInt(nDays[1] ?? nDays[2] ?? "7", 10))}`;
+
+  const nWeeks = q.match(/ultime?\s+(\d+)\s+settimane?|last\s+(\d+)\s+weeks?/);
+  if (nWeeks) return `after:${daysAgo(parseInt(nWeeks[1] ?? nWeeks[2] ?? "2", 10) * 7)}`;
+
+  return null;
+}
+
 export async function askMyInbox(
   question: string,
-  accountId: string,
+  accountId: string | null,
 ): Promise<AskInboxResult> {
   const terms = extractSearchTerms(question);
-  if (!terms.trim()) {
+  const dateConstraint = extractDateConstraint(question);
+
+  if (!terms.trim() && !dateConstraint) {
     return {
       answer: "I couldn't understand the question. Please try rephrasing it.",
       sourceMessages: [],
     };
   }
 
+  const textQuery = terms.trim() ? buildFtsQuery(terms) : "";
+  const ftsQuery = [textQuery, dateConstraint].filter(Boolean).join(" ");
+
   const ragEnabled = await getSetting("rag_enabled");
-  const accountRagEnabled = ragEnabled === "true" ? await getAccountRagEnabled(accountId) : false;
+  const accountRagEnabled = ragEnabled === "true" && accountId != null ? await getAccountRagEnabled(accountId) : false;
   const serverUrl = accountRagEnabled ? await getSetting("ollama_server_url") : null;
   const embeddingModel = (await getSetting("embedding_model")) ?? "nomic-embed-text";
 
   let results: SearchResult[];
 
-  if (accountRagEnabled && serverUrl) {
+  if (accountRagEnabled && serverUrl && accountId != null) {
     // Generate query embedding from Ollama (still JS-side, network call)
     const cleanQuery = sanitizeForEmbedding(question, 256);
     const { query: queryPrefix } = getEmbeddingPrefixes(embeddingModel);
@@ -115,10 +164,10 @@ export async function askMyInbox(
       results = hits.map(rustHitToSearchResult);
     } else {
       // Ollama unreachable — fall back to FTS silently
-      results = await searchMessages(terms, accountId, 15);
+      results = await searchMessages(ftsQuery, accountId ?? undefined, 15, true);
     }
   } else {
-    results = await searchMessages(terms, accountId, 15);
+    results = await searchMessages(ftsQuery, accountId ?? undefined, 15, true);
   }
 
   if (results.length === 0) {

@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/Button";
 import { TextField } from "@/components/ui/TextField";
 import { SoulEditorDialog } from "@/components/settings/SoulEditorDialog";
 
-const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 function BundleSettings() {
   const accounts = useAccountStore((s) => s.accounts);
@@ -57,6 +56,12 @@ function BundleSettings() {
     );
   };
 
+  const dayNames = [
+    t("settings.ai.days.sun"), t("settings.ai.days.mon"), t("settings.ai.days.tue"),
+    t("settings.ai.days.wed"), t("settings.ai.days.thu"), t("settings.ai.days.fri"),
+    t("settings.ai.days.sat"),
+  ];
+
   return (
     <div className="space-y-4">
       {(["Newsletters", "Promotions", "Social", "Updates"] as const).map((cat) => {
@@ -89,7 +94,7 @@ function BundleSettings() {
             {rule?.delivery && (
               <div className="space-y-2 pt-1">
                 <div className="flex gap-1">
-                  {DAY_NAMES.map((name, idx) => (
+                  {dayNames.map((name, idx) => (
                     <button
                       key={name}
                       onClick={() => {
@@ -109,7 +114,7 @@ function BundleSettings() {
                   ))}
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-text-tertiary">at</span>
+                  <span className="text-xs text-text-tertiary">{t("settings.ai.at")}</span>
                   <input
                     type="time"
                     value={`${String(rule.hour).padStart(2, "0")}:${String(rule.minute).padStart(2, "0")}`}
@@ -272,14 +277,14 @@ export function AITab() {
         </SettingRow>
         <p className="text-xs text-text-tertiary">
           {aiProvider === "claude" &&
-            `Uses ${PROVIDER_MODELS.claude.find((m) => m.id === claudeModel)?.label ?? claudeModel}.`}
+            t("settings.ai.usesModel", { model: PROVIDER_MODELS.claude.find((m) => m.id === claudeModel)?.label ?? claudeModel })}
           {aiProvider === "openai" &&
-            `Uses ${PROVIDER_MODELS.openai.find((m) => m.id === openaiModel)?.label ?? openaiModel}.`}
+            t("settings.ai.usesModel", { model: PROVIDER_MODELS.openai.find((m) => m.id === openaiModel)?.label ?? openaiModel })}
           {aiProvider === "gemini" &&
-            `Uses ${PROVIDER_MODELS.gemini.find((m) => m.id === geminiModel)?.label ?? geminiModel}.`}
+            t("settings.ai.usesModel", { model: PROVIDER_MODELS.gemini.find((m) => m.id === geminiModel)?.label ?? geminiModel })}
           {aiProvider === "ollama" && t("settings.ai.ollamaNoKey")}
           {aiProvider === "copilot" &&
-            `Uses ${PROVIDER_MODELS.copilot.find((m) => m.id === copilotModel)?.label ?? copilotModel}. Requires a GitHub PAT with models:read permission.`}
+            t("settings.ai.copilotDesc", { model: PROVIDER_MODELS.copilot.find((m) => m.id === copilotModel)?.label ?? copilotModel })}
         </p>
       </Section>
 
@@ -513,9 +518,9 @@ export function AITab() {
         {aiWritingStyleEnabled && (
           <div className="flex items-center justify-between">
             <div>
-              <span className="text-sm text-text-secondary">Writing style profile</span>
+              <span className="text-sm text-text-secondary">{t("settings.ai.writingStyleProfile")}</span>
               <p className="text-xs text-text-tertiary mt-0.5">
-                Reanalyze your writing style from recent sent emails
+                {t("settings.ai.reanalyzeDesc")}
               </p>
             </div>
             <Button
@@ -540,39 +545,39 @@ export function AITab() {
               disabled={styleAnalyzing}
               className="bg-bg-tertiary text-text-primary border border-border-primary"
             >
-              {styleAnalyzing ? "Analyzing..." : styleAnalyzeDone ? "Done!" : "Reanalyze"}
+              {styleAnalyzing ? t("settings.ai.analyzing") : styleAnalyzeDone ? t("settings.ai.done") : t("settings.ai.reanalyze")}
             </Button>
           </div>
         )}
       </Section>
 
-      <Section title="AI Soul">
+      <Section title={t("settings.ai.sections.aiSoul")}>
         <p className="text-xs text-text-tertiary mb-2">
-          Define the AI's personality and behavior. Edit SOUL.md to customize how the assistant communicates.
+          {t("settings.ai.soulDesc")}
         </p>
         <div className="flex items-center gap-2">
           <Button variant="secondary" size="md" onClick={() => setSoulEditorOpen(true)}>
-            Edit Soul
+            {t("settings.ai.editSoul")}
           </Button>
           <span className="text-xs text-text-tertiary">
-            File location: ~/Library/Application Support/velo/soul.md
+            {t("settings.ai.soulFileLocation")}
           </span>
         </div>
         <SoulEditorDialog isOpen={soulEditorOpen} onClose={() => setSoulEditorOpen(false)} />
       </Section>
 
-      <Section title="Categories">
+      <Section title={t("settings.ai.sections.categories")}>
         <p className="text-xs text-text-tertiary mb-1">
-          Incoming emails are automatically sorted using rule-based heuristics (Gmail labels, sender domain, headers). When AI is enabled, it refines results for better accuracy.
+          {t("settings.ai.categoriesDesc")}
         </p>
         <p className="text-xs text-text-tertiary mb-3">
-          Enable auto-archive to skip the inbox for specific categories.
+          {t("settings.ai.categoriesAutoArchiveDesc")}
         </p>
         {(["Updates", "Promotions", "Social", "Newsletters"] as const).map((cat) => (
           <ToggleRow
             key={cat}
-            label={`Auto-archive ${cat}`}
-            description={`Skip inbox for ${cat.toLowerCase()} emails`}
+            label={t("settings.ai.autoArchive", { cat })}
+            description={t("settings.ai.autoArchiveDesc", { cat: cat.toLowerCase() })}
             checked={autoArchiveCategories.has(cat)}
             onToggle={async () => {
               const next = new Set(autoArchiveCategories);
@@ -585,20 +590,20 @@ export function AITab() {
         ))}
       </Section>
 
-      <Section title="Bundling & Delivery Schedules">
+      <Section title={t("settings.ai.sections.bundling")}>
         <p className="text-xs text-text-tertiary mb-3">
-          Collapse categories into a single row in the inbox. Optionally set a delivery schedule to batch emails.
+          {t("settings.ai.bundlingDesc")}
         </p>
         <BundleSettings />
       </Section>
 
-      <Section title="Behavioral Intelligence">
+      <Section title={t("settings.ai.sections.behavioralIntelligence")}>
         <p className="text-xs text-text-tertiary mb-3">
-          Controls whether Melo tracks sender patterns, urgency signals, and reputation to adapt inbox prioritization to your behavior.
+          {t("settings.ai.behavioralIntelligenceDesc")}
         </p>
         <ToggleRow
-          label="Enable Behavioral Intelligence"
-          description="Master switch — disabling this turns off urgency scoring, reputation tracking, and the Heat Extinguisher"
+          label={t("settings.ai.enableBehavioral")}
+          description={t("settings.ai.enableBehavioralDesc")}
           checked={behaviorEnabled}
           onToggle={async () => {
             const next = !behaviorEnabled;
@@ -614,8 +619,8 @@ export function AITab() {
         {behaviorEnabled && (
           <div className="mt-3">
             <ToggleRow
-              label="Urgency Indicators"
-              description="Show Zap and Heat icons on threads based on urgency score — turn off if you prefer a quieter inbox"
+              label={t("settings.ai.urgencyIndicators")}
+              description={t("settings.ai.urgencyIndicatorsDesc")}
               checked={urgencyEnabled}
               onToggle={async () => {
                 const next = !urgencyEnabled;
@@ -631,14 +636,14 @@ export function AITab() {
 
       {behaviorEnabled && (
         <>
-          <Section title="Sender Reputation">
+          <Section title={t("settings.ai.sections.senderReputation")}>
             <p className="text-xs text-text-tertiary mb-3">
-              Melo tracks when you silence urgency from a sender. Senders muted repeatedly within the forgiveness window receive a lower urgency weight automatically.
+              {t("settings.ai.senderReputationDesc")}
             </p>
             <div className="flex items-start gap-4">
               <div className="flex-1">
                 <TextField
-                  label="Forgiveness Window (days)"
+                  label={t("settings.ai.forgivenessWindow")}
                   type="number"
                   min="1"
                   max="365"
@@ -646,12 +651,12 @@ export function AITab() {
                   onChange={(e) => setUrgencyMuteWindow(e.target.value)}
                 />
                 <p className="text-xs text-text-tertiary mt-1.5">
-                  How far back to look when counting mutes. After this period, the sender's score resets.
+                  {t("settings.ai.forgivenessWindowDesc")}
                 </p>
               </div>
               <div className="flex-1">
                 <TextField
-                  label="Mute Threshold"
+                  label={t("settings.ai.muteThreshold")}
                   type="number"
                   min="1"
                   max="100"
@@ -659,7 +664,7 @@ export function AITab() {
                   onChange={(e) => setUrgencyMuteThreshold(e.target.value)}
                 />
                 <p className="text-xs text-text-tertiary mt-1.5">
-                  Number of mutes before a 50% urgency penalty is applied. Higher = more tolerant.
+                  {t("settings.ai.muteThresholdDesc")}
                 </p>
               </div>
             </div>
@@ -674,15 +679,15 @@ export function AITab() {
                   });
                 }}
               >
-                Save & Apply
+                {t("settings.ai.saveAndApply")}
               </Button>
             </div>
           </Section>
 
-          <Section title="Automation">
+          <Section title={t("settings.ai.sections.automation")}>
             <ToggleRow
-              label="Smart Auto-Extinguish on Reply"
-              description="When you reply to an urgent thread, Melo uses AI to evaluate if the reply resolves the concern — and clears the urgency indicator only if it does"
+              label={t("settings.ai.smartAutoExtinguish")}
+              description={t("settings.ai.smartAutoExtinguishDesc")}
               checked={urgencyAutoExtinguish}
               onToggle={async () => {
                 const next = !urgencyAutoExtinguish;

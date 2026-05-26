@@ -55,7 +55,9 @@ function buildCitations(answer: string, sources: SearchResult[]): Citation[] {
   let m: RegExpExecArray | null;
 
   while ((m = pattern.exec(answer)) !== null) {
-    const id = m[1]!;
+    const raw = m[1]!;
+    // AI sometimes echoes the full "Message ID: xxx" prefix — strip it
+    const id = raw.replace(/^Message\s+ID:\s*/i, "").trim();
     if (seen.has(id)) continue;
     const src = sourceMap.get(id);
     if (!src) continue;
@@ -71,7 +73,7 @@ function buildCitations(answer: string, sources: SearchResult[]): Citation[] {
 
 export async function getSearchAnswer(
   query: string,
-  accountId: string,
+  accountId: string | null,
 ): Promise<SearchAnswerResult> {
   const result = await askMyInbox(query, accountId);
   const citations = buildCitations(result.answer, result.sourceMessages);
