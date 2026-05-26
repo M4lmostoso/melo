@@ -14,6 +14,7 @@ import { isVipSender, addVipSender, removeVipSender } from "@/services/db/notifi
 import { fetchAndCacheGravatarUrl } from "@/services/contacts/gravatar";
 import { useThreadStore } from "@/stores/threadStore";
 import { useComposerStore } from "@/stores/composerStore";
+import { useContactsStore } from "@/stores/contactsStore";
 import { getThreadById, getThreadLabelIds } from "@/services/db/threads";
 import { navigateToThread } from "@/router/navigate";
 import { formatRelativeDate } from "@/utils/date";
@@ -160,6 +161,9 @@ export function ContactSidebar({ email, name, accountId, onClose }: ContactSideb
     await upsertContact(email, name);
     const c = await getContactByEmail(email);
     setContact(c);
+    if (c?.display_name) {
+      useContactsStore.getState().updateContactInCache(email, c.display_name);
+    }
     setAddedFeedback(true);
     if (addedTimerRef.current) clearTimeout(addedTimerRef.current);
     addedTimerRef.current = setTimeout(() => setAddedFeedback(false), 1500);
@@ -175,8 +179,9 @@ export function ContactSidebar({ email, name, accountId, onClose }: ContactSideb
     const trimmed = editNameValue.trim();
     await updateContact(contact.id, trimmed || null);
     setContact({ ...contact, display_name: trimmed || null });
+    useContactsStore.getState().updateContactInCache(email, trimmed || null);
     setEditingName(false);
-  }, [contact, editNameValue]);
+  }, [contact, editNameValue, email]);
 
   // Cleanup all timers on unmount
   useEffect(() => {

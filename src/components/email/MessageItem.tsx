@@ -11,6 +11,7 @@ import { AuthBadge } from "./AuthBadge";
 import { AuthWarningBanner } from "./AuthWarningBanner";
 import { isCalendarInvite } from "@/utils/fileTypeHelpers";
 import { useAccountStore } from "@/stores/accountStore";
+import { useContactsStore } from "@/stores/contactsStore";
 import { t } from "@/i18n";
 
 // ---------------------------------------------------------------------------
@@ -233,7 +234,12 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
     return cids;
   }, [message.body_html]);
 
-  const fromDisplay = message.from_name ?? message.from_address ?? t("messageItem.unknown");
+  const contactsMap = useContactsStore((s) => s.contactsMap);
+  const fromDisplay =
+    (message.from_address && contactsMap[message.from_address.toLowerCase()]) ||
+    message.from_name ||
+    message.from_address ||
+    t("messageItem.unknown");
 
   return (
     <div ref={ref} className={`border-b border-border-secondary last:border-b-0 ${isSpam ? "bg-red-500/8 dark:bg-red-500/10" : ""} ${focused ? "ring-2 ring-inset ring-accent/50" : ""}`} onContextMenu={onContextMenu}>

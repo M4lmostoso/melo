@@ -71,6 +71,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { DndProvider } from "./components/dnd/DndProvider";
 import { TitleBar } from "./components/layout/TitleBar";
 import { useShortcutStore } from "./stores/shortcutStore";
+import { useContactsStore } from "./stores/contactsStore";
 import { useTaskStore } from "./stores/taskStore";
 import { purgeOldDeletedTasks, purgeOldCompletedTasks } from "./services/tasks/taskManager";
 import { ContextMenuPortal } from "./components/ui/ContextMenuPortal";
@@ -547,6 +548,9 @@ export default function App() {
 
         // Load custom keyboard shortcuts
         await useShortcutStore.getState().loadKeyMap();
+
+        // Load contacts display-name cache
+        useContactsStore.getState().loadContacts().catch(console.error);
 
         const dbAccounts = await getAllAccounts();
         const mapped = dbAccounts.map((a) => ({

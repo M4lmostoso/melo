@@ -9,6 +9,7 @@ import { decodeHtml } from "@/utils/sanitize";
 import { Paperclip, Star, Check, Pin, BellRing, VolumeX, Zap, Wind } from "lucide-react";
 import type { DragData } from "@/components/dnd/DndProvider";
 import { t } from "@/i18n";
+import { useContactsStore } from "@/stores/contactsStore";
 
 const CATEGORY_COLORS: Record<string, string> = {
   Updates: "bg-yellow-500/15 text-yellow-600 dark:text-yellow-400",
@@ -34,7 +35,16 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
   const selectThreadRange = useThreadStore((s) => s.selectThreadRange);
   const activeLabel = useActiveLabel();
   const emailDensity = useUIStore((s) => s.emailDensity);
+  const contactsMap = useContactsStore((s) => s.contactsMap);
   const isSpam = thread.labelIds.includes("SPAM");
+
+  const senderDisplay = (
+    (thread.fromAddress && contactsMap[thread.fromAddress.toLowerCase()]) ||
+    thread.allSenders ||
+    thread.fromName ||
+    thread.fromAddress ||
+    t("threadCard.unknown")
+  );
 
   // Read selectedThreadIds lazily for drag — avoids subscribing all cards to the Set reference
   const dragData: DragData = useMemo(() => ({
@@ -66,11 +76,7 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
   const handleContextMenu = onContextMenu
     ? (e: React.MouseEvent) => onContextMenu(e, thread.id)
     : undefined;
-  const initial = (
-    thread.fromName?.[0] ??
-    thread.fromAddress?.[0] ??
-    "?"
-  ).toUpperCase();
+  const initial = (senderDisplay[0] ?? "?").toUpperCase();
 
   return (
     <button
@@ -79,7 +85,7 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
       {...listeners}
       onClick={handleClick}
       onContextMenu={handleContextMenu}
-      aria-label={`${thread.isRead ? "" : t("threadCard.unreadPrefix")}email from ${thread.fromName ?? thread.fromAddress ?? t("threadCard.unknown")}: ${thread.subject ?? t("threadCard.noSubject")}`}
+      aria-label={`${thread.isRead ? "" : t("threadCard.unreadPrefix")}email from ${senderDisplay}: ${thread.subject ?? t("threadCard.noSubject")}`}
       aria-selected={isSelected}
       className={`w-full text-left border-b border-border-secondary group hover-lift press-scale ${
         emailDensity === "compact" ? "px-3 py-1.5" : emailDensity === "spacious" ? "px-4 py-4" : "px-4 py-3"
@@ -116,7 +122,7 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
                   : "font-semibold text-text-primary"
               }`}
             >
-              {thread.allSenders ?? thread.fromName ?? thread.fromAddress ?? t("threadCard.unknown")}
+              {senderDisplay}
             </span>
             <span className="text-xs text-text-tertiary whitespace-nowrap shrink-0">
               {formatRelativeDate(thread.lastMessageAt)}
