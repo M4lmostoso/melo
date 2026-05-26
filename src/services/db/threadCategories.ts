@@ -84,6 +84,27 @@ export async function getCategoriesForThreads(
   return map;
 }
 
+export async function getCategoriesForThreadsGlobal(
+  threadIds: string[],
+): Promise<Map<string, string>> {
+  if (threadIds.length === 0) return new Map();
+  const db = await getDb();
+  const map = new Map<string, string>();
+  const batchSize = 100;
+  for (let i = 0; i < threadIds.length; i += batchSize) {
+    const batch = threadIds.slice(i, i + batchSize);
+    const placeholders = batch.map((_, idx) => `$${idx + 1}`).join(",");
+    const rows = await db.select<DbThreadCategory[]>(
+      `SELECT thread_id, category FROM thread_categories WHERE thread_id IN (${placeholders})`,
+      [...batch],
+    );
+    for (const row of rows) {
+      map.set(row.thread_id, row.category);
+    }
+  }
+  return map;
+}
+
 const NON_PRIMARY_CATEGORIES = new Set(["Updates", "Promotions", "Social", "Newsletters"]);
 
 export async function setThreadCategory(

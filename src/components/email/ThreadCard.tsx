@@ -182,9 +182,9 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
                 <Star size={12} className="fill-current" />
               </span>
             )}
-            {thread.messageCount > 1 && (
-              <span className="text-xs text-text-tertiary shrink-0 bg-bg-tertiary rounded-full px-1.5">
-                {thread.messageCount}
+            {(thread.unreadCount > 0 || thread.messageCount > 1) && (
+              <span className={`text-xs shrink-0 rounded-full px-1.5 ${thread.unreadCount > 0 ? "bg-accent text-white font-medium" : "bg-bg-tertiary text-text-tertiary"}`}>
+                {thread.unreadCount > 0 ? `${thread.unreadCount}/${thread.messageCount}` : thread.messageCount}
               </span>
             )}
           </div>

@@ -18,6 +18,7 @@ export interface DbThread {
   from_name: string | null;
   from_address: string | null;
   all_senders: string | null;
+  unread_count: number;
   urgency_score: number | null;
   sentiment_score: number | null;
   manual_urgency_override: number | null;
@@ -34,7 +35,8 @@ export async function getThreadsForAccount(
   if (labelId) {
     return db.select<DbThread[]>(
       `SELECT t.*, m.from_name, m.from_address,
-         (SELECT GROUP_CONCAT(from_name, ', ') FROM (SELECT from_name, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_name IS NOT NULL AND from_name != '' GROUP BY from_name ORDER BY last_date DESC)) as all_senders
+         (SELECT GROUP_CONCAT(from_name, ', ') FROM (SELECT from_name, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_name IS NOT NULL AND from_name != '' GROUP BY from_name ORDER BY last_date DESC)) as all_senders,
+         (SELECT COUNT(*) FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND is_read = 0) as unread_count
        FROM threads t
        INNER JOIN thread_labels tl ON tl.account_id = t.account_id AND tl.thread_id = t.id
        LEFT JOIN messages m ON m.account_id = t.account_id AND m.thread_id = t.id
@@ -48,7 +50,8 @@ export async function getThreadsForAccount(
   }
   return db.select<DbThread[]>(
     `SELECT t.*, m.from_name, m.from_address,
-       (SELECT GROUP_CONCAT(from_name, ', ') FROM (SELECT from_name, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_name IS NOT NULL AND from_name != '' GROUP BY from_name ORDER BY last_date DESC)) as all_senders
+       (SELECT GROUP_CONCAT(from_name, ', ') FROM (SELECT from_name, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_name IS NOT NULL AND from_name != '' GROUP BY from_name ORDER BY last_date DESC)) as all_senders,
+       (SELECT COUNT(*) FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND is_read = 0) as unread_count
      FROM threads t
      LEFT JOIN messages m ON m.account_id = t.account_id AND m.thread_id = t.id
        AND m.date = (SELECT MAX(m2.date) FROM messages m2 WHERE m2.account_id = t.account_id AND m2.thread_id = t.id)
@@ -89,7 +92,8 @@ export async function getThreadsForCategory(
     // Primary includes threads with NULL category (uncategorized)
     return db.select<DbThread[]>(
       `SELECT t.*, m.from_name, m.from_address,
-         (SELECT GROUP_CONCAT(from_name, ', ') FROM (SELECT from_name, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_name IS NOT NULL AND from_name != '' GROUP BY from_name ORDER BY last_date DESC)) as all_senders
+         (SELECT GROUP_CONCAT(from_name, ', ') FROM (SELECT from_name, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_name IS NOT NULL AND from_name != '' GROUP BY from_name ORDER BY last_date DESC)) as all_senders,
+         (SELECT COUNT(*) FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND is_read = 0) as unread_count
        FROM threads t
        INNER JOIN thread_labels tl ON tl.account_id = t.account_id AND tl.thread_id = t.id
        LEFT JOIN thread_categories tc ON tc.account_id = t.account_id AND tc.thread_id = t.id
@@ -104,7 +108,8 @@ export async function getThreadsForCategory(
   }
   return db.select<DbThread[]>(
     `SELECT t.*, m.from_name, m.from_address,
-       (SELECT GROUP_CONCAT(from_name, ', ') FROM (SELECT from_name, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_name IS NOT NULL AND from_name != '' GROUP BY from_name ORDER BY last_date DESC)) as all_senders
+       (SELECT GROUP_CONCAT(from_name, ', ') FROM (SELECT from_name, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_name IS NOT NULL AND from_name != '' GROUP BY from_name ORDER BY last_date DESC)) as all_senders,
+       (SELECT COUNT(*) FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND is_read = 0) as unread_count
      FROM threads t
      INNER JOIN thread_labels tl ON tl.account_id = t.account_id AND tl.thread_id = t.id
      INNER JOIN thread_categories tc ON tc.account_id = t.account_id AND tc.thread_id = t.id
@@ -224,6 +229,14 @@ export async function recalculateThreadStats(
 
     const labels = new Set(labelRows.map((r) => r.id));
 
+    // TRASH/SPAM must suppress INBOX (mirrors computeThreadLabels logic).
+    // Without this guard, a thread that has one message in INBOX and another
+    // in TRASH (e.g. a deleted draft the server moved to Trash) would incorrectly
+    // carry both labels simultaneously.
+    if (labels.has("TRASH") || labels.has("SPAM")) {
+      labels.delete("INBOX");
+    }
+
     // Add pseudo-labels based on thread state
     const thread = await db.select<{ is_read: number; is_starred: number }[]>(
       "SELECT is_read, is_starred FROM threads WHERE account_id = $1 AND id = $2",
@@ -293,7 +306,8 @@ export async function getThreadsByIds(
   for (const { accountId, threadId } of pairs) {
     const rows = await db.select<DbThread[]>(
       `SELECT t.*, m.from_name, m.from_address,
-         (SELECT GROUP_CONCAT(from_name, ', ') FROM (SELECT from_name, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_name IS NOT NULL AND from_name != '' GROUP BY from_name ORDER BY last_date DESC)) as all_senders
+         (SELECT GROUP_CONCAT(from_name, ', ') FROM (SELECT from_name, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_name IS NOT NULL AND from_name != '' GROUP BY from_name ORDER BY last_date DESC)) as all_senders,
+         (SELECT COUNT(*) FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND is_read = 0) as unread_count
        FROM threads t
        LEFT JOIN messages m ON m.account_id = t.account_id AND m.thread_id = t.id
          AND m.date = (SELECT MAX(m2.date) FROM messages m2 WHERE m2.account_id = t.account_id AND m2.thread_id = t.id)
@@ -330,7 +344,8 @@ export async function getThreadsByIdsBatch(
     const placeholders = threadIds.map((_, i) => `$${i + 2}`).join(", ");
     const rows = await db.select<DbThread[]>(
       `SELECT t.*, m.from_name, m.from_address,
-         (SELECT GROUP_CONCAT(from_name, ', ') FROM (SELECT from_name, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_name IS NOT NULL AND from_name != '' GROUP BY from_name ORDER BY last_date DESC)) as all_senders
+         (SELECT GROUP_CONCAT(from_name, ', ') FROM (SELECT from_name, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_name IS NOT NULL AND from_name != '' GROUP BY from_name ORDER BY last_date DESC)) as all_senders,
+         (SELECT COUNT(*) FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND is_read = 0) as unread_count
        FROM threads t
        LEFT JOIN messages m ON m.account_id = t.account_id AND m.thread_id = t.id
          AND m.date = (SELECT MAX(m2.date) FROM messages m2 WHERE m2.account_id = t.account_id AND m2.thread_id = t.id)
@@ -385,7 +400,8 @@ export async function getThreadById(
   const db = await getDb();
   const rows = await db.select<DbThread[]>(
     `SELECT t.*, m.from_name, m.from_address,
-       (SELECT GROUP_CONCAT(from_name, ', ') FROM (SELECT from_name, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_name IS NOT NULL AND from_name != '' GROUP BY from_name ORDER BY last_date DESC)) as all_senders
+       (SELECT GROUP_CONCAT(from_name, ', ') FROM (SELECT from_name, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_name IS NOT NULL AND from_name != '' GROUP BY from_name ORDER BY last_date DESC)) as all_senders,
+       (SELECT COUNT(*) FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND is_read = 0) as unread_count
      FROM threads t
      LEFT JOIN messages m ON m.account_id = t.account_id AND m.thread_id = t.id
        AND m.date = (SELECT MAX(m2.date) FROM messages m2 WHERE m2.account_id = t.account_id AND m2.thread_id = t.id)
@@ -477,7 +493,24 @@ export async function getUnreadInboxCount(accountId?: string): Promise<number> {
          )`;
   const params = accountId ? [accountId] : [];
   const rows = await db.select<{ count: number }[]>(sql, params);
-  return rows[0]?.count ?? 0;
+  const count = rows[0]?.count ?? 0;
+
+  // Debug: log the raw unread threads so we can diagnose "zombie" emails missing from badge
+  if (import.meta.env.DEV || (globalThis as Record<string, unknown>)["__veloDebugBadge"]) {
+    const debugRows = await db.select<{ id: string; subject: string | null; is_read: number; labels: string }[]>(
+      `SELECT t.id, t.subject, t.is_read, GROUP_CONCAT(tl2.label_id) as labels
+       FROM threads t
+       INNER JOIN thread_labels tl2 ON tl2.account_id = t.account_id AND tl2.thread_id = t.id
+       WHERE t.is_read = 0
+       GROUP BY t.id
+       ORDER BY t.last_message_at DESC
+       LIMIT 20`,
+      [],
+    );
+    console.log(`[badge] getUnreadInboxCount=${count} | all unread threads (max 20):`, debugRows);
+  }
+
+  return count;
 }
 
 export async function deleteThread(
@@ -641,7 +674,8 @@ export async function getUnifiedInboxThreads(
   const offsetParam = `$${accountIds.length + 2}`;
   return db.select<DbThread[]>(
     `SELECT t.*, m.from_name, m.from_address,
-       (SELECT GROUP_CONCAT(from_name, ', ') FROM (SELECT from_name, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_name IS NOT NULL AND from_name != '' GROUP BY from_name ORDER BY last_date DESC)) as all_senders
+       (SELECT GROUP_CONCAT(from_name, ', ') FROM (SELECT from_name, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_name IS NOT NULL AND from_name != '' GROUP BY from_name ORDER BY last_date DESC)) as all_senders,
+       (SELECT COUNT(*) FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND is_read = 0) as unread_count
      FROM threads t
      INNER JOIN thread_labels tl ON tl.account_id = t.account_id AND tl.thread_id = t.id
      LEFT JOIN messages m ON m.thread_id = t.id AND m.account_id = t.account_id
@@ -652,6 +686,11 @@ export async function getUnifiedInboxThreads(
        )
      WHERE t.account_id IN (${placeholders})
        AND tl.label_id = 'INBOX'
+       AND NOT EXISTS (
+         SELECT 1 FROM thread_labels tl_ex
+         WHERE tl_ex.account_id = t.account_id AND tl_ex.thread_id = t.id
+           AND tl_ex.label_id = 'TRASH'
+       )
      GROUP BY t.account_id, t.id
      ORDER BY t.is_pinned DESC, t.last_message_at DESC
      LIMIT ${limitParam} OFFSET ${offsetParam}`,
@@ -675,7 +714,8 @@ export async function getUnifiedFolderThreads(
     const offsetParam = `$${accountIds.length + 2}`;
     return db.select<DbThread[]>(
       `SELECT t.*, m.from_name, m.from_address,
-         (SELECT GROUP_CONCAT(from_name, ', ') FROM (SELECT from_name, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_name IS NOT NULL AND from_name != '' GROUP BY from_name ORDER BY last_date DESC)) as all_senders
+         (SELECT GROUP_CONCAT(from_name, ', ') FROM (SELECT from_name, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_name IS NOT NULL AND from_name != '' GROUP BY from_name ORDER BY last_date DESC)) as all_senders,
+         (SELECT COUNT(*) FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND is_read = 0) as unread_count
        FROM threads t
        LEFT JOIN messages m ON m.thread_id = t.id AND m.account_id = t.account_id
          AND m.id = (
@@ -700,7 +740,8 @@ export async function getUnifiedFolderThreads(
   const offsetParam = `$${accountIds.length + 3}`;
   return db.select<DbThread[]>(
     `SELECT t.*, m.from_name, m.from_address,
-       (SELECT GROUP_CONCAT(from_name, ', ') FROM (SELECT from_name, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_name IS NOT NULL AND from_name != '' GROUP BY from_name ORDER BY last_date DESC)) as all_senders
+       (SELECT GROUP_CONCAT(from_name, ', ') FROM (SELECT from_name, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_name IS NOT NULL AND from_name != '' GROUP BY from_name ORDER BY last_date DESC)) as all_senders,
+       (SELECT COUNT(*) FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND is_read = 0) as unread_count
      FROM threads t
      INNER JOIN thread_labels tl ON tl.account_id = t.account_id AND tl.thread_id = t.id
      LEFT JOIN messages m ON m.thread_id = t.id AND m.account_id = t.account_id

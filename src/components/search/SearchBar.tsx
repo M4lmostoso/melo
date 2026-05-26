@@ -139,6 +139,7 @@ export function SearchBar() {
       snippet: t.snippet,
       lastMessageAt: t.last_message_at ?? 0,
       messageCount: t.message_count,
+      unreadCount: t.unread_count,
       isRead: t.is_read === 1,
       isStarred: t.is_starred === 1,
       isPinned: t.is_pinned === 1,

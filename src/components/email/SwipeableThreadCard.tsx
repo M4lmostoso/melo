@@ -94,14 +94,17 @@ export function SwipeableThreadCard(props: SwipeableThreadCardProps) {
   // ── Email action ──────────────────────────────────────────────────────────
   const executeAction = useCallback(
     async (dir: "left" | "right") => {
-      if (!activeAccountId) return;
+      // In global/unified views activeAccountId is null — fall back to the
+      // thread's own accountId so smart-folder and unified-inbox swipes work.
+      const accountId = activeAccountId ?? thread.accountId;
+      if (!accountId) return;
       if (dir === "left") {
-        await trashLatestMessage(activeAccountId, thread.id, isTrashViewRef.current);
+        await trashLatestMessage(accountId, thread.id, isTrashViewRef.current);
       } else {
-        await archiveThread(activeAccountId, thread.id, []);
+        await archiveThread(accountId, thread.id, []);
       }
     },
-    [activeAccountId, thread.id],
+    [activeAccountId, thread.accountId, thread.id],
   );
 
   // ── Shared release logic (used by both pointer and wheel) ─────────────────

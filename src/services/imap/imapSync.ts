@@ -29,6 +29,7 @@ import { clearDeletedImapUidsForFolder, pruneDeletedImapUids } from "../db/delet
 import {
   buildThreads,
   normalizeSubject,
+  parseReferences,
   type ThreadableMessage,
   type ThreadGroup,
 } from "../threading/threadBuilder";
@@ -192,12 +193,115 @@ function computeThreadLabels(
   const newBatchHasExternal = messages.some(
     (m) => !isFromMe(m.from_address) && m.label_id !== "TRASH" && m.label_id !== "SPAM",
   );
-  const movingToTrashOrSpam = allLabels.has("TRASH") || allLabels.has("SPAM");
+
+  // Only treat TRASH/SPAM as "moving to trash" when an external-sender message is
+  // the one being trashed. Self-sent messages in TRASH (e.g. a draft the IMAP server
+  // moved to Trash instead of expunging on deletion) must not suppress INBOX or
+  // give the thread a TRASH label — otherwise a deleted draft contaminates the
+  // inbox conversation it was part of.
+  const hasExternalInTrash = messages.some(
+    (m) => (m.label_id === "TRASH" || m.label_id === "SPAM") && !isFromMe(m.from_address),
+  );
+  if (!hasExternalInTrash) {
+    allLabels.delete("TRASH");
+    allLabels.delete("SPAM");
+  }
+  const movingToTrashOrSpam = hasExternalInTrash;
   if ((newBatchHasExternal || threadHasExternalSenders) && !movingToTrashOrSpam) {
     allLabels.add("INBOX");
   }
 
   return [...allLabels];
+}
+
+/**
+ * Before subject-based merging, look up existing DB threads by In-Reply-To /
+ * References RFC Message-IDs of the newly stored messages.
+ * This correctly threads a sent reply into the original conversation even when
+ * the IMAP server did not return APPENDUID (uid === 0) so the local optimistic
+ * save was skipped and the reply arrives via delta sync as a new message.
+ */
+async function mergeGroupsByRfcId(
+  accountId: string,
+  groups: ThreadGroup[],
+  headerById: Map<string, ImapSyncHeader>,
+): Promise<ThreadGroup[]> {
+  // Collect all RFC Message-IDs referenced by newly stored messages
+  const allRefIds: string[] = [];
+  for (const group of groups) {
+    for (const msgId of group.messageIds) {
+      const header = headerById.get(msgId);
+      if (!header?.stored) continue;
+      if (header.in_reply_to) {
+        // Extract bare ID from optional angle brackets
+        const m = header.in_reply_to.match(/<([^>]+)>/);
+        allRefIds.push(m ? m[1]! : header.in_reply_to.trim());
+      }
+      if (header.references) {
+        allRefIds.push(...parseReferences(header.references));
+      }
+    }
+  }
+  if (allRefIds.length === 0) return groups;
+
+  const unique = [...new Set(allRefIds.filter(Boolean))];
+  const { getDb } = await import("../db/connection");
+  const db = await getDb();
+
+  // Map each referenced RFC Message-ID → thread_id already in DB
+  const rfcToThreadId = new Map<string, string>();
+  const batchSize = 100;
+  for (let i = 0; i < unique.length; i += batchSize) {
+    const batch = unique.slice(i, i + batchSize);
+    const placeholders = batch.map((_, j) => `$${j + 2}`).join(",");
+    const rows = await db.select<{ message_id_header: string; thread_id: string }[]>(
+      `SELECT message_id_header, thread_id FROM messages WHERE account_id = $1 AND message_id_header IN (${placeholders})`,
+      [accountId, ...batch],
+    );
+    for (const row of rows) {
+      if (row.message_id_header && row.thread_id) {
+        rfcToThreadId.set(row.message_id_header, row.thread_id);
+      }
+    }
+  }
+  if (rfcToThreadId.size === 0) return groups;
+
+  // Remap any group whose messages reference an existing thread
+  const remapped = new Map<string, string>(); // placeholder thread_id → existing thread_id
+  for (const group of groups) {
+    outer: for (const msgId of group.messageIds) {
+      const header = headerById.get(msgId);
+      if (!header?.stored) continue;
+      const refs: string[] = [];
+      if (header.in_reply_to) {
+        const m = header.in_reply_to.match(/<([^>]+)>/);
+        refs.push(m ? m[1]! : header.in_reply_to.trim());
+      }
+      if (header.references) refs.push(...parseReferences(header.references));
+      for (const ref of refs) {
+        const existingThreadId = rfcToThreadId.get(ref);
+        if (existingThreadId && existingThreadId !== group.threadId) {
+          remapped.set(group.threadId, existingThreadId);
+          break outer;
+        }
+      }
+    }
+  }
+  if (remapped.size === 0) return groups;
+
+  const merged = new Map<string, string[]>();
+  for (const group of groups) {
+    const targetId = remapped.get(group.threadId) ?? group.threadId;
+    const existing = merged.get(targetId);
+    if (existing) {
+      for (const id of group.messageIds) {
+        if (!existing.includes(id)) existing.push(id);
+      }
+    } else {
+      merged.set(targetId, [...group.messageIds]);
+    }
+  }
+  return [...merged.entries()].map(([threadId, messageIds]) => ({ threadId, messageIds }));
 }
 
 /**
@@ -734,7 +838,11 @@ export async function imapInitialSync(
   const storedHeaders = allHeaders.filter((h) => h.stored);
   const allThreadable = storedHeaders.map(headerToThreadable);
   const rawThreadGroups = buildThreads(allThreadable);
-  const threadGroups = await mergeGroupsBySubject(accountId, rawThreadGroups, allThreadable);
+  const headerById = new Map(allHeaders.map((h) => [h.local_id, h]));
+  // RFC Message-ID based merge first (handles replies/forwards with proper headers),
+  // then subject-based merge as fallback (handles replies that lack In-Reply-To).
+  const rfcMergedGroups = await mergeGroupsByRfcId(accountId, rawThreadGroups, headerById);
+  const threadGroups = await mergeGroupsBySubject(accountId, rfcMergedGroups, allThreadable);
 
   console.log(`[imapSync] Threading: ${storedHeaders.length} messages → ${threadGroups.length} threads`);
 
@@ -742,8 +850,6 @@ export async function imapInitialSync(
   // Phase 4: Store threads — one rusqlite transaction via imap_store_threads
   // ---------------------------------------------------------------------------
   onProgress?.({ phase: "storing_threads", current: 0, total: threadGroups.length });
-
-  const headerById = new Map(allHeaders.map((h) => [h.local_id, h]));
 
   // One SQL plugin call to get ALL pending op resource IDs (replaces N per-thread calls)
   const pendingOpIds = await getPendingOpResourceIds(accountId);
@@ -1045,13 +1151,15 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
     return { messages: [], storedCount: 0, flagChangedCount };
   }
 
-  // JWZ threading + subject-based merge with existing threads (for forwards/replies without headers)
+  // JWZ threading + RFC ID merge + subject-based merge with existing threads
   const allThreadable = storedHeaders.map(headerToThreadable);
   const rawThreadGroups = buildThreads(allThreadable);
-  const threadGroups = await mergeGroupsBySubject(accountId, rawThreadGroups, allThreadable);
-
   // Thread updates — one SQL plugin call for pending ops, then one Rust call for writes
   const headerById = new Map(allHeaders.map((h) => [h.local_id, h]));
+  // RFC Message-ID based merge first (handles sent replies arriving via delta sync),
+  // then subject-based merge as fallback (for replies lacking threading headers).
+  const rfcMergedGroups = await mergeGroupsByRfcId(accountId, rawThreadGroups, headerById);
+  const threadGroups = await mergeGroupsBySubject(accountId, rfcMergedGroups, allThreadable);
   const pendingOpIds = await getPendingOpResourceIds(accountId);
   const skipThreadIds = new Set(threadGroups.map((g) => g.threadId).filter((id) => pendingOpIds.has(id)));
 

@@ -349,6 +349,24 @@ async function applyLocalDbUpdate(
             "DELETE FROM thread_labels WHERE account_id = $1 AND thread_id = $2 AND label_id = 'DRAFT'",
             [accountId, tid],
           );
+          // The draft message had is_read=0 which may have left the thread unread.
+          // Now that the draft is gone, recalculate: if all remaining messages are
+          // read, mark the thread and remove the stale UNREAD label so the Sent
+          // folder doesn't show a spurious unread badge after send.
+          const unreadRemaining = await db.select<{ id: string }[]>(
+            "SELECT id FROM messages WHERE account_id = $1 AND thread_id = $2 AND is_read = 0 LIMIT 1",
+            [accountId, tid],
+          );
+          if (unreadRemaining.length === 0) {
+            await db.execute(
+              "UPDATE threads SET is_read = 1 WHERE account_id = $1 AND id = $2",
+              [accountId, tid],
+            );
+            await db.execute(
+              "DELETE FROM thread_labels WHERE account_id = $1 AND thread_id = $2 AND label_id = 'UNREAD'",
+              [accountId, tid],
+            );
+          }
         }
       }
       break;

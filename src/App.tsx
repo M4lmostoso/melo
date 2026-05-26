@@ -672,7 +672,6 @@ export default function App() {
   }, []);
 
   // Listen for sync status updates
-  const backfillDoneRef = useRef(false);
   useEffect(() => {
     const unsub = onSyncStatus((accountId, status, progress, error, storedCount, flagChangedCount) => {
       const { setAccountSyncPhase } = useUIStore.getState();
@@ -715,9 +714,10 @@ export default function App() {
           runEmbeddingBackfill().catch(() => {});
         }
 
-        // Backfill uncategorized threads after first successful sync
-        if (!backfillDoneRef.current) {
-          backfillDoneRef.current = true;
+        // Categorize any uncategorized inbox threads (new arrivals or first run).
+        // Runs whenever new messages were stored so delta-sync emails are immediately
+        // classified instead of staying "Primary" until the next session restart.
+        if (storedCount === undefined || storedCount > 0) {
           import("./services/categorization/backfillService")
             .then(({ backfillUncategorizedThreads }) =>
               backfillUncategorizedThreads(accountId),

@@ -63,6 +63,7 @@ export function ContactSidebar({ email, name, accountId, onClose }: ContactSideb
       snippet: dbThread.snippet,
       lastMessageAt: dbThread.last_message_at ?? 0,
       messageCount: dbThread.message_count,
+      unreadCount: dbThread.unread_count,
       isRead: dbThread.is_read === 1,
       isStarred: dbThread.is_starred === 1,
       isPinned: dbThread.is_pinned === 1,

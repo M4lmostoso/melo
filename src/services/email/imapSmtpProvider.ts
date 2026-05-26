@@ -27,6 +27,7 @@ import {
   upsertThread,
   setThreadLabels,
   getThreadLabelIds,
+  recalculateThreadStats,
 } from "../db/threads";
 
 /**
@@ -640,17 +641,8 @@ export class ImapSmtpProvider implements EmailProvider {
     // For new compositions, create a new thread.
     const effectiveThreadId = threadId ?? messageId;
 
-    if (threadId) {
-      // Reply: add SENT label to existing thread
-      const existingLabels = await getThreadLabelIds(this.accountId, threadId);
-      if (!existingLabels.includes("SENT")) {
-        await setThreadLabels(this.accountId, threadId, [
-          ...existingLabels,
-          "SENT",
-        ]);
-      }
-    } else {
-      // New thread: create thread record
+    if (!threadId) {
+      // New thread: create thread record + SENT label
       await upsertThread({
         id: effectiveThreadId,
         accountId: this.accountId,
@@ -698,6 +690,14 @@ export class ImapSmtpProvider implements EmailProvider {
       imapUid: imapUid ?? null,
       imapFolder: imapFolder ?? null,
     });
+
+    if (threadId) {
+      // Reply: recalculate thread stats and labels from actual messages in DB.
+      // This updates lastMessageAt → thread sorts to top of list; recalculates
+      // message_count, is_read, and adds both INBOX (original message) and SENT
+      // (this reply) so the thread appears in both folder views immediately.
+      await recalculateThreadStats(this.accountId, effectiveThreadId);
+    }
   }
 
   /**

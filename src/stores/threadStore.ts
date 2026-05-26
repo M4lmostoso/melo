@@ -7,6 +7,7 @@ export interface Thread {
   snippet: string | null;
   lastMessageAt: number;
   messageCount: number;
+  unreadCount: number;
   isRead: boolean;
   isStarred: boolean;
   isPinned: boolean;

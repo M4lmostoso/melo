@@ -120,6 +120,7 @@ export async function mapSmartFolderRows(rows: SmartFolderRow[]): Promise<Thread
         snippet: r.snippet,
         lastMessageAt: r.date,
         messageCount: dbThread?.message_count ?? 1,
+        unreadCount: dbThread?.unread_count ?? 0,
         isRead: dbThread ? dbThread.is_read === 1 : false,
         isStarred: dbThread ? dbThread.is_starred === 1 : false,
         isPinned: dbThread ? dbThread.is_pinned === 1 : false,

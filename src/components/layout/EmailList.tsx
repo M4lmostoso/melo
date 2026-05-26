@@ -12,7 +12,7 @@ import { useUIStore } from "@/stores/uiStore";
 import { useActiveLabel, useSelectedThreadId, useActiveCategory } from "@/hooks/useRouteNavigation";
 import { navigateToThread, navigateToLabel } from "@/router/navigate";
 import { getThreadsForAccount, getThreadsForCategory, getThreadLabelIds, deleteThread as deleteThreadFromDb, getUnifiedInboxThreads, getUnifiedFolderThreads, getThreadById, getThreadsByIdsBatch, getThreadLabelsByIdsBatch } from "@/services/db/threads";
-import { getCategoriesForThreads, getCategoryUnreadCounts } from "@/services/db/threadCategories";
+import { getCategoriesForThreads, getCategoriesForThreadsGlobal, getCategoryUnreadCounts } from "@/services/db/threadCategories";
 import { getActiveFollowUpThreadIds } from "@/services/db/followUpReminders";
 import { getBundleRules, getHeldThreadIds, getBundleSummaries, type DbBundleRule } from "@/services/db/bundleRules";
 import { getGmailClient } from "@/services/gmail/tokenManager";
@@ -263,6 +263,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
           snippet: t.snippet,
           lastMessageAt: t.last_message_at ?? 0,
           messageCount: t.message_count,
+          unreadCount: t.unread_count,
           isRead: t.is_read === 1,
           isStarred: t.is_starred === 1,
           isPinned: t.is_pinned === 1,
@@ -294,6 +295,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
             snippet: dbThread.snippet,
             lastMessageAt: dbThread.last_message_at ?? 0,
             messageCount: dbThread.message_count,
+            unreadCount: dbThread.unread_count,
             isRead: dbThread.is_read === 1,
             isStarred: dbThread.is_starred === 1,
             isPinned: dbThread.is_pinned === 1,
@@ -345,6 +347,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
         snippet: t.snippet,
         lastMessageAt: t.last_message_at ?? 0,
         messageCount: t.message_count,
+        unreadCount: t.unread_count,
         isRead: t.is_read === 1,
         isStarred: t.is_starred === 1,
         isPinned: t.is_pinned === 1,
@@ -371,6 +374,12 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
 
     // Smart folder: always handled first, regardless of account mode.
     // In global view pass all included account IDs; in single-account view pass the active ID.
+    // If isSmartFolder but activeSmartFolder is null the store hasn't loaded yet — stay in
+    // loading state and return. loadThreads will re-fire once the store is populated
+    // (activeSmartFolder is a useCallback dep so its ref changes when folders arrive).
+    if (isSmartFolder && !activeSmartFolder) {
+      return; // setLoading(true) already called above; spinner stays until store is ready
+    }
     if (isSmartFolder && activeSmartFolder) {
       const accountArg: string | string[] = activeAccountId ?? globalAccountIds;
       if (!activeAccountId && globalAccountIds.length === 0) {
@@ -554,8 +563,21 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
   useEffect(() => {
     let cancelled = false;
 
+    const threadIds = threadIdKey ? threadIdKey.split(",") : [];
+    const isInbox = activeLabel === "inbox";
+    const isAllCategory = activeCategory === "All";
+
     if (!activeAccountId) {
-      setCategoryMap(new Map());
+      // Unified view: fetch categories for visible threads across all accounts
+      if (threadIds.length > 0) {
+        getCategoriesForThreadsGlobal(threadIds).then((result) => {
+          if (!cancelled) setCategoryMap(result);
+        }).catch(() => {
+          if (!cancelled) setCategoryMap(new Map());
+        });
+      } else {
+        setCategoryMap(new Map());
+      }
       setCategoryUnreadCounts(new Map());
       setFollowUpThreadIds(new Set());
       setBundleRules([]);
@@ -564,17 +586,13 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
       return;
     }
 
-    const threadIds = threadIdKey ? threadIdKey.split(",") : [];
-    const isInbox = activeLabel === "inbox";
-    const isAllCategory = activeCategory === "All";
-
     const loadMetadata = async () => {
       try {
         // Build all promises based on current view
         const promises: Promise<void>[] = [];
 
-        // Categories (only for inbox "All" tab with threads)
-        if (isInbox && isAllCategory && threadIds.length > 0) {
+        // Categories: always fetch when there are threads, except inbox filtered to a specific category tab
+        if ((!isInbox || isAllCategory) && threadIds.length > 0) {
           promises.push(
             getCategoriesForThreads(activeAccountId, threadIds).then((result) => {
               if (!cancelled) setCategoryMap(result);
@@ -898,7 +916,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
                     onClick={handleThreadClick}
                     onContextMenu={handleThreadContextMenu}
                     category={categoryMap.get(thread.id)}
-                    showCategoryBadge={activeLabel === "inbox" && activeCategory === "All"}
+                    showCategoryBadge={activeLabel !== "inbox" || activeCategory === "All"}
                     hasFollowUp={followUpThreadIds.has(thread.id)}
                   />
                 </div>
