@@ -1786,6 +1786,8 @@
     "unknown": "Unknown",
     "loading": "Loading...",
     "to": "To:",
+    "cc": "Cc:",
+    "bcc": "Bcc:",
     "unsubscribe": "Unsubscribe",
     "unsubscribing": "Unsubscribing...",
     "unsubscribed": "Unsubscribed",

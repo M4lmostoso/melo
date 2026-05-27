@@ -17,6 +17,7 @@ export interface Thread {
   fromName: string | null;
   fromAddress: string | null;
   allSenders?: string | null;
+  allRecipients?: string | null;
   urgencyScore?: number;
   sentimentScore?: number;
   isHeatExtinguished?: boolean;

@@ -149,6 +149,7 @@ export function SearchBar() {
       fromName: t.from_name,
       fromAddress: t.from_address,
       allSenders: t.all_senders,
+      allRecipients: t.all_recipients ?? null,
       urgencyScore: t.urgency_score ?? undefined,
       sentimentScore: t.sentiment_score ?? undefined,
       isHeatExtinguished: t.is_heat_extinguished === 1,

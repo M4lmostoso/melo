@@ -38,16 +38,44 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
   const emailDensity = useUIStore((s) => s.emailDensity);
   const contactsMap = useContactsStore((s) => s.contactsMap);
   const isSpam = thread.labelIds.includes("SPAM");
-  const accountColor = useAccountStore((s) => s.accounts.find((a) => a.id === thread.accountId)?.color ?? null);
+  const account = useAccountStore((s) => s.accounts.find((a) => a.id === thread.accountId) ?? null);
+  const accountColor = account?.color ?? null;
 
-  const hasMultipleSenders = thread.allSenders?.includes(", ");
-  const senderDisplay = hasMultipleSenders
-    ? thread.allSenders!
-    : ((thread.fromAddress && contactsMap[thread.fromAddress.toLowerCase()]) ||
-       thread.allSenders ||
-       thread.fromName ||
-       thread.fromAddress ||
-       t("threadCard.unknown"));
+  const isSent = thread.labelIds.includes("SENT") && !thread.labelIds.includes("INBOX");
+
+  const senderDisplay = useMemo(() => {
+    const accountEmail = account?.email.toLowerCase() ?? "";
+
+    if (isSent) {
+      const raw = thread.allRecipients ?? thread.fromAddress ?? "";
+      if (!raw) return t("threadCard.unknown");
+      const names = raw.split(/,\s*/).flatMap((entry) => {
+        const match = entry.trim().match(/^(.*?)\s*<([^>]+)>$/);
+        const email = (match ? match[2]! : entry).trim().toLowerCase();
+        if (email === accountEmail) return [];
+        const name = match ? match[1]!.trim().replace(/^["']|["']$/g, "") : entry.trim();
+        return [name || email];
+      });
+      return names.join(", ") || t("threadCard.unknown");
+    }
+
+    // allSenders is pre-filtered in SQL to exclude the account's own from_address.
+    // Do NOT use thread.fromAddress for contact lookup here: fromAddress comes from
+    // the latest message, which may be the account's own reply, not the external sender.
+    if (thread.allSenders) {
+      return thread.allSenders;
+    }
+
+    // Fallback: allSenders is null means every sender in the thread is the account itself.
+    // thread.fromAddress/fromName come from the latest message JOIN and may be the account.
+    if (!thread.fromAddress || thread.fromAddress.toLowerCase() === accountEmail) {
+      return t("threadCard.unknown");
+    }
+    return contactsMap[thread.fromAddress.toLowerCase()] ||
+      thread.fromName ||
+      thread.fromAddress ||
+      t("threadCard.unknown");
+  }, [account, isSent, thread.allRecipients, thread.allSenders, thread.fromName, thread.fromAddress, contactsMap]);
 
   // Read selectedThreadIds lazily for drag — avoids subscribing all cards to the Set reference
   const dragData: DragData = useMemo(() => ({

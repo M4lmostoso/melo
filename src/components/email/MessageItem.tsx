@@ -270,9 +270,15 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
           </span>
         </div>
         {expanded && (
-          <div className="mt-1 text-xs text-text-tertiary">
+          <div className="mt-1 text-xs text-text-tertiary space-y-0.5">
             {message.to_addresses && (
-              <span>{t("messageItem.to")} {message.to_addresses}</span>
+              <div><span className="text-text-secondary">{t("messageItem.to")}</span> {message.to_addresses}</div>
+            )}
+            {message.cc_addresses && (
+              <div><span className="text-text-secondary">{t("messageItem.cc")}</span> {message.cc_addresses}</div>
+            )}
+            {message.bcc_addresses && message.from_address?.toLowerCase() === account?.email.toLowerCase() && (
+              <div><span className="text-text-secondary">{t("messageItem.bcc")}</span> {message.bcc_addresses}</div>
             )}
           </div>
         )}
