@@ -28,6 +28,7 @@ export interface DbMessage {
   in_reply_to_header: string | null;
   imap_uid: number | null;
   imap_folder: string | null;
+  is_draft: number;
 }
 
 export async function getMessagesForThread(
@@ -36,7 +37,7 @@ export async function getMessagesForThread(
 ): Promise<DbMessage[]> {
   const db = await getDb();
   return db.select<DbMessage[]>(
-    "SELECT * FROM messages WHERE account_id = $1 AND thread_id = $2 ORDER BY date ASC",
+    "SELECT * FROM messages WHERE account_id = $1 AND thread_id = $2 AND is_draft = 0 ORDER BY date ASC",
     [accountId, threadId],
   );
 }
@@ -54,10 +55,10 @@ export async function getMessagesMetaForThread(
      is_starred, body_cached, raw_size, internal_date, list_unsubscribe,
      list_unsubscribe_post, auth_results, message_id_header, references_header,
      in_reply_to_header, imap_uid, imap_folder
-     FROM messages WHERE account_id = $1 AND thread_id = $2 ORDER BY date ASC`,
+     FROM messages WHERE account_id = $1 AND thread_id = $2 AND is_draft = 0 ORDER BY date ASC`,
     [accountId, threadId],
   );
-  return rows.map((r) => ({ ...r, body_html: null, body_text: null }));
+  return rows.map((r) => ({ ...r, body_html: null, body_text: null, is_draft: 0 }));
 }
 
 /**

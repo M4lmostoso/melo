@@ -1081,6 +1081,27 @@ const MIGRATIONS = [
             AND is_muted = 0;
           DELETE FROM ai_cache WHERE type = 'urgency';`,
   },
+  {
+    version: 51,
+    description: "Remove orphaned local draft messages (is_draft=1, imap_uid IS NULL) that were never sent or appended to server",
+    sql: `DELETE FROM messages WHERE is_draft = 1 AND imap_uid IS NULL;`,
+  },
+  {
+    version: 52,
+    description: "Remove all orphaned local draft messages (is_draft=1) regardless of imap_uid — drafts with a server UID but empty server Drafts folder are also stale",
+    sql: `DELETE FROM messages WHERE is_draft = 1;`,
+  },
+  {
+    version: 53,
+    description: "Recalculate message_count for all threads excluding drafts to fix stale counts",
+    sql: `UPDATE threads
+          SET message_count = (
+            SELECT COUNT(*) FROM messages
+            WHERE account_id = threads.account_id
+              AND thread_id = threads.id
+              AND is_draft = 0
+          );`,
+  },
 ];
 
 // ---------------------------------------------------------------------------

@@ -211,7 +211,7 @@ export async function recalculateThreadStats(
          is_read = COALESCE((SELECT MIN(is_read) FROM messages WHERE account_id = $1 AND thread_id = $2), 1),
          is_starred = COALESCE((SELECT MAX(is_starred) FROM messages WHERE account_id = $1 AND thread_id = $2), 0),
          has_attachments = CASE WHEN EXISTS(SELECT 1 FROM attachments a JOIN messages m ON a.message_id = m.id WHERE m.account_id = $1 AND m.thread_id = $2) THEN 1 ELSE 0 END,
-         message_count = (SELECT COUNT(*) FROM messages WHERE account_id = $1 AND thread_id = $2),
+         message_count = (SELECT COUNT(*) FROM messages WHERE account_id = $1 AND thread_id = $2 AND is_draft = 0),
          last_message_at = COALESCE((SELECT MAX(date) FROM messages WHERE account_id = $1 AND thread_id = $2), threads.last_message_at)
        WHERE account_id = $1 AND id = $2`,
       [accountId, threadId],

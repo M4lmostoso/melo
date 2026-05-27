@@ -12,6 +12,7 @@ import { getThreadCategory } from "../db/threadCategories";
 import { getVipSenders } from "../db/notificationVips";
 import { getPendingOpResourceIds } from "../db/pendingOperations";
 import { processThreadUrgency } from "@/services/ai/urgencyPipeline";
+import { getDb } from "../db/connection";
 
 async function loadAutoArchiveCategories(): Promise<Set<string>> {
   const raw = await getSetting("auto_archive_categories");
@@ -48,6 +49,7 @@ async function processAndStoreThread(
     }
   }
 
+  const nonDraftMessages = parsedMessages.filter((m) => !m.labelIds.includes("DRAFT"));
   const isRead = parsedMessages.every((m) => m.isRead) || allLabelIds.has("TRASH");
   const isStarred = parsedMessages.some((m) => m.isStarred);
   const isImportant = allLabelIds.has("IMPORTANT");
@@ -68,13 +70,14 @@ async function processAndStoreThread(
 
   // Single IPC call: thread + labels + all messages (bodies included) + attachments
   // Written directly to SQLite via rusqlite — WebKit never holds the body data.
+  const fetchedMessageIds = new Set(parsedMessages.map((m) => m.id));
   await gmailStoreThread({
     accountId,
     threadId: thread.id,
     subject: firstMessage.subject,
     snippet: lastMessage.snippet,
     lastMessageAt: lastMessage.date,
-    messageCount: parsedMessages.length,
+    messageCount: nonDraftMessages.length,
     isRead,
     isStarred,
     isImportant,
@@ -106,6 +109,19 @@ async function processAndStoreThread(
     })),
     attachments,
   });
+
+  // Remove local messages that no longer exist in the thread on the server.
+  // This handles the case where a Gmail draft was sent (old draft ID deleted by Gmail)
+  // but the local DB still has the stale record from a previous sync.
+  const db = await getDb();
+  const localRows = await db.select<{ id: string }[]>(
+    "SELECT id FROM messages WHERE account_id = $1 AND thread_id = $2",
+    [accountId, thread.id],
+  );
+  const orphaned = localRows.filter((r) => !fetchedMessageIds.has(r.id));
+  for (const row of orphaned) {
+    await db.execute("DELETE FROM messages WHERE account_id = $1 AND id = $2", [accountId, row.id]);
+  }
 
   // Fire-and-forget urgency scoring (lightweight — no body data needed)
   processThreadUrgency({
