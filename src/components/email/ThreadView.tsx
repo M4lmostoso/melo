@@ -16,6 +16,7 @@ import { getAllowlistedSenders } from "@/services/db/imageAllowlist";
 import { normalizeEmail } from "@/utils/emailUtils";
 import { VolumeX } from "lucide-react";
 import { escapeHtml, sanitizeHtml } from "@/utils/sanitize";
+import { restoreRemoteImages } from "@/utils/imageBlocker";
 import { isNoReplyAddress } from "@/utils/noReply";
 import { getDefaultSignature } from "@/services/db/signatures";
 import { ThreadSummary } from "./ThreadSummary";
@@ -771,9 +772,12 @@ function buildThreadQuote(msgs: DbMessage[]): string {
 
 function buildThreadForwardQuote(msgs: DbMessage[]): string {
   if (msgs.length === 0) return "";
-  const parts = msgs.map(msg => {
+  // Newest message first (standard email forward convention)
+  const parts = [...msgs].reverse().map(msg => {
     const date = new Date(msg.date).toLocaleString();
-    const body = msg.body_html ? sanitizeHtml(msg.body_html) : escapeHtml(msg.body_text ?? "");
+    // Restore blocked remote images so they appear correctly in the forwarded email
+    const rawHtml = msg.body_html ? restoreRemoteImages(msg.body_html) : null;
+    const body = rawHtml ? sanitizeHtml(rawHtml) : escapeHtml(msg.body_text ?? "");
     return `From: ${escapeHtml(msg.from_name ?? "")} &lt;${escapeHtml(msg.from_address ?? "")}&gt;<br>Date: ${date}<br>Subject: ${escapeHtml(msg.subject ?? "")}<br>To: ${escapeHtml(msg.to_addresses ?? "")}<br><br>${body}`;
   });
   return `<br><br>---------- Forwarded message ---------<br><br>${parts.join("<br><br>---------- Previous message ---------<br><br>")}`;

@@ -1235,9 +1235,10 @@ pub async fn imap_store_threads(
 
         // Recalculate message_count from the actual messages table so that merging a
         // forward/reply into an existing thread doesn't reset the count to 1.
+        // Exclude drafts (is_draft = 1) to match the UI query filter.
         conn.execute(
             "UPDATE threads SET message_count = \
-             (SELECT COUNT(*) FROM messages WHERE account_id = ?1 AND thread_id = ?2) \
+             (SELECT COUNT(*) FROM messages WHERE account_id = ?1 AND thread_id = ?2 AND is_draft = 0) \
              WHERE account_id = ?1 AND id = ?2",
             rusqlite::params![account_id, update.thread_id],
         )

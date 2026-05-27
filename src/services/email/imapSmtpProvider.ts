@@ -23,6 +23,7 @@ import { getAccount, type DbAccount } from "../db/accounts";
 import { findSpecialFolder } from "../imap/messageHelper";
 import { ensureFreshToken } from "../oauth/oauthTokenManager";
 import { upsertMessage, getMessagesForThread } from "../db/messages";
+import { getDb } from "../db/connection";
 import {
   upsertThread,
   setThreadLabels,
@@ -690,6 +691,14 @@ export class ImapSmtpProvider implements EmailProvider {
       imapUid: imapUid ?? null,
       imapFolder: imapFolder ?? null,
     });
+
+    // upsertMessage ON CONFLICT does not update thread_id. If the background IMAP sync
+    // stored the row first with a placeholder thread_id, force the correct assignment.
+    const db = await getDb();
+    await db.execute(
+      "UPDATE messages SET thread_id = $1 WHERE account_id = $2 AND id = $3 AND thread_id != $1",
+      [effectiveThreadId, this.accountId, messageId],
+    );
 
     if (threadId) {
       // Reply: recalculate thread stats and labels from actual messages in DB.

@@ -114,6 +114,7 @@ export default function ComposerWindow() {
          const subject = params.get("subject") ?? "";
          const threadId = params.get("threadId") ?? null;
          const inReplyToMessageId = params.get("inReplyToMessageId") ?? null;
+         const references = params.get("references") ?? null;
          const draftId = params.get("draftId") ?? null;
          const fromEmail = params.get("fromEmail");
          const accountId = params.get("accountId");
@@ -146,7 +147,7 @@ export default function ComposerWindow() {
         // (it would otherwise reset it to null if opts.accountId is undefined).
         const resolvedAccountId = accountId ?? savedAccountId ?? undefined;
 
-        const opts = { mode, to, cc, bcc, subject, bodyHtml, quotedHtml, threadId, inReplyToMessageId, draftId, accountId: resolvedAccountId };
+        const opts = { mode, to, cc, bcc, subject, bodyHtml, quotedHtml, threadId, inReplyToMessageId, references, draftId, accountId: resolvedAccountId };
 
         // Open composer with parsed state
         useComposerStore.getState().openComposer(opts);

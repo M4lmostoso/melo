@@ -166,6 +166,7 @@ openComposer: (opts) => {
         if (opts?.bcc?.length) params.set("bcc", opts.bcc.join(","));
         if (opts?.threadId) params.set("threadId", opts.threadId);
         if (opts?.inReplyToMessageId) params.set("inReplyToMessageId", opts.inReplyToMessageId);
+        if (opts?.references) params.set("references", opts.references);
         if (opts?.draftId) params.set("draftId", opts.draftId);
         if (opts?.accountId) params.set("accountId", opts.accountId);
 
