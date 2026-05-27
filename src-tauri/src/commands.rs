@@ -1004,6 +1004,18 @@ pub async fn imap_fetch_and_store(
 
         // Filter 2: dedup by RFC message ID (message exists in another folder already)
         let stored = if msg.message_id.as_ref().map_or(false, |id| existing_rfc_ids.contains(id)) {
+            // Same-folder UID renumber: server replaced the appended copy (old UID) with the
+            // SMTP auto-saved copy (new UID). Update the existing row's imap_uid so that
+            // reconcileDeletedMessages finds the message on the server and does NOT delete it.
+            if let Some(ref rfc_id) = msg.message_id {
+                conn.execute(
+                    "UPDATE messages SET imap_uid = ?1, imap_folder = ?2 \
+                     WHERE account_id = ?3 AND message_id_header = ?4 \
+                       AND imap_folder = ?2 AND imap_uid != ?1",
+                    rusqlite::params![msg.uid, msg.folder, account_id, rfc_id],
+                )
+                .map_err(|e| format!("uid update for dup uid {}: {e}", msg.uid))?;
+            }
             false // duplicate — return header so TypeScript can accumulate cross-folder labels
         } else {
             // Filter 3: date cutoff (cutoff_date is Unix seconds from TS; msg.date is ms)

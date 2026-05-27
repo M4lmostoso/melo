@@ -40,13 +40,14 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
   const isSpam = thread.labelIds.includes("SPAM");
   const accountColor = useAccountStore((s) => s.accounts.find((a) => a.id === thread.accountId)?.color ?? null);
 
-  const senderDisplay = (
-    (thread.fromAddress && contactsMap[thread.fromAddress.toLowerCase()]) ||
-    thread.allSenders ||
-    thread.fromName ||
-    thread.fromAddress ||
-    t("threadCard.unknown")
-  );
+  const hasMultipleSenders = thread.allSenders?.includes(", ");
+  const senderDisplay = hasMultipleSenders
+    ? thread.allSenders!
+    : ((thread.fromAddress && contactsMap[thread.fromAddress.toLowerCase()]) ||
+       thread.allSenders ||
+       thread.fromName ||
+       thread.fromAddress ||
+       t("threadCard.unknown"));
 
   // Read selectedThreadIds lazily for drag — avoids subscribing all cards to the Set reference
   const dragData: DragData = useMemo(() => ({

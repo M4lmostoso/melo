@@ -700,6 +700,20 @@ export class ImapSmtpProvider implements EmailProvider {
       [effectiveThreadId, this.accountId, messageId],
     );
 
+    // The background sync may have created a placeholder thread (id = messageId) before
+    // saveSentMessageLocally ran. After the UPDATE above the placeholder has no messages;
+    // delete it so the user doesn't see an empty orphaned thread in the Sent list.
+    await db.execute(
+      `DELETE FROM thread_labels WHERE account_id = $1 AND thread_id = $2
+         AND NOT EXISTS (SELECT 1 FROM messages WHERE account_id = $1 AND thread_id = $2)`,
+      [this.accountId, messageId],
+    );
+    await db.execute(
+      `DELETE FROM threads WHERE account_id = $1 AND id = $2
+         AND NOT EXISTS (SELECT 1 FROM messages WHERE account_id = $1 AND thread_id = $2)`,
+      [this.accountId, messageId],
+    );
+
     if (threadId) {
       // Reply: recalculate thread stats and labels from actual messages in DB.
       // This updates lastMessageAt → thread sorts to top of list; recalculates
