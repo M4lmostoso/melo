@@ -41,6 +41,8 @@ import {
   mapDbAlias,
   type SendAsAlias,
 } from "@/services/db/sendAsAliases";
+import { getMessagesForThread } from "@/services/db/messages";
+import { getSenderPastReplies } from "@/services/ai/writingStyleService";
 import { resolveFromAddress } from "@/utils/resolveFromAddress";
 import {
   startAutoSave,
@@ -98,6 +100,7 @@ export function Composer() {
   const addAttachment = useComposerStore((s) => s.addAttachment);
   const aiSidebarOpen = useComposerStore((s) => s.aiSidebarOpen);
   const toggleAiSidebar = useComposerStore((s) => s.toggleAiSidebar);
+  const threadId = useComposerStore((s) => s.threadId);
 
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
   const accounts = useAccountStore((s) => s.accounts);
@@ -120,6 +123,8 @@ export function Composer() {
   const [pendingScheduledAt, setPendingScheduledAt] = useState<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [aliases, setAliases] = useState<SendAsAlias[]>([]);
+  const [aiThreadMessages, setAiThreadMessages] = useState<string[]>([]);
+  const [aiSenderPastReplies, setAiSenderPastReplies] = useState<string[]>([]);
   const templateShortcutsRef = useRef<DbTemplate[]>([]);
   const dragCounterRef = useRef(0);
 
@@ -193,6 +198,48 @@ export function Composer() {
     },
   });
 
+
+  // Fetch thread messages and sender past replies for AI panel when composing a reply
+  useEffect(() => {
+    const isReply = mode === "reply" || mode === "replyAll";
+    if (!isReply || !threadId || !effectiveAccountId) {
+      setAiThreadMessages([]);
+      setAiSenderPastReplies([]);
+      return;
+    }
+    let cancelled = false;
+    const activeAccount = accounts.find((a) => a.id === effectiveAccountId);
+    const accountEmail = activeAccount?.email ?? null;
+
+    getMessagesForThread(effectiveAccountId, threadId)
+      .then(async (messages) => {
+        if (cancelled) return;
+        const formatted = messages.map((msg) => {
+          const from = msg.from_name
+            ? `${msg.from_name} <${msg.from_address}>`
+            : (msg.from_address ?? "Unknown");
+          const date = new Date(msg.date).toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          });
+          const body = (msg.body_text ?? msg.snippet ?? "").trim();
+          return `From: ${from}\nDate: ${date}\n\n${body}`;
+        });
+        if (!cancelled) setAiThreadMessages(formatted);
+
+        // Fetch past replies to the sender for ghostwriter context
+        const senderEmail = messages[messages.length - 1]?.from_address ?? null;
+        if (senderEmail && accountEmail && senderEmail.toLowerCase() !== accountEmail.toLowerCase()) {
+          const pastReplies = await getSenderPastReplies(effectiveAccountId, accountEmail, senderEmail);
+          if (!cancelled) setAiSenderPastReplies(pastReplies);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) { setAiThreadMessages([]); setAiSenderPastReplies([]); }
+      });
+    return () => { cancelled = true; };
+  }, [mode, threadId, effectiveAccountId, accounts]);
 
   useEffect(() => {
     if (!isOpen || !effectiveAccountId) return;
@@ -765,6 +812,8 @@ const getFullHtml = useCallback(() => {
              <AiAssistPanel
                editor={editor}
                isReplyMode={mode === "reply" || mode === "replyAll"}
+               threadMessages={aiThreadMessages.length > 0 ? aiThreadMessages : undefined}
+               senderPastReplies={aiSenderPastReplies.length > 0 ? aiSenderPastReplies : undefined}
              />
            </div>
          )}

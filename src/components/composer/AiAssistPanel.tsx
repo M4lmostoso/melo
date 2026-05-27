@@ -25,6 +25,7 @@ interface AiAssistPanelProps {
   editor: Editor | null;
   isReplyMode: boolean;
   threadMessages?: string[];
+  senderPastReplies?: string[];
 }
 
 // Keywords indicating "write new from scratch" when body is empty
@@ -98,7 +99,7 @@ const isBodyEmpty = (editor: Editor | null): boolean => {
   return !html || html === "<p></p>" || html === "<p> </p>" || editor.getText().trim() === "";
 };
 
-export function AiAssistPanel({ editor, isReplyMode, threadMessages }: AiAssistPanelProps) {
+export function AiAssistPanel({ editor, isReplyMode, threadMessages, senderPastReplies }: AiAssistPanelProps) {
   const [prompt, setPrompt] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -147,8 +148,8 @@ export function AiAssistPanel({ editor, isReplyMode, threadMessages }: AiAssistP
     ]);
   };
 
-  const addAiFeedback = (description: string) => {
-    generateComposerFeedback(description)
+  const addAiFeedback = (draft: string, operation?: string) => {
+    generateComposerFeedback(draft, { operation })
       .then((msg) => addAiMessage(msg, false))
       .catch(() => {/* silently skip feedback if AI call fails */});
   };
@@ -190,23 +191,23 @@ export function AiAssistPanel({ editor, isReplyMode, threadMessages }: AiAssistP
       if (!bodyEmpty && !isClearRequest(userPrompt)) {
         result = await modifyEmailContent(editor!.getHTML(), userPrompt);
         applyToEditor(result);
-        addAiFeedback(`Modified the email draft following user instructions: "${userPrompt}"`);
+        addAiFeedback(result, `Modified draft per instructions: "${userPrompt}"`);
       } else if (isReplyMode && threadMessages?.length) {
-        result = await generateReply(threadMessages, userPrompt, { skipLanguage });
+        result = await generateReply(threadMessages, userPrompt, senderPastReplies);
         applyToEditor(result);
-        addAiFeedback(`Generated a reply draft for the email thread. User instructions: "${userPrompt}"`);
+        addAiFeedback(result, userPrompt ? `Reply generated with instructions: "${userPrompt}"` : "Reply generated from thread context");
       } else if (bodyEmpty) {
         result = await composeFromPrompt(userPrompt, { skipLanguage });
         if (shouldWriteToBodyWhenEmpty(userPrompt)) {
           applyToEditor(result);
-          addAiFeedback(`Composed a new email draft based on user instructions: "${userPrompt}"`);
+          addAiFeedback(result, `New draft composed from instructions: "${userPrompt}"`);
         } else {
           addAiMessage(result, true);
         }
       } else {
         result = await composeFromPrompt(userPrompt, { skipLanguage });
         applyToEditor(result);
-        addAiFeedback(`Rewrote the email from scratch based on user instructions: "${userPrompt}"`);
+        addAiFeedback(result, `Draft rewritten from scratch: "${userPrompt}"`);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "AI generation failed");
@@ -231,7 +232,7 @@ export function AiAssistPanel({ editor, isReplyMode, threadMessages }: AiAssistP
     try {
       const result = await transformText(editor.getHTML(), type);
       applyToEditor(result);
-      addAiFeedback(TRANSFORM_DESCRIPTIONS[type]);
+      addAiFeedback(result, TRANSFORM_DESCRIPTIONS[type]);
     } catch (err) {
       setError(err instanceof Error ? err.message : "AI transform failed");
     } finally {

@@ -114,8 +114,18 @@ export async function composeFromPrompt(instructions: string, options?: { skipLa
   return callAi(COMPOSE_PROMPT, instructions, options);
 }
 
-export async function generateComposerFeedback(operationDescription: string): Promise<string> {
-  return callAi(COMPOSER_FEEDBACK_PROMPT, operationDescription);
+export async function generateComposerFeedback(
+  draftHtml: string,
+  context?: { operation?: string },
+): Promise<string> {
+  const draftText = draftHtml.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 800);
+  // Draft is in <email_draft> tags so the AI can detect its language unambiguously.
+  // Operation context is outside those tags and must NOT influence the response language.
+  const operationBlock = context?.operation
+    ? `\n\n<operation_context>${context.operation}</operation_context>`
+    : "";
+  const userContent = `<email_draft>\n${draftText}\n</email_draft>${operationBlock}`;
+  return callAi(COMPOSER_FEEDBACK_PROMPT, userContent, { skipLanguage: true });
 }
 
 export async function modifyEmailContent(currentBody: string, instructions: string): Promise<string> {
@@ -127,13 +137,24 @@ export async function modifyEmailContent(currentBody: string, instructions: stri
 export async function generateReply(
   messagesText: string[],
   instructions?: string,
-  options?: { skipLanguage?: boolean },
+  senderPastReplies?: string[],
 ): Promise<string> {
   const combined = messagesText.join("\n---\n").slice(0, 4000);
-  const userContent = instructions
-    ? `<email_content>${combined}</email_content>\n\nInstructions: ${instructions}`
-    : `<email_content>${combined}</email_content>`;
-  return callAi(REPLY_PROMPT, userContent, options);
+  let userContent = `<email_content>${combined}</email_content>`;
+
+  if (senderPastReplies?.length) {
+    const repliesText = senderPastReplies
+      .map((r, i) => `[Reply ${i + 1}]\n${r}`)
+      .join("\n\n");
+    userContent += `\n\n<past_replies_to_sender>\n${repliesText}\n</past_replies_to_sender>`;
+  }
+
+  if (instructions) {
+    userContent += `\n\nInstructions: ${instructions}`;
+  }
+
+  // skipLanguage: true — REPLY_PROMPT detects email language and responds in kind
+  return callAi(REPLY_PROMPT, userContent, { skipLanguage: true });
 }
 
 export type TransformType = "improve" | "shorten" | "formalize";
@@ -168,7 +189,8 @@ export async function generateSmartReplies(
 
   const formatted = messages.map(formatMessageForSummary).join("\n---\n");
   const combined = formatted.slice(0, 4000);
-  const result = await callAi(SMART_REPLY_PROMPT, `<email_content>${combined}</email_content>`);
+  // skipLanguage: true — SMART_REPLY_PROMPT detects email language and responds in kind
+  const result = await callAi(SMART_REPLY_PROMPT, `<email_content>${combined}</email_content>`, { skipLanguage: true });
 
   // Parse JSON array from response
   let replies: string[];

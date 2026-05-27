@@ -357,6 +357,27 @@ export async function purgeImapDuplicates(accountId: string): Promise<number> {
 }
 
 /**
+ * Get recent sent messages to a specific recipient.
+ * Used to extract sender-specific tone/language for ghostwriter replies.
+ */
+export async function getRecentSentMessagesToAddress(
+  accountId: string,
+  accountEmail: string,
+  recipientEmail: string,
+  limit: number = 4,
+): Promise<DbMessage[]> {
+  const db = await getDb();
+  return db.select<DbMessage[]>(
+    `SELECT * FROM messages
+     WHERE account_id = $1 AND LOWER(from_address) = LOWER($2)
+       AND LOWER(to_addresses) LIKE '%' || LOWER($3) || '%'
+       AND body_text IS NOT NULL AND LENGTH(body_text) > 30
+     ORDER BY date DESC LIMIT $4`,
+    [accountId, accountEmail, recipientEmail, limit],
+  );
+}
+
+/**
  * Get recent sent messages for an account, matching from_address to account email.
  * Used for writing style analysis.
  */
