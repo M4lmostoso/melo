@@ -275,6 +275,9 @@ export function AccountsTab() {
     setIsSyncing(true);
     try {
       await forceFullSync(activeIds);
+      import("@/services/ai/urgencyPipeline")
+        .then(({ runExtinguishBackfill }) => runExtinguishBackfill())
+        .catch(() => {});
     } finally {
       setIsSyncing(false);
     }
@@ -293,6 +296,9 @@ export function AccountsTab() {
     setResyncStatus((prev) => ({ ...prev, [accountId]: "syncing" }));
     try {
       await resyncAccount(accountId);
+      import("@/services/ai/urgencyPipeline")
+        .then(({ runExtinguishBackfill }) => runExtinguishBackfill())
+        .catch(() => {});
       setResyncStatus((prev) => ({ ...prev, [accountId]: "done" }));
       setTimeout(() => {
         setResyncStatus((prev) => ({ ...prev, [accountId]: "idle" }));

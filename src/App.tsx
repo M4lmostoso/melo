@@ -99,7 +99,7 @@ import {
   stopEmbeddingBackfill,
   isEmbeddingBackfillRunning,
 } from "./services/ai/embeddingBackfill";
-import { runUrgencyBackfill } from "./services/ai/urgencyPipeline";
+import { runUrgencyBackfill, runExtinguishBackfill } from "./services/ai/urgencyPipeline";
 
 /**
  * Sync bridge: subscribes to router state changes and writes the selected
@@ -399,6 +399,11 @@ export default function App() {
         repairMojibakeData().catch((err) =>
           console.error("[App] mojibake repair failed:", err),
         );
+        import("./services/db/messages").then(({ purgeGhostDrafts }) =>
+          purgeGhostDrafts().catch((err) =>
+            console.error("[App] purgeGhostDrafts failed:", err),
+          ),
+        );
 
         const ui = useUIStore.getState();
 
@@ -683,6 +688,8 @@ export default function App() {
 
         // Kick off AI urgency backfill (fire-and-forget; no-ops if behavioral intelligence is off)
         runUrgencyBackfill().catch(() => {});
+        // Retroactively extinguish threads already replied to before auto-extinguish was active
+        runExtinguishBackfill().catch(() => {});
       } catch (err) {
         console.error("Failed to initialize:", err);
       }

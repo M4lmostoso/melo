@@ -378,6 +378,72 @@ export async function getRecentSentMessagesToAddress(
 }
 
 /**
+ * Remove ghost draft messages: is_draft=1 rows that were left behind after a send
+ * or discard. Two cases are handled:
+ *
+ * 1. Thread has no DRAFT label at all — draft was sent/discarded but the row wasn't
+ *    cleaned up.
+ * 2. Thread has DRAFT label AND also has INBOX or SENT label — the draft is a stuck
+ *    reply draft in an inbox thread. A reply draft that is still being composed lives
+ *    only in the composer store (in memory); if the thread is in INBOX/SENT, any
+ *    is_draft=1 row older than 5 minutes is orphaned.
+ *
+ * Both cases produce is_read=0 rows that silently inflate unread counts.
+ */
+export async function purgeGhostDrafts(): Promise<number> {
+  const db = await getDb();
+  const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
+
+  const rows = await db.select<{ id: string }[]>(
+    `SELECT m.id FROM messages m
+     WHERE m.is_draft = 1
+       AND (
+         -- Case 1: thread has no DRAFT label at all
+         NOT EXISTS (
+           SELECT 1 FROM thread_labels tl
+           WHERE tl.account_id = m.account_id
+             AND tl.thread_id = m.thread_id
+             AND tl.label_id = 'DRAFT'
+         )
+         OR
+         -- Case 2: thread is in INBOX/SENT — reply draft that was never cleaned up
+         (
+           m.date < $1
+           AND EXISTS (
+             SELECT 1 FROM thread_labels tl2
+             WHERE tl2.account_id = m.account_id
+               AND tl2.thread_id = m.thread_id
+               AND tl2.label_id IN ('INBOX', 'SENT')
+           )
+         )
+       )`,
+    [fiveMinutesAgo],
+  );
+  if (rows.length === 0) return 0;
+  const ids = rows.map((r) => r.id);
+  const CHUNK = 500;
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const chunk = ids.slice(i, i + CHUNK);
+    const ph = chunk.map((_, j) => `$${j + 1}`).join(",");
+    await db.execute(`DELETE FROM message_embeddings WHERE message_id IN (${ph})`, chunk);
+    await db.execute(`DELETE FROM messages WHERE id IN (${ph})`, chunk);
+  }
+  // Clean up DRAFT labels on threads that no longer have any draft messages
+  await db.execute(
+    `DELETE FROM thread_labels
+     WHERE label_id = 'DRAFT'
+       AND NOT EXISTS (
+         SELECT 1 FROM messages m
+         WHERE m.account_id = thread_labels.account_id
+           AND m.thread_id = thread_labels.thread_id
+           AND m.is_draft = 1
+       )`,
+  );
+  console.log(`[db] purgeGhostDrafts: removed ${ids.length} stale draft message(s)`);
+  return ids.length;
+}
+
+/**
  * Get recent sent messages for an account, matching from_address to account email.
  * Used for writing style analysis.
  */

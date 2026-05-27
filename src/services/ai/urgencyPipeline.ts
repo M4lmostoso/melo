@@ -220,3 +220,96 @@ export async function runUrgencyBackfill(): Promise<void> {
 
   window.dispatchEvent(new CustomEvent("velo-sync-done"));
 }
+
+// ---------------------------------------------------------------------------
+// Extinguish backfill: retroactively resolve threads already replied to
+// ---------------------------------------------------------------------------
+
+/**
+ * For each urgent unextinguished thread within the decay window where the user
+ * has already sent a reply, run the Smart Judge and extinguish (or decay) it.
+ * Safe to run at startup and after every resync — skips already-extinguished threads.
+ */
+export async function runExtinguishBackfill(): Promise<void> {
+  const settings = await getUrgencySettings();
+  if (!settings.behaviorEnabled || !settings.urgencyEnabled) return;
+
+  const autoExtinguish = await getSetting("ai_urgency_auto_extinguish");
+  if (autoExtinguish !== "true") return;
+
+  const cutoffMs = Date.now() - settings.decayFloorDays * 86_400_000;
+  const db = await getDb();
+
+  // Threads urgent + not extinguished + within decay window + user has already replied
+  const rows = await db.select<{
+    thread_id: string;
+    account_id: string;
+    urgency_score: number;
+    received_subject: string | null;
+    received_text: string | null;
+    reply_text: string | null;
+  }[]>(
+    `SELECT
+       t.id            AS thread_id,
+       t.account_id,
+       t.urgency_score,
+       (SELECT m.subject FROM messages m
+        WHERE m.account_id = t.account_id AND m.thread_id = t.id
+        ORDER BY m.date ASC LIMIT 1)                              AS received_subject,
+       (SELECT m.body_text FROM messages m
+        WHERE m.account_id = t.account_id AND m.thread_id = t.id
+          AND LOWER(m.from_address) != LOWER(a.email)
+        ORDER BY m.date DESC LIMIT 1)                             AS received_text,
+       (SELECT m.body_text FROM messages m
+        WHERE m.account_id = t.account_id AND m.thread_id = t.id
+          AND LOWER(m.from_address) = LOWER(a.email)
+        ORDER BY m.date DESC LIMIT 1)                             AS reply_text
+     FROM threads t
+     JOIN accounts a ON a.id = t.account_id
+     WHERE t.urgency_score > 0
+       AND t.is_heat_extinguished = 0
+       AND (t.manual_urgency_override IS NULL OR t.manual_urgency_override = 0)
+       AND t.last_message_at IS NOT NULL
+       AND t.last_message_at >= $1`,
+    [cutoffMs],
+  );
+
+  // Only act where the user has actually sent a reply
+  const replied = rows.filter((r) => (r.reply_text ?? "").trim().length > 10);
+  if (replied.length === 0) return;
+
+  const aiAvailable = await isAiAvailable();
+  const { judgeUrgencyResolved } = await import("./aiService");
+
+  for (const row of replied) {
+    try {
+      const receivedText = [row.received_subject ?? "", (row.received_text ?? "").slice(0, 600)]
+        .filter(Boolean)
+        .join("\n");
+      const replyText = (row.reply_text ?? "").slice(0, 400);
+
+      let resolved: boolean;
+      if (aiAvailable && receivedText) {
+        try {
+          resolved = await judgeUrgencyResolved(receivedText, replyText);
+        } catch {
+          resolved = true; // AI unavailable → treat as resolved
+        }
+      } else {
+        resolved = true; // no context or AI → user replied, assume resolved
+      }
+
+      if (resolved) {
+        await setHeatExtinguished(row.account_id, row.thread_id, true);
+      } else {
+        const decayed = row.urgency_score * 0.5;
+        await setThreadUrgency(row.account_id, row.thread_id, decayed);
+      }
+    } catch {
+      // best-effort — never block
+    }
+    await new Promise<void>((r) => setTimeout(r, BACKFILL_DELAY_MS));
+  }
+
+  window.dispatchEvent(new CustomEvent("velo-sync-done"));
+}
