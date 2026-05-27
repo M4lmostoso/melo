@@ -632,6 +632,36 @@ export function removeThreadLabel(
   });
 }
 
+/**
+ * Extract a plain-text snippet from the reply body for urgency AI judgment.
+ * Decodes base64url, finds the body after the header block, strips HTML tags.
+ */
+function extractReplyTextFromRaw(rawBase64Url: string): string | null {
+  try {
+    let base64 = rawBase64Url.replace(/-/g, "+").replace(/_/g, "/");
+    while (base64.length % 4 !== 0) base64 += "=";
+    const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+    const raw = new TextDecoder().decode(bytes);
+    const bodyStart = raw.indexOf("\r\n\r\n");
+    if (bodyStart === -1) return null;
+    const body = raw.slice(bodyStart + 4);
+    const text = body
+      .replace(/--[^\r\n]+/g, "")
+      .replace(/Content-[^\r\n]+/g, "")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&nbsp;/g, " ")
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 500);
+    return text || null;
+  } catch {
+    return null;
+  }
+}
+
 export async function sendEmail(
   accountId: string,
   rawBase64Url: string,
@@ -647,8 +677,9 @@ export async function sendEmail(
     window.dispatchEvent(new Event("velo-sync-done"));
     // Auto-extinguish urgency when a reply resolves the thread
     if (threadId) {
+      const replyText = extractReplyTextFromRaw(rawBase64Url) ?? undefined;
       import("./ai/heatExtinguisher").then(({ autoExtinguishOnReply }) => {
-        autoExtinguishOnReply(accountId, threadId).catch(() => {});
+        autoExtinguishOnReply(accountId, threadId, replyText).catch(() => {});
       });
     }
   }

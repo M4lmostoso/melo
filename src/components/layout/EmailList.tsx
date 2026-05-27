@@ -28,6 +28,7 @@ import { getDecaySettings } from "@/services/ai/urgencyPipeline";
 import { getDb } from "@/services/db/connection";
 import { Archive, Trash2, X, Ban, Filter, ChevronRight, Package, FolderSearch } from "lucide-react";
 import { EmptyState } from "../ui/EmptyState";
+import { OutgoingQueueView } from "./OutgoingQueueView";
 import {
   InboxClearIllustration,
   NoSearchResultsIllustration,
@@ -74,7 +75,12 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
   const setSelectedMessageId = useThreadStore((s) => s.setSelectedMessageId);
   const mergeSemanticResults = useThreadStore((s) => s.mergeSemanticResults);
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
+  const setViewingAccountId = useAccountStore((s) => s.setViewingAccountId);
+  useEffect(() => {
+    if (!selectedThreadId) setViewingAccountId(null);
+  }, [selectedThreadId, setViewingAccountId]);
   const accounts = useAccountStore((s) => s.accounts);
+
   const globalAccountIds = useMemo(
     () => accounts.filter((a) => a.includeInGlobal).map((a) => a.id),
     [accounts],
@@ -123,9 +129,10 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
   }, [openMenu]);
 
   const handleDraftClick = useCallback(async (thread: Thread) => {
-    if (!activeAccountId) return;
+    const draftAccountId = activeAccountId ?? thread.accountId;
+    if (!draftAccountId) return;
     try {
-      const messages = await getMessagesForThread(activeAccountId, thread.id);
+      const messages = await getMessagesForThread(draftAccountId, thread.id);
       // Get the last message (the draft)
       const draftMsg = messages[messages.length - 1];
       if (!draftMsg) return;
@@ -133,7 +140,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
       // Look up the Gmail draft ID so auto-save can update the existing draft
       let draftId: string | null = null;
       try {
-        const client = await getGmailClient(activeAccountId);
+        const client = await getGmailClient(draftAccountId);
         const drafts = await client.listDrafts();
         const match = drafts.find((d) => d.message.id === draftMsg.id);
         if (match) draftId = match.id;
@@ -170,9 +177,10 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     if (activeLabel === "drafts") {
       handleDraftClick(thread);
     } else {
+      if (!activeAccountId) setViewingAccountId(thread.accountId);
       navigateToThread(thread.id);
     }
-  }, [activeLabel, handleDraftClick]);
+  }, [activeLabel, activeAccountId, setViewingAccountId, handleDraftClick]);
 
   const handleBulkDelete = async () => {
     if (!activeAccountId || multiSelectCount === 0) return;
@@ -841,8 +849,13 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
         </div>
       </CSSTransition>
 
+      {/* Outgoing queue — replaces thread list for the "outgoing" label */}
+      {activeLabel === "outgoing" && (
+        <OutgoingQueueView accountId={activeAccountId} />
+      )}
+
       {/* Thread list */}
-      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
+      <div ref={scrollContainerRef} className={`flex-1 overflow-y-auto ${activeLabel === "outgoing" ? "hidden" : ""}`}>
         {(isLoading && threads.length === 0) || (searchLoading && !isSearchActive) ? (
           <EmailListSkeleton />
         ) : filteredThreads.length === 0 && (isSearchActive || bundleRules.length === 0) ? (

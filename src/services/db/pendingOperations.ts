@@ -255,6 +255,15 @@ export async function clearFailedOperations(accountId?: string): Promise<void> {
   }
 }
 
+export async function retryOperation(id: string): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    `UPDATE pending_operations SET status = 'pending', retry_count = 0, next_retry_at = NULL, error_message = NULL
+     WHERE id = $1`,
+    [id],
+  );
+}
+
 export async function retryFailedOperations(accountId?: string): Promise<void> {
   const db = await getDb();
   if (accountId) {

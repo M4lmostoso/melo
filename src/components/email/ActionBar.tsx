@@ -41,6 +41,8 @@ export function ActionBar({ thread, messages, noReply, defaultReplyMode = "reply
   const removeThread = useThreadStore((s) => s.removeThread);
   const selectedMessageId = useThreadStore((s) => s.selectedMessageId);
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
+  // In unified/global view activeAccountId is null — fall back to the thread's own account.
+  const accountId = activeAccountId ?? thread.accountId;
   const activeLabel = useActiveLabel();
   const [showSnooze, setShowSnooze] = useState(false);
   const [showFollowUp, setShowFollowUp] = useState(false);
@@ -50,55 +52,55 @@ export function ActionBar({ thread, messages, noReply, defaultReplyMode = "reply
 
   // Check if thread has an active follow-up reminder
   useEffect(() => {
-    if (!activeAccountId) return;
-    getFollowUpForThread(activeAccountId, thread.id)
+    if (!accountId) return;
+    getFollowUpForThread(accountId, thread.id)
       .then((r) => setHasFollowUp(r !== null))
       .catch(() => setHasFollowUp(false));
-  }, [activeAccountId, thread.id]);
+  }, [accountId, thread.id]);
 
   const handleToggleRead = async () => {
-    if (!activeAccountId) return;
-    await markThreadRead(activeAccountId, thread.id, messages?.map(m => m.id) || [], !thread.isRead);
+    if (!accountId) return;
+    await markThreadRead(accountId, thread.id, messages?.map(m => m.id) || [], !thread.isRead);
   };
 
   const handleToggleStar = async () => {
-    if (!activeAccountId) return;
-    await starThread(activeAccountId, thread.id, messages?.map(m => m.id) || [], !thread.isStarred);
+    if (!accountId) return;
+    await starThread(accountId, thread.id, messages?.map(m => m.id) || [], !thread.isStarred);
   };
 
   const handleArchive = async () => {
-    if (!activeAccountId) return;
-    await archiveThread(activeAccountId, thread.id, messages?.map(m => m.id) || []);
+    if (!accountId) return;
+    await archiveThread(accountId, thread.id, messages?.map(m => m.id) || []);
   };
 
   const handleDelete = async () => {
-    if (!activeAccountId) return;
+    if (!accountId) return;
     const isTrashView = activeLabel === "trash";
     const isDraftsView = activeLabel === "drafts";
     const msgIds = messages?.map((m) => m.id) || [];
     if (isTrashView) {
-      await permanentDeleteThread(activeAccountId, thread.id, msgIds);
-      await deleteThreadFromDb(activeAccountId, thread.id);
+      await permanentDeleteThread(accountId, thread.id, msgIds);
+      await deleteThreadFromDb(accountId, thread.id);
     } else if (isDraftsView) {
       removeThread(thread.id);
-      await deleteDraftThread(activeAccountId, thread.id);
+      await deleteDraftThread(accountId, thread.id);
     } else {
-      await trashThread(activeAccountId, thread.id, msgIds);
+      await trashThread(accountId, thread.id, msgIds);
     }
   };
 
   const handleDeleteMessage = async () => {
-    if (!activeAccountId || !messages || messages.length === 0) return;
+    if (!accountId || !messages || messages.length === 0) return;
     const isTrashView = activeLabel === "trash";
     const msgId = selectedMessageId ?? messages[messages.length - 1]!.id;
-    await deleteSingleMessage(activeAccountId, thread.id, msgId, isTrashView);
+    await deleteSingleMessage(accountId, thread.id, msgId, isTrashView);
   };
 
   const handleSnooze = async (until: number) => {
-    if (!activeAccountId) return;
+    if (!accountId) return;
     setShowSnooze(false);
     try {
-      await snoozeThread(activeAccountId, thread.id, until);
+      await snoozeThread(accountId, thread.id, until);
       removeThread(thread.id);
     } catch (err) {
       console.error("Failed to snooze:", err);
@@ -106,8 +108,8 @@ export function ActionBar({ thread, messages, noReply, defaultReplyMode = "reply
   };
 
   const handleSpam = async () => {
-    if (!activeAccountId) return;
-    await spamThread(activeAccountId, thread.id, messages?.map(m => m.id) || [], !isSpamView);
+    if (!accountId) return;
+    await spamThread(accountId, thread.id, messages?.map(m => m.id) || [], !isSpamView);
   };
 
   // Find the first message with an unsubscribe header
@@ -116,12 +118,12 @@ export function ActionBar({ thread, messages, noReply, defaultReplyMode = "reply
   const [unsubscribeStatus, setUnsubscribeStatus] = useState<"idle" | "loading" | "done">("idle");
 
   const handleUnsubscribe = async () => {
-    if (!unsubscribeMessage?.list_unsubscribe || !activeAccountId) return;
+    if (!unsubscribeMessage?.list_unsubscribe || !accountId) return;
     setUnsubscribeStatus("loading");
     try {
       const { executeUnsubscribe } = await import("@/services/unsubscribe/unsubscribeManager");
       const result = await executeUnsubscribe(
-        activeAccountId,
+        accountId,
         thread.id,
         unsubscribeMessage.from_address ?? "unknown",
         unsubscribeMessage.from_name,
@@ -130,8 +132,7 @@ export function ActionBar({ thread, messages, noReply, defaultReplyMode = "reply
       );
       if (result.success) {
         setUnsubscribeStatus("done");
-        // Auto-archive after successful unsubscribe
-        await archiveThread(activeAccountId, thread.id, []);
+        await archiveThread(accountId, thread.id, []);
       } else {
         setUnsubscribeStatus("idle");
       }
@@ -142,14 +143,14 @@ export function ActionBar({ thread, messages, noReply, defaultReplyMode = "reply
   };
 
   const handleTogglePin = async () => {
-    if (!activeAccountId) return;
+    if (!accountId) return;
     const newPinned = !thread.isPinned;
     updateThread(thread.id, { isPinned: newPinned });
     try {
       if (newPinned) {
-        await pinThreadDb(activeAccountId, thread.id);
+        await pinThreadDb(accountId, thread.id);
       } else {
-        await unpinThreadDb(activeAccountId, thread.id);
+        await unpinThreadDb(accountId, thread.id);
       }
     } catch (err) {
       console.error("Failed to toggle pin:", err);
@@ -158,7 +159,6 @@ export function ActionBar({ thread, messages, noReply, defaultReplyMode = "reply
   };
 
   const handleToggleMute = async () => {
-    const accountId = activeAccountId ?? thread.accountId;
     if (!accountId) return;
     const newMuted = !thread.isMuted;
     if (newMuted) {
@@ -185,11 +185,11 @@ export function ActionBar({ thread, messages, noReply, defaultReplyMode = "reply
   };
 
   const handleFollowUp = async (remindAt: number) => {
-    if (!activeAccountId || !messages || messages.length === 0) return;
+    if (!accountId || !messages || messages.length === 0) return;
     setShowFollowUp(false);
     const lastMsg = messages[messages.length - 1]!;
     try {
-      await insertFollowUpReminder(activeAccountId, thread.id, lastMsg.id, remindAt);
+      await insertFollowUpReminder(accountId, thread.id, lastMsg.id, remindAt);
       setHasFollowUp(true);
     } catch (err) {
       console.error("Failed to set follow-up reminder:", err);
@@ -197,9 +197,9 @@ export function ActionBar({ thread, messages, noReply, defaultReplyMode = "reply
   };
 
   const handleCancelFollowUp = async () => {
-    if (!activeAccountId) return;
+    if (!accountId) return;
     try {
-      await cancelFollowUpForThread(activeAccountId, thread.id);
+      await cancelFollowUpForThread(accountId, thread.id);
       setHasFollowUp(false);
     } catch (err) {
       console.error("Failed to cancel follow-up:", err);

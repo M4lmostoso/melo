@@ -21,6 +21,7 @@ import { FromSelector } from "./FromSelector";
 import { ComposerAccountSwitcher } from "./ComposerAccountSwitcher";
 import { useComposerStore } from "@/stores/composerStore";
 import { useAccountStore } from "@/stores/accountStore";
+import { useThreadStore } from "@/stores/threadStore";
 import { useUIStore, type ComposerFontFamily } from "@/stores/uiStore";
 import {
   sendEmail,
@@ -102,8 +103,16 @@ export function Composer() {
   const accounts = useAccountStore((s) => s.accounts);
   const composerAccountId = useComposerStore((s) => s.composerAccountId);
   const setComposerAccountId = useComposerStore((s) => s.setComposerAccountId);
+  // In unified/global view both composerAccountId and activeAccountId may be null for a
+  // new compose. Fall back to the currently selected thread's account so the message is
+  // sent from the right account.
+  const selectedThreadAccountId = useThreadStore((s) => {
+    if (composerAccountId || activeAccountId) return null;
+    const id = s.selectedThreadId;
+    return id ? (s.threadMap.get(id)?.accountId ?? null) : null;
+  });
 
-  const effectiveAccountId = composerAccountId ?? activeAccountId;
+  const effectiveAccountId = composerAccountId ?? activeAccountId ?? selectedThreadAccountId;
   const activeAccount = accounts.find((a) => a.id === effectiveAccountId);
   const sendingRef = useRef(false);
   const isDiscardingRef = useRef(false);

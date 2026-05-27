@@ -235,6 +235,7 @@ export function InlineReply({ thread, messages, accountId, noReply, onSent }: In
       bodyHtml,
       threadId: thread.id,
       inReplyToMessageId: lastMessage.id,
+      accountId,
     });
 
     // Reset inline state

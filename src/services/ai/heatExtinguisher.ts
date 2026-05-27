@@ -1,5 +1,5 @@
 import { getSetting } from "@/services/db/settings";
-import { setHeatExtinguished, setManualUrgencyOverride } from "@/services/db/threads";
+import { setHeatExtinguished, setManualUrgencyOverride, setThreadUrgency } from "@/services/db/threads";
 import { useThreadStore } from "@/stores/threadStore";
 import { logInteraction } from "./reputationEngine";
 import { getMessagesForThread } from "@/services/db/messages";
@@ -60,10 +60,12 @@ async function fetchUrgentContext(accountId: string, threadId: string): Promise<
  * If ai_urgency_auto_extinguish is enabled, the Smart Judge evaluates whether
  * the user's reply resolves the urgent thread. Uses the configured AI provider.
  * Falls back to always-extinguish if the AI call fails or if there's no context.
+ * When the AI returns PENDING, applies a 50% urgency decay instead of doing nothing.
  */
 export async function autoExtinguishOnReply(
   accountId: string,
   threadId: string,
+  replyText?: string,
 ): Promise<void> {
   const autoEnabled = await getSetting("ai_urgency_auto_extinguish");
   if (autoEnabled !== "true") return;
@@ -73,6 +75,8 @@ export async function autoExtinguishOnReply(
   const hasUrgency = thread && (thread.urgencyScore ?? 0) > 0 && !thread.isHeatExtinguished;
   if (!hasUrgency) return;
 
+  const currentScore = thread.urgencyScore ?? 0;
+
   // Fetch original urgent message for AI context
   const urgentContext = await fetchUrgentContext(accountId, threadId);
 
@@ -80,7 +84,7 @@ export async function autoExtinguishOnReply(
   if (urgentContext) {
     try {
       const { judgeUrgencyResolved } = await import("./aiService");
-      resolved = await judgeUrgencyResolved(urgentContext);
+      resolved = await judgeUrgencyResolved(urgentContext, replyText);
     } catch {
       // AI unavailable — default to extinguish so UX stays clean
       resolved = true;
@@ -92,6 +96,11 @@ export async function autoExtinguishOnReply(
 
   if (resolved) {
     await extinguishThread(accountId, threadId);
+  } else {
+    // PENDING: apply 50% decay — replying always reduces urgency even if not fully resolved
+    const decayedScore = currentScore * 0.5;
+    await setThreadUrgency(accountId, threadId, decayedScore);
+    useThreadStore.getState().updateThread(threadId, { urgencyScore: decayedScore });
   }
 
   // Always log the reply interaction (contributes to reputation)

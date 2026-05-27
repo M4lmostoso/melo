@@ -283,7 +283,35 @@ export default function App() {
         });
 
         try {
-          await sendEmail(p.accountId, p.raw, p.threadId ?? undefined);
+          const sendResult = await sendEmail(p.accountId, p.raw, p.threadId ?? undefined);
+
+          if (!sendResult.success) {
+            // Permanent send failure — notify the user
+            import("@tauri-apps/plugin-notification").then(({ sendNotification }) => {
+              sendNotification({
+                title: "Send failed",
+                body: sendResult.error
+                  ? `Could not send email: ${sendResult.error}`
+                  : "Could not send email. Please check your SMTP settings.",
+              });
+            }).catch(() => {});
+            // Draft is already gone (tombstoned in Composer) so we can't recover it.
+            // Skip the rest of the cleanup to avoid deleting unrelated data.
+            return;
+          }
+
+          if (sendResult.queued) {
+            // Retryable failure — message is now in the Outgoing queue view (pending_operations).
+            // Dispatch velo-sync-done so the Outgoing badge and queue view refresh immediately.
+            window.dispatchEvent(new Event("velo-sync-done"));
+            import("@tauri-apps/plugin-notification").then(({ sendNotification }) => {
+              sendNotification({
+                title: "Send queued",
+                body: "Could not reach the server. The email is saved in Outgoing and will be sent automatically.",
+              });
+            }).catch(() => {});
+          }
+
           if (p.currentDraftId) {
             // currentDraftId = server UID-based IMAP ID (or Gmail API ID).
             // deleteDraftAction tombstones + EXPUNGEs the server draft and cleans

@@ -320,9 +320,15 @@ export async function testConnection(): Promise<boolean> {
  * Returns true → RESOLVED (extinguish), false → PENDING (just log).
  * Falls back to true on any AI error so the UX degrades gracefully.
  */
-export async function judgeUrgencyResolved(urgentEmailText: string): Promise<boolean> {
+export async function judgeUrgencyResolved(
+  urgentEmailText: string,
+  replyText?: string,
+): Promise<boolean> {
   try {
-    const userContent = `<email_content>${urgentEmailText.slice(0, 800)}</email_content>`;
+    let userContent = `<original_email>${urgentEmailText.slice(0, 600)}</original_email>`;
+    if (replyText) {
+      userContent += `\n<user_reply>${replyText.slice(0, 400)}</user_reply>`;
+    }
     const result = await callAi(HEAT_EXTINGUISH_JUDGE_PROMPT, userContent, { skipLanguage: true });
     return result.trim().toUpperCase().startsWith("RESOLVED");
   } catch {

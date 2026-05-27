@@ -348,12 +348,17 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
   const setActiveAccount = useAccountStore((s) => s.setActiveAccount);
   const accounts = useAccountStore((s) => s.accounts);
+  // In unified view activeAccountId is null; viewingAccountId tracks the account
+  // of the currently open thread for display purposes (set by EmailList on thread click).
+  const viewingAccountId = useAccountStore((s) => s.viewingAccountId);
+  const selectedThreadAccountId = activeAccountId ? null : viewingAccountId;
   const [isScrolling, setIsScrolling] = useState(false);
   const [expandedGlobalItems, setExpandedGlobalItems] = useState<Record<string, boolean>>({});
   const toggleGlobalItem = useCallback(
     (id: string) => setExpandedGlobalItems((prev) => ({ ...prev, [id]: !prev[id] })),
     [],
   );
+
 
   const outgoingEmails = useOutgoingStore((s) => s.emails);
   const [outgoingDbByAccount, setOutgoingDbByAccount] = useState<Record<string, number>>({});
@@ -741,6 +746,10 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                     const isAccountActive =
                       activeLabel === "inbox" &&
                       activeAccountId === account.id;
+                    const isThreadAccount =
+                      !isAccountActive &&
+                      selectedThreadAccountId === account.id &&
+                      activeLabel === "unified-inbox";
                     return (
                       <button
                         key={account.id}
@@ -751,7 +760,9 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                         className={`flex items-center gap-2 w-full py-1.5 pl-7 pr-8 text-left text-[0.8125rem] transition-colors ${
                           isAccountActive
                             ? "text-accent font-medium bg-accent/10"
-                            : "text-sidebar-text/80 hover:text-sidebar-text hover:bg-sidebar-hover"
+                            : isThreadAccount
+                              ? "text-sidebar-text font-medium bg-sidebar-hover"
+                              : "text-sidebar-text/80 hover:text-sidebar-text hover:bg-sidebar-hover"
                         }`}
                       >
                         <span
@@ -840,6 +851,10 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                             }
                             const isAccountActive =
                               activeLabel === gi.id && activeAccountId === account.id;
+                            const isThreadAccount =
+                              !isAccountActive &&
+                              selectedThreadAccountId === account.id &&
+                              activeLabel === gi.id;
                             return (
                               <button
                                 key={account.id}
@@ -850,7 +865,9 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                                 className={`flex items-center gap-2 w-full py-1.5 pl-7 pr-8 text-left text-[0.8125rem] transition-colors ${
                                   isAccountActive
                                     ? "text-accent font-medium bg-accent/10"
-                                    : "text-sidebar-text/80 hover:text-sidebar-text hover:bg-sidebar-hover"
+                                    : isThreadAccount
+                                      ? "text-sidebar-text font-medium bg-sidebar-hover"
+                                      : "text-sidebar-text/80 hover:text-sidebar-text hover:bg-sidebar-hover"
                                 }`}
                               >
                                 <span
@@ -984,6 +1001,10 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                           const displayName = account.label ?? account.displayName ?? account.email;
                           const isAccountActive =
                             activeLabel === `smart-folder:${folder.id}` && activeAccountId === account.id;
+                          const isThreadAccount =
+                            !isAccountActive &&
+                            selectedThreadAccountId === account.id &&
+                            activeLabel === `smart-folder:${folder.id}`;
                           const perAccountCount = smartFolderPerAccountCounts[`${folder.id}:${account.id}`] ?? 0;
                           return (
                             <button
@@ -995,7 +1016,9 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                               className={`flex items-center gap-2 w-full py-1.5 pl-7 pr-8 text-left text-[0.8125rem] transition-colors ${
                                 isAccountActive
                                   ? "text-accent font-medium bg-accent/10"
-                                  : "text-sidebar-text/80 hover:text-sidebar-text hover:bg-sidebar-hover"
+                                  : isThreadAccount
+                                    ? "text-sidebar-text font-medium bg-sidebar-hover"
+                                    : "text-sidebar-text/80 hover:text-sidebar-text hover:bg-sidebar-hover"
                               }`}
                             >
                               <span

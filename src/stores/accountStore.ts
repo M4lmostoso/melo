@@ -18,9 +18,12 @@ export interface Account {
 interface AccountState {
   accounts: Account[];
   activeAccountId: string | null;
+  /** Account of the currently viewed thread in a global view — display only, does not affect list filtering. */
+  viewingAccountId: string | null;
   setAccounts: (accounts: Account[], restoredId?: string | null) => void;
   /** Pass null to enter unified-inbox context (no single active account). */
   setActiveAccount: (id: string | null) => void;
+  setViewingAccountId: (id: string | null) => void;
   addAccount: (account: Account) => void;
   removeAccount: (id: string) => void;
   reorderAccounts: (orderedIds: string[]) => Promise<void>;
@@ -29,6 +32,7 @@ interface AccountState {
 export const useAccountStore = create<AccountState>((set) => ({
   accounts: [],
   activeAccountId: null,
+  viewingAccountId: null,
 
   setAccounts: (accounts, restoredId) => {
     const activeId = (restoredId && accounts.some((a) => a.id === restoredId))
@@ -41,8 +45,10 @@ export const useAccountStore = create<AccountState>((set) => ({
     if (activeAccountId !== null) {
       setSetting("active_account_id", activeAccountId).catch(() => {});
     }
-    set({ activeAccountId });
+    set({ activeAccountId, viewingAccountId: null });
   },
+
+  setViewingAccountId: (viewingAccountId) => set({ viewingAccountId }),
 
   addAccount: (account) =>
     set((state) => ({

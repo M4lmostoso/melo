@@ -143,7 +143,8 @@
     },
     "accountSwitcher": {
       "accounts": "Accounts",
-      "addAccount": "Add account"
+      "addAccount": "Add account",
+      "viewing": "Viewing"
     },
     "addGmailAccount": "Add Gmail Account",
     "addImapAccount": "Add IMAP/SMTP Account",
@@ -1796,7 +1797,17 @@
     "loadingFolders": "Loading folders…",
     "noAccountSelected": "No active account selected.",
     "addGmailAccount": "Add a Gmail account to get started",
-    "emptyOutgoing": "Emails waiting to be sent appear here"
+    "emptyOutgoing": "Emails waiting to be sent appear here",
+    "outgoingQueue": {
+      "pending": "Queued",
+      "failed": "Failed",
+      "retryCount": "Attempt {count}",
+      "cancel": "Cancel",
+      "retryNow": "Retry now",
+      "to": "To",
+      "nextRetry": "Retrying soon",
+      "failedPermanently": "Send failed permanently"
+    }
   },
   "ai": {
     "askInbox": {

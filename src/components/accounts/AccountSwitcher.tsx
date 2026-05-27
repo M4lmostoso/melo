@@ -3,6 +3,7 @@ import { useAccountStore, type Account } from "@/stores/accountStore";
 import { ChevronDown, Check, Plus, UserPlus, Calendar } from "lucide-react";
 import { useClickOutside } from "@/hooks/useClickOutside";
 import { t } from "@/i18n";
+import { navigateToLabel, getActiveLabel } from "@/router/navigate";
 
 interface AccountSwitcherProps {
   collapsed: boolean;
@@ -13,18 +14,22 @@ export function AccountSwitcher({
   collapsed,
   onAddAccount,
 }: AccountSwitcherProps) {
-  const { accounts, activeAccountId, setActiveAccount } = useAccountStore();
+  const { accounts, activeAccountId, viewingAccountId, setActiveAccount } = useAccountStore();
   const [open, setOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement | null>(null);
 
   useClickOutside(dropdownRef, () => setOpen(false));
 
-  const activeAccount = accounts.find((a) => a.id === activeAccountId);
+  const activeAccount = accounts.find((a) => a.id === activeAccountId)
+    ?? accounts.find((a) => a.id === viewingAccountId);
 
   const handleSwitch = useCallback(
     (id: string) => {
       setActiveAccount(id);
       setOpen(false);
+      // Deselect any open thread — it belongs to a different account.
+      const label = getActiveLabel();
+      navigateToLabel(label === "unified-inbox" ? "inbox" : label);
     },
     [setActiveAccount],
   );
