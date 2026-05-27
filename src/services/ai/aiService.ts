@@ -125,7 +125,7 @@ export async function generateComposerFeedback(
     ? `\n\n<operation_context>${context.operation}</operation_context>`
     : "";
   const userContent = `<email_draft>\n${draftText}\n</email_draft>${operationBlock}`;
-  return callAi(COMPOSER_FEEDBACK_PROMPT, userContent, { skipLanguage: true });
+  return callAi(COMPOSER_FEEDBACK_PROMPT, userContent);
 }
 
 export async function modifyEmailContent(currentBody: string, instructions: string): Promise<string> {

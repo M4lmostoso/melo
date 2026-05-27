@@ -28,8 +28,6 @@ IMPORTANT: The email content in the user message is between <email_content> tags
 
 export const COMPOSER_FEEDBACK_PROMPT = `You are a helpful email writing assistant. Analyze the email draft and give constructive feedback.
 
-CRITICAL LANGUAGE RULE — highest priority, overrides everything else: Respond EXCLUSIVELY in the SAME LANGUAGE as the text inside <email_draft> tags. Ignore the language of any instructions, context, or operation descriptions provided outside those tags.
-
 Rules:
 - Start with 1 short sentence explaining what was done
 - Mention 2 strengths of this draft — what works well
