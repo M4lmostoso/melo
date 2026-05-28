@@ -18,7 +18,7 @@ import {
 } from "./folderMapper";
 import type { ParsedMessage } from "../gmail/messageParser";
 import type { SyncResult } from "../email/types";
-import { deleteMessagesForFolder, purgeImapDuplicates } from "../db/messages";
+import { deleteMessagesForFolder, purgeImapDuplicates, purgeOrphanPlaceholderThreads } from "../db/messages";
 import { getAccount, updateAccountSyncState } from "../db/accounts";
 import {
   upsertFolderSyncState,
@@ -248,7 +248,11 @@ async function mergeGroupsByRfcId(
   const { getDb } = await import("../db/connection");
   const db = await getDb();
 
-  // Map each referenced RFC Message-ID → thread_id already in DB
+  // Map each referenced RFC Message-ID → thread_id already in DB.
+  // When multiple rows share the same message_id_header (APPENDUID mismatch
+  // created a duplicate), prefer the thread that is not a per-message
+  // placeholder (imap-{accountId}-{folder}-{uid}) so replies end up in the
+  // correct conversation thread rather than an ephemeral placeholder.
   const rfcToThreadId = new Map<string, string>();
   const batchSize = 100;
   for (let i = 0; i < unique.length; i += batchSize) {
@@ -259,8 +263,20 @@ async function mergeGroupsByRfcId(
       [accountId, ...batch],
     );
     for (const row of rows) {
-      if (row.message_id_header && row.thread_id) {
+      if (!row.message_id_header || !row.thread_id) continue;
+      const existing = rfcToThreadId.get(row.message_id_header);
+      if (!existing) {
         rfcToThreadId.set(row.message_id_header, row.thread_id);
+      } else {
+        // When duplicates exist (APPENDUID mismatch), prefer the non-placeholder
+        // thread_id. Placeholder IDs start with imap-{accountId}-{folder}-{uid};
+        // algorithm-created threads start with imap-thread-* or have no imap prefix.
+        const placeholderPrefix = `imap-${accountId}-`;
+        const existingIsPlaceholder = existing.startsWith(placeholderPrefix);
+        const newIsPlaceholder = row.thread_id.startsWith(placeholderPrefix);
+        if (existingIsPlaceholder && !newIsPlaceholder) {
+          rfcToThreadId.set(row.message_id_header, row.thread_id);
+        }
       }
     }
   }
@@ -523,7 +539,8 @@ async function reconcileDeletedMessages(
       [accountId, ...chunk],
     );
 
-    // Delete thread_labels + threads where no messages remain
+    // Delete thread_labels + threads where no messages remain; recalculate
+    // message_count for threads that still have messages so the badge stays accurate.
     if (affectedThreadIds.length > 0) {
       const tph = affectedThreadIds.map((_, j) => `$${j + 2}`).join(",");
       const surviving = await db.select<{ thread_id: string }[]>(
@@ -542,6 +559,22 @@ async function reconcileDeletedMessages(
         await db.execute(
           `DELETE FROM threads WHERE account_id = $1 AND id IN (${eph})`,
           [accountId, ...emptyThreadIds],
+        );
+      }
+
+      // Update message_count for surviving threads — stale count causes wrong badge
+      const survivingIds = affectedThreadIds.filter((id) => survivingSet.has(id));
+      if (survivingIds.length > 0) {
+        const sph = survivingIds.map((_, j) => `$${j + 2}`).join(",");
+        await db.execute(
+          `UPDATE threads
+           SET message_count = (
+             SELECT COUNT(*) FROM messages
+             WHERE account_id = threads.account_id AND thread_id = threads.id
+               AND is_draft = 0 AND is_trashed = 0
+           )
+           WHERE account_id = $1 AND id IN (${sph})`,
+          [accountId, ...survivingIds],
         );
       }
     }
@@ -922,6 +955,8 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
     await reconcileOrphanMessages(accountId).catch((err) =>
       console.error(`[imapSync] reconcileOrphanMessages error:`, err),
     );
+    const orphanThreadCount = await purgeOrphanPlaceholderThreads(accountId).catch(() => 0);
+    if (orphanThreadCount > 0) console.log(`[imapSync] Purged ${orphanThreadCount} orphan placeholder thread(s) for ${accountId}`);
     await pruneDeletedImapUids().catch(() => {});
   }
 

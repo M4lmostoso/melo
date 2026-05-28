@@ -364,17 +364,49 @@ export class ImapSmtpProvider implements EmailProvider {
 
   /**
    * Resolve the folder→UIDs map for an action.
-   * When callers pass explicit messageIds (from the ActionBar), parse them.
-   * When they pass [] (keyboard shortcuts, multi-select), fetch from DB and
-   * use imap_folder / imap_uid directly — avoids stale synthetic IDs after
-   * a message has been moved between folders by a prior action.
+   * When callers pass explicit messageIds (from the ActionBar), look up the
+   * actual imap_uid from the DB instead of parsing the UID from the local ID
+   * name. The local ID suffix may differ from the server UID when APPENDUID
+   * returned an incorrect value (observed on Exchange-backed IMAP servers),
+   * which would cause operations to target the wrong message on the server.
+   * Falls back to parsing the local ID only for rows not found in the DB.
+   * When callers pass [] (keyboard shortcuts, multi-select), fetch all thread
+   * messages from DB and use imap_folder / imap_uid directly — avoids stale
+   * synthetic IDs after a message has been moved between folders.
    */
   private async resolveGrouped(
     threadId: string,
     messageIds: string[],
   ): Promise<Map<string, number[]>> {
     if (messageIds.length > 0) {
-      return this.groupByFolder(messageIds);
+      // Primary: look up imap_uid from DB — the local ID name suffix may be the
+      // APPENDUID value, not the real server UID.
+      const db = await getDb();
+      const placeholders = messageIds.map((_, i) => `$${i + 2}`).join(",");
+      const rows = await db.select<{ id: string; imap_folder: string; imap_uid: number }[]>(
+        `SELECT id, imap_folder, imap_uid FROM messages
+         WHERE account_id = $1 AND id IN (${placeholders})
+           AND imap_folder IS NOT NULL AND imap_uid IS NOT NULL`,
+        [this.accountId, ...messageIds],
+      );
+      const grouped = new Map<string, number[]>();
+      const foundIds = new Set<string>();
+      for (const row of rows) {
+        foundIds.add(row.id);
+        const existing = grouped.get(row.imap_folder);
+        if (existing) existing.push(row.imap_uid);
+        else grouped.set(row.imap_folder, [row.imap_uid]);
+      }
+      // Fallback: parse any IDs not found in DB from the local ID name
+      const missing = messageIds.filter((id) => !foundIds.has(id));
+      if (missing.length > 0) {
+        for (const [folder, uids] of this.groupByFolder(missing)) {
+          const existing = grouped.get(folder);
+          if (existing) existing.push(...uids);
+          else grouped.set(folder, uids);
+        }
+      }
+      return grouped;
     }
     const msgs = await getMessagesForThread(this.accountId, threadId);
     const grouped = new Map<string, number[]>();
@@ -601,6 +633,12 @@ export class ImapSmtpProvider implements EmailProvider {
         } catch (err) {
           console.warn("[IMAP] Failed to save sent message to local DB:", err);
         }
+        // Proactively purge any same-UID duplicates that may arise when APPENDUID
+        // returns an incorrect UID. Run non-fatally in the background so it does
+        // not delay the send response.
+        import("../db/messages").then(({ purgeImapDuplicates }) =>
+          purgeImapDuplicates(this.accountId).catch(() => {}),
+        );
       }
       // uid === 0: server didn't return UID; let the next delta sync import it.
     } catch (err) {
@@ -633,8 +671,12 @@ export class ImapSmtpProvider implements EmailProvider {
     const to = headers.get("to") ?? "";
     const cc = headers.get("cc") ?? null;
     const subject = headers.get("subject") ?? null;
-    const messageIdHeader = headers.get("message-id") ?? null;
-    const inReplyTo = headers.get("in-reply-to") ?? null;
+    // Strip angle brackets to match the format stored by Rust's mail-parser during
+    // IMAP sync. Otherwise existing_rfc_ids lookups fail and the same message gets
+    // re-imported into a new placeholder thread, splitting the conversation.
+    const stripBrackets = (v: string | null) => v?.replace(/^<|>$/g, "") ?? null;
+    const messageIdHeader = stripBrackets(headers.get("message-id") ?? null);
+    const inReplyTo = stripBrackets(headers.get("in-reply-to") ?? null);
     const references = headers.get("references") ?? null;
     const now = Date.now();
 
@@ -743,8 +785,10 @@ export class ImapSmtpProvider implements EmailProvider {
     const to = headers.get("to") ?? "";
     const cc = headers.get("cc") ?? null;
     const subject = headers.get("subject") ?? null;
-    const messageIdHeader = headers.get("message-id") ?? null;
-    const inReplyTo = headers.get("in-reply-to") ?? null;
+    // Strip angle brackets to match the format stored by Rust's mail-parser during IMAP sync.
+    const stripBrackets = (v: string | null) => v?.replace(/^<|>$/g, "") ?? null;
+    const messageIdHeader = stripBrackets(headers.get("message-id") ?? null);
+    const inReplyTo = stripBrackets(headers.get("in-reply-to") ?? null);
     const references = headers.get("references") ?? null;
     const now = Date.now();
 
@@ -902,6 +946,38 @@ export class ImapSmtpProvider implements EmailProvider {
         `Draft ${draftId} has a generated ID and cannot be deleted from server. ` +
           "It will be cleaned up on next sync.",
       );
+    }
+
+    // Always clean up the local DB row immediately. Without this, the is_draft=1
+    // row stays visible in the thread (corrupted snippet/count) until purgeGhostDrafts
+    // runs on the next maintenance cycle (~10 min).
+    try {
+      const db = await getDb();
+      const rows = await db.select<{ thread_id: string }[]>(
+        "SELECT thread_id FROM messages WHERE account_id = $1 AND id = $2",
+        [this.accountId, draftId],
+      );
+      if (rows[0]) {
+        const threadId = rows[0].thread_id;
+        await db.execute(
+          "DELETE FROM messages WHERE account_id = $1 AND id = $2",
+          [this.accountId, draftId],
+        );
+        // Remove DRAFT label only if no other draft messages remain in the thread
+        const remaining = await db.select<{ cnt: number }[]>(
+          "SELECT COUNT(*) as cnt FROM messages WHERE account_id = $1 AND thread_id = $2 AND is_draft = 1",
+          [this.accountId, threadId],
+        );
+        if ((remaining[0]?.cnt ?? 0) === 0) {
+          await db.execute(
+            "DELETE FROM thread_labels WHERE account_id = $1 AND thread_id = $2 AND label_id = 'DRAFT'",
+            [this.accountId, threadId],
+          );
+        }
+        await recalculateThreadStats(this.accountId, threadId);
+      }
+    } catch (err) {
+      console.warn("[IMAP] deleteDraft: failed to clean up local DB row:", err);
     }
   }
 

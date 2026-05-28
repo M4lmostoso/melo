@@ -280,6 +280,43 @@ export async function deleteAllMessagesForAccount(
 }
 
 /**
+ * Remove orphan placeholder threads — IMAP-style thread rows whose ID matches the
+ * `imap-{accountId}-{folder}-{uid}` per-message placeholder pattern and that have no
+ * messages pointing at them. These leak when the IMAP sync creates a placeholder
+ * thread for a UID that was already saved locally (e.g. by saveSentMessageLocally)
+ * and `imap_store_threads`'s orphan cleanup misses them in a later sync.
+ */
+export async function purgeOrphanPlaceholderThreads(accountId: string): Promise<number> {
+  const db = await getDb();
+  const rows = await db.select<{ id: string }[]>(
+    `SELECT t.id FROM threads t
+     WHERE t.account_id = $1
+       AND t.id LIKE 'imap-' || $1 || '-%'
+       AND NOT EXISTS (
+         SELECT 1 FROM messages m
+         WHERE m.account_id = t.account_id AND m.thread_id = t.id
+       )`,
+    [accountId],
+  );
+  if (rows.length === 0) return 0;
+  const ids = rows.map((r) => r.id);
+  const CHUNK = 500;
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const chunk = ids.slice(i, i + CHUNK);
+    const ph = chunk.map((_, j) => `$${j + 2}`).join(",");
+    await db.execute(
+      `DELETE FROM thread_labels WHERE account_id = $1 AND thread_id IN (${ph})`,
+      [accountId, ...chunk],
+    );
+    await db.execute(
+      `DELETE FROM threads WHERE account_id = $1 AND id IN (${ph})`,
+      [accountId, ...chunk],
+    );
+  }
+  return ids.length;
+}
+
+/**
  * Remove duplicate messages caused by the same RFC Message-ID being synced from
  * multiple IMAP folders (e.g. INBOX + a virtual "All Mail" folder that was previously
  * not excluded). For each (account_id, message_id_header, imap_folder) group that has
@@ -310,10 +347,36 @@ export async function purgeImapDuplicates(accountId: string): Promise<number> {
     [accountId],
   );
 
-  if (victims.length === 0) return 0;
+  // Pass 2: same message_id_header + imap_folder + imap_uid — two rows for the
+  // same physical server message (APPENDUID returned inconsistent UIDs on two
+  // separate APPEND calls). Keep the row with the lowest rowid (oldest).
+  const sameUidVictims = await db.select<{ id: string; thread_id: string }[]>(
+    `SELECT m.id, m.thread_id
+     FROM messages m
+     INNER JOIN (
+       SELECT message_id_header, imap_folder, imap_uid, MIN(rowid) AS keep_rowid
+       FROM messages
+       WHERE account_id = $1
+         AND message_id_header IS NOT NULL
+         AND imap_folder IS NOT NULL
+         AND imap_uid IS NOT NULL
+       GROUP BY message_id_header, imap_folder, imap_uid
+       HAVING COUNT(*) > 1
+     ) dupes
+       ON m.message_id_header = dupes.message_id_header
+      AND m.imap_folder = dupes.imap_folder
+      AND m.imap_uid = dupes.imap_uid
+      AND m.rowid != dupes.keep_rowid
+     WHERE m.account_id = $1`,
+    [accountId],
+  );
 
-  const victimIds = victims.map((v) => v.id);
-  const affectedThreadIds = [...new Set(victims.map((v) => v.thread_id))];
+  const allVictims = [...victims, ...sameUidVictims.filter((v) => !victims.some((p) => p.id === v.id))];
+
+  if (allVictims.length === 0) return 0;
+
+  const victimIds = allVictims.map((v) => v.id);
+  const affectedThreadIds = [...new Set(allVictims.map((v) => v.thread_id))];
 
   // Batch deletes — 4–5 IPC calls total regardless of count (was 4–5 × N × M)
   const CHUNK = 500;
