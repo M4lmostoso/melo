@@ -55,6 +55,7 @@ interface MessageItemProps {
 
 export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(function MessageItem({ message, isLast, blockImages, senderAllowlisted, accountId, threadId, isSpam, focused, onSelect, onNeedBody, onContextMenu }, ref) {
   const [expanded, setExpanded] = useState(isLast);
+  const wasUnreadRef = useRef(message.is_read === 0);
   const [attachments, setAttachments] = useState<DbAttachment[]>([]);
   const [authBannerDismissed, setAuthBannerDismissed] = useState(false);
   const [cidMap, setCidMap] = useState<Map<string, string>>(new Map());
@@ -241,8 +242,17 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
     message.from_address ||
     t("messageItem.unknown");
 
+  const showUnread = wasUnreadRef.current && !expanded;
+
   return (
-    <div ref={ref} className={`border-b border-border-secondary last:border-b-0 ${isSpam ? "bg-red-500/8 dark:bg-red-500/10" : ""} ${focused ? "ring-2 ring-inset ring-accent/50" : ""}`} onContextMenu={onContextMenu}>
+    <div
+      ref={ref}
+      className={`border-b border-border-secondary last:border-b-0 border-l-2 transition-colors
+        ${showUnread ? "border-l-accent" : "border-l-transparent"}
+        ${isSpam ? "bg-red-500/8 dark:bg-red-500/10" : ""}
+        ${focused ? "ring-2 ring-inset ring-accent/50" : ""}`}
+      onContextMenu={onContextMenu}
+    >
       {/* Header — always visible, click to expand/collapse */}
       <button
         onClick={handleToggle}
@@ -250,11 +260,13 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
       >
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 min-w-0">
-            <div className="w-7 h-7 rounded-full bg-accent/20 text-accent flex items-center justify-center shrink-0 text-xs font-medium">
+            <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-xs font-medium transition-colors
+              ${showUnread ? "bg-accent text-white" : "bg-accent/20 text-accent"}`}>
               {fromDisplay[0]?.toUpperCase()}
             </div>
             <div className="min-w-0">
-              <span className="text-sm font-medium text-text-primary truncate flex items-center gap-1">
+              <span className={`text-sm truncate flex items-center gap-1 transition-all
+                ${showUnread ? "font-semibold text-text-primary" : "font-medium text-text-primary"}`}>
                 {fromDisplay}
                 <AuthBadge authResults={message.auth_results} />
               </span>
