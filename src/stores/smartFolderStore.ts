@@ -123,23 +123,22 @@ export const useSmartFolderStore = create<SmartFolderState>((set, get) => ({
 
   refreshUnreadCounts: async (accountId: string) => {
     const { folders } = get();
-    const counts: Record<string, number> = {};
+    if (folders.length === 0) return;
 
     try {
       const db = await getDb();
-      for (const folder of folders) {
-        try {
-          const { sql, params } = getSmartFolderUnreadCount(
-            folder.query,
-            accountId,
-          );
-          const rows = await db.select<{ count: number }[]>(sql, params);
-          counts[folder.id] = rows[0]?.count ?? 0;
-        } catch {
-          counts[folder.id] = 0;
-        }
-      }
-      set({ unreadCounts: counts });
+      const entries = await Promise.all(
+        folders.map(async (folder): Promise<[string, number]> => {
+          try {
+            const { sql, params } = getSmartFolderUnreadCount(folder.query, accountId);
+            const rows = await db.select<{ count: number }[]>(sql, params);
+            return [folder.id, rows[0]?.count ?? 0];
+          } catch {
+            return [folder.id, 0];
+          }
+        }),
+      );
+      set({ unreadCounts: Object.fromEntries(entries) });
     } catch (err) {
       console.error("Failed to refresh smart folder unread counts:", err);
     }
@@ -149,23 +148,25 @@ export const useSmartFolderStore = create<SmartFolderState>((set, get) => ({
     if (accountIds.length === 0) return;
     const { folders } = get();
     if (folders.length === 0) return;
-    const counts: Record<string, number> = {};
 
     try {
       const db = await getDb();
-      for (const folder of folders) {
-        for (const accountId of accountIds) {
-          const key = `${folder.id}:${accountId}`;
+      const pairs: Array<[string, string]> = folders.flatMap((folder) =>
+        accountIds.map((accountId): [string, string] => [folder.id, accountId]),
+      );
+      const entries = await Promise.all(
+        pairs.map(async ([folderId, accountId]): Promise<[string, number]> => {
+          const folder = folders.find((f) => f.id === folderId)!;
           try {
             const { sql, params } = getSmartFolderUnreadCount(folder.query, accountId);
             const rows = await db.select<{ count: number }[]>(sql, params);
-            counts[key] = rows[0]?.count ?? 0;
+            return [`${folderId}:${accountId}`, rows[0]?.count ?? 0];
           } catch {
-            counts[key] = 0;
+            return [`${folderId}:${accountId}`, 0];
           }
-        }
-      }
-      set({ perAccountCounts: counts });
+        }),
+      );
+      set({ perAccountCounts: Object.fromEntries(entries) });
     } catch (err) {
       console.error("Failed to refresh global smart folder unread counts:", err);
     }

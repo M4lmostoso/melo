@@ -266,22 +266,6 @@ export default function App() {
           inReplyToMessageId: string | null;
         };
 
-        useOutgoingStore.getState().addEmail({
-          id: p.outgoingId,
-          accountId: p.accountId,
-          to: p.to,
-          cc: p.cc,
-          bcc: p.bcc,
-          subject: p.subject,
-          bodyHtml: p.bodyHtml,
-          threadId: p.threadId,
-          inReplyToMessageId: p.inReplyToMessageId,
-          raw: p.raw,
-          status: "sending",
-          createdAt: Date.now(),
-          timerId: null,
-        });
-
         try {
           const sendResult = await sendEmail(p.accountId, p.raw, p.threadId ?? undefined);
 
@@ -298,6 +282,11 @@ export default function App() {
             // Draft is already gone (tombstoned in Composer) so we can't recover it.
             // Skip the rest of the cleanup to avoid deleting unrelated data.
             return;
+          }
+
+          if (!sendResult.queued && p.threadId) {
+            // Successful send — notify ThreadView to reload messages immediately.
+            window.dispatchEvent(new CustomEvent("velo-message-sent", { detail: { threadId: p.threadId } }));
           }
 
           if (sendResult.queued) {

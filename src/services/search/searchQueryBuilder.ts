@@ -89,6 +89,7 @@ export function buildSearchQuery(
   // is:unread
   if (parsed.isUnread) {
     whereClauses.push(`m.is_read = 0`);
+    whereClauses.push(`m.is_draft = 0`);
   }
 
   // is:read
@@ -128,8 +129,11 @@ export function buildSearchQuery(
   // DRAFT is excluded only for pure-draft threads (DRAFT without INBOX) — threads
   // with a draft reply in progress (DRAFT + INBOX) should still appear in smart folders.
   if (excludeSystemLabels && !parsed.label) {
+    // Exclude threads that are in TRASH/SPAM but NOT in INBOX (fully trashed/spammed threads).
+    // Threads with both INBOX and TRASH are valid (some messages individually trashed) and must
+    // still appear in smart folders and badge counts.
     whereClauses.push(
-      `NOT EXISTS (SELECT 1 FROM thread_labels tl2 WHERE tl2.account_id = m.account_id AND tl2.thread_id = m.thread_id AND tl2.label_id IN ('TRASH', 'SPAM'))`,
+      `NOT (EXISTS (SELECT 1 FROM thread_labels tl2 WHERE tl2.account_id = m.account_id AND tl2.thread_id = m.thread_id AND tl2.label_id IN ('TRASH', 'SPAM')) AND NOT EXISTS (SELECT 1 FROM thread_labels tl2i WHERE tl2i.account_id = m.account_id AND tl2i.thread_id = m.thread_id AND tl2i.label_id = 'INBOX'))`,
     );
     whereClauses.push(
       `NOT (EXISTS (SELECT 1 FROM thread_labels tl3 WHERE tl3.account_id = m.account_id AND tl3.thread_id = m.thread_id AND tl3.label_id = 'DRAFT') AND NOT EXISTS (SELECT 1 FROM thread_labels tl4 WHERE tl4.account_id = m.account_id AND tl4.thread_id = m.thread_id AND tl4.label_id = 'INBOX'))`,

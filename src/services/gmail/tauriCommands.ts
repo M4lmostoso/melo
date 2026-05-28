@@ -23,6 +23,7 @@ export interface GmailMessage {
   message_id_header: string | null;
   references_header: string | null;
   in_reply_to_header: string | null;
+  label_ids: string[] | null;
 }
 
 export interface GmailAttachment {

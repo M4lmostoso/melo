@@ -1102,6 +1102,21 @@ const MIGRATIONS = [
               AND is_draft = 0
           );`,
   },
+  {
+    version: 54,
+    description: "Add per-message Gmail label storage (gmail_label_ids) and fast trash flag (is_trashed)",
+    sql: `ALTER TABLE messages ADD COLUMN gmail_label_ids TEXT;
+          ALTER TABLE messages ADD COLUMN is_trashed INTEGER DEFAULT 0;
+          CREATE INDEX IF NOT EXISTS idx_messages_trashed ON messages(account_id, thread_id, is_trashed);
+          UPDATE messages SET is_trashed = 1
+          WHERE imap_folder IS NOT NULL
+            AND EXISTS (
+              SELECT 1 FROM labels l
+              WHERE l.account_id = messages.account_id
+                AND l.imap_folder_path = messages.imap_folder
+                AND l.id = 'TRASH'
+            );`,
+  },
 ];
 
 // ---------------------------------------------------------------------------

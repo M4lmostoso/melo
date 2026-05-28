@@ -285,6 +285,7 @@ pub struct GmailMessage {
     pub message_id_header: Option<String>,
     pub references_header: Option<String>,
     pub in_reply_to_header: Option<String>,
+    pub label_ids: Option<Vec<String>>,
 }
 
 /// A Gmail attachment, bundled alongside its parent message.

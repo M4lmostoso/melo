@@ -896,7 +896,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                     <div>
                       <ExpandableNavItem
                         id="global-outgoing"
-                        label="Outgoing"
+                        label={t("sidebar.nav.outgoing")}
                         isActive={activeLabel === "outgoing" && activeAccountId === null}
                         collapsed={collapsed}
                         expanded={!!expandedGlobalItems["global-outgoing"]}
@@ -906,7 +906,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                         <Rocket size={18} className="shrink-0 text-amber-500" />
                         {!collapsed && (
                           <>
-                            <span className="flex-1 truncate">{/* TODO: add i18n key */}Outgoing</span>
+                            <span className="flex-1 truncate">{t("sidebar.nav.outgoing")}</span>
                             <span className="text-[0.625rem] bg-amber-500/15 text-amber-500 px-1.5 min-w-[1.25rem] h-[1.125rem] rounded-full inline-flex items-center justify-center tabular-nums">
                               {outgoingTotal}
                             </span>

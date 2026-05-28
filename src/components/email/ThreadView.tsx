@@ -10,7 +10,7 @@ import { useUIStore } from "@/stores/uiStore";
 import { useThreadStore, type Thread } from "@/stores/threadStore";
 import { useComposerStore } from "@/stores/composerStore";
 import { useContextMenuStore } from "@/stores/contextMenuStore";
-import { markThreadRead } from "@/services/emailActions";
+import { markThreadRead, deleteSingleMessage } from "@/services/emailActions";
 import { getSetting } from "@/services/db/settings";
 import { getAllowlistedSenders } from "@/services/db/imageAllowlist";
 import { normalizeEmail } from "@/utils/emailUtils";
@@ -169,37 +169,39 @@ const updateThread = useThreadStore((s) => s.updateThread);
   const selectedMessage = messages.find(m => m.id === selectedMessageId) || lastMessage;
 
 
-  const handleReply = useCallback(async () => {
-    if (!selectedMessage) return;
-    const replyTo = selectedMessage.reply_to ?? selectedMessage.from_address;
-    const msgIndex = messages.findIndex(m => m.id === selectedMessage.id);
+  const handleReply = useCallback(async (msgOverride?: DbMessage) => {
+    const msg = msgOverride ?? selectedMessage;
+    if (!msg) return;
+    const replyTo = msg.reply_to ?? msg.from_address;
+    const msgIndex = messages.findIndex(m => m.id === msg.id);
     const quotedMessages = msgIndex >= 0 ? messages.slice(0, msgIndex + 1) : messages;
-    const rfcMsgId = selectedMessage.message_id_header ?? null;
+    const rfcMsgId = msg.message_id_header ?? null;
     const refs = rfcMsgId
-      ? [selectedMessage.references_header, rfcMsgId].filter(Boolean).join(" ")
+      ? [msg.references_header, rfcMsgId].filter(Boolean).join(" ")
       : null;
     openComposer({
       mode: "reply",
       to: replyTo ? [replyTo] : [],
-      subject: `Re: ${selectedMessage.subject ?? ""}`,
+      subject: `Re: ${msg.subject ?? ""}`,
       quotedHtml: buildThreadQuote(quotedMessages),
-      threadId: selectedMessage.thread_id,
+      threadId: msg.thread_id,
       inReplyToMessageId: rfcMsgId,
       references: refs,
       accountId: thread.accountId,
     });
   }, [selectedMessage, openComposer, messages, thread.accountId]);
 
-  const handleReplyAll = useCallback(async () => {
-    if (!selectedMessage || !activeAccount) return;
-    const replyTo = selectedMessage.reply_to ?? selectedMessage.from_address;
+  const handleReplyAll = useCallback(async (msgOverride?: DbMessage) => {
+    const msg = msgOverride ?? selectedMessage;
+    if (!msg || !activeAccount) return;
+    const replyTo = msg.reply_to ?? msg.from_address;
     const allRecipients = new Set<string>();
     if (replyTo) allRecipients.add(replyTo);
 
     const myEmails = new Set(accounts.map((a) => normalizeEmail(a.email)));
 
-    if (selectedMessage.to_addresses) {
-      selectedMessage.to_addresses.split(",").forEach((a) => {
+    if (msg.to_addresses) {
+      msg.to_addresses.split(",").forEach((a) => {
         const trimmed = a.trim();
         if (trimmed && !myEmails.has(normalizeEmail(trimmed))) {
           allRecipients.add(trimmed);
@@ -212,8 +214,8 @@ const updateThread = useThreadStore((s) => s.updateThread);
     }
 
     const ccList: string[] = [];
-    if (selectedMessage.cc_addresses) {
-      selectedMessage.cc_addresses.split(",").forEach((a) => {
+    if (msg.cc_addresses) {
+      msg.cc_addresses.split(",").forEach((a) => {
         const trimmed = a.trim();
         if (trimmed && !myEmails.has(normalizeEmail(trimmed))) {
           ccList.push(trimmed);
@@ -221,40 +223,41 @@ const updateThread = useThreadStore((s) => s.updateThread);
       });
     }
 
-    const msgIndex = messages.findIndex(m => m.id === selectedMessage.id);
+    const msgIndex = messages.findIndex(m => m.id === msg.id);
     const quotedMessages = msgIndex >= 0 ? messages.slice(0, msgIndex + 1) : messages;
-    const rfcMsgId = selectedMessage.message_id_header ?? null;
+    const rfcMsgId = msg.message_id_header ?? null;
     const refs = rfcMsgId
-      ? [selectedMessage.references_header, rfcMsgId].filter(Boolean).join(" ")
+      ? [msg.references_header, rfcMsgId].filter(Boolean).join(" ")
       : null;
 
     openComposer({
       mode: "replyAll",
       to: Array.from(allRecipients).filter(r => !myEmails.has(normalizeEmail(r))),
       cc: ccList,
-      subject: `Re: ${selectedMessage.subject ?? ""}`,
+      subject: `Re: ${msg.subject ?? ""}`,
       quotedHtml: buildThreadQuote(quotedMessages),
-      threadId: selectedMessage.thread_id,
+      threadId: msg.thread_id,
       inReplyToMessageId: rfcMsgId,
       references: refs,
       accountId: thread.accountId,
     });
   }, [selectedMessage, openComposer, activeAccount, accounts, messages, thread.accountId]);
 
-const handleForward = useCallback(async () => {
-    if (!selectedMessage) return;
-    const msgIndex = messages.findIndex(m => m.id === selectedMessage.id);
+  const handleForward = useCallback(async (msgOverride?: DbMessage) => {
+    const msg = msgOverride ?? selectedMessage;
+    if (!msg) return;
+    const msgIndex = messages.findIndex(m => m.id === msg.id);
     const quotedMessages = msgIndex >= 0 ? messages.slice(0, msgIndex + 1) : messages;
-    const rfcMsgId = selectedMessage.message_id_header ?? null;
+    const rfcMsgId = msg.message_id_header ?? null;
     const refs = rfcMsgId
-      ? [selectedMessage.references_header, rfcMsgId].filter(Boolean).join(" ")
+      ? [msg.references_header, rfcMsgId].filter(Boolean).join(" ")
       : null;
     openComposer({
       mode: "forward",
       to: [],
-      subject: `Fwd: ${selectedMessage.subject ?? ""}`,
+      subject: `Fwd: ${msg.subject ?? ""}`,
       quotedHtml: buildThreadForwardQuote(quotedMessages),
-      threadId: selectedMessage.thread_id,
+      threadId: msg.thread_id,
       inReplyToMessageId: rfcMsgId,
       references: refs,
       accountId: thread.accountId,
@@ -490,6 +493,19 @@ const handlePrint = useCallback(async () => {
     accountId: string;
   } | null>(null);
 
+  // Reload message list when a new message is sent within this thread (reply/forward)
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent).detail as { threadId: string };
+      if (detail.threadId !== thread.id) return;
+      getMessagesForThread(threadAccountId, thread.id)
+        .then(setMessages)
+        .catch(console.error);
+    };
+    window.addEventListener("velo-message-sent", handler);
+    return () => window.removeEventListener("velo-message-sent", handler);
+  }, [thread.id, threadAccountId]);
+
   // Reload message list when a single message is deleted within this thread
   useEffect(() => {
     const handler = (e: Event) => {
@@ -681,6 +697,10 @@ const handlePrint = useCallback(async () => {
                   senderAllowlisted={msg.from_address ? allowlistedSenders.has(normalizeEmail(msg.from_address)) : false}
                   isSpam={thread.labelIds.includes("SPAM")}
                   onContextMenu={(e) => handleMessageContextMenu(e, msg)}
+                  onReply={() => handleReply(msg)}
+                  onReplyAll={() => handleReplyAll(msg)}
+                  onForward={() => handleForward(msg)}
+                  onDelete={() => deleteSingleMessage(msg.account_id, msg.thread_id, msg.id).catch(console.error)}
                 />
               );
             })}

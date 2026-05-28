@@ -106,6 +106,7 @@ async function processAndStoreThread(
       message_id_header: null,
       references_header: null,
       in_reply_to_header: null,
+      label_ids: msg.labelIds,
     })),
     attachments,
   });
@@ -431,8 +432,13 @@ export async function deltaSync(
           // threads.get can return stale label data immediately after delivery.
           // If the History API confirms this thread has an unread message, override
           // any stale is_read=1 that processAndStoreThread may have written.
+          // Pass the specific new message IDs so the correct messages get marked
+          // unread rather than just the latest-by-date fallback.
           if (historyConfirmedUnreadThreadIds.has(threadId)) {
-            await markThreadUnreadInDb(accountId, threadId);
+            const confirmedNewIds = parsedMessages
+              .filter((m) => newInboxMessageIds.has(m.id))
+              .map((m) => m.id);
+            await markThreadUnreadInDb(accountId, threadId, confirmedNewIds.length > 0 ? confirmedNewIds : undefined);
           }
 
           // Send desktop notifications for new unread inbox messages (smart-filtered)

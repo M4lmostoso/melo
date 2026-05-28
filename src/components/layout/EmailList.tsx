@@ -109,6 +109,8 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  // Track the label that was last loaded to detect navigation vs. in-place refresh
+  const loadedLabelRef = useRef<string>("");
   const [categoryMap, setCategoryMap] = useState<Map<string, string>>(() => new Map());
   const [categoryUnreadCounts, setCategoryUnreadCounts] = useState<Map<string, number>>(() => new Map());
   const [followUpThreadIds, setFollowUpThreadIds] = useState<Set<string>>(() => new Set());
@@ -398,6 +400,16 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     setLoading(true);
     setHasMore(true);
 
+    // Detect navigation (label changed) vs. in-place refresh (sync/badge refresh).
+    // On navigation: clear stale threads immediately so skeleton shows, and skip
+    // preserving the previously-selected thread (which belongs to the old folder).
+    const currentLabel = `${activeLabel}::${activeAccountId ?? ""}::${activeCategory}`;
+    const isNavigation = loadedLabelRef.current !== currentLabel;
+    if (isNavigation) {
+      loadedLabelRef.current = currentLabel;
+      setThreads([]);
+    }
+
     // Smart folder: always handled first, regardless of account mode.
     // In global view pass all included account IDs; in single-account view pass the active ID.
     // If isSmartFolder but activeSmartFolder is null the store hasn't loaded yet — stay in
@@ -423,21 +435,24 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
         const rows = await db.select<SmartFolderRow[]>(sql, params);
         let mapped = await mapSmartFolderRows(rows);
 
-        // Preserve selected thread if it was already in the list to prevent it from disappearing while being read
-        const selId = selectedThreadIdRef.current;
-        if (selId) {
-          const prevThreads = useThreadStore.getState().threads;
-          const currentThread = prevThreads.find((t) => t.id === selId);
-          if (currentThread && !mapped.some((t) => t.id === selId)) {
-            const originalIndex = prevThreads.findIndex((t) => t.id === selId);
-            if (originalIndex !== -1) {
-              mapped = [
-                ...mapped.slice(0, originalIndex),
-                currentThread,
-                ...mapped.slice(originalIndex),
-              ];
-            } else {
-              mapped.push(currentThread);
+        // Only preserve the selected thread on in-place refreshes within the same folder.
+        // On navigation the selected thread belongs to the previous folder and must not bleed in.
+        if (!isNavigation) {
+          const selId = selectedThreadIdRef.current;
+          if (selId) {
+            const prevThreads = useThreadStore.getState().threads;
+            const currentThread = prevThreads.find((t) => t.id === selId);
+            if (currentThread && !mapped.some((t) => t.id === selId)) {
+              const originalIndex = prevThreads.findIndex((t) => t.id === selId);
+              if (originalIndex !== -1) {
+                mapped = [
+                  ...mapped.slice(0, originalIndex),
+                  currentThread,
+                  ...mapped.slice(originalIndex),
+                ];
+              } else {
+                mapped.push(currentThread);
+              }
             }
           }
         }
@@ -469,21 +484,22 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
         }
         let mapped = await mapDbThreads(dbThreads);
 
-        // Preserve selected thread if it was already in the list to prevent it from disappearing while being read
-        const selId = selectedThreadIdRef.current;
-        if (selId) {
-          const prevThreads = useThreadStore.getState().threads;
-          const currentThread = prevThreads.find((t) => t.id === selId);
-          if (currentThread && !mapped.some((t) => t.id === selId)) {
-            const originalIndex = prevThreads.findIndex((t) => t.id === selId);
-            if (originalIndex !== -1) {
-              mapped = [
-                ...mapped.slice(0, originalIndex),
-                currentThread,
-                ...mapped.slice(originalIndex),
-              ];
-            } else {
-              mapped.push(currentThread);
+        if (!isNavigation) {
+          const selId = selectedThreadIdRef.current;
+          if (selId) {
+            const prevThreads = useThreadStore.getState().threads;
+            const currentThread = prevThreads.find((t) => t.id === selId);
+            if (currentThread && !mapped.some((t) => t.id === selId)) {
+              const originalIndex = prevThreads.findIndex((t) => t.id === selId);
+              if (originalIndex !== -1) {
+                mapped = [
+                  ...mapped.slice(0, originalIndex),
+                  currentThread,
+                  ...mapped.slice(originalIndex),
+                ];
+              } else {
+                mapped.push(currentThread);
+              }
             }
           }
         }
@@ -514,21 +530,22 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
 
       let mapped = await mapDbThreads(dbThreads);
 
-      // Preserve selected thread if it was already in the list to prevent it from disappearing while being read
-      const selId = selectedThreadIdRef.current;
-      if (selId) {
-        const prevThreads = useThreadStore.getState().threads;
-        const currentThread = prevThreads.find((t) => t.id === selId);
-        if (currentThread && !mapped.some((t) => t.id === selId)) {
-          const originalIndex = prevThreads.findIndex((t) => t.id === selId);
-          if (originalIndex !== -1) {
-            mapped = [
-              ...mapped.slice(0, originalIndex),
-              currentThread,
-              ...mapped.slice(originalIndex),
-            ];
-          } else {
-            mapped.push(currentThread);
+      if (!isNavigation) {
+        const selId = selectedThreadIdRef.current;
+        if (selId) {
+          const prevThreads = useThreadStore.getState().threads;
+          const currentThread = prevThreads.find((t) => t.id === selId);
+          if (currentThread && !mapped.some((t) => t.id === selId)) {
+            const originalIndex = prevThreads.findIndex((t) => t.id === selId);
+            if (originalIndex !== -1) {
+              mapped = [
+                ...mapped.slice(0, originalIndex),
+                currentThread,
+                ...mapped.slice(originalIndex),
+              ];
+            } else {
+              mapped.push(currentThread);
+            }
           }
         }
       }

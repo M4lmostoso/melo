@@ -1206,7 +1206,7 @@ pub async fn imap_store_threads(
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 0, ?9) \
              ON CONFLICT(account_id, id) DO UPDATE SET \
                subject=?3, snippet=?4, last_message_at=?5, message_count=?6, \
-               is_read=?7, is_starred=?8, has_attachments=?9",
+               is_read=MIN(threads.is_read, ?7), is_starred=?8, has_attachments=?9",
             rusqlite::params![
                 update.thread_id,
                 account_id,
@@ -1367,15 +1367,22 @@ pub async fn gmail_store_thread(
     // 3. Upsert messages (bodies go straight to SQLite — never cross WebKit)
     for msg in &messages {
         let body_cached = if msg.body_html.is_some() { 1i32 } else { 0 };
+        let gmail_label_ids_json = msg.label_ids.as_ref().map(|ids| {
+            serde_json::to_string(ids).unwrap_or_else(|_| "[]".to_string())
+        });
+        let is_trashed = msg.label_ids.as_ref()
+            .map(|ids| ids.iter().any(|id| id == "TRASH") as i32)
+            .unwrap_or(0);
         conn.execute(
             "INSERT INTO messages \
              (id, account_id, thread_id, from_address, from_name, to_addresses, \
               cc_addresses, bcc_addresses, reply_to, subject, snippet, date, \
               is_read, is_starred, body_html, body_text, body_cached, raw_size, \
               internal_date, list_unsubscribe, list_unsubscribe_post, auth_results, \
-              message_id_header, references_header, in_reply_to_header, imap_uid, imap_folder) \
+              message_id_header, references_header, in_reply_to_header, imap_uid, imap_folder, \
+              gmail_label_ids, is_trashed) \
              VALUES \
-             (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,NULL,NULL) \
+             (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,NULL,NULL,?26,?27) \
              ON CONFLICT(account_id, id) DO UPDATE SET \
                from_address=?4, from_name=?5, to_addresses=?6, cc_addresses=?7, \
                bcc_addresses=?8, reply_to=?9, subject=?10, snippet=?11, \
@@ -1386,7 +1393,9 @@ pub async fn gmail_store_thread(
                list_unsubscribe_post=?21, auth_results=?22, \
                message_id_header=COALESCE(?23, message_id_header), \
                references_header=COALESCE(?24, references_header), \
-               in_reply_to_header=COALESCE(?25, in_reply_to_header)",
+               in_reply_to_header=COALESCE(?25, in_reply_to_header), \
+               gmail_label_ids=COALESCE(?26, gmail_label_ids), \
+               is_trashed=?27",
             rusqlite::params![
                 msg.id,
                 account_id,
@@ -1413,6 +1422,8 @@ pub async fn gmail_store_thread(
                 msg.message_id_header,
                 msg.references_header,
                 msg.in_reply_to_header,
+                gmail_label_ids_json,
+                is_trashed,
             ],
         )
         .map_err(|e| e.to_string())?;

@@ -6,7 +6,7 @@ import { AttachmentList, getAttachmentsForMessage } from "./AttachmentList";
 import { CalendarInviteWidget } from "./CalendarInviteWidget";
 import type { DbMessage } from "@/services/db/messages";
 import type { DbAttachment } from "@/services/db/attachments";
-import { MailMinus } from "lucide-react";
+import { MailMinus, Reply, ReplyAll, Forward, Trash2 } from "lucide-react";
 import { AuthBadge } from "./AuthBadge";
 import { AuthWarningBanner } from "./AuthWarningBanner";
 import { isCalendarInvite } from "@/utils/fileTypeHelpers";
@@ -51,9 +51,13 @@ interface MessageItemProps {
   onSelect?: (messageId: string) => void;
   onNeedBody?: () => Promise<void>;
   onContextMenu?: (e: React.MouseEvent) => void;
+  onReply?: () => void;
+  onReplyAll?: () => void;
+  onForward?: () => void;
+  onDelete?: () => void;
 }
 
-export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(function MessageItem({ message, isLast, blockImages, senderAllowlisted, accountId, threadId, isSpam, focused, onSelect, onNeedBody, onContextMenu }, ref) {
+export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(function MessageItem({ message, isLast, blockImages, senderAllowlisted, accountId, threadId, isSpam, focused, onSelect, onNeedBody, onContextMenu, onReply, onReplyAll, onForward, onDelete }, ref) {
   const [expanded, setExpanded] = useState(isLast);
   const wasUnreadRef = useRef(message.is_read === 0);
   const [attachments, setAttachments] = useState<DbAttachment[]>([]);
@@ -244,43 +248,46 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
 
   const showUnread = wasUnreadRef.current && !expanded;
 
+  const hasActions = !!(onReply || onReplyAll || onForward || onDelete);
+
   return (
     <div
       ref={ref}
-      className={`border-b border-border-secondary last:border-b-0 border-l-2 transition-colors
+      className={`border-b border-border-secondary last:border-b-0 border-l-2 transition-colors group
         ${showUnread ? "border-l-accent" : "border-l-transparent"}
         ${isSpam ? "bg-red-500/8 dark:bg-red-500/10" : ""}
         ${focused ? "ring-2 ring-inset ring-accent/50" : ""}`}
       onContextMenu={onContextMenu}
     >
       {/* Header — always visible, click to expand/collapse */}
-      <button
-        onClick={handleToggle}
-        className="w-full text-left px-4 py-3 hover:bg-bg-hover transition-colors"
-      >
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-xs font-medium transition-colors
-              ${showUnread ? "bg-accent text-white" : "bg-accent/20 text-accent"}`}>
-              {fromDisplay[0]?.toUpperCase()}
-            </div>
-            <div className="min-w-0">
-              <span className={`text-sm truncate flex items-center gap-1 transition-all
-                ${showUnread ? "font-semibold text-text-primary" : "font-medium text-text-primary"}`}>
-                {fromDisplay}
-                <AuthBadge authResults={message.auth_results} />
-              </span>
-              {!expanded && (
-                <span className="text-xs text-text-tertiary truncate block">
-                  {message.snippet}
+      <div className="relative">
+        <button
+          onClick={handleToggle}
+          className="w-full text-left px-4 py-3 hover:bg-bg-hover transition-colors"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-xs font-medium transition-colors
+                ${showUnread ? "bg-accent text-white" : "bg-accent/20 text-accent"}`}>
+                {fromDisplay[0]?.toUpperCase()}
+              </div>
+              <div className="min-w-0">
+                <span className={`text-sm truncate flex items-center gap-1 transition-all
+                  ${showUnread ? "font-semibold text-text-primary" : "font-medium text-text-primary"}`}>
+                  {fromDisplay}
+                  <AuthBadge authResults={message.auth_results} />
                 </span>
-              )}
+                {!expanded && (
+                  <span className="text-xs text-text-tertiary truncate block">
+                    {message.snippet}
+                  </span>
+                )}
+              </div>
             </div>
+            <span className={`text-xs text-text-tertiary whitespace-nowrap shrink-0 ml-2 ${hasActions ? "group-hover:invisible" : ""}`}>
+              {formatFullDate(message.date)}
+            </span>
           </div>
-          <span className="text-xs text-text-tertiary whitespace-nowrap shrink-0 ml-2">
-            {formatFullDate(message.date)}
-          </span>
-        </div>
         {expanded && (
           <div className="mt-1 text-xs text-text-tertiary space-y-0.5">
             {message.to_addresses && (
@@ -295,6 +302,49 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
           </div>
         )}
       </button>
+
+      {/* Per-message action buttons — visible on hover, overlaid over date */}
+      {hasActions && (
+        <div className="hidden group-hover:flex absolute top-3 right-4 items-center gap-0.5 bg-bg-primary/90 rounded-md shadow-sm border border-border-secondary px-0.5 py-0.5 z-10">
+          {onReplyAll && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onReplyAll(); }}
+              className="p-1 rounded hover:bg-bg-hover text-text-secondary hover:text-text-primary transition-colors"
+              title={t("actionBar.replyAll")}
+            >
+              <ReplyAll size={13} />
+            </button>
+          )}
+          {onReply && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onReply(); }}
+              className="p-1 rounded hover:bg-bg-hover text-text-secondary hover:text-text-primary transition-colors"
+              title={t("actionBar.reply")}
+            >
+              <Reply size={13} />
+            </button>
+          )}
+          {onForward && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onForward(); }}
+              className="p-1 rounded hover:bg-bg-hover text-text-secondary hover:text-text-primary transition-colors"
+              title={t("actionBar.forward")}
+            >
+              <Forward size={13} />
+            </button>
+          )}
+          {onDelete && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onDelete(); }}
+              className="p-1 rounded hover:bg-danger/10 text-text-secondary hover:text-danger transition-colors"
+              title={t("actionBar.deleteMessage")}
+            >
+              <Trash2 size={13} />
+            </button>
+          )}
+        </div>
+      )}
+      </div>
 
       {/* Body — shown when expanded and image setting resolved */}
       {expanded && (
