@@ -957,6 +957,10 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
     );
     const orphanThreadCount = await purgeOrphanPlaceholderThreads(accountId).catch(() => 0);
     if (orphanThreadCount > 0) console.log(`[imapSync] Purged ${orphanThreadCount} orphan placeholder thread(s) for ${accountId}`);
+    const fragmentCount = await reconcileFragmentedThreads(accountId).catch((err) =>
+      (console.error(`[imapSync] reconcileFragmentedThreads error:`, err), 0),
+    );
+    if (fragmentCount > 0) console.log(`[imapSync] Repaired ${fragmentCount} fragmented thread(s) for ${accountId}`);
     await pruneDeletedImapUids().catch(() => {});
   }
 
@@ -1355,6 +1359,159 @@ async function reconcileOrphanMessages(accountId: string): Promise<void> {
   } catch (err) {
     console.error(`[imapSync] reconcileOrphanMessages failed:`, err);
   }
+}
+
+/**
+ * Detect and repair fragmented threads: conversations split across multiple DB thread
+ * records that JWZ would unify if run on the complete message set.
+ *
+ * Fragmentation happens when messages in the same conversation arrive in different
+ * delta-sync cycles (out-of-order delivery, cross-folder copies, etc.) and the
+ * per-cycle JWZ pass couldn't link them at the time they were stored.
+ *
+ * This function loads all message threading headers from the DB, re-runs the full
+ * JWZ algorithm on the complete set, and merges any groups whose messages are
+ * currently spread across more than one thread_id.
+ */
+async function reconcileFragmentedThreads(accountId: string): Promise<number> {
+  const { getDb } = await import("../db/connection");
+  const db = await getDb();
+  const account = await getAccount(accountId);
+  if (!account) return 0;
+
+  type MsgRow = {
+    id: string;
+    message_id_header: string | null;
+    in_reply_to_header: string | null;
+    references_header: string | null;
+    subject: string | null;
+    date: number;
+    thread_id: string;
+    snippet: string | null;
+    is_read: number;
+    is_starred: number;
+    has_attachments: number;
+  };
+
+  const rows = await db.select<MsgRow[]>(
+    `SELECT id, message_id_header, in_reply_to_header, references_header,
+            subject, date, thread_id, snippet, is_read, is_starred, has_attachments
+     FROM messages
+     WHERE account_id = $1
+     ORDER BY date ASC`,
+    [accountId],
+  );
+
+  if (rows.length === 0) return 0;
+
+  const threadable: ThreadableMessage[] = rows.map((r) => ({
+    id: r.id,
+    messageId: r.message_id_header ?? `synthetic-${r.id}@velo.local`,
+    inReplyTo: r.in_reply_to_header,
+    references: r.references_header,
+    subject: r.subject,
+    date: r.date,
+  }));
+
+  const newGroups = buildThreads(threadable);
+
+  // Detect groups where messages are currently spread across more than one thread_id
+  const currentThreadById = new Map(rows.map((r) => [r.id, r.thread_id]));
+  const changedGroups: ThreadGroup[] = [];
+
+  for (const group of newGroups) {
+    const currentIds = new Set(
+      group.messageIds.map((id) => currentThreadById.get(id)).filter(Boolean),
+    );
+    if (currentIds.size <= 1) continue; // already unified
+    changedGroups.push(group);
+  }
+
+  if (changedGroups.length === 0) return 0;
+
+  // Load thread_labels for all fragment threads so we can merge their label sets
+  const involvedThreadIds = new Set<string>();
+  for (const group of changedGroups) {
+    for (const msgId of group.messageIds) {
+      const tid = currentThreadById.get(msgId);
+      if (tid) involvedThreadIds.add(tid);
+    }
+  }
+
+  const threadLabelMap = new Map<string, Set<string>>();
+  {
+    const ids = [...involvedThreadIds];
+    const CHUNK = 500;
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const chunk = ids.slice(i, i + CHUNK);
+      const ph = chunk.map((_, j) => `$${j + 2}`).join(",");
+      const labelRows = await db.select<{ thread_id: string; label_id: string }[]>(
+        `SELECT thread_id, label_id FROM thread_labels WHERE account_id = $1 AND thread_id IN (${ph})`,
+        [accountId, ...chunk],
+      );
+      for (const row of labelRows) {
+        let set = threadLabelMap.get(row.thread_id);
+        if (!set) { set = new Set(); threadLabelMap.set(row.thread_id, set); }
+        set.add(row.label_id);
+      }
+    }
+  }
+
+  const rowById = new Map(rows.map((r) => [r.id, r]));
+  const updates: ImapThreadUpdate[] = [];
+  const allOldThreadIds = new Set<string>();
+
+  for (const group of changedGroups) {
+    const msgs = group.messageIds
+      .map((id) => rowById.get(id))
+      .filter((r): r is MsgRow => r !== undefined);
+    msgs.sort((a, b) => a.date - b.date);
+    if (msgs.length === 0) continue;
+
+    const first = msgs[0]!;
+    const last = msgs[msgs.length - 1]!;
+
+    // Union labels from all fragment threads, then reconcile pseudo-labels
+    const mergedLabels = new Set<string>();
+    for (const msgId of group.messageIds) {
+      const oldTid = currentThreadById.get(msgId);
+      if (oldTid) {
+        allOldThreadIds.add(oldTid);
+        const labels = threadLabelMap.get(oldTid);
+        if (labels) for (const l of labels) mergedLabels.add(l);
+      }
+    }
+
+    const allRead = msgs.every((m) => m.is_read === 1);
+    if (allRead) mergedLabels.delete("UNREAD");
+    else mergedLabels.add("UNREAD");
+
+    const anyStarred = msgs.some((m) => m.is_starred === 1);
+    if (anyStarred) mergedLabels.add("STARRED");
+    else mergedLabels.delete("STARRED");
+
+    updates.push({
+      thread_id: group.threadId,
+      message_ids: group.messageIds,
+      subject: first.subject,
+      snippet: last.snippet,
+      last_message_at: last.date,
+      is_read: allRead,
+      is_starred: anyStarred,
+      has_attachments: msgs.some((m) => m.has_attachments === 1),
+      label_ids: [...mergedLabels],
+    });
+  }
+
+  if (updates.length === 0) return 0;
+
+  console.log(`[imapSync] reconcileFragmentedThreads: merging ${changedGroups.length} fragmented thread(s) for ${accountId}`);
+
+  // Pass old thread IDs as all_local_ids — imap_store_threads will delete any that
+  // become empty after messages are remapped to the new unified thread_id.
+  await imapStoreThreads(accountId, updates, [...allOldThreadIds]);
+
+  return changedGroups.length;
 }
 
 /** Accumulate cross-folder label data from a batch of headers. */
