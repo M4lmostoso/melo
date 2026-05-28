@@ -33,6 +33,7 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
   const openComposer = useComposerStore((s) => s.openComposer);
   const activeLabel = useActiveLabel();
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
+  const viewingAccountId = useAccountStore((s) => s.viewingAccountId);
   const [templates, setTemplates] = useState<DbTemplate[]>([]);
 
   useEffect(() => {
@@ -51,7 +52,7 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
     { id: "go-all", label: t("search.commandPalette.goToAllMail"), category: t("search.commandPalette.catNavigation"), action: () => { navigateToLabel("all"); onClose(); } },
 
     // Actions
-    { id: "compose", label: t("search.commandPalette.composeNew"), shortcut: "c", category: t("search.commandPalette.catActions"), action: () => { openComposer(); onClose(); } },
+    { id: "compose", label: t("search.commandPalette.composeNew"), shortcut: "c", category: t("search.commandPalette.catActions"), action: () => { const acct = activeAccountId ?? viewingAccountId; openComposer(acct ? { accountId: acct } : undefined); onClose(); } },
     { id: "deselect", label: t("search.commandPalette.closeThread"), shortcut: "Esc", category: t("search.commandPalette.catActions"), action: () => { navigateBack(); onClose(); } },
     { id: "spam", label: activeLabel === "spam" ? t("search.commandPalette.notSpam") : t("search.commandPalette.reportSpam"), shortcut: "!", category: t("search.commandPalette.catActions"), action: async () => {
       onClose();
@@ -110,7 +111,7 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
         onClose();
       },
     })),
-  ], [onClose, openComposer, activeLabel, toggleSidebar, setTheme, templates]);
+  ], [onClose, openComposer, activeAccountId, viewingAccountId, activeLabel, toggleSidebar, setTheme, templates]);
 
   const filtered = query
     ? commands.filter(

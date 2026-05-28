@@ -74,9 +74,10 @@ export function SmartReplySuggestions({ threadId, accountId, messages, noReply }
       subject: `Re: ${lastMessage.subject ?? ""}`,
       bodyHtml: `<p>${replyText}</p>`,
       threadId: lastMessage.thread_id,
-      inReplyToMessageId: lastMessage.id,
+      inReplyToMessageId: lastMessage.message_id_header ?? lastMessage.id,
+      accountId,
     });
-  }, [messages, openComposer]);
+  }, [messages, openComposer, accountId]);
 
   if (!available || messages.length === 0 || noReply) return null;
 
