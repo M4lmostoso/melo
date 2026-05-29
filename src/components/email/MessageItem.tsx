@@ -6,7 +6,7 @@ import { AttachmentList, getAttachmentsForMessage } from "./AttachmentList";
 import { CalendarInviteWidget } from "./CalendarInviteWidget";
 import type { DbMessage } from "@/services/db/messages";
 import type { DbAttachment } from "@/services/db/attachments";
-import { MailMinus, Reply, ReplyAll, Forward, Trash2 } from "lucide-react";
+import { MailMinus, Reply, ReplyAll, Forward, Trash2, Paperclip } from "lucide-react";
 import { AuthBadge } from "./AuthBadge";
 import { AuthWarningBanner } from "./AuthWarningBanner";
 import { isCalendarInvite } from "@/utils/fileTypeHelpers";
@@ -284,9 +284,16 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
                 )}
               </div>
             </div>
-            <span className={`text-xs text-text-tertiary whitespace-nowrap shrink-0 ml-2 ${hasActions ? "group-hover:invisible" : ""}`}>
-              {formatFullDate(message.date)}
-            </span>
+            <div className={`flex items-center gap-1.5 shrink-0 ml-2 ${hasActions ? "group-hover:invisible" : ""}`}>
+              {!expanded && !!message.has_attachments && (
+                <span className="text-text-tertiary" title={t("threadCard.hasAttachments")}>
+                  <Paperclip size={12} />
+                </span>
+              )}
+              <span className="text-xs text-text-tertiary whitespace-nowrap">
+                {formatFullDate(message.date)}
+              </span>
+            </div>
           </div>
         {expanded && (
           <div className="mt-1 text-xs text-text-tertiary space-y-0.5">

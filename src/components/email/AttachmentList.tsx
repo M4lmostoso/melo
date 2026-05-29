@@ -100,11 +100,13 @@ export function AttachmentPreview({
 
   const isPreviewable = canPreview(attachment.mime_type, attachment.filename);
 
+  const attachmentId = attachment.gmail_attachment_id ?? attachment.imap_part_id;
+
   const fetchData = useCallback(async (): Promise<Uint8Array> => {
     if (bytesRef.current) return bytesRef.current;
 
     const provider = await getEmailProvider(accountId);
-    const response = await provider.fetchAttachment(messageId, attachment.gmail_attachment_id!);
+    const response = await provider.fetchAttachment(messageId, attachmentId!);
 
     // Normalize URL-safe base64 (Gmail API) to standard base64
     const base64 = response.data.replace(/-/g, "+").replace(/_/g, "/");
@@ -115,10 +117,10 @@ export function AttachmentPreview({
     }
     bytesRef.current = bytes;
     return bytes;
-  }, [accountId, messageId, attachment.gmail_attachment_id]);
+  }, [accountId, messageId, attachmentId]);
 
   const handlePreviewLoad = useCallback(async () => {
-    if (!attachment.gmail_attachment_id || !isPreviewable || blobUrl) return;
+    if (!attachmentId || !isPreviewable || blobUrl) return;
 
     setLoading(true);
     try {
@@ -144,7 +146,7 @@ export function AttachmentPreview({
   }, [isPreviewable, blobUrl, loading, error, handlePreviewLoad]);
 
   const handleDownload = async () => {
-    if (!attachment.gmail_attachment_id || saving) return;
+    if (!attachmentId || saving) return;
 
     setSaving(true);
     try {

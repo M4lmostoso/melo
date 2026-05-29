@@ -1117,6 +1117,11 @@ const MIGRATIONS = [
                 AND l.id = 'TRASH'
             );`,
   },
+  {
+    version: 55,
+    description: "Add index to speed up attachment inline/CID filtering",
+    sql: `CREATE INDEX IF NOT EXISTS idx_attachments_inline_cid ON attachments(message_id, is_inline, content_id);`,
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -1208,6 +1213,34 @@ export async function repairMojibakeData(): Promise<void> {
 }
 
 /**
+ * One-shot repair: recalculate has_attachments on all threads excluding inline
+ * and CID embedded images. Tracked in settings so it runs only once.
+ * Call this fire-and-forget after startup — it must NOT block the splash screen.
+ */
+export async function repairHasAttachmentsFlags(): Promise<void> {
+  const { getSetting, setSetting } = await import('./settings');
+  const already = await getSetting('has_attachments_repair_v1');
+  if (already === '1') return;
+
+  const db = await getDb();
+  await db.execute(
+    `UPDATE threads
+     SET has_attachments = CASE
+       WHEN EXISTS (
+         SELECT 1 FROM attachments a
+         JOIN messages m ON a.message_id = m.id
+         WHERE m.account_id = threads.account_id
+           AND m.thread_id = threads.id
+           AND m.is_trashed = 0
+           AND a.is_inline = 0
+           AND a.content_id IS NULL
+       ) THEN 1 ELSE 0 END`,
+  );
+  await setSetting('has_attachments_repair_v1', '1');
+  console.log('[migrations] has_attachments repair done');
+}
+
+/**
  * Split a SQL string into individual statements, correctly handling
  * BEGIN...END blocks (e.g. inside CREATE TRIGGER) that contain semicolons.
  */
@@ -1252,7 +1285,16 @@ function splitStatements(sql: string): string[] {
   return statements;
 }
 
-export async function runMigrations(): Promise<void> {
+let _migrationPromise: Promise<void> | null = null;
+
+export function runMigrations(): Promise<void> {
+  if (!_migrationPromise) {
+    _migrationPromise = _runMigrations();
+  }
+  return _migrationPromise;
+}
+
+async function _runMigrations(): Promise<void> {
   const db = await getDb();
 
   // Ensure migrations table exists

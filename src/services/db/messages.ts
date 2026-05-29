@@ -29,6 +29,7 @@ export interface DbMessage {
   imap_uid: number | null;
   imap_folder: string | null;
   is_draft: number;
+  has_attachments: number;
 }
 
 export async function getMessagesForThread(
@@ -37,7 +38,9 @@ export async function getMessagesForThread(
 ): Promise<DbMessage[]> {
   const db = await getDb();
   return db.select<DbMessage[]>(
-    "SELECT * FROM messages WHERE account_id = $1 AND thread_id = $2 AND is_draft = 0 AND is_trashed = 0 ORDER BY date ASC",
+    `SELECT m.*,
+       (SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END FROM attachments WHERE message_id = m.id AND is_inline = 0) AS has_attachments
+     FROM messages m WHERE m.account_id = $1 AND m.thread_id = $2 AND m.is_draft = 0 AND m.is_trashed = 0 ORDER BY m.date ASC`,
     [accountId, threadId],
   );
 }
@@ -50,12 +53,13 @@ export async function getMessagesMetaForThread(
 ): Promise<DbMessage[]> {
   const db = await getDb();
   const rows = await db.select<Omit<DbMessage, "body_html" | "body_text">[]>(
-    `SELECT id, account_id, thread_id, from_address, from_name, to_addresses,
-     cc_addresses, bcc_addresses, reply_to, subject, snippet, date, is_read,
-     is_starred, body_cached, raw_size, internal_date, list_unsubscribe,
-     list_unsubscribe_post, auth_results, message_id_header, references_header,
-     in_reply_to_header, imap_uid, imap_folder
-     FROM messages WHERE account_id = $1 AND thread_id = $2 AND is_draft = 0 AND is_trashed = 0 ORDER BY date ASC`,
+    `SELECT m.id, m.account_id, m.thread_id, m.from_address, m.from_name, m.to_addresses,
+     m.cc_addresses, m.bcc_addresses, m.reply_to, m.subject, m.snippet, m.date, m.is_read,
+     m.is_starred, m.body_cached, m.raw_size, m.internal_date, m.list_unsubscribe,
+     m.list_unsubscribe_post, m.auth_results, m.message_id_header, m.references_header,
+     m.in_reply_to_header, m.imap_uid, m.imap_folder,
+     (SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END FROM attachments WHERE message_id = m.id AND is_inline = 0) AS has_attachments
+     FROM messages m WHERE m.account_id = $1 AND m.thread_id = $2 AND m.is_draft = 0 AND m.is_trashed = 0 ORDER BY m.date ASC`,
     [accountId, threadId],
   );
   return rows.map((r) => ({ ...r, body_html: null, body_text: null, is_draft: 0 }));
@@ -76,12 +80,13 @@ export async function getMessagesByIds(
     const chunk = messageIds.slice(i, i + 500);
     const placeholders = chunk.map((_, idx) => `$${idx + 2}`).join(", ");
     const rows = await db.select<Omit<DbMessage, "body_html" | "body_text">[]>(
-      `SELECT id, account_id, thread_id, from_address, from_name, to_addresses,
-       cc_addresses, bcc_addresses, reply_to, subject, snippet, date, is_read,
-       is_starred, body_cached, raw_size, internal_date, list_unsubscribe,
-       list_unsubscribe_post, auth_results, message_id_header, references_header,
-       in_reply_to_header, imap_uid, imap_folder
-       FROM messages WHERE account_id = $1 AND id IN (${placeholders})`,
+      `SELECT m.id, m.account_id, m.thread_id, m.from_address, m.from_name, m.to_addresses,
+       m.cc_addresses, m.bcc_addresses, m.reply_to, m.subject, m.snippet, m.date, m.is_read,
+       m.is_starred, m.body_cached, m.raw_size, m.internal_date, m.list_unsubscribe,
+       m.list_unsubscribe_post, m.auth_results, m.message_id_header, m.references_header,
+       m.in_reply_to_header, m.imap_uid, m.imap_folder,
+       (SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END FROM attachments WHERE message_id = m.id AND is_inline = 0) AS has_attachments
+       FROM messages m WHERE m.account_id = $1 AND m.id IN (${placeholders})`,
       [accountId, ...chunk],
     );
     results.push(...rows.map((r) => ({ ...r, body_html: null, body_text: null })));

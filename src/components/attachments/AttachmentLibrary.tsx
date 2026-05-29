@@ -156,7 +156,8 @@ export function AttachmentLibrary() {
   }, [attachments, searchQuery, typeFilter, senderFilter, dateFilter, sizeFilter]);
 
   const handleDownload = useCallback(async (att: AttachmentWithContext) => {
-    if (!att.gmail_attachment_id || !accountId) return;
+    const attachmentId = att.gmail_attachment_id ?? att.imap_part_id;
+    if (!attachmentId || !accountId) return;
     try {
       const filePath = await save({
         defaultPath: att.filename ?? "attachment",
@@ -165,7 +166,7 @@ export function AttachmentLibrary() {
       if (!filePath) return;
 
       const provider = await getEmailProvider(accountId);
-      const response = await provider.fetchAttachment(att.message_id, att.gmail_attachment_id);
+      const response = await provider.fetchAttachment(att.message_id, attachmentId);
       const base64 = response.data.replace(/-/g, "+").replace(/_/g, "/");
       const binaryStr = atob(base64);
       const bytes = new Uint8Array(binaryStr.length);

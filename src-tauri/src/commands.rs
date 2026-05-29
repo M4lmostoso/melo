@@ -982,6 +982,7 @@ pub async fn imap_fetch_and_store(
         let snippet = msg.snippet.unwrap_or_default();
         let has_attachments = msg.attachments.iter().any(|a| {
             !a.is_inline
+                && a.content_id.is_none()
                 && !matches!(
                     a.mime_type.as_str(),
                     "application/pkcs7-signature"

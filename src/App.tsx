@@ -9,7 +9,7 @@ import { AskInbox } from "./components/search/AskInbox";
 import { useUIStore } from "./stores/uiStore";
 import { useAccountStore } from "./stores/accountStore";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
-import { runMigrations, repairMojibakeData } from "./services/db/migrations";
+import { runMigrations, repairMojibakeData, repairHasAttachmentsFlags } from "./services/db/migrations";
 import { getAllAccounts } from "./services/db/accounts";
 import { getSetting, deleteSetting } from "./services/db/settings";
 import { setLocale } from "./i18n";
@@ -729,6 +729,9 @@ export default function App() {
       }
       setInitialized(true);
       invoke("close_splashscreen").catch(() => {});
+      repairHasAttachmentsFlags().catch((err) =>
+        console.error("[repair] has_attachments flags:", err),
+      );
     }
 
     init();

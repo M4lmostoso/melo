@@ -79,6 +79,7 @@ export async function getAttachmentsForAccount(
      FROM attachments a
      JOIN messages m ON a.message_id = m.id AND a.account_id = m.account_id
      WHERE a.account_id = $1 AND a.filename IS NOT NULL AND a.filename != ''
+       AND a.is_inline = 0 AND a.content_id IS NULL
      ORDER BY m.date DESC
      LIMIT $2 OFFSET $3`,
     [accountId, limit, offset],
@@ -100,6 +101,7 @@ export async function getAttachmentSenders(
      FROM attachments a
      JOIN messages m ON a.message_id = m.id AND a.account_id = m.account_id
      WHERE a.account_id = $1 AND a.filename IS NOT NULL AND a.filename != ''
+       AND a.is_inline = 0 AND a.content_id IS NULL
        AND m.from_address IS NOT NULL
      GROUP BY m.from_address
      ORDER BY count DESC`,
