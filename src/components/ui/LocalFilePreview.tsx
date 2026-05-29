@@ -3,7 +3,8 @@ import { Download, Eye } from "lucide-react";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeFile } from "@tauri-apps/plugin-fs";
 import { Modal } from "./Modal";
-import { isImage, isPdf, isText, canPreview, getFileIcon, formatFileSize } from "@/utils/fileTypeHelpers";
+import { isImage, isPdf, isText, isOfficeDoc, isOfficeSpreadsheet, canPreview, getFileIcon, formatFileSize } from "@/utils/fileTypeHelpers";
+import { OfficeDocPreview } from "./OfficeDocPreview";
 import { t } from "@/i18n";
 
 interface LocalFilePreviewProps {
@@ -13,16 +14,23 @@ interface LocalFilePreviewProps {
 
 export function LocalFilePreview({ file, onClose }: LocalFilePreviewProps) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [fileBytes, setFileBytes] = useState<Uint8Array | null>(null);
   const [saving, setSaving] = useState(false);
 
   const previewable = canPreview(file.type || null, file.name);
+  const isOffice = isOfficeDoc(file.type || null, file.name) || isOfficeSpreadsheet(file.type || null, file.name);
 
   useEffect(() => {
-    if (!previewable) return;
+    if (!previewable || isOffice) return;
     const url = URL.createObjectURL(file);
     setBlobUrl(url);
     return () => URL.revokeObjectURL(url);
-  }, [file, previewable]);
+  }, [file, previewable, isOffice]);
+
+  useEffect(() => {
+    if (!isOffice) return;
+    file.arrayBuffer().then((buf) => setFileBytes(new Uint8Array(buf)));
+  }, [file, isOffice]);
 
   const handleDownload = useCallback(async () => {
     if (saving) return;
@@ -100,6 +108,9 @@ export function LocalFilePreview({ file, onClose }: LocalFilePreviewProps) {
         )}
         {blobUrl && isText(file.type) && (
           <TextPreview url={blobUrl} />
+        )}
+        {isOffice && fileBytes && (
+          <OfficeDocPreview bytes={fileBytes} mimeType={file.type || null} filename={file.name} />
         )}
         {!previewable && (
           <div className="flex flex-col items-center gap-3 text-text-tertiary">

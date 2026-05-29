@@ -19,8 +19,25 @@ export function isText(mimeType: string | null): boolean {
   return mimeType.startsWith("text/") || mimeType === "application/json" || mimeType === "application/xml";
 }
 
+export function isOfficeDoc(mimeType: string | null, filename?: string | null): boolean {
+  if (mimeType) {
+    if (mimeType.includes("wordprocessingml") || mimeType.includes("msword")) return true;
+  }
+  const ext = filename?.toLowerCase();
+  return ext?.endsWith(".docx") || ext?.endsWith(".doc") || false;
+}
+
+export function isOfficeSpreadsheet(mimeType: string | null, filename?: string | null): boolean {
+  if (mimeType) {
+    if (mimeType.includes("spreadsheetml") || mimeType.includes("excel") || mimeType.includes("opendocument.spreadsheet")) return true;
+    if (mimeType === "text/csv") return true;
+  }
+  const ext = filename?.toLowerCase();
+  return ext?.endsWith(".xlsx") || ext?.endsWith(".xls") || ext?.endsWith(".ods") || ext?.endsWith(".csv") || false;
+}
+
 export function canPreview(mimeType: string | null, filename: string | null): boolean {
-  return isImage(mimeType) || isPdf(mimeType, filename) || isText(mimeType);
+  return isImage(mimeType) || isPdf(mimeType, filename) || isText(mimeType) || isOfficeDoc(mimeType, filename) || isOfficeSpreadsheet(mimeType, filename);
 }
 
 export function isDocument(mimeType: string | null, filename?: string | null): boolean {

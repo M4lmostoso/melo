@@ -6,7 +6,8 @@ import { getEmailProvider } from "@/services/email/providerFactory";
 import { Modal } from "@/components/ui/Modal";
 import { Download, Eye } from "lucide-react";
 import { t } from "@/i18n";
-import { formatFileSize, isImage, isPdf, isText, canPreview, getFileIcon } from "@/utils/fileTypeHelpers";
+import { formatFileSize, isImage, isPdf, isText, isOfficeDoc, isOfficeSpreadsheet, canPreview, getFileIcon } from "@/utils/fileTypeHelpers";
+import { OfficeDocPreview } from "@/components/ui/OfficeDocPreview";
 
 /** Dedup attachments by filename+size (content-based) */
 function dedup(attachments: DbAttachment[]): DbAttachment[] {
@@ -95,10 +96,12 @@ export function AttachmentPreview({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [previewBytes, setPreviewBytes] = useState<Uint8Array | null>(null);
   const [error, setError] = useState<string | null>(null);
   const bytesRef = useRef<Uint8Array | null>(null);
 
   const isPreviewable = canPreview(attachment.mime_type, attachment.filename);
+  const isOffice = isOfficeDoc(attachment.mime_type, attachment.filename) || isOfficeSpreadsheet(attachment.mime_type, attachment.filename);
 
   const attachmentId = attachment.gmail_attachment_id ?? attachment.imap_part_id;
 
@@ -120,30 +123,33 @@ export function AttachmentPreview({
   }, [accountId, messageId, attachmentId]);
 
   const handlePreviewLoad = useCallback(async () => {
-    if (!attachmentId || !isPreviewable || blobUrl) return;
+    if (!attachmentId || !isPreviewable || blobUrl || previewBytes) return;
 
     setLoading(true);
     try {
       const bytes = await fetchData();
-      const effectiveMime = isPdf(attachment.mime_type, attachment.filename)
-        ? "application/pdf"
-        : (attachment.mime_type ?? "application/octet-stream");
-      const blob = new Blob([bytes.buffer as ArrayBuffer], { type: effectiveMime });
-      setBlobUrl(URL.createObjectURL(blob));
+      if (isOffice) {
+        setPreviewBytes(bytes);
+      } else {
+        const effectiveMime = isPdf(attachment.mime_type, attachment.filename)
+          ? "application/pdf"
+          : (attachment.mime_type ?? "application/octet-stream");
+        const blob = new Blob([bytes.buffer as ArrayBuffer], { type: effectiveMime });
+        setBlobUrl(URL.createObjectURL(blob));
+      }
     } catch (err) {
       console.error("Failed to load preview:", err);
       setError("Failed to load preview");
     } finally {
       setLoading(false);
     }
-  }, [attachment, isPreviewable, blobUrl, fetchData]);
+  }, [attachment, isPreviewable, isOffice, blobUrl, previewBytes, fetchData]);
 
-  // Trigger preview load for previewable types
   useEffect(() => {
-    if (isPreviewable && !blobUrl && !loading && !error) {
+    if (isPreviewable && !blobUrl && !previewBytes && !loading && !error) {
       handlePreviewLoad();
     }
-  }, [isPreviewable, blobUrl, loading, error, handlePreviewLoad]);
+  }, [isPreviewable, blobUrl, previewBytes, loading, error, handlePreviewLoad]);
 
   const handleDownload = async () => {
     if (!attachmentId || saving) return;
@@ -239,6 +245,9 @@ export function AttachmentPreview({
         )}
         {!loading && !error && blobUrl && isText(attachment.mime_type) && (
           <TextPreview url={blobUrl} />
+        )}
+        {!loading && !error && previewBytes && (
+          <OfficeDocPreview bytes={previewBytes} mimeType={attachment.mime_type} filename={attachment.filename ?? null} />
         )}
         {!isPreviewable && !loading && (
           <div className="flex flex-col items-center gap-3 text-text-tertiary">

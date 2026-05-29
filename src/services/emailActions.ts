@@ -238,6 +238,14 @@ async function applyLocalDbUpdate(
         "INSERT OR IGNORE INTO thread_labels (account_id, thread_id, label_id) VALUES ($1, $2, 'TRASH')",
         [accountId, action.threadId],
       );
+      await db.execute(
+        "UPDATE threads SET is_read = 1 WHERE account_id = $1 AND id = $2",
+        [accountId, action.threadId],
+      );
+      await db.execute(
+        "UPDATE messages SET is_read = 1 WHERE account_id = $1 AND thread_id = $2",
+        [accountId, action.threadId],
+      );
       break;
     case "permanentDelete":
       await db.execute(
@@ -320,8 +328,11 @@ async function executeViaProvider(
   switch (action.type) {
     case "archive":
       return provider.archive(action.threadId, action.messageIds);
-    case "trash":
-      return provider.trash(action.threadId, action.messageIds);
+    case "trash": {
+      await provider.trash(action.threadId, action.messageIds);
+      provider.markRead(action.threadId, action.messageIds, true).catch(() => {});
+      return;
+    }
     case "permanentDelete":
       return provider.permanentDelete(action.threadId, action.messageIds);
     case "markRead":

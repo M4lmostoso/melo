@@ -11,6 +11,7 @@ import { useThreadStore, type Thread } from "@/stores/threadStore";
 import { useComposerStore } from "@/stores/composerStore";
 import { useContextMenuStore } from "@/stores/contextMenuStore";
 import { markThreadRead, deleteSingleMessage } from "@/services/emailActions";
+import { useActiveLabel } from "@/hooks/useRouteNavigation";
 import { getSetting } from "@/services/db/settings";
 import { getAllowlistedSenders } from "@/services/db/imageAllowlist";
 import { normalizeEmail } from "@/utils/emailUtils";
@@ -72,6 +73,8 @@ export function ThreadView({ thread }: ThreadViewProps) {
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
   // In global/unified view activeAccountId is null; fall back to the thread's own account.
   const threadAccountId = activeAccountId ?? thread.accountId;
+  const activeLabel = useActiveLabel();
+  const includeTrashed = activeLabel === "trash";
   const contactSidebarVisible = useUIStore((s) => s.contactSidebarVisible);
   const toggleContactSidebar = useUIStore((s) => s.toggleContactSidebar);
   const taskSidebarVisible = useUIStore((s) => s.taskSidebarVisible);
@@ -99,7 +102,7 @@ const updateThread = useThreadStore((s) => s.updateThread);
   // Load all messages for the thread immediately.
   useEffect(() => {
     setLoading(true);
-    getMessagesForThread(threadAccountId, thread.id)
+    getMessagesForThread(threadAccountId, thread.id, includeTrashed)
       .then((msgs) => {
         setMessages(msgs);
         if (storeSelectedMessageId && msgs.some((m) => m.id === storeSelectedMessageId)) {
@@ -498,7 +501,7 @@ const handlePrint = useCallback(async () => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail as { threadId: string };
       if (detail.threadId !== thread.id) return;
-      getMessagesForThread(threadAccountId, thread.id)
+      getMessagesForThread(threadAccountId, thread.id, includeTrashed)
         .then(setMessages)
         .catch(console.error);
     };
@@ -511,7 +514,7 @@ const handlePrint = useCallback(async () => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail as { messageId: string; threadId: string };
       if (detail.threadId !== thread.id) return;
-      getMessagesForThread(threadAccountId, thread.id)
+      getMessagesForThread(threadAccountId, thread.id, includeTrashed)
         .then((msgs) => {
           setMessages(msgs);
           setSelectedMessageId(null);
@@ -723,7 +726,7 @@ const handlePrint = useCallback(async () => {
             accountId={threadAccountId}
             noReply={noReply}
             onSent={() => {
-              getMessagesForThread(threadAccountId, thread.id)
+              getMessagesForThread(threadAccountId, thread.id, includeTrashed)
                 .then(setMessages)
                 .catch(console.error);
             }}

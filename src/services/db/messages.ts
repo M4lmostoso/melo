@@ -35,12 +35,14 @@ export interface DbMessage {
 export async function getMessagesForThread(
   accountId: string,
   threadId: string,
+  includeTrashed = false,
 ): Promise<DbMessage[]> {
   const db = await getDb();
+  const trashedFilter = includeTrashed ? "" : "AND m.is_trashed = 0";
   return db.select<DbMessage[]>(
     `SELECT m.*,
        (SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END FROM attachments WHERE message_id = m.id AND is_inline = 0) AS has_attachments
-     FROM messages m WHERE m.account_id = $1 AND m.thread_id = $2 AND m.is_draft = 0 AND m.is_trashed = 0 ORDER BY m.date ASC`,
+     FROM messages m WHERE m.account_id = $1 AND m.thread_id = $2 AND m.is_draft = 0 ${trashedFilter} ORDER BY m.date ASC`,
     [accountId, threadId],
   );
 }

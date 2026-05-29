@@ -16,6 +16,7 @@ import { getCategoriesForThreads, getCategoriesForThreadsGlobal, getCategoryUnre
 import { getActiveFollowUpThreadIds } from "@/services/db/followUpReminders";
 import { getBundleRules, getHeldThreadIds, getBundleSummaries, type DbBundleRule } from "@/services/db/bundleRules";
 import { getGmailClient } from "@/services/gmail/tokenManager";
+import { trashThread, permanentDeleteThread, archiveThread, spamThread } from "@/services/emailActions";
 import { useLabelStore } from "@/stores/labelStore";
 import { useSmartFolderStore } from "@/stores/smartFolderStore";
 import { DEFAULT_SMART_FOLDER_I18N_KEYS } from "@/services/db/smartFolders";
@@ -66,7 +67,6 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
   const isLoading = useThreadStore((s) => s.isLoading);
   const setThreads = useThreadStore((s) => s.setThreads);
   const setLoading = useThreadStore((s) => s.setLoading);
-  const removeThreads = useThreadStore((s) => s.removeThreads);
   const clearMultiSelect = useThreadStore((s) => s.clearMultiSelect);
   const selectAll = useThreadStore((s) => s.selectAll);
   const selectThread = useThreadStore((s) => s.selectThread);
@@ -185,52 +185,43 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
   }, [activeLabel, activeAccountId, setViewingAccountId, handleDraftClick]);
 
   const handleBulkDelete = async () => {
-    if (!activeAccountId || multiSelectCount === 0) return;
+    if (multiSelectCount === 0) return;
     const isTrashView = activeLabel === "trash";
     const ids = [...selectedThreadIds];
-    removeThreads(ids);
-    try {
-      const client = await getGmailClient(activeAccountId);
-      await Promise.all(ids.map(async (id) => {
-        if (isTrashView) {
-          await client.deleteThread(id);
-          await deleteThreadFromDb(activeAccountId, id);
-        } else {
-          await client.modifyThread(id, ["TRASH"], ["INBOX"]);
-        }
-      }));
-    } catch (err) {
-      console.error("Bulk delete failed:", err);
-    }
+    clearMultiSelect();
+    await Promise.all(ids.map(async (id) => {
+      const accountId = threadMap.get(id)?.accountId ?? activeAccountId;
+      if (!accountId) return;
+      if (isTrashView) {
+        await permanentDeleteThread(accountId, id, []);
+        await deleteThreadFromDb(accountId, id);
+      } else {
+        await trashThread(accountId, id, []);
+      }
+    }));
   };
 
   const handleBulkArchive = async () => {
-    if (!activeAccountId || multiSelectCount === 0) return;
+    if (multiSelectCount === 0) return;
     const ids = [...selectedThreadIds];
-    removeThreads(ids);
-    try {
-      const client = await getGmailClient(activeAccountId);
-      await Promise.all(ids.map((id) => client.modifyThread(id, undefined, ["INBOX"])));
-    } catch (err) {
-      console.error("Bulk archive failed:", err);
-    }
+    clearMultiSelect();
+    await Promise.all(ids.map(async (id) => {
+      const accountId = threadMap.get(id)?.accountId ?? activeAccountId;
+      if (!accountId) return;
+      await archiveThread(accountId, id, []);
+    }));
   };
 
   const handleBulkSpam = async () => {
-    if (!activeAccountId || multiSelectCount === 0) return;
+    if (multiSelectCount === 0) return;
     const ids = [...selectedThreadIds];
     const isSpamView = activeLabel === "spam";
-    removeThreads(ids);
-    try {
-      const client = await getGmailClient(activeAccountId);
-      await Promise.all(ids.map((id) =>
-        isSpamView
-          ? client.modifyThread(id, ["INBOX"], ["SPAM"])
-          : client.modifyThread(id, ["SPAM"], ["INBOX"]),
-      ));
-    } catch (err) {
-      console.error("Bulk spam failed:", err);
-    }
+    clearMultiSelect();
+    await Promise.all(ids.map(async (id) => {
+      const accountId = threadMap.get(id)?.accountId ?? activeAccountId;
+      if (!accountId) return;
+      await spamThread(accountId, id, [], !isSpamView);
+    }));
   };
 
   const searchResults = useThreadStore((s) => s.searchResults);
