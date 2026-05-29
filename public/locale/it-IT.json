@@ -1665,7 +1665,9 @@
       "noContent": "(nessun contenuto)",
       "tomorrowMorning": "Domani mattina",
       "tomorrowAfternoon": "Domani pomeriggio",
-      "mondayMorning": "Lunedì mattina"
+      "mondayMorning": "Lunedì mattina",
+      "todayAt": "Oggi alle {time}",
+      "tomorrowAt": "Domani alle {time}"
     }
   },
   "sidebar": {

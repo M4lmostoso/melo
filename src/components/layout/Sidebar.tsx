@@ -590,6 +590,24 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
     return () => window.removeEventListener("velo-badges-refresh", handler);
   }, [activeAccountId, refreshLabelUnreadCounts, refreshSmartFolderCounts, refreshGlobalUnreadCounts, refreshDraftCounts, refreshSmartFolderGlobalCounts]);
 
+  // Refresh scheduled badge immediately when a scheduled email is cancelled/edited,
+  // and periodically (every 60s) to catch emails sent automatically by scheduledSendManager.
+  useEffect(() => {
+    const allIds = useAccountStore.getState().accounts.map((a) => a.id);
+    const refresh = () => {
+      const ids = useAccountStore.getState().accounts.map((a) => a.id);
+      if (ids.length > 0) refreshScheduledCounts(ids).catch(() => {});
+    };
+    window.addEventListener("velo-scheduled-removed", refresh);
+    const interval = setInterval(refresh, 60_000);
+    // Immediate sync on mount to fix any stale count from previous sessions
+    if (allIds.length > 0) refreshScheduledCounts(allIds).catch(() => {});
+    return () => {
+      window.removeEventListener("velo-scheduled-removed", refresh);
+      clearInterval(interval);
+    };
+  }, [refreshScheduledCounts]);
+
   const handleDeleteLabel = useCallback(
     async (labelId: string) => {
       if (!activeAccountId) return;

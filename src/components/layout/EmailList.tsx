@@ -30,6 +30,7 @@ import { getDb } from "@/services/db/connection";
 import { Archive, Trash2, X, Ban, Filter, ChevronRight, Package, FolderSearch } from "lucide-react";
 import { EmptyState } from "../ui/EmptyState";
 import { OutgoingQueueView } from "./OutgoingQueueView";
+import { ScheduledEmailListView } from "./ScheduledEmailListView";
 import {
   InboxClearIllustration,
   NoSearchResultsIllustration,
@@ -865,8 +866,13 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
         <OutgoingQueueView accountId={activeAccountId} />
       )}
 
+      {/* Scheduled emails — replaces thread list for the "scheduled" label */}
+      {activeLabel === "scheduled" && (
+        <ScheduledEmailListView accountId={activeAccountId} />
+      )}
+
       {/* Thread list */}
-      <div ref={scrollContainerRef} className={`flex-1 overflow-y-auto ${activeLabel === "outgoing" ? "hidden" : ""}`}>
+      <div ref={scrollContainerRef} className={`flex-1 overflow-y-auto ${activeLabel === "outgoing" || activeLabel === "scheduled" ? "hidden" : ""}`}>
         {(isLoading && threads.length === 0) || (searchLoading && !isSearchActive) ? (
           <EmailListSkeleton />
         ) : filteredThreads.length === 0 && (isSearchActive || bundleRules.length === 0) ? (

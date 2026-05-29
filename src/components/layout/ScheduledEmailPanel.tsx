@@ -80,8 +80,8 @@ function formatScheduledAt(unixSeconds: number): string {
     minute: "2-digit",
   });
 
-  if (isToday) return `Today at ${timeStr}`;
-  if (isTomorrow) return `Tomorrow at ${timeStr}`;
+  if (isToday) return t("layout.scheduledPanel.todayAt", { time: timeStr });
+  if (isTomorrow) return t("layout.scheduledPanel.tomorrowAt", { time: timeStr });
 
   return (
     date.toLocaleDateString(undefined, {

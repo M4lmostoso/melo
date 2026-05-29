@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { setSetting } from "@/services/db/settings";
 import { DEFAULT_COLOR_THEME, type ColorThemeId } from "@/constants/themes";
+import type { DbScheduledEmail } from "@/services/db/scheduledEmails";
 
 type Theme = "light" | "dark" | "system";
 type ReadingPanePosition = "right" | "bottom" | "hidden";
@@ -89,6 +90,8 @@ interface UIState {
   setPendingOpsCount: (count: number) => void;
   setSyncingFolder: (folder: string | null) => void;
   setAccountSyncPhase: (accountId: string, phase: AccountSyncPhase, error?: string) => void;
+  selectedScheduledEmail: DbScheduledEmail | null;
+  setSelectedScheduledEmail: (email: DbScheduledEmail | null) => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -114,6 +117,7 @@ export const useUIStore = create<UIState>((set) => ({
   pendingOpsCount: 0,
   isSyncingFolder: null,
   accountSyncStatuses: {},
+  selectedScheduledEmail: null,
 
   setTheme: (theme) => set({ theme }),
   toggleSidebar: () =>
@@ -200,6 +204,7 @@ export const useUIStore = create<UIState>((set) => ({
   setOnline: (isOnline) => set({ isOnline }),
   setPendingOpsCount: (pendingOpsCount) => set({ pendingOpsCount }),
   setSyncingFolder: (isSyncingFolder) => set({ isSyncingFolder }),
+  setSelectedScheduledEmail: (selectedScheduledEmail) => set({ selectedScheduledEmail }),
   setAccountSyncPhase: (accountId, phase, error) =>
     set((state) => ({
       accountSyncStatuses: {
