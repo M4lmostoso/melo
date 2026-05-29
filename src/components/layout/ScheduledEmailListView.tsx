@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { Clock, Trash2 } from "lucide-react";
+import { Clock, Trash2, Paperclip } from "lucide-react";
 import {
   getScheduledEmailsByAccounts,
   getScheduledEmailsForAccount,
@@ -75,8 +75,13 @@ function ScheduledItem({
         <div className="text-xs text-text-tertiary truncate">
           {t("layout.scheduledPanel.labelTo")}: {recipients.join(", ")}
         </div>
-        <div className="text-xs text-accent mt-0.5">
-          {formatScheduledAt(email.scheduled_at)}
+        <div className="flex items-center gap-2 mt-0.5">
+          <span className="text-xs text-accent">
+            {formatScheduledAt(email.scheduled_at)}
+          </span>
+          {email.attachment_paths && (
+            <Paperclip size={11} className="text-text-tertiary shrink-0" />
+          )}
         </div>
       </div>
 
@@ -164,13 +169,6 @@ export function ScheduledEmailListView({ accountId }: ScheduledEmailListViewProp
 
   return (
     <div className="flex-1 overflow-y-auto">
-      <div className="px-4 py-2 flex items-center gap-2 border-b border-border-primary">
-        <Clock size={14} className="text-accent" />
-        <span className="text-xs font-medium text-text-secondary uppercase tracking-wider">
-          {t("sidebar.nav.scheduled")}
-        </span>
-        <span className="ml-auto text-xs text-text-tertiary">{emails.length}</span>
-      </div>
       {emails.map((email) => (
         <ScheduledItem
           key={email.id}

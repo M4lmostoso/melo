@@ -801,6 +801,7 @@
     "sending": "Invio...",
     "schedule": "Programma",
     "scheduledFor": "Programmato per",
+    "scheduledForAt": "Programmata per {date} alle {time}",
     "cancelScheduledSend": "Annulla invio programmato",
     "subjectOptional": "Oggetto (opzionale)",
     "selectAccount": "Seleziona account",
@@ -1551,6 +1552,8 @@
       "smartFolder": "Cartella smart",
       "conversations": "{count} conversazione",
       "conversationsPlural": "{count} conversazioni",
+      "scheduledMail": "{count} mail programmata",
+      "scheduledMailPlural": "{count} mail programmate",
       "emptyInbox": {
         "title": "Sei in pari",
         "subtitle": "Nessuna nuova conversazione"

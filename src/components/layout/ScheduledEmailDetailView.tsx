@@ -1,5 +1,6 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { Clock, Edit2, RotateCcw, Trash2 } from "lucide-react";
+import { getFileIcon, formatFileSize } from "@/utils/fileTypeHelpers";
 import { useUIStore } from "@/stores/uiStore";
 import { useComposerStore } from "@/stores/composerStore";
 import { useLabelStore } from "@/stores/labelStore";
@@ -7,45 +8,8 @@ import { useAccountStore } from "@/stores/accountStore";
 import { updateScheduledEmailStatus, updateScheduledTime } from "@/services/db/scheduledEmails";
 import { sanitizeHtml } from "@/utils/sanitize";
 import { DateTimePickerDialog } from "@/components/ui/DateTimePickerDialog";
+import { getSchedulePresets } from "@/utils/schedulePresets";
 import { t } from "@/i18n";
-
-function getSchedulePresets() {
-  const now = new Date();
-
-  const tomorrowMorning = new Date(now);
-  tomorrowMorning.setDate(tomorrowMorning.getDate() + 1);
-  tomorrowMorning.setHours(9, 0, 0, 0);
-
-  const tomorrowAfternoon = new Date(now);
-  tomorrowAfternoon.setDate(tomorrowAfternoon.getDate() + 1);
-  tomorrowAfternoon.setHours(13, 0, 0, 0);
-
-  const monday = new Date(now);
-  const daysUntilMonday = (1 - monday.getDay() + 7) % 7 || 7;
-  monday.setDate(monday.getDate() + daysUntilMonday);
-  monday.setHours(9, 0, 0, 0);
-
-  return [
-    {
-      label: t("layout.scheduledPanel.tomorrowMorning"),
-      detail:
-        tomorrowMorning.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }) + " 9:00 AM",
-      timestamp: Math.floor(tomorrowMorning.getTime() / 1000),
-    },
-    {
-      label: t("layout.scheduledPanel.tomorrowAfternoon"),
-      detail:
-        tomorrowAfternoon.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }) + " 1:00 PM",
-      timestamp: Math.floor(tomorrowAfternoon.getTime() / 1000),
-    },
-    {
-      label: t("layout.scheduledPanel.mondayMorning"),
-      detail:
-        monday.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" }) + " 9:00 AM",
-      timestamp: Math.floor(monday.getTime() / 1000),
-    },
-  ];
-}
 
 function formatScheduledAt(unixSeconds: number): string {
   const date = new Date(unixSeconds * 1000);
@@ -129,6 +93,15 @@ export function ScheduledEmailDetailView() {
     iframeRef.current.onload = resize;
     setTimeout(resize, 100);
   }, [email]);
+
+  const attachments = useMemo(() => {
+    if (!email?.attachment_paths) return [];
+    try {
+      return JSON.parse(email.attachment_paths) as { filename: string; mimeType: string; content: string }[];
+    } catch {
+      return [];
+    }
+  }, [email?.attachment_paths]);
 
   if (!email) return null;
 
@@ -251,6 +224,30 @@ export function ScheduledEmailDetailView() {
           className="w-full border-none block min-h-[200px]"
           title="scheduled-email-body"
         />
+        {attachments.length > 0 && (
+          <div className="px-6 pt-0 pb-4 border-t border-border-secondary mt-2">
+            <div className="text-xs text-text-tertiary mb-2 pt-3">
+              {attachments.length !== 1
+                ? t("email.attachmentList.countPlural", { count: attachments.length })
+                : t("email.attachmentList.count", { count: attachments.length })}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {attachments.map((att, i) => {
+                const sizeBytes = Math.round((att.content.length * 3) / 4);
+                return (
+                  <div
+                    key={i}
+                    className="flex items-center gap-2 px-3 py-1.5 text-xs rounded-md border border-border-primary bg-bg-secondary"
+                  >
+                    <span className="text-text-tertiary">{getFileIcon(att.mimeType, att.filename)}</span>
+                    <span className="text-text-secondary truncate max-w-[200px]">{att.filename}</span>
+                    <span className="text-text-tertiary whitespace-nowrap">{formatFileSize(sizeBytes)}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
       {showRescheduler && (
@@ -258,7 +255,11 @@ export function ScheduledEmailDetailView() {
           isOpen={true}
           onClose={() => setShowRescheduler(false)}
           title={t("layout.scheduledPanel.rescheduleTitle")}
-          presets={getSchedulePresets()}
+          presets={getSchedulePresets({
+            tomorrowMorning: "layout.scheduledPanel.tomorrowMorning",
+            tomorrowAfternoon: "layout.scheduledPanel.tomorrowAfternoon",
+            mondayMorning: "layout.scheduledPanel.mondayMorning",
+          })}
           onSelect={handleReschedule}
           submitLabel={t("layout.scheduledPanel.rescheduleSubmit")}
           zIndex="z-[60]"

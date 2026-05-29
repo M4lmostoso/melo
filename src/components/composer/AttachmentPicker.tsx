@@ -7,7 +7,7 @@ import { formatFileSize } from "@/utils/fileTypeHelpers";
 
 const MAX_TOTAL_SIZE = 24 * 1024 * 1024; // 24MB
 
-export function AttachmentPicker() {
+export function AttachmentPicker({ endSlot }: { endSlot?: React.ReactNode }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const attachments = useComposerStore((s) => s.attachments);
   const addAttachment = useComposerStore((s) => s.addAttachment);
@@ -84,6 +84,7 @@ export function AttachmentPicker() {
             {formatFileSize(totalSize)} {t("composer.attachmentPicker.total")}
           </span>
         )}
+        {endSlot && <div className="ml-auto">{endSlot}</div>}
       </div>
     </div>
   );

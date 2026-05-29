@@ -27,7 +27,7 @@ import { getSmartFolderSearchQuery, mapSmartFolderRows, type SmartFolderRow } fr
 import { applyTemporalDecay } from "@/services/ai/reputationEngine";
 import { getDecaySettings } from "@/services/ai/urgencyPipeline";
 import { getDb } from "@/services/db/connection";
-import { Archive, Trash2, X, Ban, Filter, ChevronRight, Package, FolderSearch } from "lucide-react";
+import { Archive, Trash2, X, Ban, Filter, ChevronRight, Package, FolderSearch, Clock } from "lucide-react";
 import { EmptyState } from "../ui/EmptyState";
 import { OutgoingQueueView } from "./OutgoingQueueView";
 import { ScheduledEmailListView } from "./ScheduledEmailListView";
@@ -91,6 +91,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
   const setReadFilter = useUIStore((s) => s.setReadFilter);
   const readingPanePosition = useUIStore((s) => s.readingPanePosition);
   const userLabels = useLabelStore((s) => s.labels);
+  const scheduledCounts = useLabelStore((s) => s.scheduledCounts);
   const smartFolders = useSmartFolderStore((s) => s.folders);
 
   // Detect smart folder mode
@@ -774,6 +775,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
         <div>
           <h2 className="text-sm font-semibold text-text-primary capitalize flex items-center gap-1.5">
             {isSmartFolder && <FolderSearch size={14} className="text-accent shrink-0" />}
+            {activeLabel === "scheduled" && <Clock size={14} className="text-accent shrink-0" />}
             {isSmartFolder
               ? (() => {
                   if (!activeSmartFolder) return t("layout.emailList.smartFolder");
@@ -786,11 +788,24 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
                   ? t(`sidebar.nav.${activeLabel === "all" ? "allMail" : activeLabel}`)
                   : userLabels.find((l) => l.id === activeLabel)?.name ?? activeLabel}
           </h2>
-          <span className="text-xs text-text-tertiary">
-            {filteredThreads.length !== 1
-              ? t("layout.emailList.conversationsPlural", { count: filteredThreads.length })
-              : t("layout.emailList.conversations", { count: filteredThreads.length })}
-          </span>
+          {activeLabel === "scheduled"
+            ? (() => {
+                const total = Object.values(scheduledCounts).reduce((s, n) => s + n, 0);
+                return (
+                  <span className="text-xs text-text-tertiary">
+                    {total !== 1
+                      ? t("layout.emailList.scheduledMailPlural", { count: total })
+                      : t("layout.emailList.scheduledMail", { count: total })}
+                  </span>
+                );
+              })()
+            : (
+              <span className="text-xs text-text-tertiary">
+                {filteredThreads.length !== 1
+                  ? t("layout.emailList.conversationsPlural", { count: filteredThreads.length })
+                  : t("layout.emailList.conversations", { count: filteredThreads.length })}
+              </span>
+            )}
         </div>
         <select
           value={readFilter}

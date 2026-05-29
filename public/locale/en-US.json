@@ -803,6 +803,7 @@
     "sending": "Sending...",
     "schedule": "Schedule",
     "scheduledFor": "Scheduled for",
+    "scheduledForAt": "Scheduled for {date} at {time}",
     "cancelScheduledSend": "Cancel scheduled send",
     "subjectOptional": "Subject (optional)",
     "selectAccount": "Select account",
@@ -1553,6 +1554,8 @@
       "smartFolder": "Smart Folder",
       "conversations": "{count} conversation",
       "conversationsPlural": "{count} conversations",
+      "scheduledMail": "{count} scheduled email",
+      "scheduledMailPlural": "{count} scheduled emails",
       "emptyInbox": {
         "title": "You're all caught up",
         "subtitle": "No new conversations"

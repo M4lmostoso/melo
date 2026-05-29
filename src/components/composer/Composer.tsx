@@ -910,7 +910,25 @@ const getFullHtml = useCallback(() => {
        </div>
 
       <div className="border-t border-border-secondary shrink-0">
-        <AttachmentPicker />
+        <AttachmentPicker
+          endSlot={pendingScheduledAt ? (
+            <span className="flex items-center gap-1.5 text-xs font-medium text-accent">
+              <Clock size={12} className="shrink-0" />
+              {t("composer.scheduledForAt", {
+                date: new Date(pendingScheduledAt * 1000).toLocaleDateString(undefined, {
+                  weekday: "short",
+                  day: "2-digit",
+                  month: "2-digit",
+                  year: "numeric",
+                }),
+                time: new Date(pendingScheduledAt * 1000).toLocaleTimeString(undefined, {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                }),
+              })}
+            </span>
+          ) : undefined}
+        />
       </div>
 
       {/* Footer */}
@@ -935,18 +953,6 @@ const getFullHtml = useCallback(() => {
             {t("composer.discard")}
           </Button>
           <div className="flex flex-col items-end gap-1">
-            {pendingScheduledAt && (
-              <span className="text-[10px] text-text-tertiary">
-                {t("composer.scheduledFor")}{" "}
-                {new Date(pendingScheduledAt * 1000).toLocaleString(undefined, {
-                  weekday: "short",
-                  month: "short",
-                  day: "numeric",
-                  hour: "numeric",
-                  minute: "2-digit",
-                })}
-              </span>
-            )}
             <div className="flex items-center">
               <button
                 onClick={pendingScheduledAt ? handleConfirmSchedule : handleSend}
