@@ -12,7 +12,7 @@ import { initializeClients } from "./services/gmail/tokenManager";
 import { getThemeById, COLOR_THEMES } from "./constants/themes";
 import type { ColorThemeId } from "./constants/themes";
 import type { ComposerMode } from "./stores/composerStore";
-import { saveNow, getIsDiscarding } from "./services/composer/draftAutoSave";
+import { getIsDiscarding } from "./services/composer/draftAutoSave";
 
 export default function ComposerWindow() {
   const { setTheme, setFontScale, setColorTheme, setComposerFontFamily, setComposerFontSize } = useUIStore();
@@ -237,20 +237,21 @@ export default function ComposerWindow() {
     }
   }, [colorTheme, theme]);
 
-  // Save draft when user closes the window via OS (Cmd+W / ✕ button)
+  // When the user closes the window via the OS (Cmd+W / ✕ button), don't silently
+  // save — ask the composer to run the save/delete prompt instead. Once the user
+  // chooses, the composer calls closeComposer(), which trips the isOpen effect above
+  // to actually close this window.
   useEffect(() => {
     let unlisten: (() => void) | null = null;
     import("@tauri-apps/api/webviewWindow").then(({ getCurrentWebviewWindow }) => {
       const win = getCurrentWebviewWindow();
-      win.onCloseRequested(async (event) => {
+      win.onCloseRequested((event) => {
         if (!useComposerStore.getState().isOpen) return;
-        // If handleDiscard() is already running let the OS close proceed so the
-        // user is never permanently stuck. The 6-second timeout in handleDiscard
-        // covers normal cases; the OS button is the emergency escape hatch.
+        // A delete is already finishing (it will closeComposer shortly) — let the OS
+        // close proceed so the user is never permanently stuck.
         if (getIsDiscarding()) return;
         event.preventDefault();
-        await saveNow();
-        await win.destroy();
+        window.dispatchEvent(new Event("velo-composer-close-requested"));
       }).then((fn) => { unlisten = fn; });
     }).catch(() => {});
     return () => { unlisten?.(); };

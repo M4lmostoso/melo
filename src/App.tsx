@@ -85,6 +85,7 @@ import { formatSyncError } from "./utils/networkErrors";
 import {
   sendEmail,
   deleteDraft as deleteDraftAction,
+  deleteDraftThread,
   archiveThread,
 } from "./services/emailActions";
 import { upsertContact } from "./services/db/contacts";
@@ -236,6 +237,50 @@ export default function App() {
     import("@tauri-apps/api/event").then(({ listen }) => {
       listen("velo-scheduled-saved", () => {
         window.dispatchEvent(new Event("velo-sync-done"));
+      }).then((fn) => {
+        unlisten = fn;
+      });
+    });
+    return () => { unlisten?.(); };
+  }, []);
+
+  // Composer window signals that a draft was saved or deleted. Re-broadcast as a DOM
+  // event so the Drafts badge and folder list in the main window refresh immediately.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    import("@tauri-apps/api/event").then(({ listen }) => {
+      listen("velo-draft-changed", () => {
+        window.dispatchEvent(new Event("velo-sync-done"));
+      }).then((fn) => {
+        unlisten = fn;
+      });
+    });
+    return () => { unlisten?.(); };
+  }, []);
+
+  // Composer window hands off the server-side draft delete (IMAP EXPUNGE / Gmail draft
+  // delete) here because its own JS context dies when it closes. The local DB was already
+  // purged by the composer, so this only touches the server, then refreshes the UI.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    import("@tauri-apps/api/event").then(({ listen }) => {
+      listen("velo-delete-draft", async (event) => {
+        const p = event.payload as {
+          accountId: string;
+          draftId: string | null;
+          threadId: string | null;
+        };
+        try {
+          if (p.draftId) {
+            await deleteDraftAction(p.accountId, p.draftId, p.threadId ?? undefined);
+          } else if (p.threadId) {
+            await deleteDraftThread(p.accountId, p.threadId);
+          }
+        } catch (err) {
+          console.error("[App] velo-delete-draft failed:", err);
+        } finally {
+          window.dispatchEvent(new Event("velo-sync-done"));
+        }
       }).then((fn) => {
         unlisten = fn;
       });

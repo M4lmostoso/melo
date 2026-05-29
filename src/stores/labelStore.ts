@@ -43,12 +43,15 @@ interface LabelState {
   globalUnreadCounts: Record<string, Record<string, number>>;
   /** Pending scheduled email counts: accountId → count */
   scheduledCounts: Record<string, number>;
+  /** Draft counts per account (read or not) for the Drafts sidebar badge: accountId → count */
+  draftCounts: Record<string, number>;
   isLoading: boolean;
   loadLabels: (accountId: string) => Promise<void>;
   loadAllAccountLabels: (accountIds: string[]) => Promise<void>;
   refreshUnreadCounts: (accountId: string) => Promise<void>;
   refreshGlobalUnreadCounts: (accountIds: string[]) => Promise<void>;
   refreshScheduledCounts: (accountIds: string[]) => Promise<void>;
+  refreshDraftCounts: (accountIds: string[]) => Promise<void>;
   clearLabels: () => void;
   createLabel: (accountId: string, name: string, color?: { textColor: string; backgroundColor: string }) => Promise<void>;
   updateLabel: (accountId: string, labelId: string, updates: { name?: string; color?: { textColor: string; backgroundColor: string } | null }) => Promise<void>;
@@ -79,6 +82,7 @@ export const useLabelStore = create<LabelState>((set, get) => ({
   categoryUnreadCounts: {},
   globalUnreadCounts: {},
   scheduledCounts: {},
+  draftCounts: {},
   isLoading: false,
 
   loadLabels: async (accountId: string) => {
@@ -143,7 +147,17 @@ export const useLabelStore = create<LabelState>((set, get) => ({
     }
   },
 
-  clearLabels: () => set({ labels: [], allAccountLabels: {}, unreadCounts: {}, categoryUnreadCounts: {}, globalUnreadCounts: {}, scheduledCounts: {}, isLoading: false }),
+  refreshDraftCounts: async (accountIds: string[]) => {
+    try {
+      const { getDraftCountsByAccounts } = await import("@/services/db/threads");
+      const draftCounts = await getDraftCountsByAccounts(accountIds);
+      set({ draftCounts });
+    } catch (err) {
+      console.error("Failed to refresh draft counts:", err);
+    }
+  },
+
+  clearLabels: () => set({ labels: [], allAccountLabels: {}, unreadCounts: {}, categoryUnreadCounts: {}, globalUnreadCounts: {}, scheduledCounts: {}, draftCounts: {}, isLoading: false }),
 
   createLabel: async (accountId: string, name: string, color?: { textColor: string; backgroundColor: string }) => {
     const client = await getGmailClient(accountId);

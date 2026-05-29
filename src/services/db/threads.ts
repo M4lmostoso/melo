@@ -780,6 +780,38 @@ export async function getUnifiedFolderThreads(
   );
 }
 
+/**
+ * Count drafts per account for the sidebar "Drafts" badge.
+ * Unlike unread counts, this counts ALL draft threads (read or not) — a draft you
+ * authored is always marked read, so an unread-based count would always be 0.
+ * Mirrors the Drafts folder list (getThreadsByLabel(accountId, "DRAFT")): every
+ * thread carrying the DRAFT label, excluding those moved to Trash.
+ */
+export async function getDraftCountsByAccounts(
+  accountIds: string[],
+): Promise<Record<string, number>> {
+  const result: Record<string, number> = {};
+  if (accountIds.length === 0) return result;
+  const db = await getDb();
+  const placeholders = accountIds.map((_, i) => `$${i + 1}`).join(", ");
+  const rows = await db.select<{ account_id: string; count: number }[]>(
+    `SELECT tl.account_id, COUNT(DISTINCT t.id) AS count
+     FROM threads t
+     INNER JOIN thread_labels tl ON tl.account_id = t.account_id AND tl.thread_id = t.id
+     WHERE tl.account_id IN (${placeholders}) AND tl.label_id = 'DRAFT'
+       AND NOT EXISTS (
+         SELECT 1 FROM thread_labels tr
+         WHERE tr.account_id = t.account_id AND tr.thread_id = t.id AND tr.label_id = 'TRASH'
+       )
+     GROUP BY tl.account_id`,
+    accountIds,
+  );
+  for (const row of rows) {
+    result[row.account_id] = row.count;
+  }
+  return result;
+}
+
 export async function getGlobalUnreadCounts(
   accountIds: string[],
 ): Promise<Map<string, Map<string, number>>> {

@@ -390,9 +390,11 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   const categoryUnreadCounts = useLabelStore((s) => s.categoryUnreadCounts);
   const globalUnreadCounts = useLabelStore((s) => s.globalUnreadCounts);
   const scheduledCounts = useLabelStore((s) => s.scheduledCounts);
+  const draftCounts = useLabelStore((s) => s.draftCounts);
   const refreshLabelUnreadCounts = useLabelStore((s) => s.refreshUnreadCounts);
   const refreshGlobalUnreadCounts = useLabelStore((s) => s.refreshGlobalUnreadCounts);
   const refreshScheduledCounts = useLabelStore((s) => s.refreshScheduledCounts);
+  const refreshDraftCounts = useLabelStore((s) => s.refreshDraftCounts);
   const deleteLabel = useLabelStore((s) => s.deleteLabel);
   const smartFolders = useSmartFolderStore((s) => s.folders);
   const smartFolderCounts = useSmartFolderStore((s) => s.unreadCounts);
@@ -515,8 +517,9 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
     if (allIds.length > 0) {
       refreshGlobalUnreadCounts(allIds);
       refreshScheduledCounts(allIds);
+      refreshDraftCounts(allIds);
     }
-  }, [accounts, refreshGlobalUnreadCounts, refreshScheduledCounts]);
+  }, [accounts, refreshGlobalUnreadCounts, refreshScheduledCounts, refreshDraftCounts]);
 
   // Load global smart folder counts when accounts or folders change
   useEffect(() => {
@@ -553,6 +556,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
         if (allIds.length > 0) {
           refreshGlobalUnreadCounts(allIds);
           refreshScheduledCounts(allIds);
+          refreshDraftCounts(allIds);
           loadAllAccountLabels(allIds);
           refreshSmartFolderGlobalCounts(allIds);
         }
@@ -565,7 +569,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
       window.removeEventListener("velo-sync-done", handler);
       if (timer) clearTimeout(timer);
     };
-  }, [activeAccountId, loadLabels, loadAllAccountLabels, refreshSmartFolderCounts, refreshSmartFolderGlobalCounts, refreshGlobalUnreadCounts, refreshScheduledCounts, refreshTaskBadges]);
+  }, [activeAccountId, loadLabels, loadAllAccountLabels, refreshSmartFolderCounts, refreshSmartFolderGlobalCounts, refreshGlobalUnreadCounts, refreshScheduledCounts, refreshDraftCounts, refreshTaskBadges]);
 
   // Immediate badge refresh after user actions (trash, archive, markRead, spam).
   // No debounce — the DB is already updated by the time this event fires.
@@ -578,12 +582,13 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
       const allIds = useAccountStore.getState().accounts.map((a) => a.id);
       if (allIds.length > 0) {
         refreshGlobalUnreadCounts(allIds);
+        refreshDraftCounts(allIds);
         refreshSmartFolderGlobalCounts(allIds);
       }
     };
     window.addEventListener("velo-badges-refresh", handler);
     return () => window.removeEventListener("velo-badges-refresh", handler);
-  }, [activeAccountId, refreshLabelUnreadCounts, refreshSmartFolderCounts, refreshGlobalUnreadCounts, refreshSmartFolderGlobalCounts]);
+  }, [activeAccountId, refreshLabelUnreadCounts, refreshSmartFolderCounts, refreshGlobalUnreadCounts, refreshDraftCounts, refreshSmartFolderGlobalCounts]);
 
   const handleDeleteLabel = useCallback(
     async (labelId: string) => {
@@ -792,12 +797,14 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                 ? taskIncompleteCount
                 : gi.id === "scheduled"
                   ? globalAccounts.reduce((sum, a) => sum + (scheduledCounts[a.id] ?? 0), 0)
-                  : unreadKey
-                    ? globalAccounts.reduce(
-                        (sum, a) => sum + (globalUnreadCounts[a.id]?.[unreadKey] ?? 0),
-                        0,
-                      )
-                    : 0;
+                  : gi.id === "drafts"
+                    ? globalAccounts.reduce((sum, a) => sum + (draftCounts[a.id] ?? 0), 0)
+                    : unreadKey
+                      ? globalAccounts.reduce(
+                          (sum, a) => sum + (globalUnreadCounts[a.id]?.[unreadKey] ?? 0),
+                          0,
+                        )
+                      : 0;
               const globalTaskOverdue = gi.id === "tasks" ? taskOverdueTotal : 0;
               return (
                 <Fragment key={`global-${gi.id}`}>
@@ -847,7 +854,9 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                             } else {
                               unread = gi.id === "scheduled"
                                 ? (scheduledCounts[account.id] ?? 0)
-                                : unreadKey ? (globalUnreadCounts[account.id]?.[unreadKey] ?? 0) : 0;
+                                : gi.id === "drafts"
+                                  ? (draftCounts[account.id] ?? 0)
+                                  : unreadKey ? (globalUnreadCounts[account.id]?.[unreadKey] ?? 0) : 0;
                             }
                             const isAccountActive =
                               activeLabel === gi.id && activeAccountId === account.id;
@@ -1072,13 +1081,16 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
           const Icon = item.icon;
           const isInbox = item.id === "inbox";
 
-          // Show unread badge on Inbox; scheduled count badge on Scheduled.
+          // Show unread badge on Inbox; scheduled count badge on Scheduled;
+          // total draft count (read or not) on Drafts.
           const unreadCount =
             item.id === "inbox"
               ? (unreadCounts["INBOX"] ?? 0)
               : item.id === "scheduled" && activeAccountId
                 ? (scheduledCounts[activeAccountId] ?? 0)
-                : 0;
+                : item.id === "drafts" && activeAccountId
+                  ? (draftCounts[activeAccountId] ?? 0)
+                  : 0;
 
           return (
             <div key={item.id}>

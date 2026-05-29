@@ -28,8 +28,8 @@ describe("themes", () => {
   });
 
   it("getThemeById returns correct theme", () => {
-    const sage = getThemeById("twilight_indigo");
-    expect(sage.id).toBe("twilight_indigo");
+    const sage = getThemeById("sage");
+    expect(sage.id).toBe("sage");
     expect(sage.name).toBe("Sage");
 
     const slate = getThemeById("gunmetal");

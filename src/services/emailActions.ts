@@ -288,90 +288,7 @@ async function applyLocalDbUpdate(
       );
       break;
     case "deleteDraft": {
-      // Resolve the thread ID for this draft
-      let tid = action.threadId;
-      if (!tid) {
-        const row = await db.select<{ thread_id: string }[]>(
-          "SELECT thread_id FROM messages WHERE account_id = $1 AND id = $2",
-          [accountId, action.draftId],
-        );
-        if (row[0]) tid = row[0].thread_id;
-      }
-
-      // Delete the specific draft message by its stored ID.
-      // For IMAP: draftId matches the message ID → this deletes it.
-      // For Gmail: draftId is a Gmail draft API ID ("r..."), NOT the message ID stored in the DB
-      //   → DELETE finds nothing, but the thread-level cleanup below handles it.
-      await db.execute(
-        "DELETE FROM message_embeddings WHERE account_id = $1 AND message_id = $2",
-        [accountId, action.draftId],
-      );
-      await db.execute(
-        "DELETE FROM messages WHERE account_id = $1 AND id = $2",
-        [accountId, action.draftId],
-      );
-
-      if (tid) {
-        // Gmail draft IDs do not match local message IDs, so the DELETE above is a no-op.
-        // Delete ALL draft messages in this thread so the Gmail Drafts view is immediately clean.
-        // For IMAP this is a no-op (tombstoneImapDraft already removed the row).
-        const draftMsgs = await db.select<{ id: string }[]>(
-          "SELECT id FROM messages WHERE account_id = $1 AND thread_id = $2 AND is_draft = 1",
-          [accountId, tid],
-        );
-        for (const msg of draftMsgs) {
-          await db.execute(
-            "DELETE FROM message_embeddings WHERE account_id = $1 AND message_id = $2",
-            [accountId, msg.id],
-          );
-          await db.execute(
-            "DELETE FROM messages WHERE account_id = $1 AND id = $2",
-            [accountId, msg.id],
-          );
-        }
-
-        // Check whether any non-draft messages remain in this thread
-        const remaining = await db.select<{ id: string }[]>(
-          "SELECT id FROM messages WHERE account_id = $1 AND thread_id = $2 LIMIT 1",
-          [accountId, tid],
-        );
-
-        if (remaining.length === 0) {
-          // Thread is now empty: remove it completely
-          await db.execute(
-            "DELETE FROM thread_labels WHERE account_id = $1 AND thread_id = $2",
-            [accountId, tid],
-          );
-          await db.execute(
-            "DELETE FROM threads WHERE account_id = $1 AND id = $2",
-            [accountId, tid],
-          );
-        } else {
-          // Thread still has messages (e.g. reply draft on existing thread): remove DRAFT label
-          await db.execute(
-            "DELETE FROM thread_labels WHERE account_id = $1 AND thread_id = $2 AND label_id = 'DRAFT'",
-            [accountId, tid],
-          );
-          // The draft message had is_read=0 which may have left the thread unread.
-          // Now that the draft is gone, recalculate: if all remaining messages are
-          // read, mark the thread and remove the stale UNREAD label so the Sent
-          // folder doesn't show a spurious unread badge after send.
-          const unreadRemaining = await db.select<{ id: string }[]>(
-            "SELECT id FROM messages WHERE account_id = $1 AND thread_id = $2 AND is_read = 0 LIMIT 1",
-            [accountId, tid],
-          );
-          if (unreadRemaining.length === 0) {
-            await db.execute(
-              "UPDATE threads SET is_read = 1 WHERE account_id = $1 AND id = $2",
-              [accountId, tid],
-            );
-            await db.execute(
-              "DELETE FROM thread_labels WHERE account_id = $1 AND thread_id = $2 AND label_id = 'UNREAD'",
-              [accountId, tid],
-            );
-          }
-        }
-      }
+      await purgeDraftFromDb(accountId, action.draftId, action.threadId ?? null);
       break;
     }
     default:
@@ -459,7 +376,8 @@ export async function executeEmailAction(
     action.type === "archive" ||
     action.type === "trash" ||
     action.type === "spam" ||
-    action.type === "permanentDelete";
+    action.type === "permanentDelete" ||
+    action.type === "deleteDraft";
   if (affectsBadges) {
     updateBadgeCount().catch(console.error);
     window.dispatchEvent(new Event("velo-badges-refresh"));
@@ -728,6 +646,114 @@ function extractImapDraftAccountId(draftId: string): string | null {
   const candidate = afterPrefix.slice(0, 36);
   const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   return uuidPattern.test(candidate) ? candidate : null;
+}
+
+/**
+ * Remove a draft from the local DB completely and idempotently. Resolves the thread
+ * from any of threadId / draftId / localDraftId, deletes the explicit row(s), then
+ * sweeps every remaining is_draft=1 row in the thread (covers the IMAP stable-UUID row
+ * whose id matches neither the server draftId nor a Gmail API id). If no messages remain
+ * the thread + its labels are removed; otherwise only the DRAFT label is dropped and the
+ * thread's read state recomputed.
+ *
+ * Call this synchronously (awaited) before closing a composer window — it is all fast
+ * SQLite, so it always finishes while the JS context is alive, unlike a fire-and-forget
+ * cleanup that the closing window would interrupt.
+ */
+export async function purgeDraftFromDb(
+  accountId: string,
+  draftId: string | null,
+  threadId: string | null,
+  localDraftId?: string | null,
+): Promise<void> {
+  const db = await getDb();
+  const candidateIds = [draftId, localDraftId].filter(
+    (x): x is string => typeof x === "string" && x.length > 0,
+  );
+
+  let tid = threadId ?? null;
+  if (!tid) {
+    for (const id of candidateIds) {
+      const row = await db.select<{ thread_id: string }[]>(
+        "SELECT thread_id FROM messages WHERE account_id = $1 AND id = $2",
+        [accountId, id],
+      );
+      if (row[0]) {
+        tid = row[0].thread_id;
+        break;
+      }
+    }
+  }
+
+  // Delete the explicit draft message row(s) by id.
+  // For IMAP the local id is the stable UUID; for Gmail the API id won't match a row
+  // (the thread sweep below handles it).
+  for (const id of candidateIds) {
+    await db.execute(
+      "DELETE FROM message_embeddings WHERE account_id = $1 AND message_id = $2",
+      [accountId, id],
+    );
+    await db.execute(
+      "DELETE FROM messages WHERE account_id = $1 AND id = $2",
+      [accountId, id],
+    );
+  }
+
+  if (!tid) return;
+
+  // Sweep every remaining draft message in the thread.
+  const draftMsgs = await db.select<{ id: string }[]>(
+    "SELECT id FROM messages WHERE account_id = $1 AND thread_id = $2 AND is_draft = 1",
+    [accountId, tid],
+  );
+  for (const msg of draftMsgs) {
+    await db.execute(
+      "DELETE FROM message_embeddings WHERE account_id = $1 AND message_id = $2",
+      [accountId, msg.id],
+    );
+    await db.execute(
+      "DELETE FROM messages WHERE account_id = $1 AND id = $2",
+      [accountId, msg.id],
+    );
+  }
+
+  const remaining = await db.select<{ id: string }[]>(
+    "SELECT id FROM messages WHERE account_id = $1 AND thread_id = $2 LIMIT 1",
+    [accountId, tid],
+  );
+  if (remaining.length === 0) {
+    // Thread is now empty: remove it completely (this is what clears the Drafts badge).
+    await db.execute(
+      "DELETE FROM thread_labels WHERE account_id = $1 AND thread_id = $2",
+      [accountId, tid],
+    );
+    await db.execute(
+      "DELETE FROM threads WHERE account_id = $1 AND id = $2",
+      [accountId, tid],
+    );
+  } else {
+    // Thread still has messages (e.g. reply draft on an existing thread): drop DRAFT label.
+    await db.execute(
+      "DELETE FROM thread_labels WHERE account_id = $1 AND thread_id = $2 AND label_id = 'DRAFT'",
+      [accountId, tid],
+    );
+    // The draft was is_read=0; recompute so a fully-read thread doesn't keep a stale
+    // UNREAD label after the draft is gone.
+    const unreadRemaining = await db.select<{ id: string }[]>(
+      "SELECT id FROM messages WHERE account_id = $1 AND thread_id = $2 AND is_read = 0 LIMIT 1",
+      [accountId, tid],
+    );
+    if (unreadRemaining.length === 0) {
+      await db.execute(
+        "UPDATE threads SET is_read = 1 WHERE account_id = $1 AND id = $2",
+        [accountId, tid],
+      );
+      await db.execute(
+        "DELETE FROM thread_labels WHERE account_id = $1 AND thread_id = $2 AND label_id = 'UNREAD'",
+        [accountId, tid],
+      );
+    }
+  }
 }
 
 /**

@@ -790,6 +790,13 @@
     "saving": "Salvataggio...",
     "draftSaved": "Bozza salvata",
     "discard": "Elimina",
+    "closeDialog": {
+      "title": "Bozza non salvata",
+      "message": "Vuoi salvare la bozza o eliminarla?",
+      "save": "Salva bozza",
+      "delete": "Elimina",
+      "cancel": "Annulla"
+    },
     "send": "Invia",
     "sending": "Invio...",
     "schedule": "Programma",

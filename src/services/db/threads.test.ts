@@ -42,7 +42,7 @@ describe("threads service - mute", () => {
       await muteThread("acc-1", "thread-1");
 
       expect(mockDb.execute).toHaveBeenCalledWith(
-        "UPDATE threads SET is_muted = 1 WHERE account_id = $1 AND id = $2",
+        "UPDATE threads SET is_muted = 1, urgency_score = 0.05 WHERE account_id = $1 AND id = $2",
         ["acc-1", "thread-1"],
       );
     });

@@ -10,6 +10,7 @@ import { FontFamily, FontSize } from "./tiptapExtensions";
 import { Clock, X } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
+import { Modal } from "@/components/ui/Modal";
 import { AddressInput } from "./AddressInput";
 import { EditorToolbar } from "./EditorToolbar";
 import { AiAssistPanel } from "./AiAssistPanel";
@@ -27,8 +28,8 @@ import {
   sendEmail,
   archiveThread,
   deleteDraft as deleteDraftAction,
-  deleteDraftThread,
   tombstoneImapDraft,
+  purgeDraftFromDb,
 } from "@/services/emailActions";
 import { buildRawEmail } from "@/utils/emailBuilder";
 import { useOutgoingStore } from "@/stores/outgoingStore";
@@ -52,7 +53,6 @@ import {
   saveNow,
   getActiveDraftId,
   getServerDraftId,
-  deleteLocalImapDraft,
 } from "@/services/composer/draftAutoSave";
 import {
   getTemplatesForAccount,
@@ -74,6 +74,43 @@ const COMPOSER_FONT_MAP: Record<ComposerFontFamily, string> = {
   avenir: "Avenir, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif",
   inter: "Inter, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif",
 };
+
+/**
+ * Notify the rest of the app that the set of drafts changed (saved or deleted) so
+ * the Drafts badge and folder list refresh. Fires a DOM event for the current window
+ * and a Tauri event so the main window (a separate WebviewWindow) refreshes too.
+ */
+function notifyDraftChanged(): void {
+  window.dispatchEvent(new Event("velo-badges-refresh"));
+  import("@tauri-apps/api/event")
+    .then(({ emit }) => emit("velo-draft-changed"))
+    .catch(() => {
+      // Non-Tauri context (tests / browser dev) — DOM event above is enough.
+    });
+}
+
+/**
+ * Hand the server-side draft delete (IMAP EXPUNGE / Gmail draft delete) to the main
+ * window, whose JS context survives this composer window closing. Falls back to an
+ * inline delete when no Tauri context is available (tests / browser dev).
+ */
+async function deleteDraftOnServer(payload: {
+  accountId: string;
+  draftId: string | null;
+  threadId: string | null;
+}): Promise<void> {
+  try {
+    const { emit } = await import("@tauri-apps/api/event");
+    await emit("velo-delete-draft", payload);
+  } catch {
+    const { deleteDraft, deleteDraftThread } = await import("@/services/emailActions");
+    if (payload.draftId) {
+      await deleteDraft(payload.accountId, payload.draftId, payload.threadId ?? undefined).catch(() => {});
+    } else if (payload.threadId) {
+      await deleteDraftThread(payload.accountId, payload.threadId).catch(() => {});
+    }
+  }
+}
 
 export function Composer() {
   const isOpen = useComposerStore((s) => s.isOpen);
@@ -120,6 +157,7 @@ export function Composer() {
   const sendingRef = useRef(false);
   const isDiscardingRef = useRef(false);
   const [showSchedule, setShowSchedule] = useState(false);
+  const [showCloseDialog, setShowCloseDialog] = useState(false);
   const [pendingScheduledAt, setPendingScheduledAt] = useState<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [aliases, setAliases] = useState<SendAsAlias[]>([]);
@@ -610,66 +648,118 @@ const getFullHtml = useCallback(() => {
       });
   }, [effectiveAccountId, activeAccount, pendingScheduledAt, closeComposer, getFullHtml]);
 
-  const handleDiscard = useCallback(async () => {
+  // Delete the draft everywhere and leave no trace on the server or in SQLite.
+  // The local DB is purged synchronously BEFORE the window closes (fast SQLite that
+  // always finishes), which is what fixes the leftover "zombie" drafts and the stale
+  // Drafts badge. The server-side EXPUNGE is handed off to the persistent main window
+  // (a network round trip the closing composer window can't be trusted to complete).
+  const performDelete = useCallback(async () => {
     if (isDiscardingRef.current) return;
     isDiscardingRef.current = true;
 
     // 1. Signal discard — cancels both debounce timers and marks isDiscarding=true.
-    //    Any in-flight IMAP server save will see this flag and pre-tombstone the new UID.
+    //    Any in-flight IMAP server save will see this flag and pre-tombstone its new UID.
     startDiscard();
     useComposerStore.getState().setIsSaving(false);
 
     // 2. Snapshot before closeComposer() resets the store.
     const accountId = effectiveAccountId;
-    const serverDraftId = getServerDraftId(); // IMAP UID-based (or null)
     const preLocalId = useComposerStore.getState().localDraftId; // stable UUID
     const preGmailDraftId = useComposerStore.getState().draftId; // Gmail API draft ID
     const preThreadId = useComposerStore.getState().threadId;
     const account = useAccountStore.getState().accounts.find((a) => a.id === accountId);
     const isImapAccount = !!account && account.provider !== "gmail_api";
 
-    // 3. Tombstone the IMAP server draft synchronously — fast SQLite write (< 50ms).
-    //    The tombstone prevents re-import even if the subsequent EXPUNGE is killed.
-    if (accountId && serverDraftId) {
-      await tombstoneImapDraft(accountId, serverDraftId);
+    if (!accountId) {
+      closeComposer();
+      stopAutoSave();
+      isDiscardingRef.current = false;
+      return;
     }
 
-    // 4. Close immediately — window may be destroyed shortly after.
+    try {
+      // 3. Let any in-flight server APPEND finish so it self-tombstones its new UID and
+      //    getServerDraftId() returns the final coordinates. Usually resolves instantly.
+      await Promise.race([waitForSave(), new Promise<void>((r) => setTimeout(r, 2000))]);
+      const serverDraftId = getServerDraftId(); // IMAP UID-based (or null)
+
+      // 4. Tombstone the IMAP server UID so no sync can ever re-import it.
+      if (serverDraftId) {
+        await tombstoneImapDraft(accountId, serverDraftId).catch(() => {});
+      }
+
+      // 5. Purge the local DB synchronously — message row(s), DRAFT label, and the
+      //    thread itself if it becomes empty. This clears the Drafts list + badge.
+      await purgeDraftFromDb(
+        accountId,
+        serverDraftId,
+        preThreadId,
+        preLocalId,
+      ).catch(() => {});
+
+      // 6. Hand off the server-side delete to the main window (it owns the IMAP/Gmail
+      //    connection and its JS context survives this window closing). For a pure-local
+      //    draft (no server copy yet) there is nothing to expunge.
+      const serverTarget = serverDraftId ?? (!isImapAccount ? preGmailDraftId : null);
+      if (serverTarget || (!isImapAccount && preThreadId)) {
+        void deleteDraftOnServer({
+          accountId,
+          draftId: serverTarget,
+          threadId: preThreadId,
+        });
+      }
+    } finally {
+      // 7. Refresh badges/list, then close.
+      notifyDraftChanged();
+      closeComposer();
+      stopAutoSave();
+      isDiscardingRef.current = false;
+    }
+  }, [effectiveAccountId, closeComposer]);
+
+  // True when nothing worth keeping has been entered (no recipients, subject,
+  // body text, or attachments). Used to skip the save/delete prompt on close.
+  const isComposerEmpty = useCallback(() => {
+    const s = useComposerStore.getState();
+    const hasRecipients = s.to.length > 0 || s.cc.length > 0 || s.bcc.length > 0;
+    const hasSubject = s.subject.trim().length > 0;
+    const hasAttachments = s.attachments.length > 0;
+    const bodyText = (editor?.getText() ?? "").trim();
+    return !hasRecipients && !hasSubject && !hasAttachments && bodyText.length === 0;
+  }, [editor]);
+
+  // Save the draft (local + server) and close. Must NOT call startDiscard — that
+  // would abort the in-flight save. saveNow() flushes both autosave tiers.
+  const performSaveAndClose = useCallback(async () => {
+    if (isDiscardingRef.current) return;
+    try {
+      await saveNow();
+    } catch (err) {
+      console.error("[Composer] Save on close failed:", err);
+    }
+    notifyDraftChanged();
     closeComposer();
     stopAutoSave();
-    isDiscardingRef.current = false;
+  }, [closeComposer]);
 
-    if (!accountId) return;
+  // Entry point for both the footer button and the window ✕ / Cmd+W. Empty drafts
+  // close immediately (deleting any auto-saved trace); otherwise prompt save/delete.
+  const requestClose = useCallback(() => {
+    if (isDiscardingRef.current) return;
+    if (isComposerEmpty()) {
+      void performDelete();
+      return;
+    }
+    setShowCloseDialog(true);
+  }, [isComposerEmpty, performDelete]);
 
-    // 5. Best-effort async cleanup — the tombstone above already guards re-import.
-    void (async () => {
-      try {
-        // Wait for any in-flight server save (it will pre-tombstone itself if isDiscarding)
-        await Promise.race([waitForSave(), new Promise<void>((r) => setTimeout(r, 3000))]);
-
-        // Capture the final server UID (may have changed if a save was in-flight)
-        const finalServerDraftId = serverDraftId ?? getServerDraftId();
-        const gmailDraftId = preGmailDraftId;
-
-        if (finalServerDraftId) {
-          // Server draft exists: provider.deleteDraft will EXPUNGE it + applyLocalDbUpdate
-          // will clean the local stable-UUID row via is_draft=1 query on the thread.
-          await deleteDraftAction(accountId, finalServerDraftId, preThreadId ?? undefined).catch(() => {});
-        } else if (isImapAccount && preLocalId) {
-          // No server draft (user discarded within the 18s server debounce window):
-          // only a local SQLite row exists — delete it directly without touching IMAP.
-          await deleteLocalImapDraft(accountId, preLocalId).catch(() => {});
-        } else if (!isImapAccount) {
-          // Gmail: use the Gmail draft API ID if one was created.
-          if (gmailDraftId) {
-            await deleteDraftAction(accountId, gmailDraftId, preThreadId ?? undefined).catch(() => {});
-          } else if (preThreadId) {
-            await deleteDraftThread(accountId, preThreadId).catch(() => {});
-          }
-        }
-      } catch { /* ignore */ }
-    })();
-  }, [effectiveAccountId, closeComposer]);
+  // The popped-out composer window intercepts its OS close (✕ / Cmd+W) and asks us
+  // to run the same save/delete prompt instead of silently saving.
+  useEffect(() => {
+    const handler = () => requestClose();
+    window.addEventListener("velo-composer-close-requested", handler);
+    return () => window.removeEventListener("velo-composer-close-requested", handler);
+  }, [requestClose]);
 
   const isFullpage = viewMode === "fullpage";
   const modeLabel =
@@ -839,7 +929,7 @@ const getFullHtml = useCallback(() => {
         <div className="flex items-end gap-2">
           <Button
             variant="secondary"
-            onClick={handleDiscard}
+            onClick={requestClose}
             disabled={isSending}
           >
             {t("composer.discard")}
@@ -884,6 +974,42 @@ const getFullHtml = useCallback(() => {
           onClose={() => setShowSchedule(false)}
         />
       )}
+
+      <Modal
+        isOpen={showCloseDialog}
+        onClose={() => setShowCloseDialog(false)}
+        title={t("composer.closeDialog.title")}
+        width="w-96"
+      >
+        <div className="p-4">
+          <p className="text-sm text-text-secondary mb-4">
+            {t("composer.closeDialog.message")}
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={() => setShowCloseDialog(false)}>
+              {t("composer.closeDialog.cancel")}
+            </Button>
+            <Button
+              variant="danger"
+              onClick={() => {
+                setShowCloseDialog(false);
+                void performDelete();
+              }}
+            >
+              {t("composer.closeDialog.delete")}
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => {
+                setShowCloseDialog(false);
+                void performSaveAndClose();
+              }}
+            >
+              {t("composer.closeDialog.save")}
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

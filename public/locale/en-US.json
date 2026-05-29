@@ -792,6 +792,13 @@
     "saving": "Saving...",
     "draftSaved": "Draft saved",
     "discard": "Discard",
+    "closeDialog": {
+      "title": "Unsaved draft",
+      "message": "Do you want to save this draft or delete it?",
+      "save": "Save draft",
+      "delete": "Delete",
+      "cancel": "Cancel"
+    },
     "send": "Send",
     "sending": "Sending...",
     "schedule": "Schedule",
