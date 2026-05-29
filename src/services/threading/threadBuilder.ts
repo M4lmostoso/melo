@@ -43,7 +43,10 @@ interface Container {
 export function normalizeSubject(subject: string | null): string {
   if (!subject) return '';
 
-  let s = subject.trim();
+  // Collapse internal whitespace runs to a single space so subjects that some
+  // clients re-emit with extra spaces (e.g. Spark inserting a double space) still
+  // match their otherwise-identical replies from clients that normalize whitespace.
+  let s = subject.replace(/\s+/g, ' ').trim();
   let changed = true;
 
   while (changed) {

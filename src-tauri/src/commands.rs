@@ -1261,16 +1261,27 @@ pub async fn imap_store_threads(
 
     // Delete orphaned placeholder threads (placeholder_id = message_id, but that message
     // now belongs to a different thread after JWZ merging).
+    // Also drop their thread_labels — leaving them creates phantom rows that contribute
+    // to wrong sidebar counts and can resurrect the fragmented thread if a stale
+    // thread_id ever gets re-referenced.
     for local_id in &all_local_ids {
         if !final_thread_ids.contains(local_id.as_str()) {
-            conn.execute(
-                "DELETE FROM threads \
-                 WHERE account_id = ?1 AND id = ?2 \
-                 AND NOT EXISTS \
-                   (SELECT 1 FROM messages WHERE account_id = ?1 AND thread_id = ?2)",
-                rusqlite::params![account_id, local_id],
-            )
-            .map_err(|e| e.to_string())?;
+            let deleted = conn
+                .execute(
+                    "DELETE FROM threads \
+                     WHERE account_id = ?1 AND id = ?2 \
+                     AND NOT EXISTS \
+                       (SELECT 1 FROM messages WHERE account_id = ?1 AND thread_id = ?2)",
+                    rusqlite::params![account_id, local_id],
+                )
+                .map_err(|e| e.to_string())?;
+            if deleted > 0 {
+                conn.execute(
+                    "DELETE FROM thread_labels WHERE account_id = ?1 AND thread_id = ?2",
+                    rusqlite::params![account_id, local_id],
+                )
+                .map_err(|e| e.to_string())?;
+            }
         }
     }
 

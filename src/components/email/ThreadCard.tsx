@@ -60,10 +60,17 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
     }
 
     // allSenders is pre-filtered in SQL to exclude the account's own from_address.
+    // Format: "Name <email>" or plain "email" — parse to do contactsMap lookup.
     // Do NOT use thread.fromAddress for contact lookup here: fromAddress comes from
     // the latest message, which may be the account's own reply, not the external sender.
     if (thread.allSenders) {
-      return thread.allSenders;
+      const names = thread.allSenders.split(/,\s*/).map((entry) => {
+        const match = entry.trim().match(/^(.*?)\s*<([^>]+)>$/);
+        const email = (match ? match[2]! : entry).trim().toLowerCase();
+        const fallbackName = match ? match[1]!.trim() : entry.trim();
+        return contactsMap[email] || fallbackName || email;
+      });
+      return names.join(", ") || t("threadCard.unknown");
     }
 
     // Fallback: allSenders is null means every sender in the thread is the account itself.

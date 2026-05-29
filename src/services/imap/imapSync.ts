@@ -1214,6 +1214,17 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
   // Persist folder sync states only after thread storage succeeds to prevent stuck messages
   await Promise.all(pendingFolderStates.map(upsertFolderSyncState));
 
+  // Run fragmented-thread reconciliation on every cycle that stored new messages.
+  // New messages can create new fragments (subject mismatches, missing parents arriving
+  // later, etc.), and any normalization fixes only kick in once reconcile runs.
+  // Maintenance cycles already invoked it earlier; this catches the non-maintenance ones.
+  if (!isMaintenanceCycle) {
+    const fragmentCount = await reconcileFragmentedThreads(accountId).catch((err) =>
+      (console.error(`[imapSync] reconcileFragmentedThreads (post-store) error:`, err), 0),
+    );
+    if (fragmentCount > 0) console.log(`[imapSync] Repaired ${fragmentCount} fragmented thread(s) for ${accountId} (post-store)`);
+  }
+
   for (const params of urgencyQueue) {
     processThreadUrgency({ ...params, accountId }).catch(() => {});
   }
@@ -1390,12 +1401,11 @@ async function reconcileFragmentedThreads(accountId: string): Promise<number> {
     snippet: string | null;
     is_read: number;
     is_starred: number;
-    has_attachments: number;
   };
 
   const rows = await db.select<MsgRow[]>(
     `SELECT id, message_id_header, in_reply_to_header, references_header,
-            subject, date, thread_id, snippet, is_read, is_starred, has_attachments
+            subject, date, thread_id, snippet, is_read, is_starred
      FROM messages
      WHERE account_id = $1
      ORDER BY date ASC`,
@@ -1457,6 +1467,32 @@ async function reconcileFragmentedThreads(accountId: string): Promise<number> {
     }
   }
 
+  // has_attachments lives on threads, not messages. Derive per-thread from attachments.
+  const changedThreadIds = new Set<string>();
+  for (const group of changedGroups) {
+    for (const msgId of group.messageIds) {
+      const tid = currentThreadById.get(msgId);
+      if (tid) changedThreadIds.add(tid);
+    }
+  }
+  const threadsWithAttachments = new Set<string>();
+  if (changedThreadIds.size > 0) {
+    const ids = [...changedThreadIds];
+    const CHUNK = 500;
+    for (let i = 0; i < ids.length; i += CHUNK) {
+      const chunk = ids.slice(i, i + CHUNK);
+      const ph = chunk.map((_, j) => `$${j + 2}`).join(",");
+      const attRows = await db.select<{ thread_id: string }[]>(
+        `SELECT DISTINCT m.thread_id
+         FROM attachments a
+         INNER JOIN messages m ON m.account_id = a.account_id AND m.id = a.message_id
+         WHERE a.account_id = $1 AND m.thread_id IN (${ph})`,
+        [accountId, ...chunk],
+      );
+      for (const row of attRows) threadsWithAttachments.add(row.thread_id);
+    }
+  }
+
   const rowById = new Map(rows.map((r) => [r.id, r]));
   const updates: ImapThreadUpdate[] = [];
   const allOldThreadIds = new Set<string>();
@@ -1498,7 +1534,10 @@ async function reconcileFragmentedThreads(accountId: string): Promise<number> {
       last_message_at: last.date,
       is_read: allRead,
       is_starred: anyStarred,
-      has_attachments: msgs.some((m) => m.has_attachments === 1),
+      has_attachments: group.messageIds.some((id) => {
+        const tid = currentThreadById.get(id);
+        return tid ? threadsWithAttachments.has(tid) : false;
+      }),
       label_ids: [...mergedLabels],
     });
   }

@@ -37,7 +37,7 @@ export async function getThreadsForAccount(
     return db.select<DbThread[]>(
       `SELECT t.*, m.from_name, m.from_address,
          (SELECT to_addresses FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND LOWER(from_address) = LOWER((SELECT email FROM accounts WHERE id = t.account_id)) AND to_addresses IS NOT NULL AND to_addresses != '' ORDER BY date DESC LIMIT 1) as all_recipients,
-         (SELECT GROUP_CONCAT(display, ', ') FROM (SELECT COALESCE(from_name, from_address) as display, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_address IS NOT NULL AND LOWER(from_address) != LOWER((SELECT email FROM accounts WHERE id = t.account_id)) GROUP BY LOWER(from_address) ORDER BY last_date DESC)) as all_senders,
+         (SELECT GROUP_CONCAT(display, ', ') FROM (SELECT CASE WHEN from_name IS NOT NULL AND from_name != '' THEN from_name || ' <' || from_address || '>' ELSE from_address END as display, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_address IS NOT NULL AND LOWER(from_address) != LOWER((SELECT email FROM accounts WHERE id = t.account_id)) GROUP BY LOWER(from_address) ORDER BY last_date DESC)) as all_senders,
          (SELECT COUNT(*) FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND is_read = 0 AND is_draft = 0 AND is_trashed = 0) as unread_count
        FROM threads t
        INNER JOIN thread_labels tl ON tl.account_id = t.account_id AND tl.thread_id = t.id
@@ -53,7 +53,7 @@ export async function getThreadsForAccount(
   return db.select<DbThread[]>(
     `SELECT t.*, m.from_name, m.from_address,
          (SELECT to_addresses FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND LOWER(from_address) = LOWER((SELECT email FROM accounts WHERE id = t.account_id)) AND to_addresses IS NOT NULL AND to_addresses != '' ORDER BY date DESC LIMIT 1) as all_recipients,
-       (SELECT GROUP_CONCAT(display, ', ') FROM (SELECT COALESCE(from_name, from_address) as display, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_address IS NOT NULL AND LOWER(from_address) != LOWER((SELECT email FROM accounts WHERE id = t.account_id)) GROUP BY LOWER(from_address) ORDER BY last_date DESC)) as all_senders,
+       (SELECT GROUP_CONCAT(display, ', ') FROM (SELECT CASE WHEN from_name IS NOT NULL AND from_name != '' THEN from_name || ' <' || from_address || '>' ELSE from_address END as display, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_address IS NOT NULL AND LOWER(from_address) != LOWER((SELECT email FROM accounts WHERE id = t.account_id)) GROUP BY LOWER(from_address) ORDER BY last_date DESC)) as all_senders,
        (SELECT COUNT(*) FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND is_read = 0 AND is_draft = 0 AND is_trashed = 0) as unread_count
      FROM threads t
      LEFT JOIN messages m ON m.account_id = t.account_id AND m.thread_id = t.id
@@ -95,7 +95,7 @@ export async function getThreadsForCategory(
     return db.select<DbThread[]>(
       `SELECT t.*, m.from_name, m.from_address,
          (SELECT to_addresses FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND LOWER(from_address) = LOWER((SELECT email FROM accounts WHERE id = t.account_id)) AND to_addresses IS NOT NULL AND to_addresses != '' ORDER BY date DESC LIMIT 1) as all_recipients,
-         (SELECT GROUP_CONCAT(display, ', ') FROM (SELECT COALESCE(from_name, from_address) as display, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_address IS NOT NULL AND LOWER(from_address) != LOWER((SELECT email FROM accounts WHERE id = t.account_id)) GROUP BY LOWER(from_address) ORDER BY last_date DESC)) as all_senders,
+         (SELECT GROUP_CONCAT(display, ', ') FROM (SELECT CASE WHEN from_name IS NOT NULL AND from_name != '' THEN from_name || ' <' || from_address || '>' ELSE from_address END as display, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_address IS NOT NULL AND LOWER(from_address) != LOWER((SELECT email FROM accounts WHERE id = t.account_id)) GROUP BY LOWER(from_address) ORDER BY last_date DESC)) as all_senders,
          (SELECT COUNT(*) FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND is_read = 0 AND is_draft = 0 AND is_trashed = 0) as unread_count
        FROM threads t
        INNER JOIN thread_labels tl ON tl.account_id = t.account_id AND tl.thread_id = t.id
@@ -112,7 +112,7 @@ export async function getThreadsForCategory(
   return db.select<DbThread[]>(
     `SELECT t.*, m.from_name, m.from_address,
          (SELECT to_addresses FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND LOWER(from_address) = LOWER((SELECT email FROM accounts WHERE id = t.account_id)) AND to_addresses IS NOT NULL AND to_addresses != '' ORDER BY date DESC LIMIT 1) as all_recipients,
-       (SELECT GROUP_CONCAT(display, ', ') FROM (SELECT COALESCE(from_name, from_address) as display, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_address IS NOT NULL AND LOWER(from_address) != LOWER((SELECT email FROM accounts WHERE id = t.account_id)) GROUP BY LOWER(from_address) ORDER BY last_date DESC)) as all_senders,
+       (SELECT GROUP_CONCAT(display, ', ') FROM (SELECT CASE WHEN from_name IS NOT NULL AND from_name != '' THEN from_name || ' <' || from_address || '>' ELSE from_address END as display, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_address IS NOT NULL AND LOWER(from_address) != LOWER((SELECT email FROM accounts WHERE id = t.account_id)) GROUP BY LOWER(from_address) ORDER BY last_date DESC)) as all_senders,
        (SELECT COUNT(*) FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND is_read = 0 AND is_draft = 0 AND is_trashed = 0) as unread_count
      FROM threads t
      INNER JOIN thread_labels tl ON tl.account_id = t.account_id AND tl.thread_id = t.id
@@ -343,7 +343,7 @@ export async function getThreadsByIds(
     const rows = await db.select<DbThread[]>(
       `SELECT t.*, m.from_name, m.from_address,
          (SELECT to_addresses FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND LOWER(from_address) = LOWER((SELECT email FROM accounts WHERE id = t.account_id)) AND to_addresses IS NOT NULL AND to_addresses != '' ORDER BY date DESC LIMIT 1) as all_recipients,
-         (SELECT GROUP_CONCAT(display, ', ') FROM (SELECT COALESCE(from_name, from_address) as display, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_address IS NOT NULL AND LOWER(from_address) != LOWER((SELECT email FROM accounts WHERE id = t.account_id)) GROUP BY LOWER(from_address) ORDER BY last_date DESC)) as all_senders,
+         (SELECT GROUP_CONCAT(display, ', ') FROM (SELECT CASE WHEN from_name IS NOT NULL AND from_name != '' THEN from_name || ' <' || from_address || '>' ELSE from_address END as display, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_address IS NOT NULL AND LOWER(from_address) != LOWER((SELECT email FROM accounts WHERE id = t.account_id)) GROUP BY LOWER(from_address) ORDER BY last_date DESC)) as all_senders,
          (SELECT COUNT(*) FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND is_read = 0 AND is_draft = 0 AND is_trashed = 0) as unread_count
        FROM threads t
        LEFT JOIN messages m ON m.account_id = t.account_id AND m.thread_id = t.id
@@ -382,7 +382,7 @@ export async function getThreadsByIdsBatch(
     const rows = await db.select<DbThread[]>(
       `SELECT t.*, m.from_name, m.from_address,
          (SELECT to_addresses FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND LOWER(from_address) = LOWER((SELECT email FROM accounts WHERE id = t.account_id)) AND to_addresses IS NOT NULL AND to_addresses != '' ORDER BY date DESC LIMIT 1) as all_recipients,
-         (SELECT GROUP_CONCAT(display, ', ') FROM (SELECT COALESCE(from_name, from_address) as display, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_address IS NOT NULL AND LOWER(from_address) != LOWER((SELECT email FROM accounts WHERE id = t.account_id)) GROUP BY LOWER(from_address) ORDER BY last_date DESC)) as all_senders,
+         (SELECT GROUP_CONCAT(display, ', ') FROM (SELECT CASE WHEN from_name IS NOT NULL AND from_name != '' THEN from_name || ' <' || from_address || '>' ELSE from_address END as display, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_address IS NOT NULL AND LOWER(from_address) != LOWER((SELECT email FROM accounts WHERE id = t.account_id)) GROUP BY LOWER(from_address) ORDER BY last_date DESC)) as all_senders,
          (SELECT COUNT(*) FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND is_read = 0 AND is_draft = 0 AND is_trashed = 0) as unread_count
        FROM threads t
        LEFT JOIN messages m ON m.account_id = t.account_id AND m.thread_id = t.id
@@ -439,7 +439,7 @@ export async function getThreadById(
   const rows = await db.select<DbThread[]>(
     `SELECT t.*, m.from_name, m.from_address,
          (SELECT to_addresses FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND LOWER(from_address) = LOWER((SELECT email FROM accounts WHERE id = t.account_id)) AND to_addresses IS NOT NULL AND to_addresses != '' ORDER BY date DESC LIMIT 1) as all_recipients,
-       (SELECT GROUP_CONCAT(display, ', ') FROM (SELECT COALESCE(from_name, from_address) as display, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_address IS NOT NULL AND LOWER(from_address) != LOWER((SELECT email FROM accounts WHERE id = t.account_id)) GROUP BY LOWER(from_address) ORDER BY last_date DESC)) as all_senders,
+       (SELECT GROUP_CONCAT(display, ', ') FROM (SELECT CASE WHEN from_name IS NOT NULL AND from_name != '' THEN from_name || ' <' || from_address || '>' ELSE from_address END as display, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_address IS NOT NULL AND LOWER(from_address) != LOWER((SELECT email FROM accounts WHERE id = t.account_id)) GROUP BY LOWER(from_address) ORDER BY last_date DESC)) as all_senders,
        (SELECT COUNT(*) FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND is_read = 0 AND is_draft = 0 AND is_trashed = 0) as unread_count
      FROM threads t
      LEFT JOIN messages m ON m.account_id = t.account_id AND m.thread_id = t.id
@@ -699,7 +699,7 @@ export async function getUnifiedInboxThreads(
   return db.select<DbThread[]>(
     `SELECT t.*, m.from_name, m.from_address,
          (SELECT to_addresses FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND LOWER(from_address) = LOWER((SELECT email FROM accounts WHERE id = t.account_id)) AND to_addresses IS NOT NULL AND to_addresses != '' ORDER BY date DESC LIMIT 1) as all_recipients,
-       (SELECT GROUP_CONCAT(display, ', ') FROM (SELECT COALESCE(from_name, from_address) as display, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_address IS NOT NULL AND LOWER(from_address) != LOWER((SELECT email FROM accounts WHERE id = t.account_id)) GROUP BY LOWER(from_address) ORDER BY last_date DESC)) as all_senders,
+       (SELECT GROUP_CONCAT(display, ', ') FROM (SELECT CASE WHEN from_name IS NOT NULL AND from_name != '' THEN from_name || ' <' || from_address || '>' ELSE from_address END as display, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_address IS NOT NULL AND LOWER(from_address) != LOWER((SELECT email FROM accounts WHERE id = t.account_id)) GROUP BY LOWER(from_address) ORDER BY last_date DESC)) as all_senders,
        (SELECT COUNT(*) FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND is_read = 0 AND is_draft = 0 AND is_trashed = 0) as unread_count
      FROM threads t
      INNER JOIN thread_labels tl ON tl.account_id = t.account_id AND tl.thread_id = t.id
@@ -735,7 +735,7 @@ export async function getUnifiedFolderThreads(
     return db.select<DbThread[]>(
       `SELECT t.*, m.from_name, m.from_address,
          (SELECT to_addresses FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND LOWER(from_address) = LOWER((SELECT email FROM accounts WHERE id = t.account_id)) AND to_addresses IS NOT NULL AND to_addresses != '' ORDER BY date DESC LIMIT 1) as all_recipients,
-         (SELECT GROUP_CONCAT(display, ', ') FROM (SELECT COALESCE(from_name, from_address) as display, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_address IS NOT NULL AND LOWER(from_address) != LOWER((SELECT email FROM accounts WHERE id = t.account_id)) GROUP BY LOWER(from_address) ORDER BY last_date DESC)) as all_senders,
+         (SELECT GROUP_CONCAT(display, ', ') FROM (SELECT CASE WHEN from_name IS NOT NULL AND from_name != '' THEN from_name || ' <' || from_address || '>' ELSE from_address END as display, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_address IS NOT NULL AND LOWER(from_address) != LOWER((SELECT email FROM accounts WHERE id = t.account_id)) GROUP BY LOWER(from_address) ORDER BY last_date DESC)) as all_senders,
          (SELECT COUNT(*) FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND is_read = 0 AND is_draft = 0 AND is_trashed = 0) as unread_count
        FROM threads t
        LEFT JOIN messages m ON m.thread_id = t.id AND m.account_id = t.account_id
@@ -761,7 +761,7 @@ export async function getUnifiedFolderThreads(
   return db.select<DbThread[]>(
     `SELECT t.*, m.from_name, m.from_address,
          (SELECT to_addresses FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND LOWER(from_address) = LOWER((SELECT email FROM accounts WHERE id = t.account_id)) AND to_addresses IS NOT NULL AND to_addresses != '' ORDER BY date DESC LIMIT 1) as all_recipients,
-       (SELECT GROUP_CONCAT(display, ', ') FROM (SELECT COALESCE(from_name, from_address) as display, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_address IS NOT NULL AND LOWER(from_address) != LOWER((SELECT email FROM accounts WHERE id = t.account_id)) GROUP BY LOWER(from_address) ORDER BY last_date DESC)) as all_senders,
+       (SELECT GROUP_CONCAT(display, ', ') FROM (SELECT CASE WHEN from_name IS NOT NULL AND from_name != '' THEN from_name || ' <' || from_address || '>' ELSE from_address END as display, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_address IS NOT NULL AND LOWER(from_address) != LOWER((SELECT email FROM accounts WHERE id = t.account_id)) GROUP BY LOWER(from_address) ORDER BY last_date DESC)) as all_senders,
        (SELECT COUNT(*) FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND is_read = 0 AND is_draft = 0 AND is_trashed = 0) as unread_count
      FROM threads t
      INNER JOIN thread_labels tl ON tl.account_id = t.account_id AND tl.thread_id = t.id
