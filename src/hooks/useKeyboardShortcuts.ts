@@ -317,9 +317,14 @@ const currentIdx = threads.findIndex((t) => t.id === selectedId);
       }
       break;
     }
-    case "action.compose":
-      useComposerStore.getState().openComposer();
+    case "action.compose": {
+      const threadAccountId = selectedId
+        ? (useThreadStore.getState().threadMap.get(selectedId)?.accountId ?? null)
+        : null;
+      const composeAccountId = threadAccountId ?? activeAccountId ?? undefined;
+      useComposerStore.getState().openComposer(composeAccountId ? { accountId: composeAccountId } : undefined);
       break;
+    }
 case "action.reply": {
        if (selectedId && activeAccountId) {
          const messages = await getMessagesForThread(activeAccountId, selectedId);

@@ -378,7 +378,12 @@ export function SearchBar() {
       </div>
       <button
         onClick={() => {
-          const fallbackAccountId = activeAccountId
+          const { selectedThreadId, threadMap } = useThreadStore.getState();
+          const threadAccountId = selectedThreadId
+            ? (threadMap.get(selectedThreadId)?.accountId ?? null)
+            : null;
+          const fallbackAccountId = threadAccountId
+            ?? activeAccountId
             ?? accounts.find((a) => a.includeInGlobal)?.id
             ?? undefined;
           openComposer({ accountId: fallbackAccountId });
