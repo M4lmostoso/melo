@@ -373,7 +373,7 @@ export function ContactSidebar({ email, name, accountId, onClose }: ContactSideb
                   key={`${att.filename}-${att.date}-${i}`}
                   className="flex items-center gap-2 px-2 py-1.5 text-xs rounded hover:bg-bg-hover transition-colors"
                 >
-                  <span className="shrink-0">{getFileIcon(att.mime_type)}</span>
+                  <span className="shrink-0">{getFileIcon(att.mime_type, att.filename)}</span>
                   <div className="min-w-0 flex-1">
                     <div className="text-text-secondary truncate">{att.filename}</div>
                     <div className="text-text-tertiary text-[0.625rem]">

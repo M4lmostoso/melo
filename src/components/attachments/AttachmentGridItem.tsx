@@ -35,7 +35,7 @@ export function AttachmentGridItem({ attachment, onPreview, onDownload, onJumpTo
         onClick={previewable ? onPreview : onDownload}
         className="flex items-center justify-center h-24 bg-bg-secondary text-3xl"
       >
-        {getFileIcon(attachment.mime_type)}
+        {getFileIcon(attachment.mime_type, attachment.filename)}
       </button>
 
       {/* Info */}

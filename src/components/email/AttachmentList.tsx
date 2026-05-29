@@ -55,7 +55,7 @@ export function AttachmentList({ accountId, messageId, attachments, referencedCi
               onClick={() => setPreview(att)}
               className="flex items-center gap-2 px-3 py-1.5 text-xs rounded-md border border-border-primary hover:bg-bg-hover transition-colors"
             >
-              <span className="text-text-tertiary">{getFileIcon(att.mime_type)}</span>
+              <span className="text-text-tertiary">{getFileIcon(att.mime_type, att.filename)}</span>
               <span className="text-text-secondary truncate max-w-[200px]">
                 {att.filename ?? t("email.attachmentList.unnamed")}
               </span>
@@ -177,7 +177,7 @@ export function AttachmentPreview({
   const header = (
     <div className="px-4 py-3 border-b border-border-primary flex items-center justify-between shrink-0">
       <div className="flex items-center gap-2 min-w-0">
-        <span>{getFileIcon(attachment.mime_type)}</span>
+        <span>{getFileIcon(attachment.mime_type, attachment.filename)}</span>
         <span className="text-sm font-medium text-text-primary truncate">
           {attachment.filename ?? "Unnamed"}
         </span>

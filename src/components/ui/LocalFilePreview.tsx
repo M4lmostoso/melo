@@ -46,7 +46,7 @@ export function LocalFilePreview({ file, onClose }: LocalFilePreviewProps) {
   const header = (
     <div className="px-4 py-3 border-b border-border-primary flex items-center justify-between shrink-0">
       <div className="flex items-center gap-2 min-w-0">
-        <span>{getFileIcon(file.type || null)}</span>
+        <span>{getFileIcon(file.type || null, file.name)}</span>
         <span className="text-sm font-medium text-text-primary truncate">{file.name}</span>
         <span className="text-xs text-text-tertiary whitespace-nowrap">
           ({formatFileSize(file.size)})

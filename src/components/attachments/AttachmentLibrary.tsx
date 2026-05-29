@@ -55,11 +55,11 @@ function matchesType(att: AttachmentWithContext, filter: TypeFilter): boolean {
     case "pdfs": return isPdf(att.mime_type, att.filename);
     case "documents": return isDocument(att.mime_type, att.filename);
     case "spreadsheets": return isSpreadsheet(att.mime_type, att.filename);
-    case "archives": return isArchive(att.mime_type);
+    case "archives": return isArchive(att.mime_type, att.filename);
     case "other":
       return !isImage(att.mime_type) && !isPdf(att.mime_type, att.filename) &&
         !isDocument(att.mime_type, att.filename) && !isSpreadsheet(att.mime_type, att.filename) &&
-        !isArchive(att.mime_type);
+        !isArchive(att.mime_type, att.filename);
   }
 }
 
