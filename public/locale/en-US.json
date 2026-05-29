@@ -1171,6 +1171,7 @@
       "categories": {
         "navigation": "Navigation",
         "actions": "Actions",
+        "scheduled": "Scheduled",
         "app": "App"
       },
       "items": {
@@ -1211,7 +1212,12 @@
           "createTaskFromEmail": "Create task from email (AI)",
           "moveToFolder": "Move to folder/label",
           "selectAll": "Select all",
-          "selectFromHere": "Select all from here"
+          "selectFromHere": "Select all from here",
+          "scheduled": {
+            "edit": "Edit Scheduled Email",
+            "reschedule": "Reschedule Email",
+            "cancel": "Cancel Scheduled Email"
+          }
         },
         "app": {
           "commandPalette": "Command palette",

@@ -389,33 +389,46 @@ case "action.reply": {
       const isTrashView = deleteLabelCtx === "trash";
       const isDraftsView = deleteLabelCtx === "drafts";
       const multiDeleteIds = useThreadStore.getState().selectedThreadIds;
-      if (multiDeleteIds.size > 0 && activeAccountId) {
+      const allThreads = useThreadStore.getState().threads;
+      if (multiDeleteIds.size > 0) {
         const ids = [...multiDeleteIds];
         for (const id of ids) {
+          const t = allThreads.find((th) => th.id === id);
+          const resolvedId = activeAccountId ?? t?.accountId;
+          if (!resolvedId) continue;
           if (isTrashView) {
-            await permanentDeleteThread(activeAccountId, id, []);
-            await deleteThreadFromDb(activeAccountId, id);
+            await permanentDeleteThread(resolvedId, id, []);
+            await deleteThreadFromDb(resolvedId, id);
           } else if (isDraftsView) {
             useThreadStore.getState().removeThread(id);
-            await deleteDraftThread(activeAccountId, id);
+            await deleteDraftThread(resolvedId, id);
           } else {
-            await trashThread(activeAccountId, id, []);
+            await trashThread(resolvedId, id, []);
           }
         }
-      } else if (selectedId && activeAccountId) {
-        if (isTrashView) {
-          await permanentDeleteThread(activeAccountId, selectedId, []);
-          await deleteThreadFromDb(activeAccountId, selectedId);
-        } else if (isDraftsView) {
-          useThreadStore.getState().removeThread(selectedId);
-          await deleteDraftThread(activeAccountId, selectedId);
-        } else {
-          await trashThread(activeAccountId, selectedId, []);
+      } else if (selectedId) {
+        const t = allThreads.find((th) => th.id === selectedId);
+        const resolvedId = activeAccountId ?? t?.accountId;
+        if (resolvedId) {
+          if (isTrashView) {
+            await permanentDeleteThread(resolvedId, selectedId, []);
+            await deleteThreadFromDb(resolvedId, selectedId);
+          } else if (isDraftsView) {
+            useThreadStore.getState().removeThread(selectedId);
+            await deleteDraftThread(resolvedId, selectedId);
+          } else {
+            await trashThread(resolvedId, selectedId, []);
+          }
         }
       }
       break;
     }
     case "action.deleteMessage": {
+      // In scheduled view, d cancels the selected scheduled email
+      if (getActiveLabel() === "scheduled") {
+        window.dispatchEvent(new Event("velo-scheduled-cancel-selected"));
+        break;
+      }
       if (!selectedId || !activeAccountId) break;
       const deleteMsgLabelCtx = getActiveLabel();
       const isTrashViewMsg = deleteMsgLabelCtx === "trash";
@@ -570,6 +583,15 @@ case "action.reply": {
       }
       break;
     }
+    case "action.scheduled.edit":
+      window.dispatchEvent(new Event("velo-scheduled-edit-selected"));
+      break;
+    case "action.scheduled.reschedule":
+      window.dispatchEvent(new Event("velo-scheduled-reschedule-selected"));
+      break;
+    case "action.scheduled.cancel":
+      window.dispatchEvent(new Event("velo-scheduled-cancel-selected"));
+      break;
     case "app.commandPalette":
       window.dispatchEvent(new Event("velo-toggle-command-palette"));
       break;

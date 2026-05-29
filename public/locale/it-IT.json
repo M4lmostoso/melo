@@ -1169,6 +1169,7 @@
       "categories": {
         "navigation": "Navigazione",
         "actions": "Azioni",
+        "scheduled": "Programmate",
         "app": "App"
       },
       "items": {
@@ -1209,7 +1210,12 @@
           "createTaskFromEmail": "Crea attività dall'email (AI)",
           "moveToFolder": "Sposta in cartella/etichetta",
           "selectAll": "Seleziona tutto",
-          "selectFromHere": "Seleziona tutto da qui"
+          "selectFromHere": "Seleziona tutto da qui",
+          "scheduled": {
+            "edit": "Modifica email programmata",
+            "reschedule": "Riprogramma email",
+            "cancel": "Annulla email programmata"
+          }
         },
         "app": {
           "commandPalette": "Riquadro comandi",

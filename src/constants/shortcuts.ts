@@ -49,6 +49,11 @@ export const SHORTCUTS: ShortcutCategory[] = [
     { id: "action.selectAll", keys: "Ctrl+A", desc: "Select all" },
     { id: "action.selectFromHere", keys: "Ctrl+Shift+A", desc: "Select all from here" },
   ]},
+  { category: "Scheduled", items: [
+    { id: "action.scheduled.edit", keys: "Ctrl+M", desc: "Edit Scheduled Email" },
+    { id: "action.scheduled.reschedule", keys: "Ctrl+P", desc: "Reschedule Email" },
+    { id: "action.scheduled.cancel", keys: "d", desc: "Cancel Scheduled Email" },
+  ]},
   { category: "App", items: [
     { id: "app.commandPalette", keys: "/", desc: "Command palette" },
     { id: "app.toggleSidebar", keys: "Ctrl+Shift+E", desc: "Toggle sidebar" },

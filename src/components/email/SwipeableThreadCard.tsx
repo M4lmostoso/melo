@@ -8,7 +8,9 @@ import { useAccountStore } from "@/stores/accountStore";
 import {
   archiveThread,
   trashLatestMessage,
+  deleteDraftThread,
 } from "@/services/emailActions";
+import { useThreadStore } from "@/stores/threadStore";
 import { scrollTracker } from "@/utils/scrollTracker";
 
 // ── Tuneable constants ────────────────────────────────────────────────────────
@@ -77,8 +79,11 @@ export function SwipeableThreadCard(props: SwipeableThreadCardProps) {
   useEffect(() => { phaseRef.current = phase; }, [phase]);
 
   const isTrashView = activeLabel === "trash";
+  const isDraftsView = activeLabel === "drafts";
   const isTrashViewRef = useRef(isTrashView);
+  const isDraftsViewRef = useRef(isDraftsView);
   useEffect(() => { isTrashViewRef.current = isTrashView; }, [isTrashView]);
+  useEffect(() => { isDraftsViewRef.current = isDraftsView; }, [isDraftsView]);
 
   // ── Snap back when another thread is selected ─────────────────────────────
   useEffect(() => {
@@ -99,7 +104,12 @@ export function SwipeableThreadCard(props: SwipeableThreadCardProps) {
       const accountId = activeAccountId ?? thread.accountId;
       if (!accountId) return;
       if (dir === "left") {
-        await trashLatestMessage(accountId, thread.id, isTrashViewRef.current);
+        if (isDraftsViewRef.current) {
+          useThreadStore.getState().removeThread(thread.id);
+          await deleteDraftThread(accountId, thread.id);
+        } else {
+          await trashLatestMessage(accountId, thread.id, isTrashViewRef.current);
+        }
       } else {
         await archiveThread(accountId, thread.id, []);
       }

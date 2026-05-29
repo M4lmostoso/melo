@@ -53,6 +53,7 @@ import {
   saveNow,
   getActiveDraftId,
   getServerDraftId,
+  getPreTombstonedDraftId,
 } from "@/services/composer/draftAutoSave";
 import {
   getTemplatesForAccount,
@@ -619,19 +620,37 @@ const getFullHtml = useCallback(() => {
           [attachmentData, scheduledId],
         );
       }
-      stopAutoSave();
+      // Use startDiscard+waitForSave (not stopAutoSave) so any in-flight IMAP
+      // saveServer() sees isDiscarding=true and pre-tombstones the new UID before
+      // returning. stopAutoSave nullifies currentAccountId immediately, causing
+      // getActiveDraftId() to miss the server UID and leaving the draft on IMAP.
+      startDiscard();
+      await Promise.race([waitForSave(), new Promise<void>((r) => setTimeout(r, 2000))]);
+      const serverDraftId = getServerDraftId();
       const activeDraftId = getActiveDraftId();
-      if (activeDraftId) {
+      // If saveServer() was in-flight during startDiscard(), it pre-tombstoned the
+      // newly APPENDed UID (local DB already cleaned) but never EXPUNGEd the server.
+      // deleteDraftAction below will issue the EXPUNGE so the draft doesn't linger.
+      const preTombstonedId = getPreTombstonedDraftId();
+      const localDraftId = useComposerStore.getState().localDraftId;
+      const account = useAccountStore.getState().accounts.find((a) => a.id === effectiveAccountId);
+      const isImapAccount = !!account && account.provider !== "gmail_api";
+      const draftToDelete = activeDraftId ?? preTombstonedId;
+      if (draftToDelete) {
         try {
           await deleteDraftAction(
             effectiveAccountId,
-            activeDraftId,
+            draftToDelete,
             state.threadId ?? undefined,
           );
         } catch {
           /* ignore */
         }
+      } else if (isImapAccount && !serverDraftId && localDraftId) {
+        // No server draft at all (APPEND debounce never fired): purge local UUID row only.
+        await purgeDraftFromDb(effectiveAccountId, null, state.threadId ?? null, localDraftId).catch(() => {});
       }
+      stopAutoSave();
     } catch (err) {
       console.error("Failed to schedule email:", err);
       return;
@@ -682,6 +701,9 @@ const getFullHtml = useCallback(() => {
       //    getServerDraftId() returns the final coordinates. Usually resolves instantly.
       await Promise.race([waitForSave(), new Promise<void>((r) => setTimeout(r, 2000))]);
       const serverDraftId = getServerDraftId(); // IMAP UID-based (or null)
+      // If saveServer() was in-flight and pre-tombstoned its UID (local DB already
+      // cleaned) but never EXPUNGEd the server, capture it here so we still EXPUNGE.
+      const preTombstonedId = getPreTombstonedDraftId();
 
       // 4. Tombstone the IMAP server UID so no sync can ever re-import it.
       if (serverDraftId) {
@@ -700,7 +722,7 @@ const getFullHtml = useCallback(() => {
       // 6. Hand off the server-side delete to the main window (it owns the IMAP/Gmail
       //    connection and its JS context survives this window closing). For a pure-local
       //    draft (no server copy yet) there is nothing to expunge.
-      const serverTarget = serverDraftId ?? (!isImapAccount ? preGmailDraftId : null);
+      const serverTarget = serverDraftId ?? preTombstonedId ?? (!isImapAccount ? preGmailDraftId : null);
       if (serverTarget || (!isImapAccount && preThreadId)) {
         void deleteDraftOnServer({
           accountId,

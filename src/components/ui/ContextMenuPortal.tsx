@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu";
 import { useContextMenuStore } from "@/stores/contextMenuStore";
 import { t } from "@/i18n";
@@ -8,6 +8,9 @@ import { getActiveLabel } from "@/router/navigate";
 import { useComposerStore } from "@/stores/composerStore";
 import { useLabelStore, type Label } from "@/stores/labelStore";
 import { archiveThread, trashThread, permanentDeleteThread, markThreadRead, starThread, spamThread, addThreadLabel, removeThreadLabel, deleteDraftThread, deleteSingleMessage } from "@/services/emailActions";
+import { updateScheduledEmailStatus, updateScheduledTime, type DbScheduledEmail } from "@/services/db/scheduledEmails";
+import { DateTimePickerDialog } from "./DateTimePickerDialog";
+import { getSchedulePresets } from "@/utils/schedulePresets";
 import { deleteThread as deleteThreadFromDb, pinThread as pinThreadDb, unpinThread as unpinThreadDb, muteThread as muteThreadDb, unmuteThread as unmuteThreadDb } from "@/services/db/threads";
 import { logInteraction } from "@/services/ai/reputationEngine";
 import { getMessagesForThread } from "@/services/db/messages";
@@ -39,6 +42,8 @@ import {
   Code,
   RefreshCw,
   Trash,
+  Edit2,
+  RotateCcw,
 } from "lucide-react";
 import { triggerSync } from "@/services/gmail/syncManager";
 import { useUIStore } from "@/stores/uiStore";
@@ -113,6 +118,9 @@ export function ContextMenuPortal() {
       )}
       {menuType === "message" && (
         <MessageMenu position={position} data={data} onClose={closeMenu} />
+      )}
+      {menuType === "scheduledEmail" && (
+        <ScheduledEmailMenu position={position} data={data} onClose={closeMenu} />
       )}
       {snoozeTarget && (
         <SnoozeDialog
@@ -241,7 +249,9 @@ function ThreadMenu({
   const isMulti = targetIds.length > 1;
 
   const thread = threads.find((t) => t.id === threadId);
-  if (!thread || !activeAccountId) {
+  // In unified/all-accounts view activeAccountId is null — fall back to the thread's own account.
+  const resolvedAccountId = activeAccountId ?? thread?.accountId ?? null;
+  if (!thread || !resolvedAccountId) {
     return <ContextMenu items={[]} position={position} onClose={onClose} />;
   }
 
@@ -256,7 +266,7 @@ function ThreadMenu({
   const isMuted = isMulti ? false : thread.isMuted;
 
   const handleReply = async () => {
-    const messages = await getMessagesForThread(activeAccountId, thread.id);
+    const messages = await getMessagesForThread(resolvedAccountId, thread.id);
     const lastMessage = messages[messages.length - 1];
     if (!lastMessage) return;
     const replyTo = lastMessage.reply_to ?? lastMessage.from_address;
@@ -271,7 +281,7 @@ function ThreadMenu({
   };
 
   const handleReplyAll = async () => {
-    const messages = await getMessagesForThread(activeAccountId, thread.id);
+    const messages = await getMessagesForThread(resolvedAccountId, thread.id);
     const lastMessage = messages[messages.length - 1];
     if (!lastMessage) return;
     const replyTo = lastMessage.reply_to ?? lastMessage.from_address;
@@ -311,7 +321,7 @@ function ThreadMenu({
   };
 
   const handleForward = async () => {
-    const messages = await getMessagesForThread(activeAccountId, thread.id);
+    const messages = await getMessagesForThread(resolvedAccountId, thread.id);
     const lastMessage = messages[messages.length - 1];
     if (!lastMessage) return;
     openComposer({
@@ -326,20 +336,20 @@ function ThreadMenu({
 
   const handleArchive = async () => {
     for (const id of targetIds) {
-      await archiveThread(activeAccountId, id, []);
+      await archiveThread(resolvedAccountId, id, []);
     }
   };
 
   const handleDelete = async () => {
     for (const id of targetIds) {
       if (isTrashView) {
-        await permanentDeleteThread(activeAccountId, id, []);
-        await deleteThreadFromDb(activeAccountId, id);
+        await permanentDeleteThread(resolvedAccountId, id, []);
+        await deleteThreadFromDb(resolvedAccountId, id);
       } else if (isDraftsView) {
         useThreadStore.getState().removeThread(id);
-        await deleteDraftThread(activeAccountId, id);
+        await deleteDraftThread(resolvedAccountId, id);
       } else {
-        await trashThread(activeAccountId, id, []);
+        await trashThread(resolvedAccountId, id, []);
       }
     }
   };
@@ -348,7 +358,7 @@ function ThreadMenu({
     for (const id of targetIds) {
       const t = threads.find((th) => th.id === id);
       if (!t) continue;
-      await markThreadRead(activeAccountId, id, [], !t.isRead);
+      await markThreadRead(resolvedAccountId, id, [], !t.isRead);
     }
   };
 
@@ -356,7 +366,7 @@ function ThreadMenu({
     for (const id of targetIds) {
       const t = threads.find((th) => th.id === id);
       if (!t) continue;
-      await starThread(activeAccountId, id, [], !t.isStarred);
+      await starThread(resolvedAccountId, id, [], !t.isStarred);
     }
   };
 
@@ -367,21 +377,21 @@ function ThreadMenu({
       const newPinned = !t.isPinned;
       useThreadStore.getState().updateThread(id, { isPinned: newPinned });
       if (newPinned) {
-        await pinThreadDb(activeAccountId, id);
+        await pinThreadDb(resolvedAccountId, id);
       } else {
-        await unpinThreadDb(activeAccountId, id);
+        await unpinThreadDb(resolvedAccountId, id);
       }
     }
   };
 
   const handleSpam = async () => {
     for (const id of targetIds) {
-      await spamThread(activeAccountId, id, [], !isSpamView);
+      await spamThread(resolvedAccountId, id, [], !isSpamView);
     }
   };
 
   const handleSnooze = () => {
-    onSnooze({ threadIds: [...targetIds], accountId: activeAccountId });
+    onSnooze({ threadIds: [...targetIds], accountId: resolvedAccountId });
   };
 
   const handleToggleMute = async () => {
@@ -390,13 +400,13 @@ function ThreadMenu({
       if (!t) continue;
       const newMuted = !t.isMuted;
       if (newMuted) {
-        await muteThreadDb(activeAccountId, id);
+        await muteThreadDb(resolvedAccountId, id);
         useThreadStore.getState().updateThread(id, { isMuted: true, urgencyScore: 0.05 });
         if (t.fromAddress) {
-          logInteraction(activeAccountId, t.fromAddress, "MUTE_URGENCY", id).catch(() => {});
+          logInteraction(resolvedAccountId, t.fromAddress, "MUTE_URGENCY", id).catch(() => {});
         }
       } else {
-        await unmuteThreadDb(activeAccountId, id);
+        await unmuteThreadDb(resolvedAccountId, id);
         useThreadStore.getState().updateThread(id, { isMuted: false });
       }
     }
@@ -436,12 +446,12 @@ function ThreadMenu({
       if (!t) continue;
       const hasLabel = t.labelIds.includes(labelId);
       if (hasLabel) {
-        await removeThreadLabel(activeAccountId, id, labelId);
+        await removeThreadLabel(resolvedAccountId, id, labelId);
         useThreadStore.getState().updateThread(id, {
           labelIds: t.labelIds.filter((l) => l !== labelId),
         });
       } else {
-        await addThreadLabel(activeAccountId, id, labelId);
+        await addThreadLabel(resolvedAccountId, id, labelId);
         useThreadStore.getState().updateThread(id, {
           labelIds: [...t.labelIds, labelId],
         });
@@ -545,7 +555,7 @@ function ThreadMenu({
           action: async () => {
             if (!thread.fromAddress) return;
             const { muteUrgency } = await import("@/services/ai/heatExtinguisher");
-            await muteUrgency(activeAccountId, threadId, thread.fromAddress);
+            await muteUrgency(resolvedAccountId, threadId, thread.fromAddress);
           },
         }]
       : []),
@@ -583,7 +593,7 @@ function ThreadMenu({
         label: cat,
         action: async () => {
           for (const id of targetIds) {
-            await setThreadCategory(activeAccountId, id, cat, true);
+            await setThreadCategory(resolvedAccountId, id, cat, true);
           }
           window.dispatchEvent(new Event("velo-sync-done"));
         },
@@ -618,7 +628,7 @@ function ThreadMenu({
                     sortOrder: qs.sort_order,
                     createdAt: qs.created_at,
                   };
-                  await executeQuickStep(step, [...targetIds], activeAccountId);
+                  await executeQuickStep(step, [...targetIds], resolvedAccountId);
                 },
               };
             }),
@@ -821,4 +831,74 @@ function MessageMenu({
   ];
 
   return <ContextMenu items={items} position={position} onClose={onClose} />;
+}
+
+function ScheduledEmailMenu({
+  position,
+  data,
+  onClose,
+}: {
+  position: { x: number; y: number };
+  data: Record<string, unknown>;
+  onClose: () => void;
+}) {
+  const email = data["email"] as DbScheduledEmail;
+  const accounts = useAccountStore((s) => s.accounts);
+  const openComposer = useComposerStore((s) => s.openComposer);
+  const refreshScheduledCounts = useLabelStore((s) => s.refreshScheduledCounts);
+  const setSelectedScheduledEmail = useUIStore((s) => s.setSelectedScheduledEmail);
+  const selectedScheduledEmail = useUIStore((s) => s.selectedScheduledEmail);
+  const [showReschedule, setShowReschedule] = useState(false);
+
+  const handleEdit = useCallback(() => {
+    const to = email.to_addresses.split(",").map((s) => s.trim()).filter(Boolean);
+    const cc = email.cc_addresses ? email.cc_addresses.split(",").map((s) => s.trim()).filter(Boolean) : [];
+    const bcc = email.bcc_addresses ? email.bcc_addresses.split(",").map((s) => s.trim()).filter(Boolean) : [];
+    openComposer({ mode: "new", to, cc, bcc, subject: email.subject ?? "", bodyHtml: email.body_html, threadId: email.thread_id, accountId: email.account_id });
+    updateScheduledEmailStatus(email.id, "cancelled")
+      .then(() => refreshScheduledCounts(accounts.map((a) => a.id)))
+      .catch(console.error);
+    window.dispatchEvent(new CustomEvent("velo-scheduled-removed", { detail: { id: email.id } }));
+    if (selectedScheduledEmail?.id === email.id) setSelectedScheduledEmail(null);
+    onClose();
+  }, [email, openComposer, accounts, refreshScheduledCounts, selectedScheduledEmail, setSelectedScheduledEmail, onClose]);
+
+  const handleCancel = useCallback(async () => {
+    await updateScheduledEmailStatus(email.id, "cancelled");
+    window.dispatchEvent(new CustomEvent("velo-scheduled-removed", { detail: { id: email.id } }));
+    if (selectedScheduledEmail?.id === email.id) setSelectedScheduledEmail(null);
+    refreshScheduledCounts(accounts.map((a) => a.id)).catch(console.error);
+    onClose();
+  }, [email, accounts, refreshScheduledCounts, selectedScheduledEmail, setSelectedScheduledEmail, onClose]);
+
+  const handleReschedule = useCallback(async (newTimestamp: number) => {
+    await updateScheduledTime(email.id, newTimestamp);
+    window.dispatchEvent(new Event("velo-sync-done"));
+    setShowReschedule(false);
+    onClose();
+  }, [email, onClose]);
+
+  const items: ContextMenuItem[] = [
+    { id: "edit", label: t("layout.scheduledPanel.edit"), icon: Edit2, shortcut: "Ctrl+M", action: handleEdit },
+    { id: "reschedule", label: t("layout.scheduledPanel.editSchedule"), icon: RotateCcw, shortcut: "Ctrl+P", action: () => setShowReschedule(true) },
+    { id: "sep", label: "", separator: true },
+    { id: "cancel", label: t("layout.scheduledPanel.cancelSchedule"), icon: Trash2, shortcut: "d", danger: true, action: () => void handleCancel() },
+  ];
+
+  return (
+    <>
+      <ContextMenu items={items} position={position} onClose={onClose} />
+      {showReschedule && (
+        <DateTimePickerDialog
+          isOpen={true}
+          onClose={() => { setShowReschedule(false); onClose(); }}
+          title={t("layout.scheduledPanel.rescheduleTitle")}
+          presets={getSchedulePresets({ tomorrowMorning: "layout.scheduledPanel.tomorrowMorning", tomorrowAfternoon: "layout.scheduledPanel.tomorrowAfternoon", mondayMorning: "layout.scheduledPanel.mondayMorning" })}
+          onSelect={handleReschedule}
+          submitLabel={t("layout.scheduledPanel.rescheduleSubmit")}
+          zIndex="z-[60]"
+        />
+      )}
+    </>
+  );
 }

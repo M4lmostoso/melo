@@ -28,6 +28,11 @@ let currentServerFolder: string | null = null;
 // Set once in startAutoSave and reset in stopAutoSave.
 let isImap = false;
 
+// Draft that was APPENDed to the IMAP server and pre-tombstoned (local DB cleaned)
+// but never EXPUNGEd, because isDiscarding was true when saveServer() completed.
+// Composer reads this after waitForSave() and schedules the server EXPUNGE.
+let preTombstonedDraftId: string | null = null;
+
 const LOCAL_DEBOUNCE_MS = 3000;
 const SERVER_DEBOUNCE_MS = 18000; // 18 seconds
 const OPEN_COOLDOWN_MS = 2000;
@@ -35,6 +40,16 @@ const OPEN_COOLDOWN_MS = 2000;
 // ---------------------------------------------------------------------------
 // Public getters for Composer.tsx
 // ---------------------------------------------------------------------------
+
+/**
+ * Returns a draft ID that was APPENDed to the IMAP server and pre-tombstoned
+ * (local DB cleaned) while discarding, but never EXPUNGEd from the server.
+ * Composer reads this after waitForSave() to issue the server EXPUNGE.
+ * Resets to null on the next startAutoSave() call.
+ */
+export function getPreTombstonedDraftId(): string | null {
+  return preTombstonedDraftId;
+}
 
 /**
  * Returns the IMAP UID-based draft ID of the current server-side draft,
@@ -238,8 +253,10 @@ async function saveServer(): Promise<void> {
     }
 
     // If a discard arrived while the IMAP APPEND was in-flight, pre-tombstone the new UID.
+    // Record the draft ID so Composer can EXPUNGE it from the server after waitForSave().
     if (isDiscarding) {
       await tombstoneImapDraft(accountId, newDraftId).catch(() => {});
+      preTombstonedDraftId = newDraftId;
       return;
     }
 
@@ -560,6 +577,7 @@ export function startAutoSave(accountId: string): void {
   isDiscarding = false;
   isSaveLocalInFlight = false;
   isSaveServerInFlight = false;
+  preTombstonedDraftId = null;
   stopAutoSave();
   currentAccountId = accountId;
   lastPersistenceKey = null;
