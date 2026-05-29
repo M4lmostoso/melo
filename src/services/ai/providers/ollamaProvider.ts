@@ -24,12 +24,17 @@ export function createOllamaProvider(serverUrl: string, model: string): AiProvid
 
   return {
     async complete(req: AiCompletionRequest): Promise<string> {
+      const history = (req.conversationHistory ?? []).map((m) => ({
+        role: m.role as "user" | "assistant",
+        content: m.content,
+      }));
       const params = {
         model,
         stream: false as const,
         max_tokens: req.maxTokens ?? 4096,
         messages: [
           { role: "system" as const, content: req.systemPrompt },
+          ...history,
           { role: "user" as const, content: req.userContent },
         ],
       };

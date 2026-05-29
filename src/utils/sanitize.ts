@@ -12,6 +12,7 @@ export function sanitizeHtml(html: string): string {
   return DOMPurify.sanitize(html, {
     ALLOW_UNKNOWN_PROTOCOLS: false,
     FORBID_TAGS: ["script", "style", "iframe", "object", "embed", "form"],
+    ADD_DATA_URI_TAGS: ["img"],
     ALLOWED_ATTR: [
       "href",
       "src",

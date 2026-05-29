@@ -1,5 +1,32 @@
 import { Extension } from "@tiptap/core";
 
+/**
+ * Preserves inline `style` attributes on block-level nodes (paragraph, heading, etc.).
+ * TipTap's default schema strips unknown attributes; this extension re-adds `style`
+ * so HTML signatures with per-paragraph font/color overrides round-trip correctly.
+ */
+export const BlockStyle = Extension.create({
+  name: "blockStyle",
+
+  addGlobalAttributes() {
+    return [
+      {
+        types: ["paragraph", "heading", "bulletList", "orderedList", "listItem", "blockquote", "codeBlock"],
+        attributes: {
+          style: {
+            default: null,
+            parseHTML: (element: HTMLElement) => element.getAttribute("style") || null,
+            renderHTML: (attributes: Record<string, unknown>) => {
+              if (!attributes.style) return {};
+              return { style: attributes.style as string };
+            },
+          },
+        },
+      },
+    ];
+  },
+});
+
 declare module "@tiptap/core" {
   interface Commands<ReturnType> {
     fontFamily: {

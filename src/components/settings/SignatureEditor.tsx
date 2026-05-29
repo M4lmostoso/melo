@@ -9,7 +9,7 @@ import { ChevronDown, Check, Trash2, Pencil, Code, AlertCircle, Download } from 
 import { t } from "@/i18n";
 import { TextField } from "@/components/ui/TextField";
 import { EditorToolbar } from "@/components/composer/EditorToolbar";
-import { FontFamily, FontSize } from "@/components/composer/tiptapExtensions";
+import { FontFamily, FontSize, BlockStyle } from "@/components/composer/tiptapExtensions";
 import { useAccountStore } from "@/stores/accountStore";
 import { useClickOutside } from "@/hooks/useClickOutside";
 import {
@@ -74,6 +74,7 @@ export function SignatureEditor() {
       Placeholder.configure({ placeholder: t("settings.signatureEditor.writeSignaturePlaceholder") }),
       FontFamily,
       FontSize,
+      BlockStyle,
     ],
     content: "",
     editorProps: {

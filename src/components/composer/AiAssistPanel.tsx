@@ -11,6 +11,7 @@ import {
   transformText,
   type TransformType,
 } from "@/services/ai/aiService";
+import type { ConversationMessage } from "@/services/ai/types";
 import { useComposerStore } from "@/stores/composerStore";
 
 interface AiMessage {
@@ -170,12 +171,16 @@ export function AiAssistPanel({ editor, isReplyMode, threadMessages, senderPastR
     return LANGUAGE_KEYWORDS.some((kw) => lower.includes(kw));
   };
 
+  const buildHistory = (): ConversationMessage[] =>
+    messages.map((m) => ({ role: m.role, content: m.content }));
+
   const handleSend = async () => {
     if (!prompt.trim() || loading) return;
 
     const userPrompt = prompt.trim();
     const bodyEmpty = isBodyEmpty(editor);
     const skipLanguage = wantsDifferentLanguage(userPrompt);
+    const history = buildHistory();
 
     setMessages((prev) => [
       ...prev,
@@ -189,15 +194,15 @@ export function AiAssistPanel({ editor, isReplyMode, threadMessages, senderPastR
       let result: string;
 
       if (!bodyEmpty && !isClearRequest(userPrompt)) {
-        result = await modifyEmailContent(editor!.getHTML(), userPrompt);
+        result = await modifyEmailContent(editor!.getHTML(), userPrompt, history);
         applyToEditor(result);
         addAiFeedback(result, `Modified draft per instructions: "${userPrompt}"`);
       } else if (isReplyMode && threadMessages?.length) {
-        result = await generateReply(threadMessages, userPrompt, senderPastReplies);
+        result = await generateReply(threadMessages, userPrompt, senderPastReplies, history);
         applyToEditor(result);
         addAiFeedback(result, userPrompt ? `Reply generated with instructions: "${userPrompt}"` : "Reply generated from thread context");
       } else if (bodyEmpty) {
-        result = await composeFromPrompt(userPrompt, { skipLanguage });
+        result = await composeFromPrompt(userPrompt, { skipLanguage, conversationHistory: history });
         if (shouldWriteToBodyWhenEmpty(userPrompt)) {
           applyToEditor(result);
           addAiFeedback(result, `New draft composed from instructions: "${userPrompt}"`);
@@ -205,7 +210,7 @@ export function AiAssistPanel({ editor, isReplyMode, threadMessages, senderPastR
           addAiMessage(result, true);
         }
       } else {
-        result = await composeFromPrompt(userPrompt, { skipLanguage });
+        result = await composeFromPrompt(userPrompt, { skipLanguage, conversationHistory: history });
         applyToEditor(result);
         addAiFeedback(result, `Draft rewritten from scratch: "${userPrompt}"`);
       }

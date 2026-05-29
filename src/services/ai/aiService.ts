@@ -3,6 +3,7 @@ import { getActiveProvider } from "./providerManager";
 import { getAiCache, setAiCache } from "@/services/db/aiCache";
 import { AiError } from "./errors";
 import type { DbMessage } from "@/services/db/messages";
+import type { ConversationMessage } from "./types";
 import {
   SUMMARIZE_PROMPT,
   COMPOSE_PROMPT,
@@ -22,7 +23,7 @@ import {
 } from "./prompts";
 import { getSoul } from "./soulService";
 
-async function callAi(systemPrompt: string, userContent: string, options?: { skipLanguage?: boolean; skipSoul?: boolean }): Promise<string> {
+async function callAi(systemPrompt: string, userContent: string, options?: { skipLanguage?: boolean; skipSoul?: boolean; conversationHistory?: ConversationMessage[] }): Promise<string> {
   let finalSystemPrompt = systemPrompt;
 
   // Prepend SOUL.md content as base personality
@@ -63,7 +64,11 @@ async function callAi(systemPrompt: string, userContent: string, options?: { ski
 
   try {
     const provider = await getActiveProvider();
-    return await provider.complete({ systemPrompt: finalSystemPrompt, userContent });
+    return await provider.complete({
+      systemPrompt: finalSystemPrompt,
+      userContent,
+      conversationHistory: options?.conversationHistory,
+    });
 
   } catch (err) {
     if (err instanceof AiError) throw err;
@@ -110,7 +115,7 @@ export async function summarizeThread(
   return summary;
 }
 
-export async function composeFromPrompt(instructions: string, options?: { skipLanguage?: boolean }): Promise<string> {
+export async function composeFromPrompt(instructions: string, options?: { skipLanguage?: boolean; conversationHistory?: ConversationMessage[] }): Promise<string> {
   return callAi(COMPOSE_PROMPT, instructions, options);
 }
 
@@ -128,16 +133,17 @@ export async function generateComposerFeedback(
   return callAi(COMPOSER_FEEDBACK_PROMPT, userContent);
 }
 
-export async function modifyEmailContent(currentBody: string, instructions: string): Promise<string> {
+export async function modifyEmailContent(currentBody: string, instructions: string, conversationHistory?: ConversationMessage[]): Promise<string> {
   const userContent = `<current_body>${currentBody}</current_body>\n\nUser instructions: ${instructions}`;
   // skipLanguage: true because MODIFY_PROMPT itself handles language continuity
-  return callAi(MODIFY_PROMPT, userContent, { skipLanguage: true });
+  return callAi(MODIFY_PROMPT, userContent, { skipLanguage: true, conversationHistory });
 }
 
 export async function generateReply(
   messagesText: string[],
   instructions?: string,
   senderPastReplies?: string[],
+  conversationHistory?: ConversationMessage[],
 ): Promise<string> {
   const combined = messagesText.join("\n---\n").slice(0, 4000);
   let userContent = `<email_content>${combined}</email_content>`;
@@ -154,7 +160,7 @@ export async function generateReply(
   }
 
   // skipLanguage: true — REPLY_PROMPT detects email language and responds in kind
-  return callAi(REPLY_PROMPT, userContent, { skipLanguage: true });
+  return callAi(REPLY_PROMPT, userContent, { skipLanguage: true, conversationHistory });
 }
 
 export type TransformType = "improve" | "shorten" | "formalize";
