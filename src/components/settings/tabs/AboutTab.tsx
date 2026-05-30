@@ -192,37 +192,37 @@ export function AboutTab() {
       <Section title={t("settings.about.sections.links")}>
         <div className="space-y-1">
           <button
-            onClick={() => openExternal("https://velomail.app")}
+            onClick={() => openExternal("https://melomail.com")}
             className="flex items-center gap-3 w-full px-4 py-2.5 rounded-lg bg-bg-secondary hover:bg-bg-hover transition-colors text-left"
           >
             <Globe size={16} className="text-text-tertiary shrink-0" />
             <div className="min-w-0 flex-1">
               <span className="text-sm text-text-primary">{t("settings.about.website")}</span>
-              <p className="text-xs text-text-tertiary">velomail.app</p>
+              <p className="text-xs text-text-tertiary">melomail.com</p>
             </div>
             <ExternalLink size={14} className="text-text-tertiary shrink-0" />
           </button>
 
           <button
-            onClick={() => openExternal("https://github.com/avihaymenahem/velo")}
+            onClick={() => openExternal("https://github.com/M4lmostoso/melo")}
             className="flex items-center gap-3 w-full px-4 py-2.5 rounded-lg bg-bg-secondary hover:bg-bg-hover transition-colors text-left"
           >
             <Github size={16} className="text-text-tertiary shrink-0" />
             <div className="min-w-0 flex-1">
               <span className="text-sm text-text-primary">{t("settings.about.githubRepo")}</span>
-              <p className="text-xs text-text-tertiary">avihaymenahem/velo</p>
+              <p className="text-xs text-text-tertiary">M4lmostoso/melo</p>
             </div>
             <ExternalLink size={14} className="text-text-tertiary shrink-0" />
           </button>
 
           <button
-            onClick={() => openExternal("mailto:info@velomail.app")}
+            onClick={() => openExternal("mailto:info@melomail.com")}
             className="flex items-center gap-3 w-full px-4 py-2.5 rounded-lg bg-bg-secondary hover:bg-bg-hover transition-colors text-left"
           >
             <Mail size={16} className="text-text-tertiary shrink-0" />
             <div className="min-w-0 flex-1">
               <span className="text-sm text-text-primary">{t("settings.about.contact")}</span>
-              <p className="text-xs text-text-tertiary">info@velomail.app</p>
+              <p className="text-xs text-text-tertiary">info@melomail.com</p>
             </div>
             <ExternalLink size={14} className="text-text-tertiary shrink-0" />
           </button>
