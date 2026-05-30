@@ -109,7 +109,7 @@ export function SettingsPage() {
 
         {/* Scrollable content */}
         <div className="flex-1 overflow-y-auto">
-          <div className="max-w-2xl px-8 py-6">
+          <div className="w-full px-8 py-6">
             {activeTabDef && (
               <div className="mb-6">
                 <h2 className="text-lg font-semibold text-text-primary">{activeTabDef.label}</h2>
