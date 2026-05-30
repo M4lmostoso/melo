@@ -919,7 +919,8 @@
       "about": "Info",
       "mailRules": "Regole email",
       "people": "Persone",
-      "ai": "AI"
+      "ai": "AI",
+      "sounds": "Suoni"
     },
     "filterEditor": {
       "title": "Filtri",
@@ -1528,6 +1529,31 @@
         "thu": "Gio",
         "fri": "Ven",
         "sat": "Sab"
+      }
+    },
+    "sounds": {
+      "sections": {
+        "master": "Impostazioni Suoni",
+        "events": "Eventi Sonori"
+      },
+      "enableSounds": "Abilita suoni",
+      "volume": "Volume",
+      "volumeDesc": "Volume principale per tutti gli eventi sonori",
+      "eventsDesc": "Scegli quali eventi attivano un suono. Clicca il tasto play per l'anteprima.",
+      "preview": "Anteprima suono",
+      "events": {
+        "send": "Email Inviata",
+        "sendDesc": "Un click secco quando la tua email viene inviata con successo",
+        "receive": "Email Ricevuta",
+        "receiveDesc": "Due note vellutate quando arriva una nuova email nella posta in arrivo",
+        "taskComplete": "Attività Completata",
+        "taskCompleteDesc": "Una nota metallica cristallina quando segni un'attività come completata",
+        "eventAlert": "Evento Imminente",
+        "eventAlertDesc": "Due impulsi meccanici quando un evento del calendario si avvicina",
+        "sendError": "Invio Fallito",
+        "sendErrorDesc": "Un colpo sordo quando un'email non può essere inviata o viene messa in coda per un errore",
+        "shortcutClick": "Scorciatoia da Tastiera",
+        "shortcutClickDesc": "Un micro-click quasi impercettibile quando usi le scorciatoie da tastiera (disabilitato di default)"
       }
     }
   },

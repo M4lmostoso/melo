@@ -11,6 +11,7 @@ import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { useComposerStore } from "../../stores/composerStore";
 import { navigateToLabel } from "../../router/navigate";
 import { normalizeEmail } from "@/utils/emailUtils";
+import { playSound } from "../soundService";
 
 let initialized = false;
 let notificationsEnabled = true;
@@ -150,6 +151,9 @@ export function queueNewEmailNotification(
   const ctx = { threadId, accountId, fromAddress, subject };
   lastNotificationContext = ctx;
   if (threadId) recentContexts.set(threadId, ctx);
+
+  // Play sound immediately (once per batch, debounced with the notification)
+  if (!notifyTimer) void playSound("receive");
 
   // Debounce: wait 2s before showing, to batch during sync
   if (notifyTimer) clearTimeout(notifyTimer);

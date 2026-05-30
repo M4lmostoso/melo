@@ -921,7 +921,8 @@
       "about": "About",
       "mailRules": "Mail Rules",
       "people": "People",
-      "ai": "AI"
+      "ai": "AI",
+      "sounds": "Sounds"
     },
     "filterEditor": {
       "title": "Filters",
@@ -1530,6 +1531,31 @@
         "thu": "Thu",
         "fri": "Fri",
         "sat": "Sat"
+      }
+    },
+    "sounds": {
+      "sections": {
+        "master": "Sound Settings",
+        "events": "Sound Events"
+      },
+      "enableSounds": "Enable sounds",
+      "volume": "Volume",
+      "volumeDesc": "Master volume for all sound events",
+      "eventsDesc": "Choose which events trigger a sound. Click the play button to preview.",
+      "preview": "Preview sound",
+      "events": {
+        "send": "Mail Sent",
+        "sendDesc": "A short click when your email is successfully dispatched",
+        "receive": "Mail Received",
+        "receiveDesc": "A gentle two-tone when a new email arrives in your inbox",
+        "taskComplete": "Task Completed",
+        "taskCompleteDesc": "A crisp metallic note when you mark a task as done",
+        "eventAlert": "Upcoming Event",
+        "eventAlertDesc": "Two mechanical pulses when a calendar event is approaching",
+        "sendError": "Send Failed",
+        "sendErrorDesc": "A low thud when an email could not be sent or was queued due to an error",
+        "shortcutClick": "Keyboard Shortcut",
+        "shortcutClickDesc": "A barely-audible micro-click when using keyboard shortcuts (disabled by default)"
       }
     }
   },

@@ -33,6 +33,7 @@ import { handleRecurringTaskCompletion } from "@/services/tasks/taskManager";
 import { TaskGroup } from "./TaskGroup";
 import { TaskQuickAdd } from "./TaskQuickAdd";
 import { TasksDayPanel } from "./TasksDayPanel";
+import { playSound } from "@/services/soundService";
 
 
 interface ThreadGroup {
@@ -215,6 +216,7 @@ export function TasksPage() {
 
   const handleToggleComplete = useCallback(async (id: string, completed: boolean) => {
     if (completed) {
+      void playSound("task_complete");
       const task = allTasks.find((t) => t.id === id);
       if (task?.recurrence_rule) {
         await handleRecurringTaskCompletion(id);

@@ -15,6 +15,7 @@ import {
   Brain,
   CheckSquare,
   Info,
+  Volume2,
   type LucideIcon,
 } from "lucide-react";
 import { GeneralTab } from "./tabs/GeneralTab";
@@ -29,10 +30,12 @@ import { IntelligenceTab } from "./tabs/IntelligenceTab";
 import { TasksTab } from "./tabs/TasksTab";
 import { CalendarTab } from "./tabs/CalendarTab";
 import { AboutTab } from "./tabs/AboutTab";
+import { SoundsTab } from "./tabs/SoundsTab";
 
 type SettingsTab =
   | "general"
   | "notifications"
+  | "sounds"
   | "composing"
   | "mail-rules"
   | "people"
@@ -47,6 +50,7 @@ type SettingsTab =
 const tabs: { id: SettingsTab; label: string; icon: LucideIcon }[] = [
   { id: "general", label: t("settings.tabs.general"), icon: Settings },
   { id: "notifications", label: t("settings.tabs.notifications"), icon: Bell },
+  { id: "sounds", label: t("settings.tabs.sounds"), icon: Volume2 },
   { id: "composing", label: t("settings.tabs.composing"), icon: PenLine },
   { id: "mail-rules", label: t("settings.tabs.mailRules"), icon: Filter },
   { id: "people", label: t("settings.tabs.people"), icon: Users },
@@ -115,6 +119,7 @@ export function SettingsPage() {
             <div className="space-y-8">
               {activeTab === "general" && <GeneralTab />}
               {activeTab === "notifications" && <NotificationsTab />}
+              {activeTab === "sounds" && <SoundsTab />}
               {activeTab === "composing" && <ComposingTab />}
               {activeTab === "mail-rules" && <MailRulesTab />}
               {activeTab === "people" && <PeopleTab />}

@@ -119,6 +119,7 @@ function useRouterSyncBridge() {
 }
 
 import { useThreadStore } from "./stores/threadStore";
+import { playSound } from "./services/soundService";
 
 export default function App() {
   const theme = useUIStore((s) => s.theme);
@@ -316,6 +317,7 @@ export default function App() {
 
           if (!sendResult.success) {
             // Permanent send failure — notify the user
+            void playSound("send_error");
             import("@tauri-apps/plugin-notification").then(({ sendNotification }) => {
               sendNotification({
                 title: "Send failed",
@@ -331,12 +333,14 @@ export default function App() {
 
           if (!sendResult.queued && p.threadId) {
             // Successful send — notify ThreadView to reload messages immediately.
+            void playSound("send");
             window.dispatchEvent(new CustomEvent("velo-message-sent", { detail: { threadId: p.threadId } }));
           }
 
           if (sendResult.queued) {
             // Retryable failure — message is now in the Outgoing queue view (pending_operations).
             // Dispatch velo-sync-done so the Outgoing badge and queue view refresh immediately.
+            void playSound("send_error");
             window.dispatchEvent(new Event("velo-sync-done"));
             import("@tauri-apps/plugin-notification").then(({ sendNotification }) => {
               sendNotification({
