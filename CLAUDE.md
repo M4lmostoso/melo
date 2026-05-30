@@ -82,6 +82,7 @@ Vitest + jsdom. `globals: true`. Tests colocated with source. Zustand pattern: `
 All user-visible strings must go through the `t()` function from `src/i18n.ts`. **Any UI change that adds, removes, or modifies visible text must also update `public/locale/en-US.json`** (and any other locale files if they exist).
 
 **Usage:**
+
 ```ts
 import { t } from "@/i18n";
 
@@ -94,6 +95,7 @@ t("layout.emailList.conversations", { count: 2 }) // → "2 conversations"
 ```
 
 **Key structure:** Nested by component/section, e.g.:
+
 - `common.*` — shared labels (Cancel, Save, Delete, ...)
 - `sidebar.*` — sidebar nav and labels
 - `composer.*` — compose window
@@ -106,6 +108,7 @@ t("layout.emailList.conversations", { count: 2 }) // → "2 conversations"
 - `calendar.*`, `tasks.*`, `attachments.*`, `help.*`, `search.*` — feature sections
 
 **When adding new UI strings:**
+
 1. Add the English value under the appropriate nested key in `public/locale/en-US.json`
 2. Use `t("your.new.key")` in the component
 3. If other locale files exist, add the key there too (use English as fallback)
