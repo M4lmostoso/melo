@@ -1,4 +1,4 @@
-import { memo, useState, useRef, useEffect, useMemo, forwardRef } from "react";
+import { memo, useState, useRef, useEffect, useMemo, useCallback, forwardRef } from "react";
 import { formatFullDate } from "@/utils/date";
 import { EmailRenderer } from "./EmailRenderer";
 import { InlineAttachmentPreview } from "./InlineAttachmentPreview";
@@ -12,6 +12,7 @@ import { AuthWarningBanner } from "./AuthWarningBanner";
 import { isCalendarInvite } from "@/utils/fileTypeHelpers";
 import { useAccountStore } from "@/stores/accountStore";
 import { useContactsStore } from "@/stores/contactsStore";
+import { useUIStore } from "@/stores/uiStore";
 import { t } from "@/i18n";
 
 // ---------------------------------------------------------------------------
@@ -55,9 +56,10 @@ interface MessageItemProps {
   onReplyAll?: () => void;
   onForward?: () => void;
   onDelete?: () => void;
+  onMarkRead?: () => void;
 }
 
-export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(function MessageItem({ message, isLast, blockImages, senderAllowlisted, accountId, threadId, isSpam, focused, onSelect, onNeedBody, onContextMenu, onReply, onReplyAll, onForward, onDelete }, ref) {
+export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(function MessageItem({ message, isLast, blockImages, senderAllowlisted, accountId, threadId, isSpam, focused, onSelect, onNeedBody, onContextMenu, onReply, onReplyAll, onForward, onDelete, onMarkRead }, ref) {
   const [expanded, setExpanded] = useState(isLast);
   const wasUnreadRef = useRef(message.is_read === 0);
   const [attachments, setAttachments] = useState<DbAttachment[]>([]);
@@ -65,7 +67,16 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
   const [cidMap, setCidMap] = useState<Map<string, string>>(new Map());
   const [cidFailed, setCidFailed] = useState<Set<string>>(new Set());
   const attachmentsLoadedRef = useRef(false);
+  const readTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const observerContainerRef = useRef<HTMLDivElement>(null);
   const account = useAccountStore((s) => s.accounts.find((a) => a.id === (accountId ?? message.account_id)));
+  const markAsReadBehavior = useUIStore((s) => s.markAsReadBehavior);
+
+  const mergedRef = useCallback((el: HTMLDivElement | null) => {
+    (observerContainerRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+    if (typeof ref === "function") ref(el);
+    else if (ref) (ref as React.MutableRefObject<HTMLDivElement | null>).current = el;
+  }, [ref]);
 
   const resolveCidImages = async (atts: DbAttachment[]) => {
     const html = message.body_html;
@@ -210,6 +221,39 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
     }
   }, [focused, message.id, onSelect]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Per-message read tracking: mark as read when visible in viewport for configured duration
+  useEffect(() => {
+    if (!onMarkRead || message.is_read !== 0 || markAsReadBehavior === "manual" || !expanded) return;
+    const el = observerContainerRef.current;
+    if (!el) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry?.isIntersecting) {
+          const delay = markAsReadBehavior === "2s" ? 2000 : 0;
+          readTimerRef.current = setTimeout(() => {
+            observer.disconnect();
+            onMarkRead();
+          }, delay);
+        } else {
+          if (readTimerRef.current !== null) {
+            clearTimeout(readTimerRef.current);
+            readTimerRef.current = null;
+          }
+        }
+      },
+      { threshold: 0.1 },
+    );
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+      if (readTimerRef.current !== null) {
+        clearTimeout(readTimerRef.current);
+        readTimerRef.current = null;
+      }
+    };
+  }, [message.is_read, markAsReadBehavior, onMarkRead, expanded]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleToggle = async () => {
     const willExpand = !expanded;
     if (willExpand && (message.body_html === null && message.body_text === null)) {
@@ -252,7 +296,7 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
 
   return (
     <div
-      ref={ref}
+      ref={mergedRef}
       className={`border-b border-border-secondary last:border-b-0 border-l-2 transition-colors group
         ${showUnread ? "border-l-accent" : "border-l-transparent"}
         ${isSpam ? "bg-red-500/8 dark:bg-red-500/10" : ""}

@@ -108,10 +108,19 @@ function applyOptimisticUpdate(action: EmailAction): void {
       break;
     }
     case "markRead":
-      store.updateThread(action.threadId, {
-        isRead: action.read,
-        ...(action.read ? { unreadCount: 0 } : {}),
-      });
+      if (action.messageIds.length > 0 && action.read) {
+        const thread = store.threadMap.get(action.threadId);
+        const newUnreadCount = Math.max(0, (thread?.unreadCount ?? 0) - action.messageIds.length);
+        store.updateThread(action.threadId, {
+          unreadCount: newUnreadCount,
+          ...(newUnreadCount === 0 ? { isRead: true } : {}),
+        });
+      } else {
+        store.updateThread(action.threadId, {
+          isRead: action.read,
+          ...(action.read ? { unreadCount: 0 } : {}),
+        });
+      }
       break;
     case "star":
       store.updateThread(action.threadId, { isStarred: action.starred });
@@ -193,14 +202,31 @@ async function applyLocalDbUpdate(
   const db = await getDb();
   switch (action.type) {
     case "markRead":
-      await db.execute(
-        "UPDATE threads SET is_read = $1 WHERE account_id = $2 AND id = $3",
-        [action.read ? 1 : 0, accountId, action.threadId],
-      );
-      await db.execute(
-        "UPDATE messages SET is_read = $1 WHERE account_id = $2 AND thread_id = $3",
-        [action.read ? 1 : 0, accountId, action.threadId],
-      );
+      if (action.messageIds.length > 0) {
+        const placeholders = action.messageIds.map((_, i) => `$${i + 3}`).join(",");
+        await db.execute(
+          `UPDATE messages SET is_read = $1 WHERE account_id = $2 AND id IN (${placeholders})`,
+          [action.read ? 1 : 0, accountId, ...action.messageIds],
+        );
+        const remaining = await db.select<{ cnt: number }[]>(
+          "SELECT COUNT(*) as cnt FROM messages WHERE account_id = $1 AND thread_id = $2 AND is_read = 0 AND is_draft = 0 AND is_trashed = 0",
+          [accountId, action.threadId],
+        );
+        const allRead = (remaining[0]?.cnt ?? 0) === 0;
+        await db.execute(
+          "UPDATE threads SET is_read = $1 WHERE account_id = $2 AND id = $3",
+          [allRead ? 1 : 0, accountId, action.threadId],
+        );
+      } else {
+        await db.execute(
+          "UPDATE threads SET is_read = $1 WHERE account_id = $2 AND id = $3",
+          [action.read ? 1 : 0, accountId, action.threadId],
+        );
+        await db.execute(
+          "UPDATE messages SET is_read = $1 WHERE account_id = $2 AND thread_id = $3",
+          [action.read ? 1 : 0, accountId, action.threadId],
+        );
+      }
       break;
     case "star":
       await db.execute(

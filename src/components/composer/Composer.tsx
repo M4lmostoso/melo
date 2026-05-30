@@ -11,7 +11,7 @@ import { Clock, X } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
-import { AddressInput } from "./AddressInput";
+import { AddressInput, type AddressInputHandle } from "./AddressInput";
 import { EditorToolbar } from "./EditorToolbar";
 import { AiAssistPanel } from "./AiAssistPanel";
 import { AttachmentPicker } from "./AttachmentPicker";
@@ -157,6 +157,10 @@ export function Composer() {
   const activeAccount = accounts.find((a) => a.id === effectiveAccountId);
   const sendingRef = useRef(false);
   const isDiscardingRef = useRef(false);
+  const toInputRef = useRef<AddressInputHandle>(null);
+  const ccInputRef = useRef<AddressInputHandle>(null);
+  const bccInputRef = useRef<AddressInputHandle>(null);
+  const subjectInputRef = useRef<HTMLInputElement>(null);
   const [showSchedule, setShowSchedule] = useState(false);
   const [showCloseDialog, setShowCloseDialog] = useState(false);
   const [pendingScheduledAt, setPendingScheduledAt] = useState<number | null>(null);
@@ -839,11 +843,29 @@ const getFullHtml = useCallback(() => {
 
       {/* Address fields */}
       <div className="px-3 py-2 space-y-1.5 border-b border-border-secondary shrink-0">
-        <AddressInput label={t("composer.to")} addresses={to} onChange={setTo} />
+        <AddressInput
+          ref={toInputRef}
+          label={t("composer.to")}
+          addresses={to}
+          onChange={setTo}
+          onTabNext={() => showCcBcc ? ccInputRef.current?.focus() : subjectInputRef.current?.focus()}
+        />
         {showCcBcc ? (
           <>
-            <AddressInput label={t("composer.cc")} addresses={cc} onChange={setCc} />
-            <AddressInput label={t("composer.bcc")} addresses={bcc} onChange={setBcc} />
+            <AddressInput
+              ref={ccInputRef}
+              label={t("composer.cc")}
+              addresses={cc}
+              onChange={setCc}
+              onTabNext={() => bccInputRef.current?.focus()}
+            />
+            <AddressInput
+              ref={bccInputRef}
+              label={t("composer.bcc")}
+              addresses={bcc}
+              onChange={setBcc}
+              onTabNext={() => subjectInputRef.current?.focus()}
+            />
           </>
         ) : (
           <div className="flex items-center gap-2 ml-14">
@@ -881,9 +903,11 @@ const getFullHtml = useCallback(() => {
         <div className="flex items-center gap-2">
           <span className="text-xs text-text-tertiary w-12 shrink-0">Sub</span>
           <input
+            ref={subjectInputRef}
             type="text"
             value={subject}
             onChange={(e) => setSubject(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Tab") { e.preventDefault(); editor?.commands.focus(); } }}
             placeholder={t("composer.subject")}
             className="flex-1 bg-transparent text-sm text-text-primary outline-none placeholder:text-text-tertiary"
           />

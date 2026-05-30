@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, forwardRef, useImperativeHandle } from "react";
 import { t } from "@/i18n";
 import { searchContacts, type DbContact } from "@/services/db/contacts";
 
@@ -7,14 +7,21 @@ interface AddressInputProps {
   addresses: string[];
   onChange: (addresses: string[]) => void;
   placeholder?: string;
+  onTabNext?: () => void;
 }
 
-export function AddressInput({
+export interface AddressInputHandle {
+  focus: () => void;
+}
+
+export const AddressInput = forwardRef<AddressInputHandle, AddressInputProps>(
+function AddressInput({
   label,
   addresses,
   onChange,
   placeholder,
-}: AddressInputProps) {
+  onTabNext,
+}: AddressInputProps, ref) {
   const resolvedPlaceholder = placeholder ?? t("composer.addressInput.addRecipients");
   const [inputValue, setInputValue] = useState("");
   const [suggestions, setSuggestions] = useState<DbContact[]>([]);
@@ -23,6 +30,10 @@ export function AddressInput({
   const inputRef = useRef<HTMLInputElement>(null);
   const blurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useImperativeHandle(ref, () => ({
+    focus: () => inputRef.current?.focus(),
+  }));
 
   useEffect(() => {
     return () => {
@@ -72,7 +83,17 @@ export function AddressInput({
   );
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" || e.key === "Tab" || e.key === ",") {
+    if (e.key === "Tab") {
+      e.preventDefault();
+      if (showSuggestions && selectedIdx >= 0) {
+        addAddress(suggestions[selectedIdx]!.email);
+      } else if (inputValue.trim()) {
+        addAddress(inputValue);
+      }
+      onTabNext?.();
+      return;
+    }
+    if (e.key === "Enter" || e.key === ",") {
       e.preventDefault();
       if (showSuggestions && selectedIdx >= 0) {
         addAddress(suggestions[selectedIdx]!.email);
@@ -156,4 +177,6 @@ export function AddressInput({
       </div>
     </div>
   );
-}
+});
+
+AddressInput.displayName = "AddressInput";

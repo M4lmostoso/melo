@@ -403,6 +403,10 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
       setThreads([]);
     }
 
+    // Guard against stale async loads: if the user navigated away while this
+    // load was in flight, discard results rather than overwriting newer data.
+    const isStale = () => loadedLabelRef.current !== currentLabel;
+
     // Smart folder: always handled first, regardless of account mode.
     // In global view pass all included account IDs; in single-account view pass the active ID.
     // If isSmartFolder but activeSmartFolder is null the store hasn't loaded yet — stay in
@@ -414,8 +418,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     if (isSmartFolder && activeSmartFolder) {
       const accountArg: string | string[] = activeAccountId ?? globalAccountIds;
       if (!activeAccountId && globalAccountIds.length === 0) {
-        setThreads([]);
-        setLoading(false);
+        if (!isStale()) { setThreads([]); setLoading(false); }
         return;
       }
       try {
@@ -427,6 +430,8 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
         const db = await getDb();
         const rows = await db.select<SmartFolderRow[]>(sql, params);
         let mapped = await mapSmartFolderRows(rows);
+
+        if (isStale()) return;
 
         // Only preserve the selected thread on in-place refreshes within the same folder.
         // On navigation the selected thread belongs to the previous folder and must not bleed in.
@@ -455,7 +460,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
       } catch (err) {
         console.error("Failed to load smart folder threads:", err);
       } finally {
-        setLoading(false);
+        if (!isStale()) setLoading(false);
       }
       return;
     }
@@ -463,8 +468,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     if (!activeAccountId) {
       // Global / unified view: load from all included accounts
       if (globalAccountIds.length === 0) {
-        setThreads([]);
-        setLoading(false);
+        if (!isStale()) { setThreads([]); setLoading(false); }
         return;
       }
       try {
@@ -476,6 +480,8 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
           dbThreads = await getUnifiedFolderThreads(globalAccountIds, gmailLabelId || "", PAGE_SIZE, 0);
         }
         let mapped = await mapDbThreads(dbThreads);
+
+        if (isStale()) return;
 
         if (!isNavigation) {
           const selId = selectedThreadIdRef.current;
@@ -502,7 +508,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
       } catch (err) {
         console.error("Failed to load unified threads:", err);
       } finally {
-        setLoading(false);
+        if (!isStale()) setLoading(false);
       }
       return;
     }
@@ -522,6 +528,8 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
       }
 
       let mapped = await mapDbThreads(dbThreads);
+
+      if (isStale()) return;
 
       if (!isNavigation) {
         const selId = selectedThreadIdRef.current;
@@ -548,7 +556,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     } catch (err) {
       console.error("Failed to load threads:", err);
     } finally {
-      setLoading(false);
+      if (!isStale()) setLoading(false);
     }
   }, [activeAccountId, globalAccountIds, activeLabel, activeCategory, isSmartFolder, activeSmartFolder, setThreads, setLoading, mapDbThreads, clearSearch]);
 

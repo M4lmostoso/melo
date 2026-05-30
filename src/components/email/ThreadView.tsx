@@ -79,7 +79,6 @@ export function ThreadView({ thread }: ThreadViewProps) {
   const toggleContactSidebar = useUIStore((s) => s.toggleContactSidebar);
   const taskSidebarVisible = useUIStore((s) => s.taskSidebarVisible);
   const [showTaskExtract, setShowTaskExtract] = useState(false);
-const updateThread = useThreadStore((s) => s.updateThread);
    const storeSelectedMessageId = useThreadStore((s) => s.selectedMessageId);
    const [messages, setMessages] = useState<DbMessage[]>([]);
    const [selectedMessageId, setLocalSelectedMessageId] = useState<string | null>(null);
@@ -89,7 +88,6 @@ const updateThread = useThreadStore((s) => s.updateThread);
      storeSetSelectedMessageId(id);
    }, [storeSetSelectedMessageId]);
   const [loading, setLoading] = useState(true);
-  const markedReadRef = useRef<string | null>(null);
   // null = not yet loaded; defer iframe rendering until setting is known
   const [blockImages, setBlockImages] = useState<boolean | null>(null);
   const [allowlistedSenders, setAllowlistedSenders] = useState<Set<string>>(new Set());
@@ -137,28 +135,6 @@ const updateThread = useThreadStore((s) => s.updateThread);
       setLocalSelectedMessageId(storeSelectedMessageId);
     }
   }, [storeSelectedMessageId, messages]);
-
-  // Auto-mark unread threads as read when opened (respects mark-as-read setting)
-  const markAsReadBehavior = useUIStore((s) => s.markAsReadBehavior);
-  useEffect(() => {
-    if (thread.isRead || markedReadRef.current === thread.id) return;
-    if (markAsReadBehavior === "manual") return;
-
-    const markRead = () => {
-      markedReadRef.current = thread.id;
-      markThreadRead(threadAccountId, thread.id, [], true).catch((err) => {
-        console.error("Failed to mark thread as read:", err);
-      });
-    };
-
-    if (markAsReadBehavior === "2s") {
-      const timer = setTimeout(markRead, 2000);
-      return () => clearTimeout(timer);
-    }
-
-    // instant
-    markRead();
-  }, [threadAccountId, thread.id, thread.isRead, updateThread, markAsReadBehavior]);
 
   const openComposer = useComposerStore((s) => s.openComposer);
   const openMenu = useContextMenuStore((s) => s.openMenu);
@@ -704,6 +680,10 @@ const handlePrint = useCallback(async () => {
                   onReplyAll={() => handleReplyAll(msg)}
                   onForward={() => handleForward(msg)}
                   onDelete={() => deleteSingleMessage(msg.account_id, msg.thread_id, msg.id).catch(console.error)}
+                  onMarkRead={msg.is_read === 0 ? () => {
+                    markThreadRead(threadAccountId, thread.id, [msg.id], true).catch(console.error);
+                    setMessages((prev) => prev.map((m) => m.id === msg.id ? { ...m, is_read: 1 } : m));
+                  } : undefined}
                 />
               );
             })}
