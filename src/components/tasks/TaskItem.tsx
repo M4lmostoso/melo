@@ -25,13 +25,6 @@ const PRIORITY_COLORS: Record<TaskPriority, string> = {
   urgent: "text-red-500",
 };
 
-const PRIORITY_DOT_COLORS: Record<TaskPriority, string> = {
-  none: "bg-text-tertiary/30",
-  low: "bg-blue-400",
-  medium: "bg-amber-400",
-  high: "bg-orange-500",
-  urgent: "bg-red-500",
-};
 
 function formatDueDate(timestamp: number): string {
   const date = new Date(timestamp * 1000);
@@ -58,6 +51,7 @@ function tsToDateInput(ts: number): string {
 interface TaskEditData {
   title: string;
   direction: TaskDirection;
+  priority: TaskPriority;
   dueDate: number | null;
 }
 
@@ -70,6 +64,7 @@ interface TaskItemProps {
   onDueDateChange?: (id: string, dueDate: number | null) => void;
   onEdit?: (id: string, updates: Partial<TaskEditData>) => void;
   isSelected?: boolean;
+  isHighlighted?: boolean;
   compact?: boolean;
   accountColor?: string;
 }
@@ -83,6 +78,7 @@ export function TaskItem({
   onDueDateChange,
   onEdit,
   isSelected,
+  isHighlighted,
   compact,
   accountColor,
 }: TaskItemProps) {
@@ -91,6 +87,7 @@ export function TaskItem({
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState(task.title);
   const [editDirection, setEditDirection] = useState<TaskDirection>(task.direction);
+  const [editPriority, setEditPriority] = useState<TaskPriority>(task.priority);
   const [editDueDate, setEditDueDate] = useState<string>(task.due_date ? tsToDateInput(task.due_date) : "");
   const dateInputRef = useRef<HTMLInputElement>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
@@ -109,9 +106,10 @@ export function TaskItem({
     if (!isEditing) {
       setEditTitle(task.title);
       setEditDirection(task.direction);
+      setEditPriority(task.priority);
       setEditDueDate(task.due_date ? tsToDateInput(task.due_date) : "");
     }
-  }, [task.title, task.direction, task.due_date, isEditing]);
+  }, [task.title, task.direction, task.priority, task.due_date, isEditing]);
 
   useEffect(() => {
     if (isEditing) setTimeout(() => titleInputRef.current?.focus(), 0);
@@ -122,9 +120,10 @@ export function TaskItem({
     if (!onEdit) return;
     setEditTitle(task.title);
     setEditDirection(task.direction);
+    setEditPriority(task.priority);
     setEditDueDate(task.due_date ? tsToDateInput(task.due_date) : "");
     setIsEditing(true);
-  }, [onEdit, task.title, task.direction, task.due_date]);
+  }, [onEdit, task.title, task.direction, task.priority, task.due_date]);
 
   const handleSaveEdit = useCallback((e?: React.MouseEvent) => {
     e?.stopPropagation();
@@ -133,9 +132,9 @@ export function TaskItem({
     const dueDate = editDueDate
       ? Math.floor(new Date(editDueDate).getTime() / 1000)
       : null;
-    onEdit?.(task.id, { title: trimmed, direction: editDirection, dueDate });
+    onEdit?.(task.id, { title: trimmed, direction: editDirection, priority: editPriority, dueDate });
     setIsEditing(false);
-  }, [task.id, editTitle, editDirection, editDueDate, onEdit]);
+  }, [task.id, editTitle, editDirection, editPriority, editDueDate, onEdit]);
 
   const handleCancelEdit = useCallback((e?: React.MouseEvent) => {
     e?.stopPropagation();
@@ -222,6 +221,20 @@ export function TaskItem({
             </button>
           </div>
 
+          <select
+            value={editPriority}
+            onChange={(e) => setEditPriority(e.target.value as TaskPriority)}
+            onClick={(e) => e.stopPropagation()}
+            aria-label={t("tasks.item.priorityLabel")}
+            className="bg-bg-tertiary border border-border-primary rounded px-2 py-0.5 text-[0.6875rem] text-text-primary outline-none focus:border-accent"
+          >
+            <option value="none">{t("tasks.priorityNone")}</option>
+            <option value="low">{t("tasks.priorityLow")}</option>
+            <option value="medium">{t("tasks.priorityMedium")}</option>
+            <option value="high">{t("tasks.priorityHigh")}</option>
+            <option value="urgent">{t("tasks.priorityUrgent")}</option>
+          </select>
+
           <div className="flex items-center gap-1">
             <Calendar size={11} className="text-text-tertiary" />
             <input
@@ -264,11 +277,15 @@ export function TaskItem({
   }
 
   return (
-    <div>
+    <div data-task-id={task.id}>
       <div
         onClick={() => onSelect?.(task.id)}
-        className={`group flex items-start gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors ${
-          isSelected ? "bg-accent/10 border border-accent/20" : "hover:bg-bg-hover border border-transparent"
+        className={`group flex items-start gap-2 px-3 py-2 rounded-lg cursor-pointer transition-all ${
+          isHighlighted
+            ? "bg-accent/10 ring-2 ring-accent/50 border border-accent/30"
+            : isSelected
+              ? "bg-accent/10 border border-accent/20"
+              : "hover:bg-bg-hover border border-transparent"
         } ${task.is_completed ? "opacity-60" : ""}`}
       >
         {accountColor && (
@@ -288,8 +305,8 @@ export function TaskItem({
 
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5">
-            {task.priority !== "none" && (
-              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${PRIORITY_DOT_COLORS[task.priority]}`} />
+            {task.priority === "urgent" && !task.is_completed && (
+              <span className="text-red-500 text-xs font-bold shrink-0 leading-none">!!!</span>
             )}
             <span
               className={`text-sm truncate ${

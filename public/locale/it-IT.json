@@ -516,7 +516,12 @@
       "inDays": "tra {n}gg",
       "editTask": "Modifica attività",
       "deleteTask": "Elimina attività",
-      "clearDueDate": "Rimuovi scadenza"
+      "clearDueDate": "Rimuovi scadenza",
+      "priorityLabel": "Priorità"
+    },
+    "dayPanel": {
+      "noTasks": "Nessuna attività",
+      "highlight": "Evidenzia attività"
     }
   },
   "attachments": {

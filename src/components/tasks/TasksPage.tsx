@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   CheckSquare,
   Search,
@@ -32,6 +32,7 @@ import { getSetting } from "@/services/db/settings";
 import { handleRecurringTaskCompletion } from "@/services/tasks/taskManager";
 import { TaskGroup } from "./TaskGroup";
 import { TaskQuickAdd } from "./TaskQuickAdd";
+import { TasksDayPanel } from "./TasksDayPanel";
 
 
 interface ThreadGroup {
@@ -104,6 +105,14 @@ export function TasksPage() {
   const searchQuery = useTaskStore((s) => s.searchQuery);
   const setSearchQuery = useTaskStore((s) => s.setSearchQuery);
 
+  const [selectedDate, setSelectedDate] = useState<Date>(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d;
+  });
+  const [highlightedTaskId, setHighlightedTaskId] = useState<string | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [allTasks, setAllTasks] = useState<DbTaskWithSubject[]>([]);
   const [deletedTasks, setDeletedTasks] = useState<DbTaskWithSubject[]>([]);
   const [subtaskMap, setSubtaskMap] = useState<Record<string, DbTask[]>>({});
@@ -198,9 +207,9 @@ export function TasksPage() {
 
   const groups = useMemo(() => buildGroups(filteredTasks), [filteredTasks]);
 
-  const handleAddTask = useCallback(async (title: string) => {
+  const handleAddTask = useCallback(async (title: string, priority: TaskPriority = "none") => {
     if (!accountId) return;
-    await insertTask({ accountId, title });
+    await insertTask({ accountId, title, priority });
     await loadTasks();
   }, [accountId, loadTasks]);
 
@@ -231,7 +240,7 @@ export function TasksPage() {
 
   const handleEdit = useCallback(async (
     id: string,
-    updates: { title?: string; direction?: import("@/services/db/tasks").TaskDirection; dueDate?: number | null },
+    updates: { title?: string; direction?: import("@/services/db/tasks").TaskDirection; priority?: TaskPriority; dueDate?: number | null },
   ) => {
     await updateTask(id, updates);
     await loadTasks();
@@ -265,6 +274,29 @@ export function TasksPage() {
   const overdueCount = useMemo(() => filteredTasks.filter(
     (t) => !t.is_completed && t.due_date !== null && t.due_date < Math.floor(Date.now() / 1000),
   ).length, [filteredTasks]);
+
+  const handleDayClick = useCallback((date: Date) => {
+    setSelectedDate(date);
+  }, []);
+
+  const handleHighlightTask = useCallback((taskId: string) => {
+    if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+    setHighlightedTaskId(taskId);
+
+    // Scroll to the task after a short delay to allow any collapsed group to expand
+    setTimeout(() => {
+      const container = scrollContainerRef.current;
+      if (!container) return;
+      const el = container.querySelector(`[data-task-id="${taskId}"]`);
+      if (!el) return;
+      const containerRect = container.getBoundingClientRect();
+      const elRect = el.getBoundingClientRect();
+      const relativeTop = elRect.top - containerRect.top + container.scrollTop;
+      container.scrollTo({ top: Math.max(0, relativeTop - 12), behavior: "smooth" });
+    }, 60);
+
+    highlightTimerRef.current = setTimeout(() => setHighlightedTaskId(null), 2000);
+  }, []);
 
   return (
     <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-bg-primary/50">
@@ -375,8 +407,18 @@ export function TasksPage() {
         </div>
       )}
 
-      {/* Task list */}
-      <div className="flex-1 overflow-y-auto py-3 px-3 space-y-2">
+      {/* Two-panel body */}
+      <div className="flex flex-1 overflow-hidden">
+        <TasksDayPanel
+          tasks={filteredTasks}
+          colorMap={colorMap}
+          selectedDate={selectedDate}
+          onDayClick={handleDayClick}
+          onHighlightTask={handleHighlightTask}
+        />
+
+        {/* Task list */}
+        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto py-3 px-3 space-y-2">
         {isEmpty ? (
           <div className="flex flex-col items-center justify-center py-16 text-center">
             {isTrash ? (
@@ -446,10 +488,12 @@ export function TasksPage() {
               onEdit={handleEdit}
               onCompleteAll={handleCompleteAll}
               selectedTaskId={selectedTaskId}
+              highlightedTaskId={highlightedTaskId}
               onSelect={setSelectedTaskId}
             />
           ))
         )}
+        </div>
       </div>
     </div>
   );

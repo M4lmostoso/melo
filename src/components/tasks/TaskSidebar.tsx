@@ -27,7 +27,7 @@ import {
   getIncompleteTaskCount,
   updateTask,
 } from "@/services/db/tasks";
-import type { DbTask, TaskDirection } from "@/services/db/tasks";
+import type { DbTask, TaskDirection, TaskPriority } from "@/services/db/tasks";
 import type { ExtractedTask } from "@/services/ai/taskExtraction";
 import { handleRecurringTaskCompletion } from "@/services/tasks/taskManager";
 import { extractTasks } from "@/services/ai/taskExtraction";
@@ -93,10 +93,11 @@ export function TaskSidebar({ accountId, threadId, messages = [] }: TaskSidebarP
     }
   }, [draftTasks, draftThreadId, threadId]);
 
-  const handleAddTask = useCallback(async (title: string) => {
+  const handleAddTask = useCallback(async (title: string, priority: TaskPriority = "none") => {
     const id = await insertTask({
       accountId,
       title,
+      priority,
       threadId,
       threadAccountId: accountId,
     });
@@ -126,7 +127,7 @@ export function TaskSidebar({ accountId, threadId, messages = [] }: TaskSidebarP
 
   const handleEdit = useCallback(async (
     id: string,
-    updates: { title?: string; direction?: TaskDirection; dueDate?: number | null },
+    updates: { title?: string; direction?: TaskDirection; priority?: TaskPriority; dueDate?: number | null },
   ) => {
     await updateTask(id, updates);
     await refreshTasks();

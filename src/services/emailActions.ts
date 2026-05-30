@@ -955,6 +955,10 @@ export async function deleteSingleMessage(
     window.dispatchEvent(new CustomEvent("velo-message-deleted", { detail: { messageId, threadId } }));
   }
 
+  // Refresh sidebar badges — mirrors the same logic in executeEmailAction.
+  updateBadgeCount().catch(console.error);
+  window.dispatchEvent(new Event("velo-badges-refresh"));
+
   // 4. If offline, queue
   if (!useUIStore.getState().isOnline) {
     const actionType = permanent ? "permanentDelete" : "trash";

@@ -82,6 +82,7 @@ export async function deleteContact(id: string): Promise<void> {
 
 /**
  * Upsert a contact — bumps frequency if already exists.
+ * A non-null displayName takes priority over whatever is currently stored.
  */
 export async function upsertContact(
   email: string,

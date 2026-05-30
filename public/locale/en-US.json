@@ -518,7 +518,12 @@
       "inDays": "in {n}d",
       "editTask": "Edit task",
       "deleteTask": "Delete task",
-      "clearDueDate": "Clear due date"
+      "clearDueDate": "Clear due date",
+      "priorityLabel": "Priority"
+    },
+    "dayPanel": {
+      "noTasks": "No tasks due",
+      "highlight": "Highlight task"
     }
   },
   "attachments": {

@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { Mail, ExternalLink, CheckCircle2, ChevronDown, ChevronRight, AlertTriangle } from "lucide-react";
 import { t } from "@/i18n";
 import type { DbTask } from "@/services/db/tasks";
@@ -18,6 +18,7 @@ interface TaskGroupProps {
   onEdit?: (id: string, updates: { title?: string; direction?: import("@/services/db/tasks").TaskDirection; dueDate?: number | null }) => void;
   onCompleteAll?: (taskIds: string[]) => void;
   selectedTaskId?: string | null;
+  highlightedTaskId?: string | null;
   onSelect?: (id: string) => void;
 }
 
@@ -38,9 +39,16 @@ export function TaskGroup({
   onEdit,
   onCompleteAll,
   selectedTaskId,
+  highlightedTaskId,
   onSelect,
 }: TaskGroupProps) {
   const [collapsed, setCollapsed] = useState(false);
+
+  useEffect(() => {
+    if (highlightedTaskId && tasks.some((t) => t.id === highlightedTaskId)) {
+      setCollapsed(false);
+    }
+  }, [highlightedTaskId, tasks]);
   const setActiveAccount = useAccountStore((s) => s.setActiveAccount);
 
   const isGeneral = threadId === null;
@@ -145,6 +153,7 @@ export function TaskGroup({
               onDueDateChange={onDueDateChange}
               onEdit={onEdit}
               isSelected={selectedTaskId === task.id}
+              isHighlighted={highlightedTaskId === task.id}
               accountColor={accountColor}
             />
           ))}

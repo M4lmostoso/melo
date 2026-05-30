@@ -73,9 +73,22 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
       return names.join(", ") || t("threadCard.unknown");
     }
 
-    // Fallback: allSenders is null means every sender in the thread is the account itself.
-    // thread.fromAddress/fromName come from the latest message JOIN and may be the account.
+    // Fallback: allSenders is null means every sender in the thread is the account itself
+    // (e.g. self-sent email, or trashed before being categorised). Show recipients instead,
+    // mirroring the isSent path so trash/draft threads don't show "sconosciuto".
     if (!thread.fromAddress || thread.fromAddress.toLowerCase() === accountEmail) {
+      const raw = thread.allRecipients ?? "";
+      if (raw) {
+        const names = raw.split(/,\s*/).flatMap((entry) => {
+          const match = entry.trim().match(/^(.*?)\s*<([^>]+)>$/);
+          const email = (match ? match[2]! : entry).trim().toLowerCase();
+          if (email === accountEmail) return [];
+          const name = match ? match[1]!.trim().replace(/^["']|["']$/g, "") : entry.trim();
+          return [contactsMap[email] || name || email];
+        });
+        const nameStr = names.join(", ");
+        if (nameStr) return nameStr;
+      }
       return t("threadCard.unknown");
     }
     return contactsMap[thread.fromAddress.toLowerCase()] ||
