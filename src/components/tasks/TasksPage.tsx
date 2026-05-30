@@ -212,6 +212,7 @@ export function TasksPage() {
     if (!accountId) return;
     await insertTask({ accountId, title, priority });
     await loadTasks();
+    await useTaskStore.getState().refreshTaskBadges();
   }, [accountId, loadTasks]);
 
   const handleToggleComplete = useCallback(async (id: string, completed: boolean) => {
@@ -233,11 +234,13 @@ export function TasksPage() {
   const handleDelete = useCallback(async (id: string) => {
     await softDeleteTask(id);
     await loadTasks();
+    await useTaskStore.getState().refreshTaskBadges();
   }, [loadTasks]);
 
   const handleDueDateChange = useCallback(async (id: string, dueDate: number | null) => {
     await updateTask(id, { dueDate });
     await loadTasks();
+    await useTaskStore.getState().refreshTaskBadges();
   }, [loadTasks]);
 
   const handleEdit = useCallback(async (
@@ -246,6 +249,7 @@ export function TasksPage() {
   ) => {
     await updateTask(id, updates);
     await loadTasks();
+    await useTaskStore.getState().refreshTaskBadges();
   }, [loadTasks]);
 
   const handleCompleteAll = useCallback(async (taskIds: string[]) => {

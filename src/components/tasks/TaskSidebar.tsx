@@ -102,6 +102,7 @@ export function TaskSidebar({ accountId, threadId, messages = [] }: TaskSidebarP
       threadAccountId: accountId,
     });
     await refreshTasks();
+    await useTaskStore.getState().refreshTaskBadges();
     return id;
   }, [accountId, threadId, refreshTasks]);
 
@@ -123,6 +124,7 @@ export function TaskSidebar({ accountId, threadId, messages = [] }: TaskSidebarP
   const handleDelete = useCallback(async (id: string) => {
     await softDeleteTask(id);
     await refreshTasks();
+    await useTaskStore.getState().refreshTaskBadges();
   }, [refreshTasks]);
 
   const handleEdit = useCallback(async (
@@ -131,6 +133,7 @@ export function TaskSidebar({ accountId, threadId, messages = [] }: TaskSidebarP
   ) => {
     await updateTask(id, updates);
     await refreshTasks();
+    await useTaskStore.getState().refreshTaskBadges();
   }, [refreshTasks]);
 
   const handleDeleteGroup = useCallback(async () => {

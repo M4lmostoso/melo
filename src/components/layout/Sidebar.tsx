@@ -484,9 +484,11 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
     [openMenu],
   );
 
-  // Load initial task badge counts
+  // Load initial task badge counts and keep them fresh (overdue count changes with time)
   useEffect(() => {
     refreshTaskBadges().catch(() => {});
+    const interval = setInterval(() => refreshTaskBadges().catch(() => {}), 60_000);
+    return () => clearInterval(interval);
   }, [refreshTaskBadges]);
 
   // Load labels when active account changes
