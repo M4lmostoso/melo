@@ -1066,13 +1066,24 @@ export async function deleteDraftThread(
     const msgs = await getMessagesForThread(accountId, threadId);
     await deleteThreadFromDb(accountId, threadId);
     const provider = await getEmailProvider(accountId);
+    // Collect unique UIDs (stable-UUID row and imap- row share the same server UID).
+    const seen = new Set<string>();
     for (const msg of msgs) {
       if (msg.imap_uid != null && msg.imap_folder) {
         const msgId = `imap-${accountId}-${msg.imap_folder}-${msg.imap_uid}`;
+        if (seen.has(msgId)) continue;
+        seen.add(msgId);
+        // Tombstone before EXPUNGE so a concurrent sync cannot re-import the UID.
+        await tombstoneImapDraft(accountId, msgId).catch(() => {});
         await provider.deleteDraft(msgId).catch((err) =>
           console.warn("[deleteDraftThread] IMAP delete failed:", err),
         );
       }
     }
   }
+
+  // Refresh sidebar draft badge — deleteDraftThread bypasses executeEmailAction
+  // so we must trigger it manually here (same as executeEmailAction lines 419-420).
+  updateBadgeCount().catch(console.error);
+  window.dispatchEvent(new Event("melo-badges-refresh"));
 }
