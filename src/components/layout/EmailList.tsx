@@ -781,7 +781,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
       {/* Header */}
       <div className="px-4 py-2 border-b border-border-primary flex items-center justify-between">
         <div>
-          <h2 className="text-sm font-semibold text-text-primary capitalize flex items-center gap-1.5">
+          <h2 className="text-sm font-semibold text-text-primary flex items-center gap-1.5">
             {isSmartFolder && <FolderSearch size={14} className="text-accent shrink-0" />}
             {activeLabel === "scheduled" && <Clock size={14} className="text-accent shrink-0" />}
             {isSmartFolder
@@ -790,7 +790,9 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
                   const key = DEFAULT_SMART_FOLDER_I18N_KEYS[activeSmartFolder.id];
                   return key ? t(key) : activeSmartFolder.name;
                 })()
-              : activeLabel === "inbox" && inboxViewMode === "split" && activeCategory !== "All"
+              : activeLabel === "unified-inbox"
+                ? t("sidebar.nav.inbox")
+                : activeLabel === "inbox" && inboxViewMode === "split" && activeCategory !== "All"
                 ? `${t("sidebar.nav.inbox")} — ${activeCategory}`
                 : LABEL_MAP[activeLabel] !== undefined
                   ? t(`sidebar.nav.${activeLabel === "all" ? "allMail" : activeLabel}`)

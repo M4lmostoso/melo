@@ -5,7 +5,7 @@
 <h1 align="center">Melo</h1>
 
 <p align="center">
-  > **Another email client. Yes, really. No, we're not sorry.**
+  > <strong>>Another email client. Yes, really. No, we're not sorry.</strong>
 </p>
 
 ---
