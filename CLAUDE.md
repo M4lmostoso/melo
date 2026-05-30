@@ -79,7 +79,7 @@ Vitest + jsdom. `globals: true`. Tests colocated with source. Zustand pattern: `
 
 ## Internationalization (i18n)
 
-All user-visible strings must go through the `t()` function from `src/i18n.ts`. **Any UI change that adds, removes, or modifies visible text must also update `public/locale/en-US.json`** (and any other locale files if they exist).
+All user-visible strings must go through the `t()` function from `src/i18n.ts`. **Any UI change that adds, removes, or modifies visible text must update ALL locale files in `public/locale/`.** Currently: `en-US.json`, `it-IT.json`. Adding a key to only one file is a bug.
 
 **Usage:**
 
@@ -110,8 +110,8 @@ t("layout.emailList.conversations", { count: 2 }) // → "2 conversations"
 **When adding new UI strings:**
 
 1. Add the English value under the appropriate nested key in `public/locale/en-US.json`
-2. Use `t("your.new.key")` in the component
-3. If other locale files exist, add the key there too (use English as fallback)
+2. Add the translated value under the same key in **every other locale file** (`it-IT.json`, and any future locales) — never skip a locale
+3. Use `t("your.new.key")` in the component
 
 The locale is bundled at build time via a static Vite import — no async loading needed.
 

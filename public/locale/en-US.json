@@ -1204,7 +1204,11 @@
       "pruning3months": "3 months",
       "pruning6months": "6 months",
       "pruning12months": "12 months",
-      "pruningNever": "Never"
+      "pruningNever": "Never",
+      "editCalendar": "Edit calendar",
+      "calendarLabel": "Custom name",
+      "calendarColor": "Color",
+      "calendarColorDefault": "Default (from server)"
     },
     "shortcuts": {
       "globalShortcut": "Global Shortcut",

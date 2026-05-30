@@ -397,6 +397,7 @@ export function AddImapAccount({
         displayName: form.displayName.trim() || null,
         avatarUrl: null,
         isActive: true,
+        provider: "imap",
         color: null,
         includeInGlobal: true,
         sortOrder: 0,

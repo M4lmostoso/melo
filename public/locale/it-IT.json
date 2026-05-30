@@ -1204,7 +1204,11 @@
       "pruning3months": "3 mesi",
       "pruning6months": "6 mesi",
       "pruning12months": "12 mesi",
-      "pruningNever": "Mai"
+      "pruningNever": "Mai",
+      "editCalendar": "Modifica calendario",
+      "calendarLabel": "Nome personalizzato",
+      "calendarColor": "Colore",
+      "calendarColorDefault": "Predefinito (dal server)"
     },
     "shortcuts": {
       "globalShortcut": "Scorciatoia globale",

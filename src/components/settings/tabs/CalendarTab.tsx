@@ -1,63 +1,155 @@
 import { useState, useEffect, useCallback } from "react";
-import { Plus, ChevronDown, ChevronRight, Loader2 } from "lucide-react";
+import { Plus, ChevronDown, ChevronRight, Loader2, Pencil, X, Check } from "lucide-react";
 import { useAccountStore } from "@/stores/accountStore";
 import { getAccount, type DbAccount } from "@/services/db/accounts";
 import { t } from "@/i18n";
 import {
   getCalendarsForAccount,
   setCalendarVisibility,
+  updateCalendarUserMeta,
   calColor,
   calDisplayName,
   type DbCalendar,
 } from "@/services/db/calendars";
+import { ACCOUNT_COLOR_PRESETS } from "@/constants/accountColors";
 import { getSetting } from "@/services/db/settings";
 import { updateCalendarPruningMonths } from "@/services/calendarInviteManager";
 import { CalDavSettings } from "@/components/settings/CalDavSettings";
 import { Section } from "./shared";
 
-// ---- Checkbox identico a CalendarList ----
+// ---- Checkbox con edit inline per colore e label ----
 
 function CalendarCheckbox({
   cal,
   onToggle,
+  onMetaUpdate,
 }: {
   cal: DbCalendar;
   onToggle: (id: string, visible: boolean) => void;
+  onMetaUpdate: (id: string, label: string | null, color: string | null) => void;
 }) {
   const visible = !!cal.is_visible;
+  const [editing, setEditing] = useState(false);
+  const [labelInput, setLabelInput] = useState(cal.user_label ?? "");
+  const [selectedColor, setSelectedColor] = useState<string | null>(cal.user_color ?? null);
+
+  const handleEdit = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setLabelInput(cal.user_label ?? "");
+    setSelectedColor(cal.user_color ?? null);
+    setEditing(true);
+  };
+
+  const handleSave = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    const newLabel = labelInput.trim() || null;
+    await updateCalendarUserMeta(cal.id, newLabel, selectedColor);
+    onMetaUpdate(cal.id, newLabel, selectedColor);
+    setEditing(false);
+  };
+
+  const handleCancel = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setEditing(false);
+  };
+
   return (
-    <label className="flex items-center gap-2.5 px-3 py-1.5 rounded-md hover:bg-bg-hover cursor-pointer transition-colors">
-      <input
-        type="checkbox"
-        checked={visible}
-        onChange={(e) => onToggle(cal.id, e.target.checked)}
-        className="sr-only"
-      />
-      <span
-        className={`w-3.5 h-3.5 rounded-sm border-2 flex items-center justify-center shrink-0 transition-colors ${
-          visible ? "border-transparent" : "border-border-primary bg-transparent"
-        }`}
-        style={visible ? { backgroundColor: calColor(cal) ?? "var(--color-accent)" } : undefined}
-      >
-        {visible && (
-          <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
-            <path
-              d="M1.5 4L3 5.5L6.5 2"
-              stroke="white"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
+    <div className="rounded-md">
+      <label className="flex items-center gap-2.5 px-3 py-1.5 rounded-md hover:bg-bg-hover cursor-pointer transition-colors group">
+        <input
+          type="checkbox"
+          checked={visible}
+          onChange={(e) => onToggle(cal.id, e.target.checked)}
+          className="sr-only"
+        />
+        <span
+          className={`w-3.5 h-3.5 rounded-sm border-2 flex items-center justify-center shrink-0 transition-colors ${
+            visible ? "border-transparent" : "border-border-primary bg-transparent"
+          }`}
+          style={visible ? { backgroundColor: calColor(cal) ?? "var(--color-accent)" } : undefined}
+        >
+          {visible && (
+            <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
+              <path
+                d="M1.5 4L3 5.5L6.5 2"
+                stroke="white"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          )}
+        </span>
+        <span className="text-sm text-text-primary flex-1 truncate">
+          {calDisplayName(cal)}
+        </span>
+        {!!cal.is_primary && (
+          <span className="text-[0.6rem] text-text-tertiary shrink-0">{t("settings.calendar.calendarPrimary")}</span>
         )}
-      </span>
-      <span className="text-sm text-text-primary flex-1 truncate">
-        {calDisplayName(cal)}
-      </span>
-      {!!cal.is_primary && (
-        <span className="text-[0.6rem] text-text-tertiary shrink-0">{t("settings.calendar.calendarPrimary")}</span>
+        <button
+          onClick={handleEdit}
+          className="opacity-0 group-hover:opacity-100 transition-opacity text-text-tertiary hover:text-text-secondary ml-1 shrink-0"
+          title={t("settings.calendar.editCalendar")}
+        >
+          <Pencil size={12} />
+        </button>
+      </label>
+
+      {editing && (
+        <div className="mx-3 mb-2 p-3 bg-bg-tertiary rounded-md space-y-2">
+          <div>
+            <label className="text-xs text-text-tertiary mb-1 block">{t("settings.calendar.calendarLabel")}</label>
+            <input
+              type="text"
+              value={labelInput}
+              onChange={(e) => setLabelInput(e.target.value)}
+              placeholder={cal.display_name ?? ""}
+              className="w-full bg-bg-secondary border border-border-primary rounded px-2.5 py-1.5 text-sm text-text-primary outline-none focus:border-accent"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-text-tertiary mb-1.5 block">{t("settings.calendar.calendarColor")}</label>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <button
+                onClick={(e) => { e.preventDefault(); setSelectedColor(null); }}
+                className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${
+                  selectedColor === null ? "border-accent" : "border-border-primary"
+                } bg-bg-secondary`}
+                title={t("settings.calendar.calendarColorDefault")}
+              >
+                <X size={9} className="text-text-tertiary" />
+              </button>
+              {ACCOUNT_COLOR_PRESETS.map((color) => (
+                <button
+                  key={color}
+                  onClick={(e) => { e.preventDefault(); setSelectedColor(color); }}
+                  className={`w-5 h-5 rounded-full border-2 transition-colors ${
+                    selectedColor === color ? "border-accent scale-110" : "border-transparent"
+                  }`}
+                  style={{ backgroundColor: color }}
+                  title={color}
+                />
+              ))}
+            </div>
+          </div>
+          <div className="flex items-center gap-2 pt-1">
+            <button
+              onClick={handleSave}
+              className="flex items-center gap-1 text-xs text-accent hover:text-accent-hover transition-colors"
+            >
+              <Check size={12} />
+              {t("common.save")}
+            </button>
+            <button
+              onClick={handleCancel}
+              className="text-xs text-text-tertiary hover:text-text-secondary transition-colors"
+            >
+              {t("common.cancel")}
+            </button>
+          </div>
+        </div>
       )}
-    </label>
+    </div>
   );
 }
 
@@ -66,9 +158,11 @@ function CalendarCheckbox({
 function AccountCalendarList({
   calendars,
   onToggle,
+  onMetaUpdate,
 }: {
   calendars: DbCalendar[];
   onToggle: (id: string, visible: boolean) => void;
+  onMetaUpdate: (id: string, label: string | null, color: string | null) => void;
 }) {
   if (calendars.length === 0) {
     return (
@@ -81,7 +175,7 @@ function AccountCalendarList({
   return (
     <div className="mt-1.5">
       {calendars.map((cal) => (
-        <CalendarCheckbox key={cal.id} cal={cal} onToggle={onToggle} />
+        <CalendarCheckbox key={cal.id} cal={cal} onToggle={onToggle} onMetaUpdate={onMetaUpdate} />
       ))}
     </div>
   );
@@ -176,6 +270,12 @@ function AccountCalendarBlock({
     reload();
   }, [reload]);
 
+  const handleMetaUpdate = useCallback((id: string, label: string | null, color: string | null) => {
+    setCalendars((prev) =>
+      prev.map((c) => c.id === id ? { ...c, user_label: label, user_color: color } : c),
+    );
+  }, []);
+
   const isGmail = uiAccount.provider === "gmail_api";
   const isImap = uiAccount.provider === "imap";
 
@@ -207,6 +307,7 @@ function AccountCalendarBlock({
           <AccountCalendarList
             calendars={calendars}
             onToggle={onToggle}
+            onMetaUpdate={handleMetaUpdate}
           />
 
           {isImap && dbAccount && (
