@@ -3,6 +3,7 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 For deeper reference, see:
+
 - [docs/architecture.md](docs/architecture.md) — full service/component/DB breakdown
 - [docs/development.md](docs/development.md) — dev setup, testing, build
 - [docs/keyboard-shortcuts.md](docs/keyboard-shortcuts.md) — all keyboard shortcuts
