@@ -12,12 +12,14 @@ import {
   Send,
   ShieldCheck,
   KeyRound,
+  AlertTriangle,
 } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { insertImapAccount, insertOAuthImapAccount } from "@/services/db/accounts";
 import { useAccountStore } from "@/stores/accountStore";
 import {
   discoverSettings,
+  findWellKnownProvider,
   getDefaultImapPort,
   getDefaultSmtpPort,
   type SecurityType,
@@ -29,6 +31,7 @@ interface AddImapAccountProps {
   onClose: () => void;
   onSuccess: () => void;
   onBack: () => void;
+  providerPreset?: "icloud";
 }
 
 type Step = "basic" | "imap" | "smtp" | "test";
@@ -116,22 +119,40 @@ function mapSecurity(security: string): string {
   return security;
 }
 
+function makeICloudInitialState(): Partial<FormState> {
+  const preset = findWellKnownProvider("icloud.com");
+  if (!preset) return {};
+  return {
+    imapHost: preset.settings.imapHost,
+    imapPort: preset.settings.imapPort,
+    imapSecurity: preset.settings.imapSecurity,
+    smtpHost: preset.settings.smtpHost,
+    smtpPort: preset.settings.smtpPort,
+    smtpSecurity: preset.settings.smtpSecurity,
+  };
+}
+
 export function AddImapAccount({
   onClose,
   onSuccess,
   onBack,
+  providerPreset,
 }: AddImapAccountProps) {
+  const isICloudPreset = providerPreset === "icloud";
   const [currentStep, setCurrentStep] = useState<Step>("basic");
-  const [form, setForm] = useState<FormState>(initialFormState);
+  const [form, setForm] = useState<FormState>(() =>
+    isICloudPreset ? { ...initialFormState, ...makeICloudInitialState() } : initialFormState,
+  );
   const [imapTest, setImapTest] = useState<TestStatus>({ state: "idle" });
   const [smtpTest, setSmtpTest] = useState<TestStatus>({ state: "idle" });
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [discoveryApplied, setDiscoveryApplied] = useState(false);
+  const [discoveryApplied, setDiscoveryApplied] = useState(isICloudPreset);
   const [oauthConnecting, setOauthConnecting] = useState(false);
   const [oauthError, setOauthError] = useState<string | null>(null);
   const [detectedAuthMethods, setDetectedAuthMethods] = useState<AuthMode[]>(["password"]);
   const [detectedOAuthProviderId, setDetectedOAuthProviderId] = useState<string | null>(null);
+  const [isICloudAccount, setIsICloudAccount] = useState(isICloudPreset);
 
   const addAccount = useAccountStore((s) => s.addAccount);
 
@@ -163,6 +184,7 @@ export function AddImapAccount({
       }));
       setDetectedAuthMethods(result.authMethods);
       setDetectedOAuthProviderId(result.oauthProviderId ?? null);
+      setIsICloudAccount(result.isICloud ?? false);
       setDiscoveryApplied(true);
     }
   }, [form.email, form.imapHost, form.smtpHost, discoveryApplied]);
@@ -385,9 +407,10 @@ export function AddImapAccount({
           smtpPort: form.smtpPort,
           smtpSecurity: form.smtpSecurity,
           authMethod: "password",
-          password: form.samePassword ? form.password : form.password,
+          password: form.password,
           imapUsername,
           acceptInvalidCerts: form.acceptInvalidCerts,
+          provider: isICloudAccount ? "icloud" : "imap",
         });
       }
 
@@ -397,7 +420,7 @@ export function AddImapAccount({
         displayName: form.displayName.trim() || null,
         avatarUrl: null,
         isActive: true,
-        provider: "imap",
+        provider: isICloudAccount ? "icloud" : "imap",
         color: null,
         includeInGlobal: true,
         sortOrder: 0,
@@ -621,6 +644,15 @@ export function AddImapAccount({
               {t("accounts.addImap.usernameHint")}
             </p>
           </div>
+          {isICloudAccount && (
+            <div className="flex gap-3 p-3 rounded-lg bg-warning/10 border border-warning/30">
+              <AlertTriangle className="w-4 h-4 text-warning flex-shrink-0 mt-0.5" />
+              <div className="text-xs text-text-secondary space-y-1">
+                <p className="font-semibold text-text-primary">{t("accounts.addImap.icloudWarningTitle")}</p>
+                <p>{t("accounts.addImap.icloudWarningBody")}</p>
+              </div>
+            </div>
+          )}
           <div>
             <label htmlFor="imap-password" className={labelClass}>
               {t("accounts.addImap.password")}

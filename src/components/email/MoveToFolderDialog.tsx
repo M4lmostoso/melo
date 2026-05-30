@@ -62,7 +62,7 @@ export function MoveToFolderDialog({
     () => accounts.find((a) => a.id === activeAccountId),
     [accounts, activeAccountId],
   );
-  const isImap = account?.provider === "imap";
+  const isImap = account?.provider === "imap" || account?.provider === "icloud";
 
   // Build the full destination list: system destinations + user labels
   const destinations = useMemo(() => {

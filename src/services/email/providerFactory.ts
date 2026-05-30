@@ -21,7 +21,7 @@ export async function getEmailProvider(
 
   let provider: EmailProvider;
 
-  if (account.provider === "imap") {
+  if (account.provider === "imap" || account.provider === "icloud") {
     provider = new ImapSmtpProvider(accountId);
   } else {
     // Default: gmail_api

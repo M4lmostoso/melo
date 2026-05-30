@@ -253,7 +253,7 @@ async function syncAccountInternal(accountId: string): Promise<void> {
 
     let storedCount: number | undefined;
     let flagChangedCount: number | undefined;
-    if (account.provider === "imap") {
+    if (account.provider === "imap" || account.provider === "icloud") {
       ({ storedCount, flagChangedCount } = await syncImapAccount(accountId));
     } else {
       ({ storedCount } = await syncGmailAccount(accountId));

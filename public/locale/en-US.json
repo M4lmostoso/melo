@@ -48,6 +48,8 @@
       "chooseProvider": "Choose how you want to connect your email account.",
       "googleGmail": "Google (Gmail)",
       "googleGmailDesc": "Connect via OAuth with full Gmail API support",
+      "iCloud": "iCloud Mail",
+      "iCloudDesc": "Connect your @icloud.com, @me.com or @mac.com account",
       "imapSmtp": "IMAP / SMTP",
       "imapSmtpDesc": "Connect any email provider with manual server configuration",
       "calDav": "CalDAV (Calendar Only)",
@@ -102,7 +104,9 @@
       "yahooRedirectHint": "Register at the Yahoo Developer Network with redirect URI",
       "autoConfiguredHint": "Server settings have been auto-configured for your provider. You can adjust them if needed.",
       "password_auth": "Password",
-      "oauth2_auth": "OAuth2"
+      "oauth2_auth": "OAuth2",
+      "icloudWarningTitle": "App-Specific Password required",
+      "icloudWarningBody": "Apple does not allow your Apple ID password to be used directly. Go to appleid.apple.com → Sign-In and Security → App-Specific Passwords, generate a password for Melo, and paste it here."
     },
     "addCalDav": {
       "title": "Add CalDAV Calendar",

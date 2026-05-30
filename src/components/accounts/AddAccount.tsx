@@ -16,7 +16,7 @@ interface AddAccountProps {
   onSuccess: () => void;
 }
 
-type View = "select-provider" | "gmail" | "imap" | "caldav";
+type View = "select-provider" | "gmail" | "icloud" | "imap" | "caldav";
 
 export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
   const [view, setView] = useState<View>("select-provider");
@@ -95,6 +95,17 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
         onClose={onClose}
         onSuccess={onSuccess}
         onBack={() => setView("select-provider")}
+      />
+    );
+  }
+
+  if (view === "icloud") {
+    return (
+      <AddImapAccount
+        onClose={onClose}
+        onSuccess={onSuccess}
+        onBack={() => setView("select-provider")}
+        providerPreset="icloud"
       />
     );
   }
@@ -207,6 +218,25 @@ export function AddAccount({ onClose, onSuccess }: AddAccountProps) {
               </div>
               <div className="text-xs text-text-tertiary mt-0.5">
                 {t("accounts.addAccount.googleGmailDesc")}
+              </div>
+            </div>
+          </button>
+
+          <button
+            onClick={() => setView("icloud")}
+            className="w-full flex items-center gap-4 p-4 rounded-lg border border-border-primary bg-bg-secondary hover:bg-bg-hover transition-colors text-left group"
+          >
+            <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-bg-tertiary flex items-center justify-center">
+              <svg className="w-5 h-5 text-text-secondary" viewBox="0 0 814 1000" fill="currentColor">
+                <path d="M788.1 340.9c-5.8 4.5-108.2 62.2-108.2 190.5 0 148.4 130.3 200.9 134.2 202.2-.6 3.2-20.7 71.9-68.7 141.9-42.8 61.6-87.5 123.1-155.5 123.1s-85.5-39.5-164-39.5c-76 0-103.7 40.8-165.9 40.8s-105-57.8-155.5-127.4C46 790.7 0 663.1 0 541.8c0-207.4 135.4-317 269-317 70.1 0 128.4 46.4 172.5 46.4 42.8 0 109.6-49 192.5-49 31.2 0 108.2 2.6 168.1 75.5zm-234.5-161.4c31.9-38.1 54.4-90.6 54.4-143.1 0-7.1-.6-14.3-1.9-20.1-51.5 1.9-110.8 34.4-147.1 75.8-28.5 32.4-55.1 84.9-55.1 138.6 0 7.8 1.3 15.6 1.9 18.1 3.2.6 8.4 1.3 13.6 1.3 46.5 0 102.5-30.4 134.2-70.6z" />
+              </svg>
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-medium text-text-primary group-hover:text-accent transition-colors">
+                {t("accounts.addAccount.iCloud")}
+              </div>
+              <div className="text-xs text-text-tertiary mt-0.5">
+                {t("accounts.addAccount.iCloudDesc")}
               </div>
             </div>
           </button>

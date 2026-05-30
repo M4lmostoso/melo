@@ -277,7 +277,8 @@ function AccountCalendarBlock({
   }, []);
 
   const isGmail = uiAccount.provider === "gmail_api";
-  const isImap = uiAccount.provider === "imap";
+  const isICloud = uiAccount.provider === "icloud";
+  const isImap = uiAccount.provider === "imap" || isICloud;
 
   return (
     <div className="py-3 px-4 bg-bg-secondary rounded-lg">
@@ -292,7 +293,7 @@ function AccountCalendarBlock({
           {uiAccount.label ?? uiAccount.displayName ?? uiAccount.email}
         </span>
         <span className="text-[0.6rem] font-medium px-1.5 py-0.5 rounded-full bg-bg-tertiary text-text-tertiary">
-          {isGmail ? "Gmail" : "IMAP"}
+          {isGmail ? "Gmail" : isICloud ? "iCloud" : "IMAP"}
         </span>
       </div>
       <p className="text-xs text-text-tertiary mt-0.5 mb-1 px-0.5">{uiAccount.email}</p>

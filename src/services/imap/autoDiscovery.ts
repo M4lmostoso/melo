@@ -19,6 +19,8 @@ interface WellKnownProvider {
   oauthProviderId?: string;
   /** Accept self-signed TLS certificates (for local mail bridges) */
   acceptInvalidCerts?: boolean;
+  /** iCloud account — requires an App-Specific Password, not the Apple ID password */
+  isICloud?: boolean;
 }
 
 const wellKnownProviders: WellKnownProvider[] = [
@@ -66,6 +68,7 @@ const wellKnownProviders: WellKnownProvider[] = [
       smtpSecurity: "starttls",
     },
     authMethods: ["password"],
+    isICloud: true,
   },
   {
     domains: ["aol.com"],
@@ -170,6 +173,7 @@ export interface WellKnownProviderResult {
   authMethods: AuthMethod[];
   oauthProviderId?: string;
   acceptInvalidCerts?: boolean;
+  isICloud?: boolean;
 }
 
 /**
@@ -187,6 +191,7 @@ export function findWellKnownProvider(
         authMethods: provider.authMethods,
         oauthProviderId: provider.oauthProviderId,
         acceptInvalidCerts: provider.acceptInvalidCerts,
+        isICloud: provider.isICloud,
       };
     }
   }

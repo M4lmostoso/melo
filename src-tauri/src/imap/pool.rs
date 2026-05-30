@@ -10,7 +10,17 @@ use super::types::ImapConfig;
 type ImapSession = Session<ImapStream>;
 
 const MAX_SESSIONS_PER_KEY: usize = 4;
+// iCloud IMAP is sensitive to concurrent connections; Apple rate-limits aggressively.
+const MAX_SESSIONS_ICLOUD: usize = 2;
 const NOOP_TIMEOUT: Duration = Duration::from_secs(5);
+
+fn max_sessions_for_key(key: &str) -> usize {
+    if key.contains("imap.mail.me.com") {
+        MAX_SESSIONS_ICLOUD
+    } else {
+        MAX_SESSIONS_PER_KEY
+    }
+}
 
 /// Global IMAP session pool. Stored as Tauri managed state so every command shares
 /// the same pool. Keyed by "host:port:security:user" — sessions are returned after
@@ -67,8 +77,9 @@ impl ImapSessionPool {
     /// Return a session to the pool after a successful operation.
     pub async fn release(&self, key: String, session: ImapSession) {
         let mut guard = self.sessions.lock().await;
+        let limit = max_sessions_for_key(&key);
         let pool = guard.entry(key).or_default();
-        if pool.len() < MAX_SESSIONS_PER_KEY {
+        if pool.len() < limit {
             pool.push(session);
         }
         // If pool is full the session is dropped (graceful close).

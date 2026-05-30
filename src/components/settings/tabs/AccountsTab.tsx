@@ -366,7 +366,10 @@ export function AccountsTab() {
             <SortableContext items={mailAccounts.map((a) => a.id)} strategy={verticalListSortingStrategy}>
               <div className="space-y-2">
                 {mailAccounts.map((account) => {
-                  const providerLabel = account.provider === "imap" ? "IMAP" : "Gmail";
+                  const providerLabel =
+                    account.provider === "icloud" ? "iCloud" :
+                    account.provider === "imap" ? "IMAP" : "Gmail";
+                  const isImapBased = account.provider === "imap" || account.provider === "icloud";
                   return (
                     <SortableAccountRow key={account.id} id={account.id}>
                       <div className="py-2.5 px-4 bg-bg-secondary rounded-lg">
@@ -387,15 +390,14 @@ export function AccountsTab() {
                             <div className="text-xs text-text-tertiary">{account.email}</div>
                           </div>
                           <div className="flex items-center gap-3">
-                            {account.provider === "imap" && (
+                            {isImapBased ? (
                               <button
                                 onClick={() => setEditingImapAccountId(account.id)}
                                 className="text-xs text-accent hover:text-accent-hover transition-colors"
                               >
                                 {t("settings.accounts.editAccount")}
                               </button>
-                            )}
-                            {account.provider !== "imap" && (
+                            ) : (
                               <button
                                 onClick={() =>
                                   setEditingGmailAccount({
@@ -443,7 +445,7 @@ export function AccountsTab() {
                             </button>
                           </div>
                         </div>
-                        {account.provider === "imap" && (
+                        {isImapBased && (
                           <ImapIdleFoldersEditor accountId={account.id} />
                         )}
                       </div>

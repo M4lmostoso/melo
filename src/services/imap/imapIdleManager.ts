@@ -121,7 +121,7 @@ export async function startIdleForAccount(accountId: string): Promise<void> {
   if (!(await isIdleEnabled())) return;
 
   const account = await getAccount(accountId);
-  if (!account || account.provider !== "imap") return;
+  if (!account || (account.provider !== "imap" && account.provider !== "icloud")) return;
 
   await ensureListener();
 

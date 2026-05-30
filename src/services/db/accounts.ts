@@ -265,14 +265,16 @@ export async function insertImapAccount(account: {
   smtpUsername?: string | null;
   imapUsername?: string | null;
   acceptInvalidCerts?: boolean;
+  provider?: string;
 }): Promise<void> {
   const db = await getDb();
   const encPassword = await encryptValue(account.password);
   const encSmtpPassword =
     account.smtpPassword ? await encryptValue(account.smtpPassword) : null;
+  const provider = account.provider ?? "imap";
   await db.execute(
     `INSERT INTO accounts (id, email, display_name, avatar_url, access_token, refresh_token, provider, imap_host, imap_port, imap_security, smtp_host, smtp_port, smtp_security, auth_method, imap_password, smtp_password, smtp_username, imap_username, accept_invalid_certs)
-     VALUES ($1, $2, $3, $4, NULL, NULL, 'imap', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
+     VALUES ($1, $2, $3, $4, NULL, NULL, $17, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
     [
       account.id,
       account.email,
@@ -290,6 +292,7 @@ export async function insertImapAccount(account: {
       account.smtpUsername || null,
       account.imapUsername || null,
       account.acceptInvalidCerts ? 1 : 0,
+      provider,
     ],
   );
 }

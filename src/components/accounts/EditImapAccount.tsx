@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { CheckCircle2, XCircle, Loader2, Check } from "lucide-react";
+import { CheckCircle2, XCircle, Loader2, Check, AlertTriangle } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { getAccount, updateImapAccount, updateAccountMeta, getAllAccounts } from "@/services/db/accounts";
 import { getDefaultImapPort, getDefaultSmtpPort, type SecurityType } from "@/services/imap/autoDiscovery";
@@ -307,6 +307,15 @@ export function EditImapAccount({ accountId, onClose, onSaved }: EditImapAccount
                 />
                 <p className="text-xs text-text-tertiary mt-1">{t("accounts.usernameOptionalNote")}</p>
               </div>
+              {form.imapHost === "imap.mail.me.com" && (
+                <div className="flex gap-3 p-3 rounded-lg bg-warning/10 border border-warning/30">
+                  <AlertTriangle className="w-4 h-4 text-warning flex-shrink-0 mt-0.5" />
+                  <div className="text-xs text-text-secondary space-y-1">
+                    <p className="font-semibold text-text-primary">{t("accounts.addImap.icloudWarningTitle")}</p>
+                    <p>{t("accounts.addImap.icloudWarningBody")}</p>
+                  </div>
+                </div>
+              )}
               <div>
                 <label className={labelClass}>{t("accounts.password")}</label>
                 <input
