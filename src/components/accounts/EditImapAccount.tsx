@@ -191,7 +191,7 @@ export function EditImapAccount({ accountId, onClose, onSaved }: EditImapAccount
         useAccountStore.getState().activeAccountId ?? undefined,
       );
       // Force reload of thread list if user is on unified inbox
-      window.dispatchEvent(new CustomEvent("velo-sync-done"));
+      window.dispatchEvent(new CustomEvent("melo-sync-done"));
       onSaved();
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : String(err));

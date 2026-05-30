@@ -171,11 +171,11 @@ export function ScheduledEmailListView({ accountId }: ScheduledEmailListViewProp
       const { id } = (e as CustomEvent<{ id: string }>).detail;
       setEmails((prev) => prev.filter((em) => em.id !== id));
     };
-    window.addEventListener("velo-sync-done", syncHandler);
-    window.addEventListener("velo-scheduled-removed", removeHandler);
+    window.addEventListener("melo-sync-done", syncHandler);
+    window.addEventListener("melo-scheduled-removed", removeHandler);
     return () => {
-      window.removeEventListener("velo-sync-done", syncHandler);
-      window.removeEventListener("velo-scheduled-removed", removeHandler);
+      window.removeEventListener("melo-sync-done", syncHandler);
+      window.removeEventListener("melo-scheduled-removed", removeHandler);
     };
   }, [load]);
 
@@ -203,7 +203,7 @@ export function ScheduledEmailListView({ accountId }: ScheduledEmailListViewProp
     updateScheduledEmailStatus(email.id, "cancelled")
       .then(() => refreshScheduledCounts(accounts.map((a) => a.id)))
       .catch(console.error);
-    window.dispatchEvent(new CustomEvent("velo-scheduled-removed", { detail: { id: email.id } }));
+    window.dispatchEvent(new CustomEvent("melo-scheduled-removed", { detail: { id: email.id } }));
     if (selectedScheduledEmail?.id === email.id) setSelectedScheduledEmail(null);
   }, [openComposer, accounts, refreshScheduledCounts, selectedScheduledEmail, setSelectedScheduledEmail]);
 
@@ -219,7 +219,7 @@ export function ScheduledEmailListView({ accountId }: ScheduledEmailListViewProp
       setSelectedScheduledEmail({ ...reschedulingEmail, scheduled_at: newTimestamp });
     }
     setReschedulingEmail(null);
-    window.dispatchEvent(new Event("velo-sync-done"));
+    window.dispatchEvent(new Event("melo-sync-done"));
   }, [reschedulingEmail, selectedScheduledEmail, setSelectedScheduledEmail]);
 
   const handleContextCancel = useCallback(async (id: string) => {
@@ -246,13 +246,13 @@ export function ScheduledEmailListView({ accountId }: ScheduledEmailListViewProp
       if (email) void handleContextCancel(email.id);
     };
 
-    window.addEventListener("velo-scheduled-edit-selected", onEdit);
-    window.addEventListener("velo-scheduled-reschedule-selected", onReschedule);
-    window.addEventListener("velo-scheduled-cancel-selected", onCancel);
+    window.addEventListener("melo-scheduled-edit-selected", onEdit);
+    window.addEventListener("melo-scheduled-reschedule-selected", onReschedule);
+    window.addEventListener("melo-scheduled-cancel-selected", onCancel);
     return () => {
-      window.removeEventListener("velo-scheduled-edit-selected", onEdit);
-      window.removeEventListener("velo-scheduled-reschedule-selected", onReschedule);
-      window.removeEventListener("velo-scheduled-cancel-selected", onCancel);
+      window.removeEventListener("melo-scheduled-edit-selected", onEdit);
+      window.removeEventListener("melo-scheduled-reschedule-selected", onReschedule);
+      window.removeEventListener("melo-scheduled-cancel-selected", onCancel);
     };
   }, [handleContextEdit, handleContextReschedule, handleContextCancel]);
 

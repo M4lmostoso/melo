@@ -251,7 +251,7 @@ export default function ComposerWindow() {
         // close proceed so the user is never permanently stuck.
         if (getIsDiscarding()) return;
         event.preventDefault();
-        window.dispatchEvent(new Event("velo-composer-close-requested"));
+        window.dispatchEvent(new Event("melo-composer-close-requested"));
       }).then((fn) => { unlisten = fn; });
     }).catch(() => {});
     return () => { unlisten?.(); };

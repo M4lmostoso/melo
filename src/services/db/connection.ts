@@ -4,7 +4,7 @@ let db: Database | null = null;
 
 export async function getDb(): Promise<Database> {
   if (!db) {
-    db = await Database.load("sqlite:velo.db");
+    db = await Database.load("sqlite:melo.db");
     await db.execute("PRAGMA busy_timeout = 5000", []);
     await db.execute("PRAGMA journal_mode = WAL", []);
     // NORMAL is safe with WAL and much faster than FULL (no fsync on every write)

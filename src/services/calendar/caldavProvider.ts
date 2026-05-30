@@ -61,7 +61,7 @@ export class CalDAVProvider implements CalendarProvider {
     const objects = await fetchCalDavEvents(calendarRemoteId, username, account.caldav_password, timeMin, timeMax);
     const rangeStartTs = Math.floor(new Date(timeMin).getTime() / 1000);
     const rangeEndTs = Math.floor(new Date(timeMax).getTime() / 1000);
-    const debug = (globalThis as { __VELO_CALDAV_DEBUG__?: boolean }).__VELO_CALDAV_DEBUG__;
+    const debug = (globalThis as { __MELO_CALDAV_DEBUG__?: boolean }).__MELO_CALDAV_DEBUG__;
     if (debug) {
       console.log("[caldav] fetchEvents response", {
         calendarRemoteId,

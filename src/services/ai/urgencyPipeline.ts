@@ -168,7 +168,7 @@ const BACKFILL_DELAY_MS = 30;
 /**
  * Score urgency for all recent un-scored threads across all accounts.
  * Run once after the user enables Behavioral Intelligence.
- * Emits "velo-sync-done" on completion so the email list refreshes.
+ * Emits "melo-sync-done" on completion so the email list refreshes.
  */
 export async function runUrgencyBackfill(): Promise<void> {
   const settings = await getUrgencySettings();
@@ -218,7 +218,7 @@ export async function runUrgencyBackfill(): Promise<void> {
     if (rows.length < BACKFILL_BATCH) break;
   }
 
-  window.dispatchEvent(new CustomEvent("velo-sync-done"));
+  window.dispatchEvent(new CustomEvent("melo-sync-done"));
 }
 
 // ---------------------------------------------------------------------------
@@ -311,5 +311,5 @@ export async function runExtinguishBackfill(): Promise<void> {
     await new Promise<void>((r) => setTimeout(r, BACKFILL_DELAY_MS));
   }
 
-  window.dispatchEvent(new CustomEvent("velo-sync-done"));
+  window.dispatchEvent(new CustomEvent("melo-sync-done"));
 }

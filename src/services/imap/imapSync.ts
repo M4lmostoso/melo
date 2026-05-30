@@ -132,7 +132,7 @@ export type ImapSyncProgressCallback = (progress: ImapSyncProgress) => void;
 function headerToThreadable(h: ImapSyncHeader): ThreadableMessage {
   return {
     id: h.local_id,
-    messageId: h.message_id ?? `synthetic-${h.local_id}@velo.local`,
+    messageId: h.message_id ?? `synthetic-${h.local_id}@melo.local`,
     inReplyTo: h.in_reply_to,
     references: h.references,
     subject: h.subject,
@@ -1416,7 +1416,7 @@ async function reconcileFragmentedThreads(accountId: string): Promise<number> {
 
   const threadable: ThreadableMessage[] = rows.map((r) => ({
     id: r.id,
-    messageId: r.message_id_header ?? `synthetic-${r.id}@velo.local`,
+    messageId: r.message_id_header ?? `synthetic-${r.id}@melo.local`,
     inReplyTo: r.in_reply_to_header,
     references: r.references_header,
     subject: r.subject,

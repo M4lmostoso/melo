@@ -730,9 +730,9 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => loadThreads(), 500);
     };
-    window.addEventListener("velo-sync-done", handler);
+    window.addEventListener("melo-sync-done", handler);
     return () => {
-      window.removeEventListener("velo-sync-done", handler);
+      window.removeEventListener("melo-sync-done", handler);
       if (timer) clearTimeout(timer);
     };
   }, [loadThreads, activeAccountId, activeLabel]);

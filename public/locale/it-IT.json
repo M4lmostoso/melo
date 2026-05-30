@@ -143,7 +143,8 @@
     },
     "accountSwitcher": {
       "accounts": "Account",
-      "addAccount": "Aggiungi account"
+      "addAccount": "Aggiungi account",
+      "viewing": "Visualizzazione"
     },
     "addGmailAccount": "Aggiungi account Gmail",
     "addImapAccount": "Aggiungi account IMAP/SMTP",
@@ -397,7 +398,8 @@
       "allDayShort": "Giorno",
       "weekSubtitle": "Settimana {n} del {year}"
     },
-    "joinButton": "Partecipa"
+    "joinButton": "Partecipa",
+    "eventOrganizer": "organizzatore"
   },
   "tasks": {
     "title": "Attività",
@@ -1137,7 +1139,49 @@
       "activateForAccount": "Attiva per questo account",
       "removeFromAccount": "Rimuovi da questo account",
       "includeInGlobal": "Includi nella posta globale",
-      "color": "Colore"
+      "color": "Colore",
+      "addAccount": "Aggiungi account",
+      "noMailAccounts": "Nessun account configurato.",
+      "removeAccount": "Rimuovi",
+      "editGmailAccount": "Modifica account Gmail",
+      "dragToReorder": "Trascina per riordinare",
+      "resync": "Risincronizza",
+      "resyncing": "Risincronizzazione…",
+      "resyncDone": "Fatto",
+      "resyncFailed": "Errore",
+      "syncContacts": "Sincronizza contatti",
+      "syncingContacts": "Sincronizzazione…",
+      "syncingContactsProgress": "Sincronizzazione ({count})…",
+      "setAsDefault": "Imposta come predefinito",
+      "aliasDefault": "Predefinito",
+      "aliasPrimary": "Principale",
+      "aliasesDesc": "Gli alias ti permettono di inviare email da indirizzi diversi usando lo stesso account.",
+      "noAliases": "Nessun alias di invio configurato per questo account.",
+      "checkForNewMail": "Controlla nuova posta",
+      "syncNow": "Sincronizza ora",
+      "syncing": "Sincronizzazione…",
+      "fullResync": "Risincronizzazione completa",
+      "fullResyncDesc": "Riscarica tutte le email. Usalo se la casella appare non sincronizzata.",
+      "syncEmailsFrom": "Sincronizza email da",
+      "syncEverything": "Tutto",
+      "syncLast30": "Ultimi 30 giorni",
+      "syncLast90": "Ultimi 90 giorni",
+      "syncLast180": "Ultimi 180 giorni",
+      "syncLast1Year": "Ultimo anno",
+      "syncChangesNote": "Le modifiche si applicano alla prossima risincronizzazione completa.",
+      "pendingOps": "Operazioni in attesa",
+      "pendingOpsDesc": "Operazioni in coda mentre offline, in attesa di essere inviate.",
+      "failedOps": "Operazioni fallite",
+      "failedOpsDesc": "Operazioni non completate dopo diversi tentativi.",
+      "retryFailed": "Riprova",
+      "clearFailed": "Cancella",
+      "sections": {
+        "mailAccounts": "Account email",
+        "sendAsAliases": "Alias di invio",
+        "sync": "Sincronizzazione",
+        "syncPeriod": "Periodo di sincronizzazione",
+        "syncOffline": "Coda offline"
+      }
     },
     "calendar": {
       "sections": {
@@ -1496,7 +1540,7 @@
       "analyzing": "Analisi...",
       "done": "Fatto!",
       "editSoul": "Modifica Anima",
-      "soulFileLocation": "Percorso file: ~/Library/Application Support/velo/soul.md",
+      "soulFileLocation": "Percorso file: ~/Library/Application Support/melo/soul.md",
       "soulDesc": "Definisci la personalità e il comportamento dell'AI. Modifica SOUL.md per personalizzare come comunica l'assistente.",
       "autoArchive": "Archivia automaticamente {cat}",
       "autoArchiveDesc": "Salta la posta in arrivo per le email {cat}",
@@ -1836,7 +1880,9 @@
     "unsubscribe": "Cancella iscrizione",
     "unsubscribing": "Cancellazione iscrizione...",
     "unsubscribed": "Iscrizione cancellata",
-    "unsubscribeFailed": "Cancellazione iscrizione fallita — clicca per riprovare"
+    "unsubscribeFailed": "Cancellazione iscrizione fallita — clicca per riprovare",
+    "bcc": "Ccn:",
+    "cc": "Cc:"
   },
   "emailList": {
     "noEmails": "Nessuna email trovata",
@@ -1844,7 +1890,17 @@
     "loadingFolders": "Caricamento cartelle…",
     "noAccountSelected": "Nessun account attivo selezionato.",
     "addGmailAccount": "Aggiungi un account Gmail per iniziare",
-    "emptyOutgoing": "Le email in attesa di essere inviate appaiono qui"
+    "emptyOutgoing": "Le email in attesa di essere inviate appaiono qui",
+    "outgoingQueue": {
+      "cancel": "Annulla",
+      "failed": "Fallito",
+      "failedPermanently": "Invio fallito definitivamente",
+      "nextRetry": "Nuovo tentativo a breve",
+      "pending": "In coda",
+      "retryCount": "Tentativo {count}",
+      "retryNow": "Riprova ora",
+      "to": "A"
+    }
   },
   "ai": {
     "askInbox": {

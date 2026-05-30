@@ -63,7 +63,7 @@ export function EditGmailAccount({
       })),
       useAccountStore.getState().activeAccountId ?? undefined,
     );
-    window.dispatchEvent(new CustomEvent("velo-sync-done"));
+    window.dispatchEvent(new CustomEvent("melo-sync-done"));
   };
 
   const handleSave = async () => {

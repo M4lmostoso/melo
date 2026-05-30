@@ -112,8 +112,8 @@ export function InlineReply({ thread, messages, accountId, noReply, onSent }: In
         activateMode(detail.mode);
       }
     };
-    window.addEventListener("velo-inline-reply", handler);
-    return () => window.removeEventListener("velo-inline-reply", handler);
+    window.addEventListener("melo-inline-reply", handler);
+    return () => window.removeEventListener("melo-inline-reply", handler);
   }, [activateMode]);
 
   // Scroll into view when activated

@@ -288,7 +288,7 @@ const handlePrint = useCallback(async () => {
     const safeSubject = escapeHtml(thread.subject ?? "");
 
     const printDiv = document.createElement("div");
-    printDiv.id = "velo-print-content";
+    printDiv.id = "melo-print-content";
     printDiv.innerHTML = `
       <div style="margin-top: 0 !important; padding-top: 0 !important;">
         <h1 style="font-size:20px; margin-top: 0 !important; margin-bottom: 16px; border-bottom: 2px solid #333; padding-bottom: 8px;">${safeSubject || "(No subject)"}</h1>
@@ -298,18 +298,18 @@ const handlePrint = useCallback(async () => {
     document.body.appendChild(printDiv);
 
     const style = document.createElement("style");
-    style.id = "velo-print-styles";
+    style.id = "melo-print-styles";
     style.textContent = `
       @page {
         margin: 10mm 15mm 15mm 15mm !important; /* Applica i margini a TUTTE le pagine (Top Right Bottom Left) */
       }
 
       @media print {
-        body > *:not(#velo-print-content) {
+        body > *:not(#melo-print-content) {
           display: none !important;
         }
 
-        #velo-print-content {
+        #melo-print-content {
           display: block !important;
           width: 100% !important;
           margin: 0 !important;
@@ -330,14 +330,14 @@ const handlePrint = useCallback(async () => {
           padding: 0 !important;
         }
 
-        #velo-print-content img {
+        #melo-print-content img {
           max-width: 100% !important;
           height: auto !important;
         }
       }
 
       @media screen {
-        #velo-print-content { display: none !important; }
+        #melo-print-content { display: none !important; }
       }
     `;
     document.head.appendChild(style);
@@ -354,8 +354,8 @@ const handlePrint = useCallback(async () => {
     }, 250);
 
     const cleanup = () => {
-      const printContent = document.getElementById("velo-print-content");
-      const printStyles = document.getElementById("velo-print-styles");
+      const printContent = document.getElementById("melo-print-content");
+      const printStyles = document.getElementById("melo-print-styles");
       if (printContent) printContent.remove();
       if (printStyles) printStyles.remove();
       document.title = oldTitle;
@@ -481,8 +481,8 @@ const handlePrint = useCallback(async () => {
         .then(setMessages)
         .catch(console.error);
     };
-    window.addEventListener("velo-message-sent", handler);
-    return () => window.removeEventListener("velo-message-sent", handler);
+    window.addEventListener("melo-message-sent", handler);
+    return () => window.removeEventListener("melo-message-sent", handler);
   }, [thread.id, threadAccountId]);
 
   // Reload message list when a single message is deleted within this thread
@@ -497,8 +497,8 @@ const handlePrint = useCallback(async () => {
         })
         .catch(console.error);
     };
-    window.addEventListener("velo-message-deleted", handler);
-    return () => window.removeEventListener("velo-message-deleted", handler);
+    window.addEventListener("melo-message-deleted", handler);
+    return () => window.removeEventListener("melo-message-deleted", handler);
   }, [thread.id, threadAccountId, setSelectedMessageId]);
 
   // Listen for "View Source" event from context menu
@@ -510,8 +510,8 @@ const handlePrint = useCallback(async () => {
       };
       setRawMessageTarget(detail);
     };
-    window.addEventListener("velo-view-raw-message", handler);
-    return () => window.removeEventListener("velo-view-raw-message", handler);
+    window.addEventListener("melo-view-raw-message", handler);
+    return () => window.removeEventListener("melo-view-raw-message", handler);
   }, []);
 
   // Listen for extract-task event from keyboard shortcut
@@ -522,8 +522,8 @@ const handlePrint = useCallback(async () => {
         setShowTaskExtract(true);
       }
     };
-    window.addEventListener("velo-extract-task", handler);
-    return () => window.removeEventListener("velo-extract-task", handler);
+    window.addEventListener("melo-extract-task", handler);
+    return () => window.removeEventListener("melo-extract-task", handler);
   }, [thread.id]);
 
   const handleMessageContextMenu = useCallback((e: React.MouseEvent, msg: DbMessage) => {

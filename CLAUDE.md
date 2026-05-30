@@ -113,12 +113,12 @@ The locale is bundled at build time via a static Vite import — no async loadin
 
 ## Key Gotchas
 
-- **Tauri SQL plugin config**: `preload` in tauri.conf.json must be an array `["sqlite:velo.db"]` — NOT an object
+- **Tauri SQL plugin config**: `preload` in tauri.conf.json must be an array `["sqlite:melo.db"]` — NOT an object
 - **Tauri capabilities**: Any new plugin needs explicit permissions in `src-tauri/capabilities/default.json`. Windows allow `"main"`, `"splashscreen"`, `"thread-*"` wildcard
 - **Tauri window config**: macOS uses `titleBarStyle: "Overlay"`, Windows/Linux removes decorations in Rust. 1200x800 default, 800x600 min
 - **Single instance**: `tauri-plugin-single-instance` must be first plugin registered
 - **Minimize-to-tray**: Use `.on_window_event()` on the Builder, not `window.on_window_event()`
-- **Windows AUMID**: Set explicitly in Rust (`com.velomail.app`) for notification identity
+- **Windows AUMID**: Set explicitly in Rust (`com.melomail.app`) for notification identity
 - **OAuth (Gmail)**: Localhost server tries ports 17248-17251. PKCE, no client secret. Client ID in SQLite settings
 - **IMAP message IDs**: Format is `imap-{accountId}-{folder}-{uid}` — not the RFC Message-ID header
 - **IMAP security mapping**: UI shows "SSL/TLS"/"STARTTLS"/"None" but stores "ssl"/"starttls"/"none"
@@ -137,4 +137,4 @@ The locale is bundled at build time via a static Vite import — no async loadin
 - **Mute threads**: Sets `is_muted` and drops `urgency_score` to 0.05. Does NOT archive. Suppressed from notifications during delta sync
 - **Smart folders**: Dynamic tokens `__LAST_7_DAYS__`, `__LAST_30_DAYS__`, `__TODAY__` in saved searches
 - **Help page**: In-app at `/help/$topic`. Content in `src/constants/helpContent.ts`. After adding a new feature, run `/document-feature`
-- **Cross-component events**: `velo-sync-done`, `velo-toggle-command-palette`, `velo-toggle-shortcuts-help`, `velo-toggle-ask-inbox`, `velo-move-to-folder`. Tray emits `tray-check-mail` via Tauri event system
+- **Cross-component events**: `melo-sync-done`, `melo-toggle-command-palette`, `melo-toggle-shortcuts-help`, `melo-toggle-ask-inbox`, `melo-move-to-folder`. Tray emits `tray-check-mail` via Tauri event system

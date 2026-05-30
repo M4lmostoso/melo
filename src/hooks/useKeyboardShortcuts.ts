@@ -139,7 +139,7 @@ export function useKeyboardShortcuts() {
           const paletteBinding = keyMap["app.commandPalette"];
           if (paletteBinding === "Ctrl+K" || paletteBinding === "/" || !paletteBinding) {
             e.preventDefault();
-            window.dispatchEvent(new Event("velo-toggle-command-palette"));
+            window.dispatchEvent(new Event("melo-toggle-command-palette"));
             return;
           }
         }
@@ -426,7 +426,7 @@ case "action.reply": {
     case "action.deleteMessage": {
       // In scheduled view, d cancels the selected scheduled email
       if (getActiveLabel() === "scheduled") {
-        window.dispatchEvent(new Event("velo-scheduled-cancel-selected"));
+        window.dispatchEvent(new Event("melo-scheduled-cancel-selected"));
         break;
       }
       if (!selectedId || !activeAccountId) break;
@@ -571,7 +571,7 @@ case "action.reply": {
     }
     case "action.createTaskFromEmail": {
       if (selectedId) {
-        window.dispatchEvent(new CustomEvent("velo-extract-task", { detail: { threadId: selectedId } }));
+        window.dispatchEvent(new CustomEvent("melo-extract-task", { detail: { threadId: selectedId } }));
       }
       break;
     }
@@ -579,30 +579,30 @@ case "action.reply": {
       const multiMoveIds = useThreadStore.getState().selectedThreadIds;
       const moveThreadIds = multiMoveIds.size > 0 ? [...multiMoveIds] : selectedId ? [selectedId] : [];
       if (moveThreadIds.length > 0) {
-        window.dispatchEvent(new CustomEvent("velo-move-to-folder", { detail: { threadIds: moveThreadIds } }));
+        window.dispatchEvent(new CustomEvent("melo-move-to-folder", { detail: { threadIds: moveThreadIds } }));
       }
       break;
     }
     case "action.scheduled.edit":
-      window.dispatchEvent(new Event("velo-scheduled-edit-selected"));
+      window.dispatchEvent(new Event("melo-scheduled-edit-selected"));
       break;
     case "action.scheduled.reschedule":
-      window.dispatchEvent(new Event("velo-scheduled-reschedule-selected"));
+      window.dispatchEvent(new Event("melo-scheduled-reschedule-selected"));
       break;
     case "action.scheduled.cancel":
-      window.dispatchEvent(new Event("velo-scheduled-cancel-selected"));
+      window.dispatchEvent(new Event("melo-scheduled-cancel-selected"));
       break;
     case "app.commandPalette":
-      window.dispatchEvent(new Event("velo-toggle-command-palette"));
+      window.dispatchEvent(new Event("melo-toggle-command-palette"));
       break;
     case "app.toggleSidebar":
       useUIStore.getState().toggleSidebar();
       break;
     case "app.askInbox":
-      window.dispatchEvent(new Event("velo-toggle-ask-inbox"));
+      window.dispatchEvent(new Event("melo-toggle-ask-inbox"));
       break;
     case "app.help":
-      window.dispatchEvent(new Event("velo-toggle-shortcuts-help"));
+      window.dispatchEvent(new Event("melo-toggle-shortcuts-help"));
       break;
     case "app.syncFolder": {
       if (activeAccountId) {

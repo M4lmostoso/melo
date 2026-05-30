@@ -219,15 +219,15 @@ export default function App() {
       const detail = (e as CustomEvent<{ threadIds: string[] }>).detail;
       setMoveToFolderState({ open: true, threadIds: detail.threadIds });
     };
-    window.addEventListener("velo-toggle-command-palette", togglePalette);
-    window.addEventListener("velo-toggle-shortcuts-help", toggleHelp);
-    window.addEventListener("velo-toggle-ask-inbox", toggleAskInbox);
-    window.addEventListener("velo-move-to-folder", handleMoveToFolder);
+    window.addEventListener("melo-toggle-command-palette", togglePalette);
+    window.addEventListener("melo-toggle-shortcuts-help", toggleHelp);
+    window.addEventListener("melo-toggle-ask-inbox", toggleAskInbox);
+    window.addEventListener("melo-move-to-folder", handleMoveToFolder);
     return () => {
-      window.removeEventListener("velo-toggle-command-palette", togglePalette);
-      window.removeEventListener("velo-toggle-shortcuts-help", toggleHelp);
-      window.removeEventListener("velo-toggle-ask-inbox", toggleAskInbox);
-      window.removeEventListener("velo-move-to-folder", handleMoveToFolder);
+      window.removeEventListener("melo-toggle-command-palette", togglePalette);
+      window.removeEventListener("melo-toggle-shortcuts-help", toggleHelp);
+      window.removeEventListener("melo-toggle-ask-inbox", toggleAskInbox);
+      window.removeEventListener("melo-move-to-folder", handleMoveToFolder);
     };
   }, []);
 
@@ -236,8 +236,8 @@ export default function App() {
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     import("@tauri-apps/api/event").then(({ listen }) => {
-      listen("velo-scheduled-saved", () => {
-        window.dispatchEvent(new Event("velo-sync-done"));
+      listen("melo-scheduled-saved", () => {
+        window.dispatchEvent(new Event("melo-sync-done"));
       }).then((fn) => {
         unlisten = fn;
       });
@@ -250,8 +250,8 @@ export default function App() {
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     import("@tauri-apps/api/event").then(({ listen }) => {
-      listen("velo-draft-changed", () => {
-        window.dispatchEvent(new Event("velo-sync-done"));
+      listen("melo-draft-changed", () => {
+        window.dispatchEvent(new Event("melo-sync-done"));
       }).then((fn) => {
         unlisten = fn;
       });
@@ -265,7 +265,7 @@ export default function App() {
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     import("@tauri-apps/api/event").then(({ listen }) => {
-      listen("velo-delete-draft", async (event) => {
+      listen("melo-delete-draft", async (event) => {
         const p = event.payload as {
           accountId: string;
           draftId: string | null;
@@ -278,9 +278,9 @@ export default function App() {
             await deleteDraftThread(p.accountId, p.threadId);
           }
         } catch (err) {
-          console.error("[App] velo-delete-draft failed:", err);
+          console.error("[App] melo-delete-draft failed:", err);
         } finally {
-          window.dispatchEvent(new Event("velo-sync-done"));
+          window.dispatchEvent(new Event("melo-sync-done"));
         }
       }).then((fn) => {
         unlisten = fn;
@@ -294,7 +294,7 @@ export default function App() {
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     import("@tauri-apps/api/event").then(({ listen }) => {
-      listen("velo-execute-send", async (event) => {
+      listen("melo-execute-send", async (event) => {
         const p = event.payload as {
           outgoingId: string;
           accountId: string;
@@ -334,14 +334,14 @@ export default function App() {
           if (!sendResult.queued && p.threadId) {
             // Successful send — notify ThreadView to reload messages immediately.
             void playSound("send");
-            window.dispatchEvent(new CustomEvent("velo-message-sent", { detail: { threadId: p.threadId } }));
+            window.dispatchEvent(new CustomEvent("melo-message-sent", { detail: { threadId: p.threadId } }));
           }
 
           if (sendResult.queued) {
             // Retryable failure — message is now in the Outgoing queue view (pending_operations).
-            // Dispatch velo-sync-done so the Outgoing badge and queue view refresh immediately.
+            // Dispatch melo-sync-done so the Outgoing badge and queue view refresh immediately.
             void playSound("send_error");
-            window.dispatchEvent(new Event("velo-sync-done"));
+            window.dispatchEvent(new Event("melo-sync-done"));
             import("@tauri-apps/plugin-notification").then(({ sendNotification }) => {
               sendNotification({
                 title: "Send queued",
@@ -397,7 +397,7 @@ export default function App() {
             await upsertContact(addr, null);
           }
         } catch (err) {
-          console.error("[App] velo-execute-send failed:", err);
+          console.error("[App] melo-execute-send failed:", err);
         } finally {
           useOutgoingStore.getState().removeEmail(p.outgoingId);
         }
@@ -786,9 +786,9 @@ export default function App() {
         if (storedCount === undefined || storedCount > 0) {
           setSyncStatus("Sync complete");
           setTimeout(() => setSyncStatus(null), 2_000);
-          window.dispatchEvent(new Event("velo-sync-done"));
+          window.dispatchEvent(new Event("melo-sync-done"));
         } else if (flagChangedCount && flagChangedCount > 0) {
-          window.dispatchEvent(new Event("velo-sync-done"));
+          window.dispatchEvent(new Event("melo-sync-done"));
           setSyncStatus(null);
         } else {
           setSyncStatus(null);
@@ -822,7 +822,7 @@ export default function App() {
             : `Sync failed (${acctLabel})`,
         );
         // Still dispatch sync-done so the UI refreshes with any partially stored data
-        window.dispatchEvent(new Event("velo-sync-done"));
+        window.dispatchEvent(new Event("melo-sync-done"));
         // Auto-clear the error after 8 seconds
         setTimeout(() => setSyncStatus(null), 8_000);
       }

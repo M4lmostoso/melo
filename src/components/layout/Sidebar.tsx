@@ -564,9 +564,9 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
         useUIStore.getState().setSyncingFolder(null);
       }, 500);
     };
-    window.addEventListener("velo-sync-done", handler);
+    window.addEventListener("melo-sync-done", handler);
     return () => {
-      window.removeEventListener("velo-sync-done", handler);
+      window.removeEventListener("melo-sync-done", handler);
       if (timer) clearTimeout(timer);
     };
   }, [activeAccountId, loadLabels, loadAllAccountLabels, refreshSmartFolderCounts, refreshSmartFolderGlobalCounts, refreshGlobalUnreadCounts, refreshScheduledCounts, refreshDraftCounts, refreshTaskBadges]);
@@ -586,8 +586,8 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
         refreshSmartFolderGlobalCounts(allIds);
       }
     };
-    window.addEventListener("velo-badges-refresh", handler);
-    return () => window.removeEventListener("velo-badges-refresh", handler);
+    window.addEventListener("melo-badges-refresh", handler);
+    return () => window.removeEventListener("melo-badges-refresh", handler);
   }, [activeAccountId, refreshLabelUnreadCounts, refreshSmartFolderCounts, refreshGlobalUnreadCounts, refreshDraftCounts, refreshSmartFolderGlobalCounts]);
 
   // Refresh scheduled badge immediately when a scheduled email is cancelled/edited,
@@ -598,12 +598,12 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
       const ids = useAccountStore.getState().accounts.map((a) => a.id);
       if (ids.length > 0) refreshScheduledCounts(ids).catch(() => {});
     };
-    window.addEventListener("velo-scheduled-removed", refresh);
+    window.addEventListener("melo-scheduled-removed", refresh);
     const interval = setInterval(refresh, 60_000);
     // Immediate sync on mount to fix any stale count from previous sessions
     if (allIds.length > 0) refreshScheduledCounts(allIds).catch(() => {});
     return () => {
-      window.removeEventListener("velo-scheduled-removed", refresh);
+      window.removeEventListener("melo-scheduled-removed", refresh);
       clearInterval(interval);
     };
   }, [refreshScheduledCounts]);
@@ -666,8 +666,8 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
     getOutgoingDbCountByAccount(ids).then(setOutgoingDbByAccount).catch(() => {});
     const handler = () =>
       getOutgoingDbCountByAccount(ids).then(setOutgoingDbByAccount).catch(() => {});
-    window.addEventListener("velo-sync-done", handler);
-    return () => window.removeEventListener("velo-sync-done", handler);
+    window.addEventListener("melo-sync-done", handler);
+    return () => window.removeEventListener("melo-sync-done", handler);
   }, [globalAccounts, outgoingEmails]);
 
   const handleEditLabel = useCallback((labelId: string) => {
@@ -1255,7 +1255,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                 <button
                   key={folder.id}
                   onClick={() => navigateToLabel(`smart-folder:${folder.id}`)}
-                  title={collapsed ? folder.name : undefined}
+                  title={collapsed ? smartFolderName(folder.id, folder.name) : undefined}
                   className={`flex items-center w-full py-2 text-sm transition-colors press-scale ${collapsed ? "justify-center px-0" : "gap-3 px-3 text-left"
                     } ${isActive
                       ? "bg-accent/10 text-accent font-medium"
@@ -1269,7 +1269,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                   />
                   {!collapsed && (
                     <>
-                      <span className="flex-1 truncate">{folder.name}</span>
+                      <span className="flex-1 truncate">{smartFolderName(folder.id, folder.name)}</span>
                       {count > 0 && (
                         <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 min-w-[1.25rem] h-[1.125rem] rounded-full inline-flex items-center justify-center tabular-nums">
                           {count}

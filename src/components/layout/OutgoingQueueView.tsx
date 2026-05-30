@@ -103,8 +103,8 @@ export function OutgoingQueueView({ accountId }: OutgoingQueueViewProps) {
   useEffect(() => {
     load();
     const handler = () => { load().catch(console.error); };
-    window.addEventListener("velo-sync-done", handler);
-    return () => window.removeEventListener("velo-sync-done", handler);
+    window.addEventListener("melo-sync-done", handler);
+    return () => window.removeEventListener("melo-sync-done", handler);
   }, [load]);
 
   const handleCancel = async (id: string) => {

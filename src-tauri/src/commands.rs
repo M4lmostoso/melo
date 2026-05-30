@@ -283,7 +283,7 @@ pub async fn imap_cache_attachment(
         .path()
         .app_data_dir()
         .map_err(|e| e.to_string())?
-        .join("velo.db");
+        .join("melo.db");
     let conn = rusqlite::Connection::open(&db_path).map_err(|e| e.to_string())?;
     conn.busy_timeout(std::time::Duration::from_secs(10))
         .map_err(|e| e.to_string())?;
@@ -408,7 +408,7 @@ pub async fn imap_batch_resolve_cid_images(
         .path()
         .app_data_dir()
         .map_err(|e| e.to_string())?
-        .join("velo.db");
+        .join("melo.db");
     let app_data = app.path().app_data_dir().map_err(|e| e.to_string())?;
     let cache_dir = app_data.join("attachment_cache");
     std::fs::create_dir_all(&cache_dir).map_err(|e| format!("create cache dir: {e}"))?;
@@ -561,7 +561,7 @@ pub async fn gmail_fetch_and_cache_attachment(
         let size = bytes.len() as i64;
         std::fs::write(app_data.join(&rel_path), &bytes).map_err(|e| e.to_string())?;
 
-        let db_path = app_data.join("velo.db");
+        let db_path = app_data.join("melo.db");
         let conn = rusqlite::Connection::open(&db_path).map_err(|e| e.to_string())?;
         conn.busy_timeout(std::time::Duration::from_secs(10)).map_err(|e| e.to_string())?;
         conn.execute(
@@ -602,7 +602,7 @@ pub async fn cache_attachment_b64(
         std::fs::write(app_data.join(&rel_path), &bytes).map_err(|e| e.to_string())?;
         // `bytes` drops here — jemalloc marks pages free before DB write below
 
-        let db_path = app_data.join("velo.db");
+        let db_path = app_data.join("melo.db");
         let conn = rusqlite::Connection::open(&db_path).map_err(|e| e.to_string())?;
         conn.busy_timeout(std::time::Duration::from_secs(10)).map_err(|e| e.to_string())?;
         conn.execute(
@@ -819,7 +819,7 @@ pub async fn imap_flush_bodies(
         .path()
         .app_data_dir()
         .map_err(|e| e.to_string())?
-        .join("velo.db");
+        .join("melo.db");
 
     // WAL mode: one writer at a time, but readers are never blocked.
     let conn = rusqlite::Connection::open(&db_path).map_err(|e| e.to_string())?;
@@ -910,7 +910,7 @@ pub async fn imap_fetch_and_store(
         .path()
         .app_data_dir()
         .map_err(|e| e.to_string())?
-        .join("velo.db");
+        .join("melo.db");
     let conn = rusqlite::Connection::open(&db_path).map_err(|e| e.to_string())?;
     conn.busy_timeout(std::time::Duration::from_secs(10))
         .map_err(|e| e.to_string())?;
@@ -997,7 +997,7 @@ pub async fn imap_fetch_and_store(
         let local_id = format!("imap-{account_id}-{}-{}", msg.folder, msg.uid);
         let synthetic_rfc_id = || {
             format!(
-                "synthetic-{account_id}-{}-{}@velo.local",
+                "synthetic-{account_id}-{}-{}@melo.local",
                 msg.folder, msg.uid
             )
         };
@@ -1181,7 +1181,7 @@ pub async fn imap_store_threads(
         .path()
         .app_data_dir()
         .map_err(|e| e.to_string())?
-        .join("velo.db");
+        .join("melo.db");
     let conn = rusqlite::Connection::open(&db_path).map_err(|e| e.to_string())?;
     conn.busy_timeout(std::time::Duration::from_secs(10))
         .map_err(|e| e.to_string())?;
@@ -1323,7 +1323,7 @@ pub async fn gmail_store_thread(
         .path()
         .app_data_dir()
         .map_err(|e| e.to_string())?
-        .join("velo.db");
+        .join("melo.db");
     let conn = rusqlite::Connection::open(&db_path).map_err(|e| e.to_string())?;
     conn.busy_timeout(std::time::Duration::from_secs(10))
         .map_err(|e| e.to_string())?;

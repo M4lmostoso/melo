@@ -1,5 +1,5 @@
 {
-  "name": "velo",
+  "name": "melo",
   "version": "0.4.21",
   "private": true,
   "license": "Apache-2.0",
@@ -11,8 +11,11 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "tauri": "tauri",
+    "tauri:dev": "bash scripts/cargo-prune-check.sh && tauri dev",
+    "tauri:build": "bash scripts/cargo-prune-check.sh && tauri build",
+    "cargo:prune": "cargo cache --autoclean",
     "dev:landing": "npm run dev --prefix landing",
-    "flatpak": "flatpak-builder --force-clean --user --install --install-deps-from=flathub build-dir com.velomail.app.yml"
+    "flatpak": "flatpak-builder --force-clean --user --install --install-deps-from=flathub build-dir com.melomail.app.yml"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.74.0",

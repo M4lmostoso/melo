@@ -181,7 +181,7 @@ export function ScheduledEmailDetailView() {
     updateScheduledEmailStatus(email.id, "cancelled")
       .then(() => refreshScheduledCounts(accounts.map((a) => a.id)))
       .catch(console.error);
-    window.dispatchEvent(new CustomEvent("velo-scheduled-removed", { detail: { id: email.id } }));
+    window.dispatchEvent(new CustomEvent("melo-scheduled-removed", { detail: { id: email.id } }));
     setSelectedScheduledEmail(null);
   };
 
@@ -189,7 +189,7 @@ export function ScheduledEmailDetailView() {
     setCancelling(true);
     try {
       await updateScheduledEmailStatus(email.id, "cancelled");
-      window.dispatchEvent(new CustomEvent("velo-scheduled-removed", { detail: { id: email.id } }));
+      window.dispatchEvent(new CustomEvent("melo-scheduled-removed", { detail: { id: email.id } }));
       setSelectedScheduledEmail(null);
       refreshScheduledCounts(accounts.map((a) => a.id)).catch(console.error);
     } finally {
@@ -201,7 +201,7 @@ export function ScheduledEmailDetailView() {
     await updateScheduledTime(email.id, newTimestamp);
     setSelectedScheduledEmail({ ...email, scheduled_at: newTimestamp });
     setShowRescheduler(false);
-    window.dispatchEvent(new Event("velo-sync-done"));
+    window.dispatchEvent(new Event("melo-sync-done"));
   };
 
   return (

@@ -398,7 +398,7 @@ export function expandVEvents(
   rangeEnd: number,
 ): CalendarEventData[] {
   const events = parseVEvents(icalData, href);
-  const debug = (globalThis as { __VELO_CALDAV_DEBUG__?: boolean }).__VELO_CALDAV_DEBUG__;
+  const debug = (globalThis as { __MELO_CALDAV_DEBUG__?: boolean }).__MELO_CALDAV_DEBUG__;
 
   if (events.length === 0) return [];
 
@@ -535,7 +535,7 @@ export function generateRsvpReply(params: RsvpReplyParams): string {
   const lines = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
-    "PRODID:-//Velo Mail//Calendar//EN",
+    "PRODID:-//Melo Mail//Calendar//EN",
     "METHOD:REPLY",
     "BEGIN:VEVENT",
     `UID:${uid}`,

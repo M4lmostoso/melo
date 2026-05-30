@@ -407,7 +407,7 @@ export async function executeEmailAction(
   }
 
   // Immediately refresh sidebar badges from the updated DB — no need to wait for
-  // the network call. velo-badges-refresh is handled without debounce in the Sidebar.
+  // the network call. melo-badges-refresh is handled without debounce in the Sidebar.
   const affectsBadges =
     action.type === "markRead" ||
     action.type === "archive" ||
@@ -417,7 +417,7 @@ export async function executeEmailAction(
     action.type === "deleteDraft";
   if (affectsBadges) {
     updateBadgeCount().catch(console.error);
-    window.dispatchEvent(new Event("velo-badges-refresh"));
+    window.dispatchEvent(new Event("melo-badges-refresh"));
   }
 
   // 3. If offline, queue
@@ -434,7 +434,7 @@ export async function executeEmailAction(
   // 4. Try online execution
   try {
     const data = await executeViaProvider(accountId, action);
-    window.dispatchEvent(new Event("velo-sync-done"));
+    window.dispatchEvent(new Event("melo-sync-done"));
     return { success: true, data };
   } catch (err) {
     const classified = classifyError(err);
@@ -632,7 +632,7 @@ export async function sendEmail(
   });
 
   if (result.success) {
-    window.dispatchEvent(new Event("velo-sync-done"));
+    window.dispatchEvent(new Event("melo-sync-done"));
     // Auto-extinguish urgency when a reply resolves the thread
     if (threadId) {
       const replyText = extractReplyTextFromRaw(rawBase64Url) ?? undefined;
@@ -978,12 +978,12 @@ export async function deleteSingleMessage(
         fromAddress: updated.from_address,
       });
     }
-    window.dispatchEvent(new CustomEvent("velo-message-deleted", { detail: { messageId, threadId } }));
+    window.dispatchEvent(new CustomEvent("melo-message-deleted", { detail: { messageId, threadId } }));
   }
 
   // Refresh sidebar badges — mirrors the same logic in executeEmailAction.
   updateBadgeCount().catch(console.error);
-  window.dispatchEvent(new Event("velo-badges-refresh"));
+  window.dispatchEvent(new Event("melo-badges-refresh"));
 
   // 4. If offline, queue
   if (!useUIStore.getState().isOnline) {

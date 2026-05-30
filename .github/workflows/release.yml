@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       tag_name:
-        description: "Release tag (e.g. velo-v0.4.3)"
+        description: "Release tag (e.g. melo-v0.4.3)"
         type: string
         required: false
       release_id:

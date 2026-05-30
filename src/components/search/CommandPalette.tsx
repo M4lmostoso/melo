@@ -81,14 +81,14 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
       onClose();
       const threadId = getSelectedThreadId();
       if (threadId) {
-        window.dispatchEvent(new CustomEvent("velo-extract-task", { detail: { threadId } }));
+        window.dispatchEvent(new CustomEvent("melo-extract-task", { detail: { threadId } }));
       }
     } },
     { id: "task-view", label: t("search.commandPalette.viewTasks"), shortcut: "g k", category: t("search.commandPalette.catTasks"), action: () => { navigateToLabel("tasks"); onClose(); } },
     { id: "task-toggle-panel", label: t("search.commandPalette.toggleTaskPanel"), category: t("search.commandPalette.catTasks"), action: () => { useUIStore.getState().toggleTaskSidebar(); onClose(); } },
 
     // AI
-    { id: "ask-ai", label: t("search.commandPalette.askAi"), category: t("search.commandPalette.catAi"), action: () => { onClose(); window.dispatchEvent(new Event("velo-toggle-ask-inbox")); } },
+    { id: "ask-ai", label: t("search.commandPalette.askAi"), category: t("search.commandPalette.catAi"), action: () => { onClose(); window.dispatchEvent(new Event("melo-toggle-ask-inbox")); } },
 
     // Settings
     { id: "toggle-sidebar", label: t("search.commandPalette.toggleSidebar"), shortcut: "Ctrl+Shift+E", category: t("search.commandPalette.catSettings"), action: () => { toggleSidebar(); onClose(); } },

@@ -276,7 +276,7 @@ export function ActionBar({ thread, messages, noReply, defaultReplyMode = "reply
           icon={<FolderInput size={15} />}
           onClick={() => {
             if (!activeAccountId) return;
-            window.dispatchEvent(new CustomEvent("velo-move-to-folder", { detail: { threadIds: [thread.id] } }));
+            window.dispatchEvent(new CustomEvent("melo-move-to-folder", { detail: { threadIds: [thread.id] } }));
           }}
           title={t("actionBar.moveToFolder")}
         />

@@ -134,8 +134,8 @@ export function AttachmentLibrary() {
     const handler = () => {
       if (accountId) loadData(accountId);
     };
-    window.addEventListener("velo-sync-done", handler);
-    return () => window.removeEventListener("velo-sync-done", handler);
+    window.addEventListener("melo-sync-done", handler);
+    return () => window.removeEventListener("melo-sync-done", handler);
   }, [accountId, loadData]);
 
   const filtered = useMemo(() => {

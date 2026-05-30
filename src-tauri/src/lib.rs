@@ -373,7 +373,7 @@ pub fn run() {
         use windows::core::w;
         use windows::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
         unsafe {
-            let _ = SetCurrentProcessExplicitAppUserModelID(w!("com.velomail.app"));
+            let _ = SetCurrentProcessExplicitAppUserModelID(w!("com.melomail.app"));
         }
     }
 
@@ -588,7 +588,7 @@ pub fn run() {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 if window.label() == "main" {
                     // Emit an event to the frontend to trigger draft auto-save
-                    let _ = window.emit("velo-save-draft-on-close", ());
+                    let _ = window.emit("melo-save-draft-on-close", ());
                     let _ = window.hide();
                     api.prevent_close();
                 }

@@ -527,7 +527,7 @@ export async function getUnreadInboxCount(accountId?: string): Promise<number> {
   const count = rows[0]?.count ?? 0;
 
   // Debug: log the raw unread threads so we can diagnose "zombie" emails missing from badge
-  if (import.meta.env.DEV || (globalThis as Record<string, unknown>)["__veloDebugBadge"]) {
+  if (import.meta.env.DEV || (globalThis as Record<string, unknown>)["__meloDebugBadge"]) {
     const debugRows = await db.select<{ id: string; subject: string | null; is_read: number; labels: string }[]>(
       `SELECT t.id, t.subject, t.is_read, GROUP_CONCAT(tl2.label_id) as labels
        FROM threads t

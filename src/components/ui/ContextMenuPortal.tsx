@@ -581,7 +581,7 @@ function ThreadMenu({
       icon: FolderInput,
       shortcut: "v",
       action: () => {
-        window.dispatchEvent(new CustomEvent("velo-move-to-folder", { detail: { threadIds: [...targetIds] } }));
+        window.dispatchEvent(new CustomEvent("melo-move-to-folder", { detail: { threadIds: [...targetIds] } }));
       },
     },
     {
@@ -595,7 +595,7 @@ function ThreadMenu({
           for (const id of targetIds) {
             await setThreadCategory(resolvedAccountId, id, cat, true);
           }
-          window.dispatchEvent(new Event("velo-sync-done"));
+          window.dispatchEvent(new Event("melo-sync-done"));
         },
       })),
     },
@@ -811,7 +811,7 @@ function MessageMenu({
             icon: Code,
             action: () => {
               window.dispatchEvent(
-                new CustomEvent("velo-view-raw-message", {
+                new CustomEvent("melo-view-raw-message", {
                   detail: { messageId, accountId },
                 }),
               );
@@ -858,14 +858,14 @@ function ScheduledEmailMenu({
     updateScheduledEmailStatus(email.id, "cancelled")
       .then(() => refreshScheduledCounts(accounts.map((a) => a.id)))
       .catch(console.error);
-    window.dispatchEvent(new CustomEvent("velo-scheduled-removed", { detail: { id: email.id } }));
+    window.dispatchEvent(new CustomEvent("melo-scheduled-removed", { detail: { id: email.id } }));
     if (selectedScheduledEmail?.id === email.id) setSelectedScheduledEmail(null);
     onClose();
   }, [email, openComposer, accounts, refreshScheduledCounts, selectedScheduledEmail, setSelectedScheduledEmail, onClose]);
 
   const handleCancel = useCallback(async () => {
     await updateScheduledEmailStatus(email.id, "cancelled");
-    window.dispatchEvent(new CustomEvent("velo-scheduled-removed", { detail: { id: email.id } }));
+    window.dispatchEvent(new CustomEvent("melo-scheduled-removed", { detail: { id: email.id } }));
     if (selectedScheduledEmail?.id === email.id) setSelectedScheduledEmail(null);
     refreshScheduledCounts(accounts.map((a) => a.id)).catch(console.error);
     onClose();
@@ -873,7 +873,7 @@ function ScheduledEmailMenu({
 
   const handleReschedule = useCallback(async (newTimestamp: number) => {
     await updateScheduledTime(email.id, newTimestamp);
-    window.dispatchEvent(new Event("velo-sync-done"));
+    window.dispatchEvent(new Event("melo-sync-done"));
     setShowReschedule(false);
     onClose();
   }, [email, onClose]);

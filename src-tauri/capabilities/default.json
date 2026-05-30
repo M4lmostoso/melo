@@ -15,7 +15,7 @@
     {
       "identifier": "sql:default",
       "allow": [
-        "sqlite:velo.db"
+        "sqlite:melo.db"
       ]
     },
     "sql:allow-load",

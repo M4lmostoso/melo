@@ -82,9 +82,9 @@ const COMPOSER_FONT_MAP: Record<ComposerFontFamily, string> = {
  * and a Tauri event so the main window (a separate WebviewWindow) refreshes too.
  */
 function notifyDraftChanged(): void {
-  window.dispatchEvent(new Event("velo-badges-refresh"));
+  window.dispatchEvent(new Event("melo-badges-refresh"));
   import("@tauri-apps/api/event")
-    .then(({ emit }) => emit("velo-draft-changed"))
+    .then(({ emit }) => emit("melo-draft-changed"))
     .catch(() => {
       // Non-Tauri context (tests / browser dev) — DOM event above is enough.
     });
@@ -102,7 +102,7 @@ async function deleteDraftOnServer(payload: {
 }): Promise<void> {
   try {
     const { emit } = await import("@tauri-apps/api/event");
-    await emit("velo-delete-draft", payload);
+    await emit("melo-delete-draft", payload);
   } catch {
     const { deleteDraft, deleteDraftThread } = await import("@/services/emailActions");
     if (payload.draftId) {
@@ -357,7 +357,7 @@ export function Composer() {
     // Import tauri-apps/api/event dynamically to avoid build errors if not in Tauri context
     import("@tauri-apps/api/event")
       .then(({ listen }) => {
-        const unlisten = listen("velo-save-draft-on-close", handleSaveOnClose);
+        const unlisten = listen("melo-save-draft-on-close", handleSaveOnClose);
         return () => {
           unlisten.then((f) => f());
         };
@@ -512,7 +512,7 @@ const getFullHtml = useCallback(() => {
         let handedOff = false;
         try {
           const { emit } = await import("@tauri-apps/api/event");
-          await emit("velo-execute-send", {
+          await emit("melo-execute-send", {
             outgoingId,
             accountId: effectiveAccountId,
             raw,
@@ -662,12 +662,12 @@ const getFullHtml = useCallback(() => {
     setPendingScheduledAt(null);
     closeComposer();
     // Emit a Tauri event so the main window (separate WebviewWindow) can react.
-    // The DOM velo-sync-done only fires within the same window context.
+    // The DOM melo-sync-done only fires within the same window context.
     import("@tauri-apps/api/event")
-      .then(({ emit }) => emit("velo-scheduled-saved"))
+      .then(({ emit }) => emit("melo-scheduled-saved"))
       .catch(() => {
         // Fallback for non-Tauri contexts (tests, browser dev)
-        window.dispatchEvent(new Event("velo-sync-done"));
+        window.dispatchEvent(new Event("melo-sync-done"));
       });
   }, [effectiveAccountId, activeAccount, pendingScheduledAt, closeComposer, getFullHtml]);
 
@@ -783,8 +783,8 @@ const getFullHtml = useCallback(() => {
   // to run the same save/delete prompt instead of silently saving.
   useEffect(() => {
     const handler = () => requestClose();
-    window.addEventListener("velo-composer-close-requested", handler);
-    return () => window.removeEventListener("velo-composer-close-requested", handler);
+    window.addEventListener("melo-composer-close-requested", handler);
+    return () => window.removeEventListener("melo-composer-close-requested", handler);
   }, [requestClose]);
 
   const isFullpage = viewMode === "fullpage";

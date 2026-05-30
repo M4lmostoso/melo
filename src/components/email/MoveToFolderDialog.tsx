@@ -120,7 +120,7 @@ export function MoveToFolderDialog({
       }
 
       // Refresh thread list
-      window.dispatchEvent(new Event("velo-sync-done"));
+      window.dispatchEvent(new Event("melo-sync-done"));
     },
     [activeAccountId, threadIds, isImap, onClose],
   );
