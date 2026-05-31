@@ -214,9 +214,16 @@ export const useLabelStore = create<LabelState>((set, get) => ({
 
   createLabel: async (accountId, name, color?) => {
     if (isGmailAccount(accountId)) {
-      // Gmail: create on server, mirror to both tables
+      // Gmail: create on server, mirror to both tables.
+      // For nested labels (name contains "/") the Gmail API requires every ancestor
+      // label to already exist. Ensure each parent prefix exists before creating
+      // the leaf, ignoring 409s when a parent is already present.
       const client = await getGmailClient(accountId);
-      const gmailLabel = await client.createLabel(name, color);
+      const parts = name.split("/");
+      for (let i = 1; i < parts.length; i++) {
+        await client.createOrGetLabel(parts.slice(0, i).join("/"));
+      }
+      const gmailLabel = await client.createOrGetLabel(name, color);
       await upsertLabel({
         id: gmailLabel.id,
         accountId,

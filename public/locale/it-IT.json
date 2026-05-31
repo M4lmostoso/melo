@@ -1483,7 +1483,7 @@
         "quickSteps": "Azioni rapide",
         "imapFolders": "Cartelle IMAP"
       },
-      "labelsDesc": "Crea, rinomina, ricolora, elimina o riordina le tue etichette Gmail.",
+      "labelsDesc": "Crea, rinomina, ricolora, elimina o riordina le tue etichette.",
       "filtersDesc": "I filtri applicano automaticamente azioni alle nuove email in arrivo durante la sincronizzazione.",
       "smartLabelsDesc": "Descrivi in italiano quali email devono ricevere un'etichetta. L'AI etichetta automaticamente le email corrispondenti durante la sincronizzazione.",
       "smartFoldersDesc": "Le cartelle smart sono ricerche salvate che mostrano automaticamente le email corrispondenti.",

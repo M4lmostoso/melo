@@ -274,6 +274,7 @@ function DroppableLabelItem({
               onLeafClick={onClick}
               onParentClick={onPrefixClick}
               isLeafActive={isActive}
+              truncateLeaf
             />
           </span>
           {unreadCount !== undefined && unreadCount > 0 && (
@@ -740,7 +741,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   }, []);
 
   const editingLabel = editingLabelId
-    ? (labels.find((l: Label) => l.id === editingLabelId) ?? null)
+    ? ([...labels, ...Object.values(allAccountLabels).flat()].find((l: Label) => l.id === editingLabelId) ?? null)
     : null;
 
   return (

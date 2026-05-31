@@ -1483,7 +1483,7 @@
         "quickSteps": "Quick Steps",
         "imapFolders": "IMAP Folders"
       },
-      "labelsDesc": "Create, rename, recolor, delete, or reorder your Gmail labels.",
+      "labelsDesc": "Create, rename, recolor, delete, or reorder your labels.",
       "filtersDesc": "Filters automatically apply actions to new incoming emails during sync.",
       "smartLabelsDesc": "Describe what emails should get a label using plain English. AI automatically labels matching emails during sync.",
       "smartFoldersDesc": "Smart folders are saved searches that automatically show matching emails.",

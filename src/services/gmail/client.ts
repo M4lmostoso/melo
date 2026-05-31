@@ -227,6 +227,26 @@ export class GmailClient {
   }
 
   /**
+   * Create a label, or return the existing one if the name already exists (409).
+   * Used both for parent-hierarchy creation and for the leaf label itself.
+   */
+  async createOrGetLabel(
+    name: string,
+    color?: { textColor: string; backgroundColor: string },
+  ): Promise<GmailLabel> {
+    try {
+      return await this.createLabel(name, color);
+    } catch (err) {
+      if (err instanceof Error && err.message.startsWith("Gmail API error: 409")) {
+        const { labels } = await this.listLabels();
+        const existing = labels.find((l) => l.name === name);
+        if (existing) return existing;
+      }
+      throw err;
+    }
+  }
+
+  /**
    * Update an existing label's name and/or color.
    */
   async updateLabel(labelId: string, updates: { name?: string; color?: { textColor: string; backgroundColor: string } | null }): Promise<GmailLabel> {
