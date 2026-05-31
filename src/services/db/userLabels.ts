@@ -34,7 +34,7 @@ export async function upsertUserLabel(label: {
        VALUES ($1, $2, $3, $4, $5, COALESCE($6, 0))
        ON CONFLICT(id) DO UPDATE SET
          name = $2,
-         color = COALESCE($3, color),
+         color = $3,
          system_label_id = COALESCE($5, system_label_id)`,
       [
         label.id,

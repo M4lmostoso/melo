@@ -57,6 +57,7 @@ function smartFolderName(id: string, fallback: string): string {
   return key ? t(key) : fallback;
 }
 import { useTaskStore } from "@/stores/taskStore";
+import { LabelBreadcrumb } from "../labels/LabelBreadcrumb";
 import { useOutgoingStore } from "@/stores/outgoingStore";
 import { getOutgoingDbCountByAccount } from "@/services/db/outgoing";
 
@@ -208,7 +209,9 @@ function DroppableLabelItem({
   onClick,
   onContextMenu,
   onEditClick,
+  onPrefixClick,
   unreadCount,
+  accountColor,
 }: {
   label: Label;
   isActive: boolean;
@@ -216,52 +219,65 @@ function DroppableLabelItem({
   onClick: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
   onEditClick: () => void;
+  onPrefixClick: (prefix: string) => void;
   unreadCount?: number;
+  accountColor?: string | null;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: label.id });
   const initial = (label.name[0] ?? "?").toUpperCase();
 
   return (
-    <button
+    <div
       ref={setNodeRef}
-      onClick={onClick}
       onContextMenu={onContextMenu}
-      title={collapsed ? label.name : undefined}
-      className={`group flex items-center w-full py-2 text-sm transition-colors ${collapsed ? "justify-center px-0" : "gap-3 px-3 text-left"
-        } ${isOver
+      className={`group flex items-center w-full py-1.5 text-sm transition-colors ${
+        collapsed ? "justify-center px-0" : "gap-2 px-3"
+      } ${
+        isOver
           ? "bg-accent/20 ring-1 ring-accent"
           : isActive
             ? "bg-accent/10 text-accent font-medium"
             : "hover:bg-sidebar-hover text-sidebar-text"
-        }`}
+      }`}
     >
       {collapsed ? (
-        <span
-          className="w-7 h-7 rounded-md flex items-center justify-center text-xs font-semibold shrink-0"
-          style={
-            label.colorBg
-              ? {
-                backgroundColor: label.colorBg,
-                color: label.colorFg ?? "#ffffff",
-              }
-              : undefined
-          }
+        <button
+          onClick={onClick}
+          title={label.name}
+          className="flex items-center justify-center"
         >
-          {label.colorBg ? initial : <Tag size={14} />}
-        </span>
+          <span
+            className="w-7 h-7 rounded-md flex items-center justify-center text-xs font-semibold shrink-0"
+            style={
+              label.colorBg
+                ? { backgroundColor: label.colorBg, color: label.colorFg ?? "#ffffff" }
+                : undefined
+            }
+          >
+            {label.colorBg ? initial : <Tag size={14} />}
+          </span>
+        </button>
       ) : (
         <>
           {label.colorBg ? (
             <span
-              className="w-3 h-3 rounded-full shrink-0"
+              className="w-2 h-2 rounded-full shrink-0"
               style={{ backgroundColor: label.colorBg }}
             />
           ) : (
-            <Tag size={14} className="shrink-0" />
+            <Tag size={12} className="shrink-0 text-sidebar-text/50" />
           )}
-          <span className="flex-1 truncate">{label.name}</span>
+          <span className="flex-1 min-w-0">
+            <LabelBreadcrumb
+              label={label}
+              accountColor={accountColor ?? label.colorBg}
+              onLeafClick={onClick}
+              onParentClick={onPrefixClick}
+              isLeafActive={isActive}
+            />
+          </span>
           {unreadCount !== undefined && unreadCount > 0 && (
-            <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 min-w-[1.25rem] h-[1.125rem] rounded-full inline-flex items-center justify-center tabular-nums">
+            <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 min-w-[1.25rem] h-[1.125rem] rounded-full inline-flex items-center justify-center tabular-nums shrink-0">
               {unreadCount}
             </span>
           )}
@@ -286,7 +302,7 @@ function DroppableLabelItem({
           </span>
         </>
       )}
-    </button>
+    </div>
   );
 }
 
@@ -302,6 +318,16 @@ const SMART_FOLDER_ICON_MAP: Record<string, LucideIcon> = {
   CalendarDays,
   CalendarSearch,
 };
+
+/** True when activeLabel matches the label exactly or is a prefix filter covering this label. */
+function isLabelRowActive(label: Label, activeLabel: string): boolean {
+  if (activeLabel === label.id) return true;
+  if (activeLabel.startsWith("prefix:")) {
+    const prefix = activeLabel.slice("prefix:".length);
+    return label.name === prefix || label.name.startsWith(prefix + "/");
+  }
+  return false;
+}
 
 function kebabToPascal(s: string): string {
   return s.replace(/(^|-)([a-z])/g, (_, _sep, ch) => ch.toUpperCase());
@@ -468,6 +494,15 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
     },
     [setActiveAccount],
   );
+
+  const handleLabelPrefixClick = useCallback((prefix: string) => {
+    navigateToLabel(`prefix:${prefix}`);
+  }, []);
+
+  const handleAccountLabelPrefixClick = useCallback((accountId: string, prefix: string) => {
+    setActiveAccount(accountId);
+    navigateToLabel(`prefix:${prefix}`);
+  }, [setActiveAccount]);
 
   // Inline label editing state
   const [editingLabelId, setEditingLabelId] = useState<string | null>(null);
@@ -1344,12 +1379,14 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                               <div key={label.id}>
                                 <DroppableLabelItem
                                   label={label}
-                                  isActive={activeLabel === label.id && activeAccountId === account.id}
+                                  isActive={isLabelRowActive(label, activeLabel) && activeAccountId === account.id}
                                   collapsed={false}
                                   onClick={() => handleAccountLabelClick(account.id, label.id)}
                                   onContextMenu={(e) => handleLabelContextMenu(e, label.id)}
                                   onEditClick={() => handleEditLabel(label.id)}
+                                  onPrefixClick={(prefix) => handleAccountLabelPrefixClick(account.id, prefix)}
                                   unreadCount={labelUnread}
+                                  accountColor={account.color}
                                 />
                                 {editingLabelId === label.id && !collapsed && (
                                   <LabelForm
@@ -1371,16 +1408,20 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
             ) : (
               /* ── Single account: flat list ── */
               <>
-                {labels.slice(0, LABELS_COLLAPSED_COUNT).map((label: Label) => (
+                {labels.slice(0, LABELS_COLLAPSED_COUNT).map((label: Label) => {
+                  const singleAccColor = accounts.find((a) => a.id === activeAccountId)?.color ?? null;
+                  return (
                   <div key={label.id}>
                     <DroppableLabelItem
                       label={label}
-                      isActive={activeLabel === label.id}
+                      isActive={isLabelRowActive(label, activeLabel)}
                       collapsed={collapsed}
                       onClick={() => navigateToLabel(label.id)}
                       onContextMenu={(e) => handleLabelContextMenu(e, label.id)}
                       onEditClick={() => handleEditLabel(label.id)}
+                      onPrefixClick={handleLabelPrefixClick}
                       unreadCount={unreadCounts[label.id]}
+                      accountColor={singleAccColor}
                     />
                     {editingLabelId === label.id && activeAccountId && !collapsed && (
                       <LabelForm
@@ -1391,22 +1432,27 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                       />
                     )}
                   </div>
-                ))}
+                  );
+                })}
                 {labels.length > LABELS_COLLAPSED_COUNT && (
                   <div
                     className={`grid transition-[grid-template-rows] duration-300 ease-out ${labelsExpanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}
                   >
                     <div className="overflow-hidden">
-                      {labels.slice(LABELS_COLLAPSED_COUNT).map((label: Label) => (
+                      {labels.slice(LABELS_COLLAPSED_COUNT).map((label: Label) => {
+                        const singleAccColor = accounts.find((a) => a.id === activeAccountId)?.color ?? null;
+                        return (
                         <div key={label.id}>
                           <DroppableLabelItem
                             label={label}
-                            isActive={activeLabel === label.id}
+                            isActive={isLabelRowActive(label, activeLabel)}
                             collapsed={collapsed}
                             onClick={() => navigateToLabel(label.id)}
                             onContextMenu={(e) => handleLabelContextMenu(e, label.id)}
                             onEditClick={() => handleEditLabel(label.id)}
+                            onPrefixClick={handleLabelPrefixClick}
                             unreadCount={unreadCounts[label.id]}
+                            accountColor={singleAccColor}
                           />
                           {editingLabelId === label.id && activeAccountId && !collapsed && (
                             <LabelForm
@@ -1417,7 +1463,8 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                             />
                           )}
                         </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 )}

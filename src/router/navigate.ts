@@ -39,6 +39,16 @@ export function navigateToLabel(
     return;
   }
 
+  // Label prefix filter — sentinel "prefix:<path>" navigates to /label/$labelId
+  // where labelId encodes the prefix. EmailList detects and uses prefix-based queries.
+  if (label.startsWith("prefix:")) {
+    router.navigate({
+      to: "/label/$labelId",
+      params: { labelId: label },
+    });
+    return;
+  }
+
   if (label.startsWith("smart-folder:")) {
     const folderId = label.replace("smart-folder:", "");
     if (opts?.threadId) {
@@ -107,15 +117,21 @@ export function navigateToThread(threadId: string): void {
     return;
   }
 
-  // On a custom label route
-  const labelMatch = pathname.match(/^\/label\/([^/]+)/);
-  if (labelMatch) {
-    router.navigate({
-      to: "/label/$labelId/thread/$threadId",
-      params: { labelId: labelMatch[1]!, threadId },
-      search: location.search as Record<string, string>,
-    });
-    return;
+  // On a custom label route — read decoded labelId from router state, not raw URL,
+  // to avoid double-encoding when labelId contains special characters (e.g. "prefix:A/B").
+  if (pathname.startsWith("/label/")) {
+    const currentMatch = router.state.matches.find(
+      (m) => m.routeId === "/label/$labelId" || m.routeId === "/label/$labelId/thread/$threadId",
+    );
+    const labelId = (currentMatch?.params as { labelId?: string } | undefined)?.labelId;
+    if (labelId) {
+      router.navigate({
+        to: "/label/$labelId/thread/$threadId",
+        params: { labelId, threadId },
+        search: location.search as Record<string, string>,
+      });
+      return;
+    }
   }
 
   // On a smart folder route

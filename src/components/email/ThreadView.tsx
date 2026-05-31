@@ -8,6 +8,8 @@ import {
 import { useAccountStore } from "@/stores/accountStore";
 import { useUIStore } from "@/stores/uiStore";
 import { useThreadStore, type Thread } from "@/stores/threadStore";
+import { useLabelStore, isSystemLabel } from "@/stores/labelStore";
+import { LabelBreadcrumb } from "@/components/labels/LabelBreadcrumb";
 import { useComposerStore } from "@/stores/composerStore";
 import { useContextMenuStore } from "@/stores/contextMenuStore";
 import { markThreadRead, deleteSingleMessage } from "@/services/emailActions";
@@ -75,6 +77,10 @@ export function ThreadView({ thread }: ThreadViewProps) {
   const threadAccountId = activeAccountId ?? thread.accountId;
   const activeLabel = useActiveLabel();
   const includeTrashed = activeLabel === "trash";
+
+  // Resolve user labels for this thread (exclude system labels like INBOX, SENT, …)
+  const allAccountLabels = useLabelStore((s) => s.allAccountLabels);
+  const singleAccountLabels = useLabelStore((s) => s.labels);
   const contactSidebarVisible = useUIStore((s) => s.contactSidebarVisible);
   const toggleContactSidebar = useUIStore((s) => s.toggleContactSidebar);
   const taskSidebarVisible = useUIStore((s) => s.taskSidebarVisible);
@@ -143,6 +149,15 @@ export function ThreadView({ thread }: ThreadViewProps) {
 
   const accounts = useAccountStore((s) => s.accounts);
   const activeAccount = accounts.find((a) => a.id === threadAccountId);
+  const threadAccount = accounts.find((a) => a.id === thread.accountId);
+  const accountLabels =
+    allAccountLabels[thread.accountId] ??
+    (singleAccountLabels.length > 0 && singleAccountLabels[0]?.accountId === thread.accountId
+      ? singleAccountLabels
+      : []);
+  const threadUserLabels = accountLabels.filter(
+    (l) => thread.labelIds.includes(l.id) && !isSystemLabel(l.id),
+  );
 
 // Get selected message - either explicitly selected or last message as fallback
   const selectedMessage = messages.find(m => m.id === selectedMessageId) || lastMessage;
@@ -632,10 +647,24 @@ const handlePrint = useCallback(async () => {
               </span>
             )}
           </h1>
-          <div className="text-xs text-text-tertiary mt-1">
-            {messages.length !== 1
-              ? t("threadView.messageCountPlural", { count: messages.length })
-              : t("threadView.messageCount", { count: messages.length })}
+          <div className="flex items-center justify-between mt-1 gap-4">
+            <span className="text-xs text-text-tertiary shrink-0">
+              {messages.length !== 1
+                ? t("threadView.messageCountPlural", { count: messages.length })
+                : t("threadView.messageCount", { count: messages.length })}
+            </span>
+            {threadUserLabels.length > 0 && (
+              <div className="flex items-center gap-1 flex-wrap justify-end">
+                {threadUserLabels.map((label) => (
+                  <LabelBreadcrumb
+                    key={label.id}
+                    label={label}
+                    accountColor={threadAccount?.color ?? label.colorBg}
+                    onLeafClick={() => {}}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         </div>
 

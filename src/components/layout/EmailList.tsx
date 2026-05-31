@@ -11,7 +11,7 @@ import { useAccountStore } from "@/stores/accountStore";
 import { useUIStore } from "@/stores/uiStore";
 import { useActiveLabel, useSelectedThreadId, useActiveCategory } from "@/hooks/useRouteNavigation";
 import { navigateToThread, navigateToLabel } from "@/router/navigate";
-import { getThreadsForAccount, getThreadsForCategory, getThreadLabelIds, deleteThread as deleteThreadFromDb, getUnifiedInboxThreads, getUnifiedFolderThreads, getThreadById, getThreadsByIdsBatch, getThreadLabelsByIdsBatch } from "@/services/db/threads";
+import { getThreadsForAccount, getThreadsForCategory, getThreadLabelIds, deleteThread as deleteThreadFromDb, getUnifiedInboxThreads, getUnifiedFolderThreads, getThreadById, getThreadsByIdsBatch, getThreadLabelsByIdsBatch, getThreadsByLabelPrefix, getUnifiedThreadsByLabelPrefix } from "@/services/db/threads";
 import { getCategoriesForThreads, getCategoriesForThreadsGlobal, getCategoryUnreadCounts } from "@/services/db/threadCategories";
 import { getActiveFollowUpThreadIds } from "@/services/db/followUpReminders";
 import { getBundleRules, getHeldThreadIds, getBundleSummaries, type DbBundleRule } from "@/services/db/bundleRules";
@@ -98,6 +98,10 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
   const isSmartFolder = activeLabel.startsWith("smart-folder:");
   const smartFolderId = isSmartFolder ? activeLabel.replace("smart-folder:", "") : null;
   const activeSmartFolder = smartFolderId ? smartFolders.find((f) => f.id === smartFolderId) ?? null : null;
+
+  // Detect label-prefix filter mode ("prefix:Personale/Casa")
+  const isLabelPrefix = activeLabel.startsWith("prefix:");
+  const labelPrefix = isLabelPrefix ? activeLabel.slice("prefix:".length) : null;
 
   const inboxViewMode = useUIStore((s) => s.inboxViewMode);
   const routerCategory = useActiveCategory();
@@ -465,6 +469,32 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
       return;
     }
 
+    // Label prefix filter ("prefix:Personale/Casa")
+    if (isLabelPrefix && labelPrefix) {
+      try {
+        let dbThreads;
+        if (!activeAccountId) {
+          if (globalAccountIds.length === 0) {
+            if (!isStale()) { setThreads([]); setLoading(false); }
+            return;
+          }
+          dbThreads = await getUnifiedThreadsByLabelPrefix(globalAccountIds, labelPrefix, PAGE_SIZE, 0);
+        } else {
+          dbThreads = await getThreadsByLabelPrefix(activeAccountId, labelPrefix, PAGE_SIZE, 0);
+        }
+        const mapped = await mapDbThreads(dbThreads);
+        if (!isStale()) {
+          setThreads(mapped);
+          setHasMore(dbThreads.length === PAGE_SIZE);
+        }
+      } catch (err) {
+        console.error("Failed to load label prefix threads:", err);
+      } finally {
+        if (!isStale()) setLoading(false);
+      }
+      return;
+    }
+
     if (!activeAccountId) {
       // Global / unified view: load from all included accounts
       if (globalAccountIds.length === 0) {
@@ -558,7 +588,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     } finally {
       if (!isStale()) setLoading(false);
     }
-  }, [activeAccountId, globalAccountIds, activeLabel, activeCategory, isSmartFolder, activeSmartFolder, setThreads, setLoading, mapDbThreads, clearSearch]);
+  }, [activeAccountId, globalAccountIds, activeLabel, activeCategory, isSmartFolder, activeSmartFolder, isLabelPrefix, labelPrefix, setThreads, setLoading, mapDbThreads, clearSearch]);
 
   const loadMore = useCallback(async () => {
     if ((!activeAccountId && globalAccountIds.length === 0) || loadingMore || !hasMore) return;
@@ -567,7 +597,13 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     try {
       const offset = threads.length;
       let dbThreads: Awaited<ReturnType<typeof getThreadsForAccount>>;
-      if (!activeAccountId) {
+      if (isLabelPrefix && labelPrefix) {
+        if (!activeAccountId) {
+          dbThreads = await getUnifiedThreadsByLabelPrefix(globalAccountIds, labelPrefix, PAGE_SIZE, offset);
+        } else {
+          dbThreads = await getThreadsByLabelPrefix(activeAccountId, labelPrefix, PAGE_SIZE, offset);
+        }
+      } else if (!activeAccountId) {
         // Global view pagination
         if (activeLabel === "unified-inbox" || activeLabel === "inbox") {
           dbThreads = await getUnifiedInboxThreads(globalAccountIds, PAGE_SIZE, offset);
@@ -597,7 +633,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     } finally {
       setLoadingMore(false);
     }
-  }, [activeAccountId, globalAccountIds, activeLabel, activeCategory, threads, loadingMore, hasMore, setThreads, mapDbThreads]);
+  }, [activeAccountId, globalAccountIds, activeLabel, activeCategory, isLabelPrefix, labelPrefix, threads, loadingMore, hasMore, setThreads, mapDbThreads]);
 
   useEffect(() => {
     loadThreads();
@@ -796,7 +832,9 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
                 ? `${t("sidebar.nav.inbox")} — ${activeCategory}`
                 : LABEL_MAP[activeLabel] !== undefined
                   ? t(`sidebar.nav.${activeLabel === "all" ? "allMail" : activeLabel}`)
-                  : userLabels.find((l) => l.id === activeLabel)?.name ?? activeLabel}
+                  : isLabelPrefix && labelPrefix
+                    ? labelPrefix
+                    : userLabels.find((l) => l.id === activeLabel)?.name ?? activeLabel}
           </h2>
           {activeLabel === "scheduled"
             ? (() => {
