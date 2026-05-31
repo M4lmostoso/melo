@@ -20,6 +20,8 @@ export interface ImapFolder {
   special_use: string | null;
   exists: number;
   unseen: number;
+  parent_path: string | null;  // decoded UTF-8 path of the parent, null for root-level
+  has_children: boolean;       // true if at least one direct child exists
 }
 
 /**
@@ -150,6 +152,25 @@ export async function imapTestConnection(config: ImapConfig): Promise<string> {
  */
 export async function imapListFolders(config: ImapConfig): Promise<ImapFolder[]> {
   return invoke<ImapFolder[]>('imap_list_folders', { config });
+}
+
+/** Create a new IMAP mailbox. */
+export async function imapCreateFolder(config: ImapConfig, folderPath: string): Promise<void> {
+  return invoke<void>('imap_create_folder', { config, folderPath });
+}
+
+/** Rename an existing IMAP mailbox. */
+export async function imapRenameFolder(
+  config: ImapConfig,
+  oldPath: string,
+  newPath: string,
+): Promise<void> {
+  return invoke<void>('imap_rename_folder', { config, oldPath, newPath });
+}
+
+/** Delete an IMAP mailbox. */
+export async function imapDeleteFolder(config: ImapConfig, folderPath: string): Promise<void> {
+  return invoke<void>('imap_delete_folder', { config, folderPath });
 }
 
 /**

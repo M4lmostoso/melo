@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
-import { Trash2, Pencil } from "lucide-react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { Trash2, Pencil, ChevronDown, Check } from "lucide-react";
 import { t } from "@/i18n";
 import { TextField } from "@/components/ui/TextField";
 import { useAccountStore } from "@/stores/accountStore";
-import { getLabelsForAccount, type DbLabel } from "@/services/db/labels";
+import { useClickOutside } from "@/hooks/useClickOutside";
+import { getUserLabelsForAccount, type UserLabel } from "@/services/db/userLabels";
 import {
   getFiltersForAccount,
   insertFilter,
@@ -16,10 +17,39 @@ import {
 
 export function FilterEditor() {
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
+  const accounts = useAccountStore((s) => s.accounts);
+  const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
+  const [openAccountDropdown, setOpenAccountDropdown] = useState(false);
+  const accountDropdownRef = useRef<HTMLDivElement | null>(null);
   const [filters, setFilters] = useState<DbFilterRule[]>([]);
-  const [labels, setLabels] = useState<DbLabel[]>([]);
+  const [labels, setLabels] = useState<UserLabel[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
+
+  useClickOutside(accountDropdownRef, () => setOpenAccountDropdown(false));
+
+  useEffect(() => {
+    if (!selectedAccountId) {
+      if (activeAccountId) {
+        setSelectedAccountId(activeAccountId);
+      } else if (accounts.length > 0) {
+        const first = accounts[0];
+        if (first) setSelectedAccountId(first.id);
+      }
+    }
+  }, [accounts, activeAccountId, selectedAccountId]);
+
+  const selectedAccount = useMemo(
+    () => accounts.find((a) => a.id === selectedAccountId),
+    [accounts, selectedAccountId],
+  );
+  const accountInitial =
+    (selectedAccount?.displayName ?? selectedAccount?.email ?? "?")[0]?.toUpperCase() ?? "?";
+
+  const handleAccountSelect = useCallback((accountId: string) => {
+    setSelectedAccountId(accountId);
+    setOpenAccountDropdown(false);
+  }, []);
 
   // Form state
   const [name, setName] = useState("");
@@ -35,19 +65,17 @@ export function FilterEditor() {
   const [actionTrash, setActionTrash] = useState(false);
 
   const loadFilters = useCallback(async () => {
-    if (!activeAccountId) return;
-    const f = await getFiltersForAccount(activeAccountId);
+    if (!selectedAccountId) return;
+    const f = await getFiltersForAccount(selectedAccountId);
     setFilters(f);
-  }, [activeAccountId]);
+  }, [selectedAccountId]);
 
   useEffect(() => {
-    if (!activeAccountId) return;
+    if (!selectedAccountId) return;
     loadFilters();
-    getLabelsForAccount(activeAccountId).then((l) =>
-      setLabels(l.filter((lb) => lb.type === "user")),
-    );
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadFilters is stable, only re-run on activeAccountId change
-  }, [activeAccountId]);
+    getUserLabelsForAccount(selectedAccountId).then(setLabels);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadFilters is stable, only re-run on selectedAccountId change
+  }, [selectedAccountId]);
 
   const resetForm = useCallback(() => {
     setName("");
@@ -86,7 +114,7 @@ export function FilterEditor() {
   };
 
   const handleSave = useCallback(async () => {
-    if (!activeAccountId || !name.trim()) return;
+    if (!selectedAccountId || !name.trim()) return;
     const criteria = buildCriteria();
     const actions = buildActions();
 
@@ -94,7 +122,7 @@ export function FilterEditor() {
       await updateFilter(editingId, { name: name.trim(), criteria, actions });
     } else {
       await insertFilter({
-        accountId: activeAccountId,
+        accountId: selectedAccountId,
         name: name.trim(),
         criteria,
         actions,
@@ -103,7 +131,7 @@ export function FilterEditor() {
 
     resetForm();
     await loadFilters();
-  }, [activeAccountId, name, editingId, resetForm, loadFilters, criteriaFrom, criteriaTo, criteriaSubject, criteriaBody, criteriaHasAttachment, actionLabel, actionArchive, actionStar, actionMarkRead, actionTrash]);
+  }, [selectedAccountId, name, editingId, resetForm, loadFilters, criteriaFrom, criteriaTo, criteriaSubject, criteriaBody, criteriaHasAttachment, actionLabel, actionArchive, actionStar, actionMarkRead, actionTrash]);
 
   const handleEdit = useCallback((filter: DbFilterRule) => {
     setEditingId(filter.id);
@@ -159,6 +187,56 @@ export function FilterEditor() {
 
   return (
     <div className="space-y-3">
+      {accounts.length > 1 && (
+        <div className="flex items-center gap-2 py-2 px-3 bg-bg-secondary rounded-md">
+          <div className="w-5 h-5 rounded-full bg-accent/15 text-accent text-[0.6rem] font-bold flex items-center justify-center shrink-0 select-none">
+            {accountInitial}
+          </div>
+          <div ref={accountDropdownRef} className="relative flex-1 min-w-0">
+            <button
+              onClick={() => setOpenAccountDropdown((v) => !v)}
+              className="flex items-center gap-2 w-full text-left px-1 py-0.5 text-xs text-text-secondary hover:text-text-primary hover:bg-bg-hover rounded transition-colors"
+            >
+              <span className="truncate">
+                {selectedAccount?.displayName
+                  ? `${selectedAccount.displayName} (${selectedAccount.email})`
+                  : selectedAccount?.email ?? t("settings.signatureEditor.selectAccount")}
+              </span>
+              <ChevronDown
+                size={12}
+                className={`shrink-0 text-text-secondary transition-transform duration-200 ${openAccountDropdown ? "rotate-180" : ""}`}
+              />
+            </button>
+            {openAccountDropdown && (
+              <div className="absolute left-0 top-full mt-1 py-1 w-full rounded-lg border border-border-primary bg-bg-primary shadow-lg z-50 glass-panel">
+                {accounts.map((account) => {
+                  const isActive = account.id === selectedAccountId;
+                  return (
+                    <button
+                      key={account.id}
+                      onClick={() => handleAccountSelect(account.id)}
+                      className={`flex items-center gap-2 w-full px-3 py-1.5 text-left transition-colors ${
+                        isActive ? "bg-accent/8 text-accent" : "text-text-primary hover:bg-bg-hover"
+                      }`}
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="text-xs font-medium truncate leading-tight">
+                          {account.displayName || account.email.split("@")[0]}
+                        </div>
+                        <div className="text-[0.625rem] text-text-secondary truncate leading-tight">
+                          {account.email}
+                        </div>
+                      </div>
+                      {isActive && <Check size={12} className="shrink-0 text-accent" />}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {filters.map((filter) => (
         <div
           key={filter.id}

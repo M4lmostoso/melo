@@ -945,6 +945,8 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
       special_use: null,
       exists: 0,
       unseen: 0,
+      parent_path: null,
+      has_children: false,
     }));
   }
   const syncableFolders = getSyncableFolders(allFolders);

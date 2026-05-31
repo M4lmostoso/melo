@@ -959,7 +959,8 @@
       "moveUp": "Sposta su",
       "moveDown": "Sposta giù",
       "editLabel": "Modifica etichetta",
-      "deleteLabel": "Elimina etichetta"
+      "deleteLabel": "Elimina etichetta",
+      "allAccounts": "Tutti gli account"
     },
     "signatureEditor": {
       "title": "Firme",
@@ -1479,13 +1480,15 @@
         "filters": "Filtri",
         "smartLabels": "Etichette smart",
         "smartFolders": "Cartelle smart",
-        "quickSteps": "Azioni rapide"
+        "quickSteps": "Azioni rapide",
+        "imapFolders": "Cartelle IMAP"
       },
       "labelsDesc": "Crea, rinomina, ricolora, elimina o riordina le tue etichette Gmail.",
       "filtersDesc": "I filtri applicano automaticamente azioni alle nuove email in arrivo durante la sincronizzazione.",
       "smartLabelsDesc": "Descrivi in italiano quali email devono ricevere un'etichetta. L'AI etichetta automaticamente le email corrispondenti durante la sincronizzazione.",
       "smartFoldersDesc": "Le cartelle smart sono ricerche salvate che mostrano automaticamente le email corrispondenti.",
-      "quickStepsDesc": "Le azioni rapide ti permettono di concatenare più azioni in un singolo clic. Applicale dal menu contestuale su qualsiasi thread."
+      "quickStepsDesc": "Le azioni rapide ti permettono di concatenare più azioni in un singolo clic. Applicale dal menu contestuale su qualsiasi thread.",
+      "imapFoldersDesc": "Gestisci le cartelle della casella IMAP — crea, rinomina o elimina cartelle personalizzate."
     },
     "people": {
       "sections": {
@@ -1607,6 +1610,18 @@
         "shortcutClick": "Scorciatoia da Tastiera",
         "shortcutClickDesc": "Un micro-click quasi impercettibile quando usi le scorciatoie da tastiera (disabilitato di default)"
       }
+    },
+    "imapFolderEditor": {
+      "noImapAccounts": "Nessun account IMAP configurato.",
+      "newFolder": "Nuova cartella",
+      "createPlaceholder": "Nome della nuova cartella…",
+      "renamePlaceholder": "Nuovo nome…",
+      "deleteTitle": "Elimina cartella",
+      "deleteMessage": "Eliminare la cartella \"{{name}}\"? Questa operazione non può essere annullata.",
+      "errorLoad": "Impossibile caricare le cartelle: {{error}}",
+      "errorCreate": "Impossibile creare la cartella: {{error}}",
+      "errorRename": "Impossibile rinominare la cartella: {{error}}",
+      "errorDelete": "Impossibile eliminare la cartella: {{error}}"
     }
   },
   "labels": {
@@ -1792,6 +1807,7 @@
     "showItem": "Mostra",
     "pendingChange": "{count} modifica in sospeso",
     "pendingChanges": "{count} modifiche in sospeso",
+    "folders": "Cartelle",
     "nav": {
       "inbox": "Posta in arrivo",
       "starred": "Importanti",

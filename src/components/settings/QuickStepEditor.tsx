@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Trash2, Pencil, Plus, GripVertical, ChevronDown } from "lucide-react";
 import { t } from "@/i18n";
 import { useAccountStore } from "@/stores/accountStore";
-import { getLabelsForAccount, type DbLabel } from "@/services/db/labels";
+import { getUserLabelsForAccount, type UserLabel } from "@/services/db/userLabels";
 import {
   getQuickStepsForAccount,
   insertQuickStep,
@@ -38,7 +38,7 @@ function describeActions(actionsJson: string): string {
 export function QuickStepEditor() {
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
   const [quickSteps, setQuickSteps] = useState<DbQuickStep[]>([]);
-  const [labels, setLabels] = useState<DbLabel[]>([]);
+  const [labels, setLabels] = useState<UserLabel[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
 
@@ -61,9 +61,7 @@ export function QuickStepEditor() {
   useEffect(() => {
     if (!activeAccountId) return;
     loadQuickSteps();
-    getLabelsForAccount(activeAccountId).then((l) =>
-      setLabels(l.filter((lb) => lb.type === "user")),
-    );
+    getUserLabelsForAccount(activeAccountId).then(setLabels);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- loadQuickSteps is stable, only re-run on activeAccountId change
   }, [activeAccountId]);
 

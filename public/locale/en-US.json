@@ -959,7 +959,8 @@
       "moveUp": "Move up",
       "moveDown": "Move down",
       "editLabel": "Edit label",
-      "deleteLabel": "Delete label"
+      "deleteLabel": "Delete label",
+      "allAccounts": "All accounts"
     },
     "signatureEditor": {
       "title": "Signatures",
@@ -1479,13 +1480,15 @@
         "filters": "Filters",
         "smartLabels": "Smart Labels",
         "smartFolders": "Smart Folders",
-        "quickSteps": "Quick Steps"
+        "quickSteps": "Quick Steps",
+        "imapFolders": "IMAP Folders"
       },
       "labelsDesc": "Create, rename, recolor, delete, or reorder your Gmail labels.",
       "filtersDesc": "Filters automatically apply actions to new incoming emails during sync.",
       "smartLabelsDesc": "Describe what emails should get a label using plain English. AI automatically labels matching emails during sync.",
       "smartFoldersDesc": "Smart folders are saved searches that automatically show matching emails.",
-      "quickStepsDesc": "Quick steps let you chain multiple actions together into a single click. Apply them from the right-click menu on any thread."
+      "quickStepsDesc": "Quick steps let you chain multiple actions together into a single click. Apply them from the right-click menu on any thread.",
+      "imapFoldersDesc": "Manage your IMAP mailbox folders — create, rename, or delete custom folders."
     },
     "people": {
       "sections": {
@@ -1607,6 +1610,18 @@
         "shortcutClick": "Keyboard Shortcut",
         "shortcutClickDesc": "A barely-audible micro-click when using keyboard shortcuts (disabled by default)"
       }
+    },
+    "imapFolderEditor": {
+      "noImapAccounts": "No IMAP accounts configured.",
+      "newFolder": "New Folder",
+      "createPlaceholder": "New folder name…",
+      "renamePlaceholder": "New name…",
+      "deleteTitle": "Delete folder",
+      "deleteMessage": "Delete folder \"{{name}}\"? This action cannot be undone.",
+      "errorLoad": "Failed to load folders: {{error}}",
+      "errorCreate": "Failed to create folder: {{error}}",
+      "errorRename": "Failed to rename folder: {{error}}",
+      "errorDelete": "Failed to delete folder: {{error}}"
     }
   },
   "labels": {
@@ -1792,6 +1807,7 @@
     "showItem": "Show",
     "pendingChange": "{count} pending change",
     "pendingChanges": "{count} pending changes",
+    "folders": "Folders",
     "nav": {
       "inbox": "Inbox",
       "starred": "Starred",

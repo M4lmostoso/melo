@@ -1,7 +1,13 @@
 import { create } from "zustand";
-import { getLabelsForAccount, deleteLabel as dbDeleteLabel, updateLabelSortOrder } from "@/services/db/labels";
-import { upsertLabel } from "@/services/db/labels";
+import {
+  getUserLabelsForAccount,
+  upsertUserLabel,
+  deleteUserLabel,
+  updateUserLabelSortOrder,
+} from "@/services/db/userLabels";
+import { getLabelsForAccount, upsertLabel, deleteLabel as dbDeleteLabel, updateLabelSortOrder } from "@/services/db/labels";
 import { getGmailClient } from "@/services/gmail/tokenManager";
+import { useAccountStore } from "./accountStore";
 
 export interface Label {
   id: string;
@@ -13,37 +19,75 @@ export interface Label {
   sortOrder: number;
 }
 
-// System labels that are already shown as nav items in the sidebar
+// System labels already shown as dedicated nav items — filter from label list
 const SYSTEM_LABEL_IDS = new Set([
-  "INBOX",
-  "SENT",
-  "DRAFT",
-  "TRASH",
-  "SPAM",
-  "STARRED",
-  "UNREAD",
-  "IMPORTANT",
-  "SNOOZED",
-  "CHAT",
+  "INBOX", "SENT", "DRAFT", "TRASH", "SPAM", "STARRED",
+  "UNREAD", "IMPORTANT", "SNOOZED", "CHAT",
 ]);
-
 const CATEGORY_PREFIX = "CATEGORY_";
 
 export function isSystemLabel(id: string): boolean {
   return SYSTEM_LABEL_IDS.has(id) || id.startsWith(CATEGORY_PREFIX);
 }
 
+/** Returns white for dark backgrounds, black for light (WCAG relative luminance). */
+function contrastFg(hex: string): string {
+  const r = parseInt(hex.slice(1, 3), 16) / 255;
+  const g = parseInt(hex.slice(3, 5), 16) / 255;
+  const b = parseInt(hex.slice(5, 7), 16) / 255;
+  const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return lum > 0.179 ? "#000000" : "#ffffff";
+}
+
+function mapUserLabels(rows: Awaited<ReturnType<typeof getUserLabelsForAccount>>): Label[] {
+  return rows
+    .filter((l) => !isSystemLabel(l.id))
+    .map((l) => ({
+      id: l.id,
+      accountId: l.account_id ?? "",
+      name: l.name,
+      type: "user",
+      colorBg: l.color ?? null,
+      colorFg: l.color ? contrastFg(l.color) : null,
+      sortOrder: l.sort_order,
+    }));
+}
+
+function isGmailAccount(accountId: string): boolean {
+  return (
+    useAccountStore.getState().accounts.find((a) => a.id === accountId)?.provider === "gmail_api"
+  );
+}
+
+/**
+ * Seed user_labels from the internal labels table for a Gmail account.
+ * Runs at load time if user_labels is empty — handles migration gaps,
+ * new accounts added after v58, and any prior migration rollback.
+ */
+async function seedGmailUserLabels(accountId: string): Promise<void> {
+  const dbLabels = await getLabelsForAccount(accountId);
+  const userTypeLabels = dbLabels.filter((l) => l.type === "user");
+  await Promise.all(
+    userTypeLabels.map((l) =>
+      upsertUserLabel({
+        id: l.id,
+        name: l.name,
+        color: l.color_bg ?? null,
+        accountId,
+        systemLabelId: l.id,
+        sortOrder: l.sort_order,
+      }),
+    ),
+  );
+}
+
 interface LabelState {
   labels: Label[];
-  /** All labels keyed by accountId — loaded for every account in multi-account mode */
   allAccountLabels: Record<string, Label[]>;
   unreadCounts: Record<string, number>;
   categoryUnreadCounts: Record<string, number>;
-  /** Cross-account unread counts: accountId → labelId → count */
   globalUnreadCounts: Record<string, Record<string, number>>;
-  /** Pending scheduled email counts: accountId → count */
   scheduledCounts: Record<string, number>;
-  /** Draft counts per account (read or not) for the Drafts sidebar badge: accountId → count */
   draftCounts: Record<string, number>;
   isLoading: boolean;
   loadLabels: (accountId: string) => Promise<void>;
@@ -57,22 +101,7 @@ interface LabelState {
   updateLabel: (accountId: string, labelId: string, updates: { name?: string; color?: { textColor: string; backgroundColor: string } | null }) => Promise<void>;
   deleteLabel: (accountId: string, labelId: string) => Promise<void>;
   reorderLabels: (accountId: string, labelIds: string[]) => Promise<void>;
-  /** Internal: refresh allAccountLabels for a single account after mutations */
   _reloadAccountLabels: (accountId: string) => Promise<void>;
-}
-
-function mapDbLabels(dbLabels: Awaited<ReturnType<typeof getLabelsForAccount>>): Label[] {
-  return dbLabels
-    .filter((l) => !isSystemLabel(l.id))
-    .map((l) => ({
-      id: l.id,
-      accountId: l.account_id,
-      name: l.name,
-      type: l.type,
-      colorBg: l.color_bg,
-      colorFg: l.color_fg,
-      sortOrder: l.sort_order,
-    }));
 }
 
 export const useLabelStore = create<LabelState>((set, get) => ({
@@ -88,9 +117,14 @@ export const useLabelStore = create<LabelState>((set, get) => ({
   loadLabels: async (accountId: string) => {
     set({ isLoading: true });
     try {
-      const dbLabels = await getLabelsForAccount(accountId);
-      const labels = mapDbLabels(dbLabels);
-      set({ labels, isLoading: false });
+      let rows = await getUserLabelsForAccount(accountId);
+      // If user_labels is empty for a Gmail account, seed from labels table at runtime.
+      // Handles migration gaps, new accounts added post-v58, and prior rollbacks.
+      if (rows.length === 0 && isGmailAccount(accountId)) {
+        await seedGmailUserLabels(accountId);
+        rows = await getUserLabelsForAccount(accountId);
+      }
+      set({ labels: mapUserLabels(rows), isLoading: false });
     } catch (err) {
       console.error("Failed to load labels:", err);
       set({ isLoading: false });
@@ -99,10 +133,19 @@ export const useLabelStore = create<LabelState>((set, get) => ({
 
   loadAllAccountLabels: async (accountIds: string[]) => {
     try {
-      const results = await Promise.all(accountIds.map((id) => getLabelsForAccount(id)));
+      const rows = await Promise.all(
+        accountIds.map(async (id) => {
+          let r = await getUserLabelsForAccount(id);
+          if (r.length === 0 && isGmailAccount(id)) {
+            await seedGmailUserLabels(id);
+            r = await getUserLabelsForAccount(id);
+          }
+          return r;
+        }),
+      );
       const allAccountLabels: Record<string, Label[]> = {};
       accountIds.forEach((id, i) => {
-        allAccountLabels[id] = mapDbLabels(results[i] ?? []);
+        allAccountLabels[id] = mapUserLabels(rows[i] ?? []);
       });
       set({ allAccountLabels });
     } catch (err) {
@@ -157,57 +200,112 @@ export const useLabelStore = create<LabelState>((set, get) => ({
     }
   },
 
-  clearLabels: () => set({ labels: [], allAccountLabels: {}, unreadCounts: {}, categoryUnreadCounts: {}, globalUnreadCounts: {}, scheduledCounts: {}, draftCounts: {}, isLoading: false }),
+  clearLabels: () =>
+    set({
+      labels: [],
+      allAccountLabels: {},
+      unreadCounts: {},
+      categoryUnreadCounts: {},
+      globalUnreadCounts: {},
+      scheduledCounts: {},
+      draftCounts: {},
+      isLoading: false,
+    }),
 
-  createLabel: async (accountId: string, name: string, color?: { textColor: string; backgroundColor: string }) => {
-    const client = await getGmailClient(accountId);
-    const gmailLabel = await client.createLabel(name, color);
-    await upsertLabel({
-      id: gmailLabel.id,
-      accountId,
-      name: gmailLabel.name,
-      type: gmailLabel.type,
-      colorBg: gmailLabel.color?.backgroundColor ?? null,
-      colorFg: gmailLabel.color?.textColor ?? null,
-    });
+  createLabel: async (accountId, name, color?) => {
+    if (isGmailAccount(accountId)) {
+      // Gmail: create on server, mirror to both tables
+      const client = await getGmailClient(accountId);
+      const gmailLabel = await client.createLabel(name, color);
+      await upsertLabel({
+        id: gmailLabel.id,
+        accountId,
+        name: gmailLabel.name,
+        type: gmailLabel.type,
+        colorBg: gmailLabel.color?.backgroundColor ?? null,
+        colorFg: gmailLabel.color?.textColor ?? null,
+      });
+      await upsertUserLabel({
+        id: gmailLabel.id,
+        name: gmailLabel.name,
+        color: gmailLabel.color?.backgroundColor ?? color?.backgroundColor ?? null,
+        accountId,
+        systemLabelId: gmailLabel.id,
+      });
+    } else {
+      // IMAP / iCloud: user_labels only, no server operation
+      const id = crypto.randomUUID();
+      await upsertUserLabel({
+        id,
+        name,
+        color: color?.backgroundColor ?? null,
+        accountId,
+        systemLabelId: null,
+      });
+    }
     await get().loadLabels(accountId);
     await get()._reloadAccountLabels(accountId);
   },
 
-  updateLabel: async (accountId: string, labelId: string, updates: { name?: string; color?: { textColor: string; backgroundColor: string } | null }) => {
-    const client = await getGmailClient(accountId);
-    const gmailLabel = await client.updateLabel(labelId, updates);
-    await upsertLabel({
-      id: gmailLabel.id,
-      accountId,
-      name: gmailLabel.name,
-      type: gmailLabel.type,
-      colorBg: gmailLabel.color?.backgroundColor ?? null,
-      colorFg: gmailLabel.color?.textColor ?? null,
-    });
+  updateLabel: async (accountId, labelId, updates) => {
+    if (isGmailAccount(accountId)) {
+      // Gmail: update on server, mirror to both tables
+      const client = await getGmailClient(accountId);
+      const gmailLabel = await client.updateLabel(labelId, updates);
+      await upsertLabel({
+        id: gmailLabel.id,
+        accountId,
+        name: gmailLabel.name,
+        type: gmailLabel.type,
+        colorBg: gmailLabel.color?.backgroundColor ?? null,
+        colorFg: gmailLabel.color?.textColor ?? null,
+      });
+      await upsertUserLabel({
+        id: gmailLabel.id,
+        name: gmailLabel.name,
+        color: gmailLabel.color?.backgroundColor ?? null,
+        accountId,
+        systemLabelId: gmailLabel.id,
+      });
+    } else {
+      // IMAP: update user_labels only
+      await upsertUserLabel({
+        id: labelId,
+        name: updates.name ?? "",
+        color: updates.color?.backgroundColor ?? null,
+        accountId,
+      });
+    }
     await get().loadLabels(accountId);
     await get()._reloadAccountLabels(accountId);
   },
 
-  deleteLabel: async (accountId: string, labelId: string) => {
-    const client = await getGmailClient(accountId);
-    await client.deleteLabel(labelId);
-    await dbDeleteLabel(accountId, labelId);
+  deleteLabel: async (accountId, labelId) => {
+    if (isGmailAccount(accountId)) {
+      const client = await getGmailClient(accountId);
+      await client.deleteLabel(labelId);
+      await dbDeleteLabel(accountId, labelId);
+    }
+    await deleteUserLabel(labelId);
     await get().loadLabels(accountId);
     await get()._reloadAccountLabels(accountId);
   },
 
-  reorderLabels: async (accountId: string, labelIds: string[]) => {
+  reorderLabels: async (accountId, labelIds) => {
     const labelOrders = labelIds.map((id, index) => ({ id, sortOrder: index }));
-    await updateLabelSortOrder(accountId, labelOrders);
+    await updateUserLabelSortOrder(accountId, labelOrders);
+    // Keep labels table sort_order in sync for Gmail
+    if (isGmailAccount(accountId)) {
+      await updateLabelSortOrder(accountId, labelOrders);
+    }
     await get().loadLabels(accountId);
     await get()._reloadAccountLabels(accountId);
   },
 
   _reloadAccountLabels: async (accountId: string) => {
     try {
-      const dbLabels = await getLabelsForAccount(accountId);
-      const labels = mapDbLabels(dbLabels);
+      const rows = await getUserLabelsForAccount(accountId);
+      const labels = mapUserLabels(rows);
       set((s) => ({ allAccountLabels: { ...s.allAccountLabels, [accountId]: labels } }));
     } catch { /* silent */ }
   },

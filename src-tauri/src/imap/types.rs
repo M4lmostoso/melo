@@ -23,6 +23,8 @@ pub struct ImapFolder {
     pub special_use: Option<String>, // "\Sent", "\Trash", "\Drafts", "\Junk", "\Archive", "\All"
     pub exists: u32,
     pub unseen: u32,
+    pub parent_path: Option<String>, // decoded UTF-8 path of the parent folder, None for root-level
+    pub has_children: bool,          // true if at least one other folder is a direct child
 }
 
 /// Single entry in the body cache.

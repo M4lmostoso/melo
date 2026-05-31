@@ -5,10 +5,18 @@ import { FilterEditor } from "@/components/settings/FilterEditor";
 import { SmartLabelEditor } from "@/components/settings/SmartLabelEditor";
 import { SmartFolderEditor } from "@/components/settings/SmartFolderEditor";
 import { QuickStepEditor } from "@/components/settings/QuickStepEditor";
+import { ImapFolderEditor } from "@/components/settings/ImapFolderEditor";
 
 export function MailRulesTab() {
   return (
     <>
+      <Section title={t("settings.mailRules.sections.imapFolders")}>
+        <p className="text-xs text-text-tertiary mb-3">
+          {t("settings.mailRules.imapFoldersDesc")}
+        </p>
+        <ImapFolderEditor />
+      </Section>
+
       <Section title={t("settings.mailRules.sections.labels")}>
         <p className="text-xs text-text-tertiary mb-3">
           {t("settings.mailRules.labelsDesc")}

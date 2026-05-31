@@ -274,6 +274,8 @@ export function createMockImapFolder(
     special_use: null,
     exists: 100,
     unseen: 10,
+    parent_path: null,
+    has_children: false,
     ...overrides,
   };
 }

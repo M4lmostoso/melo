@@ -3,7 +3,7 @@ import { Trash2, Pencil, ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 import { t } from "@/i18n";
 import { TextField } from "@/components/ui/TextField";
 import { useAccountStore } from "@/stores/accountStore";
-import { getLabelsForAccount, type DbLabel } from "@/services/db/labels";
+import { getUserLabelsForAccount, type UserLabel } from "@/services/db/userLabels";
 import {
   getSmartLabelRulesForAccount,
   insertSmartLabelRule,
@@ -17,7 +17,7 @@ import { backfillSmartLabels } from "@/services/smartLabels/backfillService";
 export function SmartLabelEditor() {
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
   const [rules, setRules] = useState<DbSmartLabelRule[]>([]);
-  const [labels, setLabels] = useState<DbLabel[]>([]);
+  const [labels, setLabels] = useState<UserLabel[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [showCriteria, setShowCriteria] = useState(false);
@@ -42,9 +42,7 @@ export function SmartLabelEditor() {
   useEffect(() => {
     if (!activeAccountId) return;
     loadRules();
-    getLabelsForAccount(activeAccountId).then((l) =>
-      setLabels(l.filter((lb) => lb.type === "user")),
-    );
+    getUserLabelsForAccount(activeAccountId).then(setLabels);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- loadRules is stable
   }, [activeAccountId]);
 

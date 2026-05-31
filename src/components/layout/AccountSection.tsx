@@ -5,6 +5,7 @@ import type { Account } from "@/stores/accountStore";
 import { useUIStore } from "@/stores/uiStore";
 import { useActiveLabel } from "@/hooks/useRouteNavigation";
 import { ACCOUNT_COLOR_PRESETS } from "@/constants/accountColors";
+import { SidebarImapFolderTree } from "./SidebarImapFolderTree";
 
 const ACCOUNT_FOLDERS: { id: string; label: string; labelId: string; icon: typeof Inbox }[] = [
   { id: "inbox", label: t("sidebar.nav.inbox"), labelId: "INBOX", icon: Inbox },
@@ -32,9 +33,11 @@ export function AccountSection({
   activeAccountId,
 }: AccountSectionProps) {
   const [expanded, setExpanded] = useState(false);
+  const [foldersExpanded, setFoldersExpanded] = useState(false);
   const activeLabel = useActiveLabel();
   const color = account.color ?? DEFAULT_COLOR;
   const syncState = useUIStore((s) => s.accountSyncStatuses[account.id]);
+  const isImapAccount = account.provider === "imap" || account.provider === "icloud";
 
   if (sidebarCollapsed) {
     const inboxUnread = unreadCounts["INBOX"] ?? 0;
@@ -110,6 +113,7 @@ export function AccountSection({
         className={`grid transition-[grid-template-rows] duration-200 ease-out ${expanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}
       >
         <div className="overflow-hidden">
+          {/* System folders */}
           {ACCOUNT_FOLDERS.map(({ id, label, labelId, icon: Icon }) => {
             const count = unreadCounts[labelId] ?? 0;
             const isActive =
@@ -137,6 +141,37 @@ export function AccountSection({
               </button>
             );
           })}
+
+          {/* Custom IMAP folders — lazy-loaded tree, collapsed by default */}
+          {isImapAccount && (
+            <>
+              <button
+                onClick={() => setFoldersExpanded((v) => !v)}
+                className="flex items-center gap-2 w-full py-1.5 pl-7 pr-3 text-left text-[0.75rem] text-sidebar-text/50 hover:text-sidebar-text transition-colors"
+              >
+                <span className="flex-1 truncate uppercase tracking-wider font-medium">
+                  {t("sidebar.folders")}
+                </span>
+                {foldersExpanded ? (
+                  <ChevronDown size={11} className="shrink-0" />
+                ) : (
+                  <ChevronRight size={11} className="shrink-0" />
+                )}
+              </button>
+              <div
+                className={`grid transition-[grid-template-rows] duration-200 ease-out ${foldersExpanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"}`}
+              >
+                <div className="overflow-hidden">
+                  <SidebarImapFolderTree
+                    accountId={account.id}
+                    activeAccountId={activeAccountId}
+                    onFolderClick={onFolderClick}
+                    shouldLoad={foldersExpanded}
+                  />
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>

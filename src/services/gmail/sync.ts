@@ -2,6 +2,7 @@ import { GmailClient } from "./client";
 import { parseGmailMessage, type ParsedMessage } from "./messageParser";
 import { gmailStoreThread, type GmailAttachment } from "./tauriCommands";
 import { upsertLabel } from "../db/labels";
+import { upsertUserLabel } from "../db/userLabels";
 import { setThreadLabels, deleteThread, markThreadUnreadInDb } from "../db/threads";
 import { updateAccountSyncState } from "../db/accounts";
 import { shouldNotifyForMessage, queueNewEmailNotification } from "../notifications/notificationManager";
@@ -187,16 +188,26 @@ export async function syncLabels(
   accountId: string,
 ): Promise<void> {
   const response = await client.listLabels();
-  await Promise.all(response.labels.map((label) =>
-    upsertLabel({
+  await Promise.all(response.labels.map(async (label) => {
+    await upsertLabel({
       id: label.id,
       accountId,
       name: label.name,
       type: label.type,
       colorBg: label.color?.backgroundColor ?? null,
       colorFg: label.color?.textColor ?? null,
-    }),
-  ));
+    });
+    // Mirror user-type labels into user_labels (UI source of truth)
+    if (label.type === "user") {
+      await upsertUserLabel({
+        id: label.id,
+        name: label.name,
+        color: label.color?.backgroundColor ?? null,
+        accountId,
+        systemLabelId: label.id,
+      });
+    }
+  }));
 }
 
 /**

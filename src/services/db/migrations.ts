@@ -1122,6 +1122,59 @@ const MIGRATIONS = [
     description: "Add index to speed up attachment inline/CID filtering",
     sql: `CREATE INDEX IF NOT EXISTS idx_attachments_inline_cid ON attachments(message_id, is_inline, content_id);`,
   },
+  {
+    version: 56,
+    description: "Add labels.visible column; hide IMAP user-folder labels from UI while keeping system labels for critical lookups",
+    sql: `ALTER TABLE labels ADD COLUMN visible INTEGER NOT NULL DEFAULT 1;
+          UPDATE labels SET visible = 0
+          WHERE imap_folder_path IS NOT NULL
+            AND imap_special_use IS NULL
+            AND id NOT IN ('INBOX', 'TRASH', 'SENT', 'DRAFT', 'SPAM', 'STARRED', 'UNREAD', 'all-mail', 'IMPORTANT')
+            AND account_id IN (SELECT id FROM accounts WHERE provider IN ('imap', 'icloud'));`,
+  },
+  {
+    version: 57,
+    description: "Hide IMAP archive label from UI (v56 mistakenly kept it visible)",
+    sql: `UPDATE labels SET visible = 0
+          WHERE id = 'archive'
+            AND imap_folder_path IS NOT NULL
+            AND account_id IN (SELECT id FROM accounts WHERE provider IN ('imap', 'icloud'));`,
+  },
+  {
+    version: 58,
+    description: "Introduce user_labels as UI source of truth; create thread_user_labels and contact_user_labels; seed Gmail user labels",
+    sql: `
+      CREATE TABLE IF NOT EXISTS user_labels (
+        id          TEXT    PRIMARY KEY,
+        name        TEXT    NOT NULL,
+        color       TEXT,
+        account_id  TEXT,
+        system_label_id TEXT,
+        sort_order  INTEGER NOT NULL DEFAULT 0,
+        created_at  INTEGER NOT NULL DEFAULT (unixepoch())
+      );
+
+      CREATE TABLE IF NOT EXISTS thread_user_labels (
+        thread_id   TEXT NOT NULL,
+        label_id    TEXT NOT NULL,
+        status      TEXT NOT NULL DEFAULT 'applied',
+        PRIMARY KEY (thread_id, label_id)
+      );
+
+      CREATE TABLE IF NOT EXISTS contact_user_labels (
+        contact_id  TEXT NOT NULL,
+        label_id    TEXT NOT NULL,
+        PRIMARY KEY (contact_id, label_id)
+      );
+
+      INSERT OR IGNORE INTO user_labels (id, name, color, account_id, system_label_id, sort_order, created_at)
+      SELECT l.id, l.name, l.color_bg, l.account_id, l.id, l.sort_order, unixepoch()
+      FROM   labels l
+      JOIN   accounts a ON l.account_id = a.id
+      WHERE  a.provider = 'gmail_api'
+        AND  l.type = 'user';
+    `,
+  },
 ];
 
 // ---------------------------------------------------------------------------

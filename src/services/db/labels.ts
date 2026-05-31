@@ -7,7 +7,6 @@ export interface DbLabel {
   type: string;
   color_bg: string | null;
   color_fg: string | null;
-  visible: number;
   sort_order: number;
   imap_folder_path: string | null;
   imap_special_use: string | null;
@@ -22,6 +21,7 @@ export async function getLabelsForAccount(
     [accountId],
   );
 }
+
 
 export async function upsertLabel(label: {
   id: string;

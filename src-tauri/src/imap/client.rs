@@ -204,6 +204,9 @@ pub async fn list_folders(session: &mut ImapSession) -> Result<Vec<ImapFolder>, 
         // Detect special-use from attributes (RFC 6154)
         let special_use = detect_special_use(name);
 
+        // Derive parent path from the decoded path and delimiter
+        let parent_path = path.rsplit_once(&delimiter).map(|(parent, _)| parent.to_string());
+
         // Get message counts via STATUS — use raw_path for IMAP commands
         let (exists, unseen) = match tokio::time::timeout(
             IMAP_CMD_TIMEOUT,
@@ -221,10 +224,56 @@ pub async fn list_folders(session: &mut ImapSession) -> Result<Vec<ImapFolder>, 
             special_use,
             exists,
             unseen,
+            parent_path,
+            has_children: false, // computed in the second pass below
         });
     }
 
+    // Second pass: mark folders that have at least one direct child.
+    // A folder F has children if any other folder's path starts with "F.path + delimiter".
+    let paths: Vec<(String, String)> = folders
+        .iter()
+        .map(|f| (f.path.clone(), f.delimiter.clone()))
+        .collect();
+    for folder in &mut folders {
+        let prefix = format!("{}{}", folder.path, folder.delimiter);
+        folder.has_children = paths.iter().any(|(p, _)| p.starts_with(&prefix) && p.len() > prefix.len());
+    }
+
     Ok(folders)
+}
+
+/// Create a new IMAP mailbox. `folder_path` must be in UTF-8; it is encoded
+/// to modified UTF-7 before being sent to the server.
+pub async fn create_folder(session: &mut ImapSession, folder_path: &str) -> Result<(), String> {
+    let raw = utf7_imap::encode_utf7_imap(folder_path.to_string());
+    tokio::time::timeout(IMAP_CMD_TIMEOUT, session.create(&raw))
+        .await
+        .map_err(|_| format!("CREATE \"{folder_path}\" timed out"))?
+        .map_err(|e| format!("CREATE \"{folder_path}\" failed: {e}"))
+}
+
+/// Rename an existing IMAP mailbox.
+pub async fn rename_folder(
+    session: &mut ImapSession,
+    old_path: &str,
+    new_path: &str,
+) -> Result<(), String> {
+    let raw_old = utf7_imap::encode_utf7_imap(old_path.to_string());
+    let raw_new = utf7_imap::encode_utf7_imap(new_path.to_string());
+    tokio::time::timeout(IMAP_CMD_TIMEOUT, session.rename(&raw_old, &raw_new))
+        .await
+        .map_err(|_| format!("RENAME \"{old_path}\" → \"{new_path}\" timed out"))?
+        .map_err(|e| format!("RENAME \"{old_path}\" → \"{new_path}\" failed: {e}"))
+}
+
+/// Delete an IMAP mailbox.
+pub async fn delete_folder(session: &mut ImapSession, folder_path: &str) -> Result<(), String> {
+    let raw = utf7_imap::encode_utf7_imap(folder_path.to_string());
+    tokio::time::timeout(IMAP_CMD_TIMEOUT, session.delete(&raw))
+        .await
+        .map_err(|_| format!("DELETE \"{folder_path}\" timed out"))?
+        .map_err(|e| format!("DELETE \"{folder_path}\" failed: {e}"))
 }
 
 /// Fetch messages from a folder by UID range (e.g. "1:100" or "500:*").

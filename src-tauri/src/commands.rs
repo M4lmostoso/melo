@@ -33,6 +33,34 @@ pub async fn imap_list_folders(config: ImapConfig) -> Result<Vec<ImapFolder>, St
 }
 
 #[tauri::command]
+pub async fn imap_create_folder(config: ImapConfig, folder_path: String) -> Result<(), String> {
+    let mut session = imap_client::connect(&config).await?;
+    let result = imap_client::create_folder(&mut session, &folder_path).await;
+    let _ = session.logout().await;
+    result
+}
+
+#[tauri::command]
+pub async fn imap_rename_folder(
+    config: ImapConfig,
+    old_path: String,
+    new_path: String,
+) -> Result<(), String> {
+    let mut session = imap_client::connect(&config).await?;
+    let result = imap_client::rename_folder(&mut session, &old_path, &new_path).await;
+    let _ = session.logout().await;
+    result
+}
+
+#[tauri::command]
+pub async fn imap_delete_folder(config: ImapConfig, folder_path: String) -> Result<(), String> {
+    let mut session = imap_client::connect(&config).await?;
+    let result = imap_client::delete_folder(&mut session, &folder_path).await;
+    let _ = session.logout().await;
+    result
+}
+
+#[tauri::command]
 pub async fn imap_fetch_messages(
     pool: tauri::State<'_, ImapSessionPool>,
     sync_semaphore: tauri::State<'_, SyncSemaphore>,

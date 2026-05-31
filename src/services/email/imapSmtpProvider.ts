@@ -290,6 +290,7 @@ export class ImapSmtpProvider implements EmailProvider {
     const folderMapping = mapFolderToLabel({
       path: folder, raw_path: folder, name: folder,
       delimiter: "/", special_use: null, exists: 0, unseen: 0,
+      parent_path: null, has_children: false,
     });
     const labelIds = getLabelsForMessage(
       { labelId: folderMapping.labelId, labelName: "", type: "" },
