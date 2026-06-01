@@ -174,7 +174,7 @@ function SidebarLabelMenu({
     },
     {
       id: "delete-label",
-      label: "Delete label",
+      label: t("contextMenu.deleteLabel"),
       icon: Trash2,
       danger: true,
       action: () => onDelete?.(),
@@ -230,7 +230,8 @@ function ThreadMenu({
   const selectedThreadIds = useThreadStore((s) => s.selectedThreadIds);
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
   const activeLabel = getActiveLabel();
-  const labels = useLabelStore((s) => s.labels);
+  const storeLabels = useLabelStore((s) => s.labels);
+  const allAccountLabels = useLabelStore((s) => s.allAccountLabels);
   const openComposer = useComposerStore((s) => s.openComposer);
   const [quickSteps, setQuickSteps] = useState<DbQuickStep[]>([]);
 
@@ -254,6 +255,10 @@ function ThreadMenu({
   if (!thread || !resolvedAccountId) {
     return <ContextMenu items={[]} position={position} onClose={onClose} />;
   }
+
+  // Labels from the thread's own account (never the active account's labels)
+  const labels = (allAccountLabels[thread.accountId] ?? storeLabels)
+    .filter((l) => !l.name.startsWith("CATEGORY_"));
 
   const isTrashView = activeLabel === "trash";
   const isDraftsView = activeLabel === "drafts";
@@ -506,7 +511,7 @@ function ThreadMenu({
     },
     {
       id: "delete",
-      label: isTrashView ? "Delete Permanently" : "Delete Thread", // TODO: add i18n key
+      label: isTrashView ? t("contextMenu.deletePermanently") : t("contextMenu.deleteThread"),
       icon: Trash2,
       shortcut: "#",
       danger: isTrashView,
@@ -550,7 +555,7 @@ function ThreadMenu({
     ...(!isMulti && (thread.urgencyScore ?? 0) > 0 && !thread.isHeatExtinguished
       ? [{
           id: "mute-urgency",
-          label: "Mute Urgency",
+          label: t("contextMenu.muteUrgency"),
           icon: Zap,
           action: async () => {
             if (!thread.fromAddress) return;
@@ -561,7 +566,7 @@ function ThreadMenu({
       : []),
     {
       id: "spam",
-      label: isSpamView ? "Not Spam" : "Report Spam",
+      label: isSpamView ? t("contextMenu.notSpam") : t("contextMenu.reportSpam"),
       icon: Ban,
       shortcut: "!",
       action: handleSpam,
@@ -570,8 +575,9 @@ function ThreadMenu({
     ...(labelItems.length > 0
       ? [{
           id: "apply-label",
-          label: "Apply Label",
+          label: t("contextMenu.applyLabel"),
           icon: Tag,
+          searchable: true,
           children: labelItems,
         }]
       : []),
@@ -586,7 +592,7 @@ function ThreadMenu({
     },
     {
       id: "move-to-category",
-      label: "Move to Category",
+      label: t("contextMenu.moveToCategory"),
       icon: Layers,
       children: ALL_CATEGORIES.map((cat) => ({
         id: `cat-${cat}`,
@@ -604,7 +610,7 @@ function ThreadMenu({
           { id: "sep-4", label: "", separator: true },
           {
             id: "quick-steps",
-            label: "Quick Steps",
+            label: t("contextMenu.quickSteps"),
             icon: Zap,
             children: quickSteps.map((qs) => {
               let parsedActions: QuickStepAction[] = [];
@@ -798,7 +804,7 @@ function MessageMenu({
     { id: "sep-1", label: "", separator: true },
     {
       id: "copy-text",
-      label: "Copy Message Text", // TODO: add i18n key
+      label: t("contextMenu.copyMessageText"),
       icon: Copy,
       action: handleCopy,
     },
@@ -822,7 +828,7 @@ function MessageMenu({
     { id: "sep-delete", label: "", separator: true },
     {
       id: "delete-message",
-      label: isTrashView ? "Delete Permanently" : "Delete Message", // TODO: add i18n key
+      label: isTrashView ? t("contextMenu.deletePermanently") : t("contextMenu.deleteMessage"),
       icon: Trash,
       shortcut: "d",
       danger: isTrashView,

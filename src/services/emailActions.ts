@@ -310,6 +310,15 @@ async function applyLocalDbUpdate(
       }
       break;
     case "addLabel":
+      // Remove any existing user label on this thread before adding the new one.
+      // System labels (INBOX, SENT, etc.) live in thread_labels but not in user_labels,
+      // so the JOIN ensures only user-created labels are replaced.
+      await db.execute(
+        `DELETE FROM thread_labels
+         WHERE account_id = $1 AND thread_id = $2
+           AND label_id IN (SELECT id FROM user_labels WHERE account_id = $1)`,
+        [accountId, action.threadId],
+      );
       await db.execute(
         "INSERT OR IGNORE INTO thread_labels (account_id, thread_id, label_id) VALUES ($1, $2, $3)",
         [accountId, action.threadId, action.labelId],
@@ -399,6 +408,20 @@ export async function executeEmailAction(
   // 1. Optimistic UI update
   applyOptimisticUpdate(action);
 
+  // For addLabel: capture existing user labels BEFORE the local delete so we can
+  // remove them from the server (Gmail) after the local DB is updated.
+  let labelIdsToRemove: string[] = [];
+  if (action.type === "addLabel") {
+    const db = await getDb();
+    const rows = await db.select<{ label_id: string }[]>(
+      `SELECT tl.label_id FROM thread_labels tl
+       INNER JOIN user_labels ul ON ul.id = tl.label_id AND ul.account_id = tl.account_id
+       WHERE tl.account_id = $1 AND tl.thread_id = $2 AND tl.label_id != $3`,
+      [accountId, action.threadId, action.labelId],
+    );
+    labelIdsToRemove = rows.map((r) => r.label_id);
+  }
+
   // 2. Local DB update
   try {
     await applyLocalDbUpdate(accountId, action);
@@ -433,6 +456,10 @@ export async function executeEmailAction(
 
   // 4. Try online execution
   try {
+    if (action.type === "addLabel" && labelIdsToRemove.length > 0) {
+      const provider = await getEmailProvider(accountId);
+      await Promise.all(labelIdsToRemove.map((id) => provider.removeLabel(action.threadId, id)));
+    }
     const data = await executeViaProvider(accountId, action);
     window.dispatchEvent(new Event("melo-sync-done"));
     return { success: true, data };
@@ -571,11 +598,7 @@ export function addThreadLabel(
   threadId: string,
   labelId: string,
 ): Promise<ActionResult> {
-  return executeEmailAction(accountId, {
-    type: "addLabel",
-    threadId,
-    labelId,
-  });
+  return executeEmailAction(accountId, { type: "addLabel", threadId, labelId });
 }
 
 export function removeThreadLabel(

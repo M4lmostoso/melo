@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useClickOutside } from "@/hooks/useClickOutside";
-import { ChevronRight, Check } from "lucide-react";
+import { ChevronRight, Check, Search } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 export interface ContextMenuItem {
@@ -12,6 +12,7 @@ export interface ContextMenuItem {
   danger?: boolean;
   checked?: boolean;
   separator?: boolean;
+  searchable?: boolean;
   children?: ContextMenuItem[];
   action?: () => void;
 }
@@ -260,6 +261,7 @@ export function ContextMenu({ items, position, onClose }: ContextMenuProps) {
           anchorRect={submenuAnchor}
           onClose={onClose}
           onMouseEnter={cancelSubmenuTimer}
+          searchable={openItem.searchable}
         />
       )}
     </>
@@ -271,13 +273,17 @@ function Submenu({
   anchorRect,
   onClose,
   onMouseEnter,
+  searchable,
 }: {
   items: ContextMenuItem[];
   anchorRect: DOMRect;
   onClose: () => void;
   onMouseEnter?: () => void;
+  searchable?: boolean;
 }) {
   const submenuRef = useRef<HTMLDivElement | null>(null);
+  const searchRef = useRef<HTMLInputElement | null>(null);
+  const [query, setQuery] = useState("");
   const [position, setPosition] = useState<{ left: number; top: number }>({
     left: anchorRect.right,
     top: anchorRect.top,
@@ -308,16 +314,42 @@ function Submenu({
     setPosition({ left, top });
   }, [anchorRect]);
 
+  useEffect(() => {
+    if (searchable) searchRef.current?.focus();
+  }, [searchable]);
+
+  const lowerQuery = query.toLowerCase();
+  const visibleItems = searchable && lowerQuery
+    ? items.filter((item) => item.label.toLowerCase().includes(lowerQuery))
+    : items;
+
   return (
     <div
       ref={submenuRef}
       role="menu"
       data-submenu-portal
-      className="fixed z-[101] bg-bg-primary border border-border-primary rounded-md shadow-lg py-1 min-w-[180px]"
+      className="fixed z-[101] bg-bg-primary border border-border-primary rounded-md shadow-lg py-1 min-w-[200px] max-w-[320px]"
       style={{ left: position.left, top: position.top }}
       onMouseEnter={onMouseEnter}
     >
-      {items.map((item) => {
+      {searchable && (
+        <div className="px-2 pb-1 pt-0.5">
+          <div className="flex items-center gap-1.5 px-2 py-1 bg-bg-secondary rounded border border-border-primary/50 focus-within:border-accent transition-colors">
+            <Search size={11} className="text-text-tertiary shrink-0" />
+            <input
+              ref={searchRef}
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => e.stopPropagation()}
+              placeholder="Cerca…"
+              className="flex-1 bg-transparent text-xs text-text-primary outline-none placeholder:text-text-tertiary min-w-0"
+            />
+          </div>
+        </div>
+      )}
+      <div className={searchable ? "max-h-52 overflow-y-auto" : undefined}>
+      {visibleItems.map((item) => {
         const Icon = item.icon;
         return (
           <button
@@ -349,6 +381,7 @@ function Submenu({
           </button>
         );
       })}
+      </div>
     </div>
   );
 }

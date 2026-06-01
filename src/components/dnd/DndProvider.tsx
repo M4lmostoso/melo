@@ -5,6 +5,7 @@ import {
   useSensor,
   useSensors,
   DragOverlay,
+  pointerWithin,
   type DragStartEvent,
   type DragEndEvent,
 } from "@dnd-kit/core";
@@ -25,6 +26,7 @@ class LeftClickPointerSensor extends PointerSensor {
 import { useThreadStore } from "@/stores/threadStore";
 import { useAccountStore } from "@/stores/accountStore";
 import { addThreadLabel, removeThreadLabel } from "@/services/emailActions";
+import { crossAccountMoveThreads } from "@/services/crossAccountMove";
 
 // Map sidebar IDs to Gmail label IDs (same as EmailList)
 const LABEL_MAP: Record<string, string> = {
@@ -41,7 +43,11 @@ const LABEL_MAP: Record<string, string> = {
 export interface DragData {
   threadIds: string[];
   sourceLabel: string;
+  sourceAccountId: string;
 }
+
+/** Prefix used to encode cross-account droppable IDs: "xacc:{accountId}:{labelId}" */
+export const XACC_PREFIX = "xacc:";
 
 /**
  * Determine which Gmail labels to add/remove when moving threads between labels.
@@ -100,22 +106,51 @@ export function DndProvider({ children }: DndProviderProps) {
     const { over } = event;
     setDragData(null);
 
-    if (!over || !dragData || !activeAccountId) return;
+    if (!over || !dragData) return;
 
-    const targetLabel = over.id as string;
+    const rawId = over.id as string;
+
+    // ── Cross-account drop ────────────────────────────────────────────────────
+    if (rawId.startsWith(XACC_PREFIX)) {
+      const withoutPrefix = rawId.slice(XACC_PREFIX.length);
+      const colonIdx = withoutPrefix.indexOf(":");
+      const targetAccountId = withoutPrefix.slice(0, colonIdx);
+
+      if (targetAccountId && targetAccountId !== dragData.sourceAccountId) {
+        try {
+          await crossAccountMoveThreads(
+            dragData.sourceAccountId,
+            targetAccountId,
+            dragData.threadIds,
+          );
+          removeThreads(dragData.threadIds);
+        } catch (err) {
+          console.error("Cross-account move failed:", err);
+        }
+        return;
+      }
+    }
+
+    // ── Same-account drop (existing logic) ────────────────────────────────────
+    const sourceAccountId = dragData.sourceAccountId || activeAccountId;
+    if (!sourceAccountId) return;
+
+    const targetLabel = rawId.startsWith(XACC_PREFIX)
+      ? rawId.slice(XACC_PREFIX.length).replace(/^[^:]+:/, "")
+      : rawId;
+
     const change = resolveLabelChange(targetLabel, dragData.sourceLabel);
     if (!change) return;
 
     try {
       for (const threadId of dragData.threadIds) {
         for (const labelId of change.addLabelIds) {
-          await addThreadLabel(activeAccountId, threadId, labelId);
+          await addThreadLabel(sourceAccountId, threadId, labelId);
         }
         for (const labelId of change.removeLabelIds) {
-          await removeThreadLabel(activeAccountId, threadId, labelId);
+          await removeThreadLabel(sourceAccountId, threadId, labelId);
         }
       }
-      // Remove from current view
       removeThreads(dragData.threadIds);
     } catch (err) {
       console.error("Failed to move threads:", err);
@@ -125,6 +160,7 @@ export function DndProvider({ children }: DndProviderProps) {
   return (
     <DndContext
       sensors={sensors}
+      collisionDetection={pointerWithin}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
     >

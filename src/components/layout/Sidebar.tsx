@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback, useMemo, Fragment } from "react";
 import { t } from "@/i18n";
-import { useDroppable } from "@dnd-kit/core";
+import { useDroppable, useDndMonitor } from "@dnd-kit/core";
 import { AccountSwitcher } from "../accounts/AccountSwitcher";
 import { LabelForm } from "../labels/LabelForm";
 import { InputDialog } from "../ui/InputDialog";
@@ -12,6 +12,7 @@ import { useSmartFolderStore } from "@/stores/smartFolderStore";
 import { DEFAULT_SMART_FOLDER_I18N_KEYS } from "@/services/db/smartFolders";
 import { useActiveLabel, useActiveCategory } from "@/hooks/useRouteNavigation";
 import { navigateToLabel } from "@/router/navigate";
+import { XACC_PREFIX } from "@/components/dnd/DndProvider";
 import { AccountSection } from "./AccountSection";
 import {
   Inbox,
@@ -58,6 +59,26 @@ function smartFolderName(id: string, fallback: string): string {
 }
 import { useTaskStore } from "@/stores/taskStore";
 import { LabelBreadcrumb } from "../labels/LabelBreadcrumb";
+
+function TagOff({ size = 14, className }: { size?: number; className?: string }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z" />
+      <line x1="7" y1="7" x2="7.01" y2="7" />
+      <line x1="2" y1="22" x2="22" y2="2" />
+    </svg>
+  );
+}
 import { useOutgoingStore } from "@/stores/outgoingStore";
 import { getOutgoingDbCountByAccount } from "@/services/db/outgoing";
 
@@ -127,6 +148,54 @@ function DroppableNavItem({
     >
       {children(isOver)}
     </button>
+  );
+}
+
+function DroppableAccountSubItem({
+  droppableId,
+  onClick,
+  isActive,
+  isThreadAccount,
+  color,
+  displayName,
+  badge,
+  badgeColor,
+}: {
+  droppableId: string;
+  onClick: () => void;
+  isActive: boolean;
+  isThreadAccount: boolean;
+  color: string;
+  displayName: string;
+  badge?: number;
+  badgeColor?: "accent" | "amber";
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: droppableId });
+  return (
+    <div ref={setNodeRef} className="block w-full">
+      <button
+        onClick={onClick}
+        className={`flex items-center gap-2 w-full py-2 pl-6 pr-8 text-left text-[0.8125rem] transition-colors ${
+          isOver
+            ? "bg-accent/20 border-l-2 border-accent pl-[22px]"
+            : isActive
+              ? "text-accent font-medium bg-accent/10"
+              : isThreadAccount
+                ? "text-sidebar-text font-medium bg-sidebar-hover"
+                : "text-sidebar-text/80 hover:text-sidebar-text hover:bg-sidebar-hover"
+        }`}
+      >
+        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
+        <span className="flex-1 truncate">{displayName}</span>
+        {badge != null && badge > 0 && (
+          <span className={`text-[0.625rem] px-1.5 min-w-[1.25rem] h-[1.125rem] rounded-full inline-flex items-center justify-center tabular-nums ${
+            badgeColor === "amber" ? "bg-amber-500/15 text-amber-500" : "bg-accent/15 text-accent"
+          }`}>
+            {badge}
+          </span>
+        )}
+      </button>
+    </div>
   );
 }
 
@@ -212,6 +281,7 @@ function DroppableLabelItem({
   onPrefixClick,
   unreadCount,
   accountColor,
+  droppableId,
 }: {
   label: Label;
   isActive: boolean;
@@ -222,8 +292,9 @@ function DroppableLabelItem({
   onPrefixClick: (prefix: string) => void;
   unreadCount?: number;
   accountColor?: string | null;
+  droppableId?: string;
 }) {
-  const { setNodeRef, isOver } = useDroppable({ id: label.id });
+  const { setNodeRef, isOver } = useDroppable({ id: droppableId ?? label.id });
   const initial = (label.name[0] ?? "?").toUpperCase();
 
   return (
@@ -380,7 +451,6 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   const viewingAccountId = useAccountStore((s) => s.viewingAccountId);
   const selectedThreadAccountId = activeAccountId ? null : viewingAccountId;
   const [isScrolling, setIsScrolling] = useState(false);
-  const [expandedGlobalItems, setExpandedGlobalItems] = useState<Record<string, boolean>>({});
   const toggleGlobalItem = useCallback(
     (id: string) => setExpandedGlobalItems((prev) => ({ ...prev, [id]: !prev[id] })),
     [],
@@ -478,6 +548,88 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   const [labelsExpanded, setLabelsExpanded] = useState(false);
   const [collapsedLabelGroups, setCollapsedLabelGroups] = useState<Set<string>>(new Set());
   const labelGroupsInitialized = useRef(false);
+
+  const [expandedGlobalItems, setExpandedGlobalItems] = useState<Record<string, boolean>>({});
+
+  const hoverTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const collapseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoExpandedRef = useRef<{ sectionKey: string; folderKey: string } | null>(null);
+  // Mirror of expandedGlobalItems in a ref so callbacks always see the latest value
+  const expandedItemsRef = useRef(expandedGlobalItems);
+  useEffect(() => { expandedItemsRef.current = expandedGlobalItems; }, [expandedGlobalItems]);
+
+  // Returns { sectionKey, folderKey } when overId is the HEADER of a unified section,
+  // OR when it is a sub-item (xacc:…) whose folderKey matches that section.
+  const getSectionInfo = useCallback((overId: string): { sectionKey: string; folderKey: string } | null => {
+    if (overId === "unified-inbox") return { sectionKey: "unified-inbox", folderKey: "inbox" };
+    if (overId.startsWith("global-")) {
+      const fk = overId.slice("global-".length);
+      if (GLOBAL_FOLDER_ITEMS.some((gi) => gi.id === fk)) return { sectionKey: overId, folderKey: fk };
+    }
+    // Sub-item of an already-expanded section: xacc:{accountId}:{folderKey}
+    if (overId.startsWith(XACC_PREFIX)) {
+      const parts = overId.slice(XACC_PREFIX.length).split(":");
+      const fk = parts[1] ?? "";
+      if (fk === "inbox") return { sectionKey: "unified-inbox", folderKey: "inbox" };
+      const sectionKey = `global-${fk}`;
+      if (GLOBAL_FOLDER_ITEMS.some((gi) => gi.id === fk)) return { sectionKey, folderKey: fk };
+    }
+    return null;
+  }, []);
+
+  const clearHoverTimer   = useCallback(() => { if (hoverTimerRef.current)   { clearTimeout(hoverTimerRef.current);   hoverTimerRef.current = null;   } }, []);
+  const clearCollapseTimer = useCallback(() => { if (collapseTimerRef.current) { clearTimeout(collapseTimerRef.current); collapseTimerRef.current = null; } }, []);
+
+  const doCollapse = useCallback(() => {
+    clearCollapseTimer();
+    clearHoverTimer();
+    if (autoExpandedRef.current) {
+      const { sectionKey } = autoExpandedRef.current;
+      setExpandedGlobalItems((prev) => ({ ...prev, [sectionKey]: false }));
+      autoExpandedRef.current = null;
+    }
+  }, [clearCollapseTimer, clearHoverTimer]);
+
+  useDndMonitor({
+    onDragOver({ over }) {
+      const overId = (over?.id ?? "") as string;
+      const section = getSectionInfo(overId);
+
+      // ── Within the auto-expanded section ────────────────────────────────────
+      if (autoExpandedRef.current) {
+        if (section?.sectionKey === autoExpandedRef.current.sectionKey) {
+          // Pointer re-entered → cancel pending collapse
+          clearCollapseTimer();
+        } else {
+          // Pointer left → start 500ms collapse delay (idempotent)
+          if (!collapseTimerRef.current) {
+            collapseTimerRef.current = setTimeout(() => {
+              collapseTimerRef.current = null;
+              doCollapse();
+            }, 1000);
+          }
+        }
+        return;
+      }
+
+      // ── Not auto-expanded yet ────────────────────────────────────────────────
+      clearHoverTimer();
+
+      // Only the section HEADER (not sub-items) triggers the expand timer
+      const isHeader = overId === "unified-inbox" || overId.startsWith("global-");
+      if (!section || !isHeader) return;
+      if (expandedItemsRef.current[section.sectionKey]) return; // already open by user
+
+      const { sectionKey, folderKey } = section;
+      hoverTimerRef.current = setTimeout(() => {
+        hoverTimerRef.current = null;
+        autoExpandedRef.current = { sectionKey, folderKey };
+        setExpandedGlobalItems((prev) => ({ ...prev, [sectionKey]: true }));
+      }, 2000);
+    },
+    onDragEnd:   doCollapse,
+    onDragCancel: doCollapse,
+  });
 
   const toggleLabelGroup = useCallback((accountId: string) => {
     setCollapsedLabelGroups((prev) => {
@@ -804,39 +956,20 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                     const color = account.color ?? "#3182CE";
                     const displayName = account.label ?? account.displayName ?? account.email;
                     const unread = globalUnreadCounts[account.id]?.["INBOX"] ?? 0;
-                    const isAccountActive =
-                      activeLabel === "inbox" &&
-                      activeAccountId === account.id;
-                    const isThreadAccount =
-                      !isAccountActive &&
-                      selectedThreadAccountId === account.id &&
-                      activeLabel === "unified-inbox";
+                    const isAccountActive = activeLabel === "inbox" && activeAccountId === account.id;
+                    const isThreadAccount = !isAccountActive && selectedThreadAccountId === account.id && activeLabel === "unified-inbox";
                     return (
-                      <button
+                      <DroppableAccountSubItem
                         key={account.id}
-                        onClick={() => {
-                          setActiveAccount(account.id);
-                          navigateToLabel("inbox");
-                        }}
-                        className={`flex items-center gap-2 w-full py-1.5 pl-7 pr-8 text-left text-[0.8125rem] transition-colors ${
-                          isAccountActive
-                            ? "text-accent font-medium bg-accent/10"
-                            : isThreadAccount
-                              ? "text-sidebar-text font-medium bg-sidebar-hover"
-                              : "text-sidebar-text/80 hover:text-sidebar-text hover:bg-sidebar-hover"
-                        }`}
-                      >
-                        <span
-                          className="w-2.5 h-2.5 rounded-full shrink-0"
-                          style={{ backgroundColor: color }}
-                        />
-                        <span className="flex-1 truncate">{displayName}</span>
-                        {unread > 0 && (
-                          <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 min-w-[1.25rem] h-[1.125rem] rounded-full inline-flex items-center justify-center tabular-nums">
-                            {unread}
-                          </span>
-                        )}
-                      </button>
+                        droppableId={`${XACC_PREFIX}${account.id}:inbox`}
+                        onClick={() => { setActiveAccount(account.id); navigateToLabel("inbox"); }}
+                        isActive={isAccountActive}
+                        isThreadAccount={isThreadAccount}
+                        color={color}
+                        displayName={displayName}
+                        badge={unread > 0 ? unread : undefined}
+                        badgeColor="accent"
+                      />
                     );
                   })}
                 </div>
@@ -921,35 +1054,17 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                               selectedThreadAccountId === account.id &&
                               activeLabel === gi.id;
                             return (
-                              <button
+                              <DroppableAccountSubItem
                                 key={account.id}
-                                onClick={() => {
-                                  setActiveAccount(account.id);
-                                  navigateToLabel(gi.id);
-                                }}
-                                className={`flex items-center gap-2 w-full py-1.5 pl-7 pr-8 text-left text-[0.8125rem] transition-colors ${
-                                  isAccountActive
-                                    ? "text-accent font-medium bg-accent/10"
-                                    : isThreadAccount
-                                      ? "text-sidebar-text font-medium bg-sidebar-hover"
-                                      : "text-sidebar-text/80 hover:text-sidebar-text hover:bg-sidebar-hover"
-                                }`}
-                              >
-                                <span
-                                  className="w-2.5 h-2.5 rounded-full shrink-0"
-                                  style={{ backgroundColor: color }}
-                                />
-                                <span className="flex-1 truncate">{displayName}</span>
-                                {unreadOverdue > 0 ? (
-                                  <span className="text-[0.625rem] bg-amber-500/15 text-amber-500 px-1.5 min-w-[1.25rem] h-[1.125rem] rounded-full inline-flex items-center justify-center tabular-nums">
-                                    {unreadOverdue}
-                                  </span>
-                                ) : unread > 0 ? (
-                                  <span className="text-[0.625rem] bg-accent/15 text-accent px-1.5 min-w-[1.25rem] h-[1.125rem] rounded-full inline-flex items-center justify-center tabular-nums">
-                                    {unread}
-                                  </span>
-                                ) : null}
-                              </button>
+                                droppableId={`${XACC_PREFIX}${account.id}:${gi.id}`}
+                                onClick={() => { setActiveAccount(account.id); navigateToLabel(gi.id); }}
+                                isActive={isAccountActive}
+                                isThreadAccount={isThreadAccount}
+                                color={color}
+                                displayName={displayName}
+                                badge={unreadOverdue > 0 ? unreadOverdue : unread > 0 ? unread : undefined}
+                                badgeColor={unreadOverdue > 0 ? "amber" : "accent"}
+                              />
                             );
                           })}
                         </div>
@@ -1371,6 +1486,18 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                         className={`grid transition-[grid-template-rows] duration-200 ease-out ${isGroupCollapsed ? "grid-rows-[0fr]" : "grid-rows-[1fr]"}`}
                       >
                         <div className="overflow-hidden">
+                          {/* "No label" entry — always first */}
+                          <button
+                            onClick={() => { setActiveAccount(account.id); navigateToLabel("__no_label__"); }}
+                            className={`flex items-center w-full py-1.5 gap-2 px-3 text-sm transition-colors ${
+                              activeLabel === "__no_label__" && activeAccountId === account.id
+                                ? "bg-accent/10 text-accent font-medium"
+                                : "hover:bg-sidebar-hover text-sidebar-text"
+                            }`}
+                          >
+                            <TagOff size={12} className="shrink-0 text-sidebar-text/50" />
+                            <span className="text-xs text-text-tertiary/70 italic">{t("sidebar.noLabel")}</span>
+                          </button>
                           {accountLabels.map((label: Label) => {
                             const labelUnread =
                               account.id === activeAccountId
@@ -1388,6 +1515,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                                   onPrefixClick={(prefix) => handleAccountLabelPrefixClick(account.id, prefix)}
                                   unreadCount={labelUnread}
                                   accountColor={account.color}
+                                  droppableId={`${XACC_PREFIX}${account.id}:${label.id}`}
                                 />
                                 {editingLabelId === label.id && !collapsed && (
                                   <LabelForm
@@ -1409,6 +1537,20 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
             ) : (
               /* ── Single account: flat list ── */
               <>
+                {/* "No label" entry — always first */}
+                {!collapsed && labels.length > 0 && (
+                  <button
+                    onClick={() => navigateToLabel("__no_label__")}
+                    className={`flex items-center w-full py-1.5 gap-2 px-3 text-sm transition-colors ${
+                      activeLabel === "__no_label__"
+                        ? "bg-accent/10 text-accent font-medium"
+                        : "hover:bg-sidebar-hover text-sidebar-text"
+                    }`}
+                  >
+                    <Tag size={12} className="shrink-0 text-sidebar-text/50" />
+                    <span className="text-xs text-text-tertiary/70 italic">{t("sidebar.noLabel")}</span>
+                  </button>
+                )}
                 {labels.slice(0, LABELS_COLLAPSED_COUNT).map((label: Label) => {
                   const singleAccColor = accounts.find((a) => a.id === activeAccountId)?.color ?? null;
                   return (

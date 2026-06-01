@@ -39,6 +39,12 @@ export function navigateToLabel(
     return;
   }
 
+  // "No label" filter — threads with no user label assigned
+  if (label === "__no_label__") {
+    router.navigate({ to: "/label/$labelId", params: { labelId: "__no_label__" } });
+    return;
+  }
+
   // Label prefix filter — sentinel "prefix:<path>" navigates to /label/$labelId
   // where labelId encodes the prefix. EmailList detects and uses prefix-based queries.
   if (label.startsWith("prefix:")) {

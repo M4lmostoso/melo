@@ -1797,6 +1797,7 @@
     "editLabel": "Edit label",
     "showLess": "Show less",
     "moreLabels": "{count} more",
+    "noLabel": "No label",
     "collapseAccounts": "Collapse accounts",
     "expandAccounts": "Expand accounts",
     "switchToUnifiedInbox": "Switch to unified inbox",
@@ -2082,7 +2083,18 @@
     "moveToFolder": "Move to folder",
     "viewSource": "View source",
     "copyEmail": "Copy email address",
-    "openProfile": "Open profile"
+    "openProfile": "Open profile",
+    "deleteThread": "Delete thread",
+    "deletePermanently": "Delete permanently",
+    "deleteMessage": "Delete message",
+    "reportSpam": "Report spam",
+    "notSpam": "Not spam",
+    "applyLabel": "Apply label",
+    "moveToCategory": "Move to category",
+    "quickSteps": "Quick steps",
+    "copyMessageText": "Copy message text",
+    "muteUrgency": "Mute urgency",
+    "deleteLabel": "Delete label"
   },
   "offline": {
     "banner": "You're offline — changes will sync when you reconnect"

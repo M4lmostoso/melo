@@ -11,7 +11,7 @@ import { useAccountStore } from "@/stores/accountStore";
 import { useUIStore } from "@/stores/uiStore";
 import { useActiveLabel, useSelectedThreadId, useActiveCategory } from "@/hooks/useRouteNavigation";
 import { navigateToThread, navigateToLabel } from "@/router/navigate";
-import { getThreadsForAccount, getThreadsForCategory, getThreadLabelIds, deleteThread as deleteThreadFromDb, getUnifiedInboxThreads, getUnifiedFolderThreads, getThreadById, getThreadsByIdsBatch, getThreadLabelsByIdsBatch, getThreadsByLabelPrefix, getUnifiedThreadsByLabelPrefix } from "@/services/db/threads";
+import { getThreadsForAccount, getThreadsForCategory, getThreadLabelIds, deleteThread as deleteThreadFromDb, getUnifiedInboxThreads, getUnifiedFolderThreads, getThreadById, getThreadsByIdsBatch, getThreadLabelsByIdsBatch, getThreadsByLabelPrefix, getUnifiedThreadsByLabelPrefix, getThreadsWithoutUserLabel, getUnifiedThreadsWithoutUserLabel } from "@/services/db/threads";
 import { getCategoriesForThreads, getCategoriesForThreadsGlobal, getCategoryUnreadCounts } from "@/services/db/threadCategories";
 import { getActiveFollowUpThreadIds } from "@/services/db/followUpReminders";
 import { getBundleRules, getHeldThreadIds, getBundleSummaries, type DbBundleRule } from "@/services/db/bundleRules";
@@ -56,6 +56,7 @@ const LABEL_MAP: Record<string, string> = {
   spam: "SPAM",
   snoozed: "SNOOZED",
   scheduled: "SCHEDULED",
+  outgoing: "",
   all: "", // no filter
 };
 
@@ -102,6 +103,9 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
   // Detect label-prefix filter mode ("prefix:Personale/Casa")
   const isLabelPrefix = activeLabel.startsWith("prefix:");
   const labelPrefix = isLabelPrefix ? activeLabel.slice("prefix:".length) : null;
+
+  // Detect no-label filter mode
+  const isNoLabel = activeLabel === "__no_label__";
 
   const inboxViewMode = useUIStore((s) => s.inboxViewMode);
   const routerCategory = useActiveCategory();
@@ -469,6 +473,29 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
       return;
     }
 
+    // No-label filter ("__no_label__")
+    if (isNoLabel) {
+      try {
+        let dbThreads;
+        if (!activeAccountId) {
+          if (globalAccountIds.length === 0) {
+            if (!isStale()) { setThreads([]); setLoading(false); }
+            return;
+          }
+          dbThreads = await getUnifiedThreadsWithoutUserLabel(globalAccountIds, PAGE_SIZE, 0);
+        } else {
+          dbThreads = await getThreadsWithoutUserLabel(activeAccountId, PAGE_SIZE, 0);
+        }
+        const mapped = await mapDbThreads(dbThreads);
+        if (!isStale()) { setThreads(mapped); setHasMore(dbThreads.length === PAGE_SIZE); }
+      } catch (err) {
+        console.error("Failed to load no-label threads:", err);
+      } finally {
+        if (!isStale()) setLoading(false);
+      }
+      return;
+    }
+
     // Label prefix filter ("prefix:Personale/Casa")
     if (isLabelPrefix && labelPrefix) {
       try {
@@ -588,7 +615,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     } finally {
       if (!isStale()) setLoading(false);
     }
-  }, [activeAccountId, globalAccountIds, activeLabel, activeCategory, isSmartFolder, activeSmartFolder, isLabelPrefix, labelPrefix, setThreads, setLoading, mapDbThreads, clearSearch]);
+  }, [activeAccountId, globalAccountIds, activeLabel, activeCategory, isSmartFolder, activeSmartFolder, isNoLabel, isLabelPrefix, labelPrefix, setThreads, setLoading, mapDbThreads, clearSearch]);
 
   const loadMore = useCallback(async () => {
     if ((!activeAccountId && globalAccountIds.length === 0) || loadingMore || !hasMore) return;
@@ -597,7 +624,13 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     try {
       const offset = threads.length;
       let dbThreads: Awaited<ReturnType<typeof getThreadsForAccount>>;
-      if (isLabelPrefix && labelPrefix) {
+      if (isNoLabel) {
+        if (!activeAccountId) {
+          dbThreads = await getUnifiedThreadsWithoutUserLabel(globalAccountIds, PAGE_SIZE, offset);
+        } else {
+          dbThreads = await getThreadsWithoutUserLabel(activeAccountId, PAGE_SIZE, offset);
+        }
+      } else if (isLabelPrefix && labelPrefix) {
         if (!activeAccountId) {
           dbThreads = await getUnifiedThreadsByLabelPrefix(globalAccountIds, labelPrefix, PAGE_SIZE, offset);
         } else {
@@ -633,7 +666,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     } finally {
       setLoadingMore(false);
     }
-  }, [activeAccountId, globalAccountIds, activeLabel, activeCategory, isLabelPrefix, labelPrefix, threads, loadingMore, hasMore, setThreads, mapDbThreads]);
+  }, [activeAccountId, globalAccountIds, activeLabel, activeCategory, isNoLabel, isLabelPrefix, labelPrefix, threads, loadingMore, hasMore, setThreads, mapDbThreads]);
 
   useEffect(() => {
     loadThreads();
@@ -832,7 +865,9 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
                 ? `${t("sidebar.nav.inbox")} — ${activeCategory}`
                 : LABEL_MAP[activeLabel] !== undefined
                   ? t(`sidebar.nav.${activeLabel === "all" ? "allMail" : activeLabel}`)
-                  : isLabelPrefix && labelPrefix
+                  : isNoLabel
+                    ? t("sidebar.noLabel")
+                    : isLabelPrefix && labelPrefix
                     ? labelPrefix
                     : userLabels.find((l) => l.id === activeLabel)?.name ?? activeLabel}
           </h2>

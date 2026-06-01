@@ -1250,9 +1250,11 @@ pub async fn imap_store_threads(
         )
         .map_err(|e| e.to_string())?;
 
-        // Replace thread_labels
+        // Replace thread_labels — preserve user labels (those in user_labels table)
         conn.execute(
-            "DELETE FROM thread_labels WHERE account_id = ?1 AND thread_id = ?2",
+            "DELETE FROM thread_labels \
+             WHERE account_id = ?1 AND thread_id = ?2 \
+               AND label_id NOT IN (SELECT id FROM user_labels WHERE account_id = ?1)",
             rusqlite::params![account_id, update.thread_id],
         )
         .map_err(|e| e.to_string())?;
@@ -1388,9 +1390,11 @@ pub async fn gmail_store_thread(
     )
     .map_err(|e| e.to_string())?;
 
-    // 2. Replace thread_labels atomically
+    // 2. Replace thread_labels atomically — preserve user labels
     conn.execute(
-        "DELETE FROM thread_labels WHERE account_id=?1 AND thread_id=?2",
+        "DELETE FROM thread_labels \
+         WHERE account_id=?1 AND thread_id=?2 \
+           AND label_id NOT IN (SELECT id FROM user_labels WHERE account_id=?1)",
         rusqlite::params![account_id, thread_id],
     )
     .map_err(|e| e.to_string())?;

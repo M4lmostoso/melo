@@ -103,7 +103,8 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
       ? [...useThreadStore.getState().selectedThreadIds]
       : [thread.id],
     sourceLabel: activeLabel,
-  }), [hasMultiSelect, isMultiSelected, thread.id, activeLabel]);
+    sourceAccountId: thread.accountId,
+  }), [hasMultiSelect, isMultiSelected, thread.id, thread.accountId, activeLabel]);
 
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `thread-${thread.id}`,

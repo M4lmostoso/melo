@@ -617,7 +617,7 @@ const handlePrint = useCallback(async () => {
   const primarySenderName = selectedMessage?.from_name ?? null;
 
   return (
-    <div className="flex h-full @container relative">
+    <div className="flex h-full @container relative select-none">
       <div className="flex flex-col flex-1 min-w-0">
         {/* Unified action bar */}
         <ActionBar

@@ -296,7 +296,7 @@ export function EmailRenderer({
       <iframe
         ref={iframeRef}
         sandbox="allow-scripts"
-        className={`w-full border-0 ${isDark && !isPlainText ? "rounded-lg ring-1 ring-inset ring-black/10" : ""}`}
+        className={`w-full border-0 select-text ${isDark && !isPlainText ? "rounded-lg ring-1 ring-inset ring-black/10" : ""}`}
         style={{ overflow: "hidden", minHeight: "120px" }}
         title={t("email.renderer.iframeTitle")}
       />

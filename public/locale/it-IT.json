@@ -1797,6 +1797,7 @@
     "editLabel": "Modifica etichetta",
     "showLess": "Mostra meno",
     "moreLabels": "{count} altri",
+    "noLabel": "Senza etichetta",
     "collapseAccounts": "Comprimi account",
     "expandAccounts": "Espandi account",
     "switchToUnifiedInbox": "Passa alla posta unificata",
@@ -2082,7 +2083,18 @@
     "moveToFolder": "Sposta in cartella",
     "viewSource": "Visualizza sorgente",
     "copyEmail": "Copia indirizzo email",
-    "openProfile": "Apri profilo"
+    "openProfile": "Apri profilo",
+    "deleteThread": "Elimina thread",
+    "deletePermanently": "Elimina definitivamente",
+    "deleteMessage": "Elimina messaggio",
+    "reportSpam": "Segnala come spam",
+    "notSpam": "Non è spam",
+    "applyLabel": "Applica etichetta",
+    "moveToCategory": "Sposta in categoria",
+    "quickSteps": "Azioni rapide",
+    "copyMessageText": "Copia testo messaggio",
+    "muteUrgency": "Silenzia urgenza",
+    "deleteLabel": "Elimina etichetta"
   },
   "offline": {
     "banner": "Sei offline — le modifiche si sincronizzeranno alla riconnessione"

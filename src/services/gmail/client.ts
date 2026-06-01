@@ -320,6 +320,40 @@ export class GmailClient {
   }
 
   /**
+   * Insert a raw RFC 2822 message (base64url-encoded) into the mailbox.
+   * Used for cross-account moves: append to target, then delete from source.
+   */
+  async insertMessage(rawBase64url: string, labelIds?: string[]): Promise<{ id: string }> {
+    const token = await this.getValidToken();
+    const url = `https://www.googleapis.com/upload/gmail/v1/users/me/messages?uploadType=media`;
+    const rawBytes = Uint8Array.from(
+      atob(rawBase64url.replace(/-/g, "+").replace(/_/g, "/")),
+      (c) => c.charCodeAt(0),
+    );
+    const response = await this.fetchWithRetry(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "message/rfc822",
+        "Content-Length": String(rawBytes.length),
+        ...(labelIds?.length ? { "X-Upload-Content-Type": "message/rfc822" } : {}),
+      },
+      body: rawBytes,
+    });
+    if (!response.ok) {
+      throw new Error(`Gmail API error: ${response.status} ${await response.text()}`);
+    }
+    const msg = await response.json() as { id: string };
+    if (labelIds?.length) {
+      await this.request(`/messages/${msg.id}/modify`, {
+        method: "POST",
+        body: JSON.stringify({ addLabelIds: labelIds }),
+      });
+    }
+    return msg;
+  }
+
+  /**
    * Send an email via Gmail API.
    * Accepts a raw RFC 2822 message encoded as base64url.
    */

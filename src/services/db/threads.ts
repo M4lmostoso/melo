@@ -75,6 +75,73 @@ export async function getThreadsForAccount(
   );
 }
 
+/** Threads for a single account that have no user label assigned. */
+export async function getThreadsWithoutUserLabel(
+  accountId: string,
+  limit = 50,
+  offset = 0,
+): Promise<DbThread[]> {
+  const db = await getDb();
+  return db.select<DbThread[]>(
+    `SELECT t.*, m.from_name, m.from_address,
+       (SELECT to_addresses FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND LOWER(from_address) = LOWER((SELECT email FROM accounts WHERE id = t.account_id)) AND to_addresses IS NOT NULL AND to_addresses != '' ORDER BY date DESC LIMIT 1) as all_recipients,
+       (SELECT GROUP_CONCAT(display, ', ') FROM (SELECT CASE WHEN from_name IS NOT NULL AND from_name != '' THEN from_name || ' <' || from_address || '>' ELSE from_address END as display, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_address IS NOT NULL AND LOWER(from_address) != LOWER((SELECT email FROM accounts WHERE id = t.account_id)) GROUP BY LOWER(from_address) ORDER BY last_date DESC)) as all_senders,
+       (SELECT COUNT(*) FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND is_read = 0 AND is_draft = 0 AND is_trashed = 0) as unread_count
+     FROM threads t
+     LEFT JOIN messages m ON m.account_id = t.account_id AND m.thread_id = t.id
+       AND m.date = (SELECT MAX(m2.date) FROM messages m2 WHERE m2.account_id = t.account_id AND m2.thread_id = t.id AND m2.is_trashed = 0)
+     WHERE t.account_id = $1
+       AND NOT EXISTS (
+         SELECT 1 FROM thread_labels tl
+         INNER JOIN user_labels ul ON ul.id = tl.label_id AND ul.account_id = tl.account_id
+         WHERE tl.account_id = t.account_id AND tl.thread_id = t.id
+       )
+       AND NOT (
+         EXISTS (SELECT 1 FROM thread_labels tl_ex WHERE tl_ex.account_id = t.account_id AND tl_ex.thread_id = t.id AND tl_ex.label_id IN ('DRAFT', 'TRASH'))
+         AND NOT EXISTS (SELECT 1 FROM thread_labels tl_ib WHERE tl_ib.account_id = t.account_id AND tl_ib.thread_id = t.id AND tl_ib.label_id = 'INBOX')
+       )
+     ORDER BY t.is_pinned DESC, t.last_message_at DESC
+     LIMIT $2 OFFSET $3`,
+    [accountId, limit, offset],
+  );
+}
+
+/** Unified (multi-account) version of getThreadsWithoutUserLabel. */
+export async function getUnifiedThreadsWithoutUserLabel(
+  accountIds: string[],
+  limit = 50,
+  offset = 0,
+): Promise<DbThread[]> {
+  if (accountIds.length === 0) return [];
+  const db = await getDb();
+  const placeholders = accountIds.map((_, i) => `$${i + 1}`).join(", ");
+  const limitParam = `$${accountIds.length + 1}`;
+  const offsetParam = `$${accountIds.length + 2}`;
+  return db.select<DbThread[]>(
+    `SELECT t.*, m.from_name, m.from_address,
+       (SELECT to_addresses FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND LOWER(from_address) = LOWER((SELECT email FROM accounts WHERE id = t.account_id)) AND to_addresses IS NOT NULL AND to_addresses != '' ORDER BY date DESC LIMIT 1) as all_recipients,
+       (SELECT GROUP_CONCAT(display, ', ') FROM (SELECT CASE WHEN from_name IS NOT NULL AND from_name != '' THEN from_name || ' <' || from_address || '>' ELSE from_address END as display, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_address IS NOT NULL AND LOWER(from_address) != LOWER((SELECT email FROM accounts WHERE id = t.account_id)) GROUP BY LOWER(from_address) ORDER BY last_date DESC)) as all_senders,
+       (SELECT COUNT(*) FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND is_read = 0 AND is_draft = 0 AND is_trashed = 0) as unread_count
+     FROM threads t
+     LEFT JOIN messages m ON m.thread_id = t.id AND m.account_id = t.account_id
+       AND m.id = (SELECT id FROM messages WHERE thread_id = t.id AND account_id = t.account_id AND is_trashed = 0 ORDER BY date DESC LIMIT 1)
+     WHERE t.account_id IN (${placeholders})
+       AND NOT EXISTS (
+         SELECT 1 FROM thread_labels tl
+         INNER JOIN user_labels ul ON ul.id = tl.label_id AND ul.account_id = tl.account_id
+         WHERE tl.account_id = t.account_id AND tl.thread_id = t.id
+       )
+       AND NOT (
+         EXISTS (SELECT 1 FROM thread_labels tl_ex WHERE tl_ex.account_id = t.account_id AND tl_ex.thread_id = t.id AND tl_ex.label_id IN ('DRAFT', 'TRASH'))
+         AND NOT EXISTS (SELECT 1 FROM thread_labels tl_ib WHERE tl_ib.account_id = t.account_id AND tl_ib.thread_id = t.id AND tl_ib.label_id = 'INBOX')
+       )
+     GROUP BY t.account_id, t.id
+     ORDER BY t.is_pinned DESC, t.last_message_at DESC
+     LIMIT ${limitParam} OFFSET ${offsetParam}`,
+    [...accountIds, limit, offset],
+  );
+}
+
 /**
  * Fetch threads for a single account whose user_label name matches a prefix
  * (e.g. prefix = "Personale/Casa" → LIKE 'Personale/Casa/%').
