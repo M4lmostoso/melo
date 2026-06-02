@@ -24,6 +24,12 @@ export interface DbThread {
   sentiment_score: number | null;
   manual_urgency_override: number | null;
   is_heat_extinguished: number | null;
+  /**
+   * Only set by the draft-message queries (getDraftMessagesForAccount /
+   * getUnifiedDraftMessages), where each row is an individual draft MESSAGE and `id`
+   * is the draft message id. Carries the parent thread id so open/delete can map back.
+   */
+  thread_id_real?: string;
 }
 
 export async function getThreadsForAccount(
@@ -925,6 +931,84 @@ export async function getUnifiedFolderThreads(
   );
 }
 
+// SELECT projection shared by the draft-message queries. Returns one row per draft
+// MESSAGE (is_draft=1) shaped as a DbThread so the existing mapDbThreads → ThreadCard
+// pipeline renders it unchanged. `id` is the draft message id; `thread_id_real` carries
+// the parent thread id for open/delete mapping.
+const DRAFT_MESSAGE_COLUMNS = `
+  m.id                  AS id,
+  m.account_id          AS account_id,
+  m.thread_id           AS thread_id_real,
+  m.subject             AS subject,
+  m.snippet             AS snippet,
+  m.date                AS last_message_at,
+  1                     AS message_count,
+  0                     AS is_read,
+  0                     AS is_starred,
+  0                     AS is_important,
+  (CASE WHEN EXISTS (SELECT 1 FROM attachments a WHERE a.account_id = m.account_id AND a.message_id = m.id AND a.is_inline = 0) THEN 1 ELSE 0 END) AS has_attachments,
+  0                     AS is_snoozed,
+  NULL                  AS snooze_until,
+  0                     AS is_pinned,
+  0                     AS is_muted,
+  m.from_name           AS from_name,
+  m.from_address        AS from_address,
+  m.to_addresses        AS all_recipients,
+  NULL                  AS all_senders,
+  0                     AS unread_count,
+  NULL                  AS urgency_score,
+  NULL                  AS sentiment_score,
+  NULL                  AS manual_urgency_override,
+  NULL                  AS is_heat_extinguished`;
+
+const DRAFT_MESSAGE_WHERE = `
+  m.is_draft = 1
+  AND m.is_trashed = 0
+  AND EXISTS (SELECT 1 FROM thread_labels tl WHERE tl.account_id = m.account_id AND tl.thread_id = m.thread_id AND tl.label_id = 'DRAFT')
+  AND NOT EXISTS (SELECT 1 FROM thread_labels tr WHERE tr.account_id = m.account_id AND tr.thread_id = m.thread_id AND tr.label_id = 'TRASH')`;
+
+/**
+ * List individual DRAFT messages for one account, each as a DbThread-shaped row.
+ * Used by the Drafts view so each draft (incl. reply drafts inside an existing thread)
+ * appears as its own standalone email row rather than the whole parent thread.
+ */
+export async function getDraftMessagesForAccount(
+  accountId: string,
+  limit = 50,
+  offset = 0,
+): Promise<DbThread[]> {
+  const db = await getDb();
+  return db.select<DbThread[]>(
+    `SELECT ${DRAFT_MESSAGE_COLUMNS}
+     FROM messages m
+     WHERE m.account_id = $1 AND ${DRAFT_MESSAGE_WHERE}
+     ORDER BY m.date DESC
+     LIMIT $2 OFFSET $3`,
+    [accountId, limit, offset],
+  );
+}
+
+/** Unified (multi-account) variant of getDraftMessagesForAccount. */
+export async function getUnifiedDraftMessages(
+  accountIds: string[],
+  limit = 50,
+  offset = 0,
+): Promise<DbThread[]> {
+  if (accountIds.length === 0) return [];
+  const db = await getDb();
+  const placeholders = accountIds.map((_, i) => `$${i + 1}`).join(", ");
+  const limitParam = `$${accountIds.length + 1}`;
+  const offsetParam = `$${accountIds.length + 2}`;
+  return db.select<DbThread[]>(
+    `SELECT ${DRAFT_MESSAGE_COLUMNS}
+     FROM messages m
+     WHERE m.account_id IN (${placeholders}) AND ${DRAFT_MESSAGE_WHERE}
+     ORDER BY m.date DESC
+     LIMIT ${limitParam} OFFSET ${offsetParam}`,
+    [...accountIds, limit, offset],
+  );
+}
+
 /**
  * Count drafts per account for the sidebar "Drafts" badge.
  * Unlike unread counts, this counts ALL draft threads (read or not) — a draft you
@@ -939,16 +1023,17 @@ export async function getDraftCountsByAccounts(
   if (accountIds.length === 0) return result;
   const db = await getDb();
   const placeholders = accountIds.map((_, i) => `$${i + 1}`).join(", ");
+  // Count individual draft MESSAGES (not threads) so the badge matches the per-draft
+  // rows shown by the Drafts view (getDraftMessagesForAccount).
   const rows = await db.select<{ account_id: string; count: number }[]>(
-    `SELECT tl.account_id, COUNT(DISTINCT t.id) AS count
-     FROM threads t
-     INNER JOIN thread_labels tl ON tl.account_id = t.account_id AND tl.thread_id = t.id
-     WHERE tl.account_id IN (${placeholders}) AND tl.label_id = 'DRAFT'
-       AND NOT EXISTS (
-         SELECT 1 FROM thread_labels tr
-         WHERE tr.account_id = t.account_id AND tr.thread_id = t.id AND tr.label_id = 'TRASH'
-       )
-     GROUP BY tl.account_id`,
+    `SELECT m.account_id, COUNT(*) AS count
+     FROM messages m
+     WHERE m.account_id IN (${placeholders})
+       AND m.is_draft = 1
+       AND m.is_trashed = 0
+       AND EXISTS (SELECT 1 FROM thread_labels tl WHERE tl.account_id = m.account_id AND tl.thread_id = m.thread_id AND tl.label_id = 'DRAFT')
+       AND NOT EXISTS (SELECT 1 FROM thread_labels tr WHERE tr.account_id = m.account_id AND tr.thread_id = m.thread_id AND tr.label_id = 'TRASH')
+     GROUP BY m.account_id`,
     accountIds,
   );
   for (const row of rows) {

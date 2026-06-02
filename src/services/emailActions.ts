@@ -6,7 +6,7 @@ import { classifyError } from "@/utils/networkErrors";
 import { getDb } from "@/services/db/connection";
 import { navigateToThread, getSelectedThreadId } from "@/router/navigate";
 import { getAccount } from "@/services/db/accounts";
-import { deleteThread as deleteThreadFromDb, recalculateThreadStats, getThreadById } from "@/services/db/threads";
+import { recalculateThreadStats, getThreadById } from "@/services/db/threads";
 import { getMessagesForThread } from "@/services/db/messages";
 import { updateBadgeCount } from "@/services/badgeManager";
 
@@ -1071,10 +1071,21 @@ export async function trashLatestMessage(
  */
 export async function deleteDraftThread(
   accountId: string,
-  threadId: string,
+  incomingId: string,
 ): Promise<void> {
   const account = await getAccount(accountId);
   if (!account) return;
+
+  // The incoming id may be a draft MESSAGE id (Drafts view rows are individual drafts)
+  // or a thread id (legacy callers). Resolve the parent thread; if it was a draft
+  // message id, remember it so we scope deletion to that single draft.
+  const db = await getDb();
+  const draftRow = await db.select<{ thread_id: string }[]>(
+    "SELECT thread_id FROM messages WHERE account_id = $1 AND id = $2 AND is_draft = 1",
+    [accountId, incomingId],
+  );
+  const resolvedDraftId = draftRow[0] ? incomingId : null;
+  const threadId = draftRow[0]?.thread_id ?? incomingId;
 
   if (account.provider === "gmail_api") {
     const { getGmailClient } = await import("@/services/gmail/tokenManager");
@@ -1083,26 +1094,36 @@ export async function deleteDraftThread(
     const client = await getGmailClient(accountId);
     await deleteDraftsForThread(client, accountId, threadId);
   } else {
-    // IMAP: read UIDs from DB BEFORE cleanup — permanentDeleteThread([], ...) would
-    // call resolveGrouped after applyLocalDbUpdate already cleared the messages table,
-    // returning an empty map and skipping both IMAP delete and tombstone.
-    const msgs = await getMessagesForThread(accountId, threadId);
-    await deleteThreadFromDb(accountId, threadId);
+    // IMAP: delete ONLY the draft message(s) — never the original received emails.
+    // Read the draft UIDs from the DB before purging the local rows.
+    const draftRows = resolvedDraftId
+      ? await db.select<{ id: string; imap_uid: number | null; imap_folder: string | null }[]>(
+          "SELECT id, imap_uid, imap_folder FROM messages WHERE account_id = $1 AND thread_id = $2 AND is_draft = 1 AND id = $3",
+          [accountId, threadId, resolvedDraftId],
+        )
+      : await db.select<{ id: string; imap_uid: number | null; imap_folder: string | null }[]>(
+          "SELECT id, imap_uid, imap_folder FROM messages WHERE account_id = $1 AND thread_id = $2 AND is_draft = 1",
+          [accountId, threadId],
+        );
+
     const provider = await getEmailProvider(accountId);
-    // Collect unique UIDs (stable-UUID row and imap- row share the same server UID).
+    // provider.deleteDraft (IMAP) already tombstones + EXPUNGEs the single UID and
+    // cleans the local row, so no separate tombstoneImapDraft call is needed here.
     const seen = new Set<string>();
-    for (const msg of msgs) {
-      if (msg.imap_uid != null && msg.imap_folder) {
-        const msgId = `imap-${accountId}-${msg.imap_folder}-${msg.imap_uid}`;
+    for (const row of draftRows) {
+      if (row.imap_uid != null && row.imap_folder) {
+        const msgId = `imap-${accountId}-${row.imap_folder}-${row.imap_uid}`;
         if (seen.has(msgId)) continue;
         seen.add(msgId);
-        // Tombstone before EXPUNGE so a concurrent sync cannot re-import the UID.
-        await tombstoneImapDraft(accountId, msgId).catch(() => {});
         await provider.deleteDraft(msgId).catch((err) =>
           console.warn("[deleteDraftThread] IMAP delete failed:", err),
         );
       }
     }
+
+    // Local single-draft cleanup: sweeps is_draft=1 rows and keeps the thread if it
+    // still has non-draft messages (reply draft), else removes the empty thread.
+    await purgeDraftFromDb(accountId, resolvedDraftId, threadId);
   }
 
   // Refresh sidebar draft badge — deleteDraftThread bypasses executeEmailAction

@@ -21,6 +21,11 @@ export interface Thread {
   urgencyScore?: number;
   sentimentScore?: number;
   isHeatExtinguished?: boolean;
+  /**
+   * For Drafts-view rows, `id` is the draft MESSAGE id and this carries the parent
+   * thread id (for resuming/deleting the draft). For all other rows it equals `id`.
+   */
+  threadIdReal?: string | null;
 }
 
 interface ThreadState {

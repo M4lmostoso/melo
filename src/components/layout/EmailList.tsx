@@ -11,7 +11,7 @@ import { useAccountStore } from "@/stores/accountStore";
 import { useUIStore } from "@/stores/uiStore";
 import { useActiveLabel, useSelectedThreadId, useActiveCategory } from "@/hooks/useRouteNavigation";
 import { navigateToThread, navigateToLabel } from "@/router/navigate";
-import { getThreadsForAccount, getThreadsForCategory, getThreadLabelIds, deleteThread as deleteThreadFromDb, getUnifiedInboxThreads, getUnifiedFolderThreads, getThreadById, getThreadsByIdsBatch, getThreadLabelsByIdsBatch, getThreadsByLabelPrefix, getUnifiedThreadsByLabelPrefix, getThreadsWithoutUserLabel, getUnifiedThreadsWithoutUserLabel } from "@/services/db/threads";
+import { getThreadsForAccount, getThreadsForCategory, getThreadLabelIds, deleteThread as deleteThreadFromDb, getUnifiedInboxThreads, getUnifiedFolderThreads, getThreadById, getThreadsByIdsBatch, getThreadLabelsByIdsBatch, getThreadsByLabelPrefix, getUnifiedThreadsByLabelPrefix, getThreadsWithoutUserLabel, getUnifiedThreadsWithoutUserLabel, getDraftMessagesForAccount, getUnifiedDraftMessages } from "@/services/db/threads";
 import { getCategoriesForThreads, getCategoriesForThreadsGlobal, getCategoryUnreadCounts } from "@/services/db/threadCategories";
 import { getActiveFollowUpThreadIds } from "@/services/db/followUpReminders";
 import { getBundleRules, getHeldThreadIds, getBundleSummaries, type DbBundleRule } from "@/services/db/bundleRules";
@@ -22,7 +22,7 @@ import { useSmartFolderStore } from "@/stores/smartFolderStore";
 import { DEFAULT_SMART_FOLDER_I18N_KEYS } from "@/services/db/smartFolders";
 import { useContextMenuStore } from "@/stores/contextMenuStore";
 import { useComposerStore } from "@/stores/composerStore";
-import { getMessagesForThread } from "@/services/db/messages";
+import { getMessagesByIds, getMessageBody } from "@/services/db/messages";
 import { getSmartFolderSearchQuery, mapSmartFolderRows, type SmartFolderRow } from "@/services/search/smartFolderQuery";
 import { applyTemporalDecay } from "@/services/ai/reputationEngine";
 import { getDecaySettings } from "@/services/ai/urgencyPipeline";
@@ -144,20 +144,33 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     const draftAccountId = activeAccountId ?? thread.accountId;
     if (!draftAccountId) return;
     try {
-      const messages = await getMessagesForThread(draftAccountId, thread.id);
-      // Get the last message (the draft)
-      const draftMsg = messages[messages.length - 1];
+      // In the Drafts view, the row IS the draft message: thread.id is the draft message
+      // id and thread.threadIdReal is the parent thread (for re-joining on send).
+      const draftMsgId = thread.id;
+      const parentThreadId = thread.threadIdReal ?? thread.id;
+
+      const [headerRows, body] = await Promise.all([
+        getMessagesByIds(draftAccountId, [draftMsgId]),
+        getMessageBody(draftAccountId, draftMsgId),
+      ]);
+      const draftMsg = headerRows[0];
       if (!draftMsg) return;
 
-      // Look up the Gmail draft ID so auto-save can update the existing draft
+      // Resolve the existing draft id so auto-save updates (not duplicates) the draft.
       let draftId: string | null = null;
-      try {
-        const client = await getGmailClient(draftAccountId);
-        const drafts = await client.listDrafts();
-        const match = drafts.find((d) => d.message.id === draftMsg.id);
-        if (match) draftId = match.id;
-      } catch {
-        // If we can't get draft ID, composer will create a new draft on save
+      if (draftMsg.imap_uid != null && draftMsg.imap_folder) {
+        // IMAP: build the server draft id directly from the row's coordinates.
+        draftId = `imap-${draftAccountId}-${draftMsg.imap_folder}-${draftMsg.imap_uid}`;
+      } else {
+        // Gmail: match the draft message id to its Drafts API id.
+        try {
+          const client = await getGmailClient(draftAccountId);
+          const drafts = await client.listDrafts();
+          const match = drafts.find((d) => d.message.id === draftMsgId);
+          if (match) draftId = match.id;
+        } catch {
+          // If we can't resolve it, the composer will create a new draft on save.
+        }
       }
 
       const to = draftMsg.to_addresses
@@ -176,9 +189,12 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
         cc,
         bcc,
         subject: draftMsg.subject ?? "",
-        bodyHtml: draftMsg.body_html ?? draftMsg.body_text ?? "",
-        threadId: thread.id,
+        // The saved body already includes any quote (saveServer concatenates), so pass
+        // it as bodyHtml and do NOT also set quotedHtml (would double-quote).
+        bodyHtml: body.body_html ?? body.body_text ?? "",
+        threadId: parentThreadId,
         draftId,
+        accountId: draftAccountId,
       });
     } catch (err) {
       console.error("Failed to open draft:", err);
@@ -267,11 +283,13 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     });
   }, [filteredThreads, activeLabel, activeCategory, isSearchActive, categoryMap, bundledCategorySet, heldThreadIds]);
 
-  const mapDbThreads = useCallback(async (dbThreads: Awaited<ReturnType<typeof getThreadsForAccount>>): Promise<Thread[]> => {
+  const mapDbThreads = useCallback(async (dbThreads: Awaited<ReturnType<typeof getThreadsForAccount>>, isDrafts = false): Promise<Thread[]> => {
     const decay = await getDecaySettings();
     return Promise.all(
       dbThreads.map(async (t) => {
-        const labelIds = await getThreadLabelIds(t.account_id, t.id);
+        // Draft rows: `t.id` is a draft MESSAGE id, so getThreadLabelIds would query the
+        // wrong key. Use a fixed DRAFT label and carry the parent thread id.
+        const labelIds = isDrafts ? ["DRAFT"] : await getThreadLabelIds(t.account_id, t.id);
         const lastMessageAt = t.last_message_at ?? 0;
         const rawUrgency = t.urgency_score ?? 0;
         const urgencyScore = applyTemporalDecay(rawUrgency, lastMessageAt, decay.decayStartDays, decay.decayFloorDays);
@@ -296,6 +314,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
           urgencyScore,
           sentimentScore: t.sentiment_score ?? undefined,
           isHeatExtinguished: t.is_heat_extinguished === 1,
+          threadIdReal: t.thread_id_real ?? t.id,
         };
       }),
     );
@@ -532,11 +551,13 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
         let dbThreads: Awaited<ReturnType<typeof getUnifiedInboxThreads>>;
         if (activeLabel === "unified-inbox" || activeLabel === "inbox") {
           dbThreads = await getUnifiedInboxThreads(globalAccountIds, PAGE_SIZE, 0);
+        } else if (activeLabel === "drafts") {
+          dbThreads = await getUnifiedDraftMessages(globalAccountIds, PAGE_SIZE, 0);
         } else {
           const gmailLabelId = LABEL_MAP[activeLabel] ?? activeLabel;
           dbThreads = await getUnifiedFolderThreads(globalAccountIds, gmailLabelId || "", PAGE_SIZE, 0);
         }
-        let mapped = await mapDbThreads(dbThreads);
+        let mapped = await mapDbThreads(dbThreads, activeLabel === "drafts");
 
         if (isStale()) return;
 
@@ -574,6 +595,8 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
       let dbThreads;
       if (activeLabel === "inbox" && activeCategory !== "All") {
         dbThreads = await getThreadsForCategory(activeAccountId, activeCategory, PAGE_SIZE, 0);
+      } else if (activeLabel === "drafts") {
+        dbThreads = await getDraftMessagesForAccount(activeAccountId, PAGE_SIZE, 0);
       } else {
         const gmailLabelId = LABEL_MAP[activeLabel] ?? activeLabel;
         dbThreads = await getThreadsForAccount(
@@ -584,7 +607,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
         );
       }
 
-      let mapped = await mapDbThreads(dbThreads);
+      let mapped = await mapDbThreads(dbThreads, activeLabel === "drafts");
 
       if (isStale()) return;
 
@@ -640,12 +663,16 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
         // Global view pagination
         if (activeLabel === "unified-inbox" || activeLabel === "inbox") {
           dbThreads = await getUnifiedInboxThreads(globalAccountIds, PAGE_SIZE, offset);
+        } else if (activeLabel === "drafts") {
+          dbThreads = await getUnifiedDraftMessages(globalAccountIds, PAGE_SIZE, offset);
         } else {
           const gmailLabelId = LABEL_MAP[activeLabel] ?? activeLabel;
           dbThreads = await getUnifiedFolderThreads(globalAccountIds, gmailLabelId || "", PAGE_SIZE, offset);
         }
       } else if (activeLabel === "inbox" && activeCategory !== "All") {
         dbThreads = await getThreadsForCategory(activeAccountId, activeCategory, PAGE_SIZE, offset);
+      } else if (activeLabel === "drafts") {
+        dbThreads = await getDraftMessagesForAccount(activeAccountId, PAGE_SIZE, offset);
       } else {
         const gmailLabelId = LABEL_MAP[activeLabel] ?? activeLabel;
         dbThreads = await getThreadsForAccount(
@@ -656,7 +683,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
         );
       }
 
-      const mapped = await mapDbThreads(dbThreads);
+      const mapped = await mapDbThreads(dbThreads, activeLabel === "drafts");
       if (mapped.length > 0) {
         setThreads([...threads, ...mapped]);
       }
