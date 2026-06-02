@@ -11,6 +11,10 @@ import {
 
 export function SignatureSelector() {
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
+  const composerAccountId = useComposerStore((s) => s.composerAccountId);
+  // Use the composer's own account (a pop-out window has no global active account,
+  // or it may differ from the account this message is being composed from).
+  const effectiveAccountId = composerAccountId ?? activeAccountId;
   const isOpen = useComposerStore((s) => s.isOpen);
   const signatureId = useComposerStore((s) => s.signatureId);
   const setSignatureHtml = useComposerStore((s) => s.setSignatureHtml);
@@ -22,13 +26,13 @@ export function SignatureSelector() {
   useClickOutside(dropdownRef, () => setOpen(false));
 
   useEffect(() => {
-    if (!isOpen || !activeAccountId) return;
+    if (!isOpen || !effectiveAccountId) return;
     let cancelled = false;
-    getSignaturesForAccount(activeAccountId).then((sigs) => {
+    getSignaturesForAccount(effectiveAccountId).then((sigs) => {
       if (!cancelled) setSignatures(sigs);
     });
     return () => { cancelled = true; };
-  }, [isOpen, activeAccountId]);
+  }, [isOpen, effectiveAccountId]);
 
   const handleSelect = useCallback(
     (id: string) => {

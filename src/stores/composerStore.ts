@@ -30,6 +30,8 @@ export interface ComposerState {
   undoSendTimer: ReturnType<typeof setTimeout> | null;
   undoSendVisible: boolean;
   attachments: ComposerAttachment[];
+  /** Local DB message ID of the message being forwarded — used to lazy-fetch its attachments inside the composer window. */
+  forwardSourceMessageId: string | null;
   lastSavedAt: number | null;
   isSaving: boolean;
   isSending: boolean;
@@ -55,6 +57,8 @@ export interface ComposerState {
     /** Force a specific account for this compose session (overrides activeAccountId). */
     accountId?: string;
     attachments?: ComposerAttachment[];
+    /** Local DB message ID of the forwarded message — triggers lazy attachment fetch inside the composer. */
+    forwardSourceMessageId?: string | null;
   }) => void;
   closeComposer: () => void;
   setTo: (to: string[]) => void;
@@ -81,6 +85,7 @@ export interface ComposerState {
   setQuotedHtml: (html: string) => void;
   setAiSidebarOpen: (open: boolean) => void;
   toggleAiSidebar: () => void;
+  setForwardSourceMessageId: (id: string | null) => void;
 }
 
 export const useComposerStore = create<ComposerState>()((set) => ({
@@ -100,6 +105,7 @@ export const useComposerStore = create<ComposerState>()((set) => ({
   undoSendTimer: null,
   undoSendVisible: false,
   attachments: [],
+  forwardSourceMessageId: null,
   viewMode: "modal",
   fromEmail: null,
   composerAccountId: null,
@@ -142,6 +148,7 @@ openComposer: (opts) => {
         fromEmail: null,
         composerAccountId: opts?.accountId ?? null,
         attachments: opts?.attachments ?? [],
+        forwardSourceMessageId: opts?.forwardSourceMessageId ?? null,
         lastSavedAt: null,
         isSaving: false,
         isSending: false,
@@ -170,15 +177,15 @@ openComposer: (opts) => {
         if (opts?.references) params.set("references", opts.references);
         if (opts?.draftId) params.set("draftId", opts.draftId);
         if (opts?.accountId) params.set("accountId", opts.accountId);
+        if (opts?.forwardSourceMessageId) params.set("forwardSourceMessageId", opts.forwardSourceMessageId);
 
-        // quotedHtml/bodyHtml/attachments are too large for URLs — write to SQLite (shared across all windows)
-        if (opts?.quotedHtml || opts?.bodyHtml || opts?.attachments?.length) {
+        // quotedHtml/bodyHtml are too large for URLs — write to SQLite (shared across all windows)
+        if (opts?.quotedHtml || opts?.bodyHtml) {
           await setSetting(
             `__composer_payload_${windowLabel}`,
             JSON.stringify({
               quotedHtml: opts?.quotedHtml ?? "",
               bodyHtml: opts?.bodyHtml ?? "",
-              attachments: opts?.attachments ?? [],
             }),
           );
         }
@@ -225,6 +232,7 @@ openComposer: (opts) => {
       fromEmail: null,
       composerAccountId: null,
       attachments: [],
+      forwardSourceMessageId: null,
       lastSavedAt: null,
       isSaving: false,
       isSending: false,
@@ -260,4 +268,5 @@ openComposer: (opts) => {
   setQuotedHtml: (quotedHtml) => set({ quotedHtml }),
   setAiSidebarOpen: (aiSidebarOpen) => set({ aiSidebarOpen }),
   toggleAiSidebar: () => set((state) => ({ aiSidebarOpen: !state.aiSidebarOpen })),
+  setForwardSourceMessageId: (forwardSourceMessageId) => set({ forwardSourceMessageId }),
 }));

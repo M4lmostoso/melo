@@ -16,6 +16,7 @@ import { useThreadStore, type Thread } from "@/stores/threadStore";
 import { useSmartFolderStore } from "@/stores/smartFolderStore";
 import { useComposerStore } from "@/stores/composerStore";
 import { useActiveLabel } from "@/hooks/useRouteNavigation";
+import { getSelectedThreadId } from "@/router/navigate";
 import { InputDialog } from "@/components/ui/InputDialog";
 import { Search, X, FolderPlus, Pencil, User } from "lucide-react";
 
@@ -379,10 +380,16 @@ export function SearchBar() {
       <button
         onClick={() => {
           const { selectedThreadId, threadMap } = useThreadStore.getState();
-          const threadAccountId = selectedThreadId
-            ? (threadMap.get(selectedThreadId)?.accountId ?? null)
+          // The currently-OPEN thread comes from the router; clicking a thread does not
+          // update the store's selectedThreadId, so prefer the router's value, then fall
+          // back to viewingAccountId (set when viewing a thread in unified view).
+          const openThreadId = getSelectedThreadId() ?? selectedThreadId;
+          const threadAccountId = openThreadId
+            ? (threadMap.get(openThreadId)?.accountId ?? null)
             : null;
+          const viewingAccountId = useAccountStore.getState().viewingAccountId;
           const fallbackAccountId = threadAccountId
+            ?? viewingAccountId
             ?? activeAccountId
             ?? accounts.find((a) => a.includeInGlobal)?.id
             ?? undefined;

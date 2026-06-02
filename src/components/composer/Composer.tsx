@@ -63,6 +63,7 @@ import { readFileAsBase64 } from "@/utils/fileUtils";
 import { interpolateVariables } from "@/utils/templateVariables";
 import { sanitizeHtml } from "@/utils/sanitize";
 import { t } from "@/i18n";
+import { fetchForwardAttachments } from "@/services/email/forwardAttachments";
 
 const COMPOSER_FONT_MAP: Record<ComposerFontFamily, string> = {
   system: "-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif",
@@ -344,6 +345,53 @@ export function Composer() {
       stopAutoSave();
     };
   }, [isOpen, effectiveAccountId]);
+
+  // When forwarding, lazy-fetch the original message's non-inline attachments inside
+  // this window so we never need to pass large base64 blobs across the window boundary.
+  const forwardSourceMessageId = useComposerStore((s) => s.forwardSourceMessageId);
+  const forwardFetchedRef = useRef(false);
+  useEffect(() => {
+    if (mode !== "forward" || !isOpen || !effectiveAccountId || !forwardSourceMessageId) return;
+    if (forwardFetchedRef.current) return;
+    forwardFetchedRef.current = true;
+    fetchForwardAttachments(effectiveAccountId, forwardSourceMessageId)
+      .then((atts) => {
+        if (atts.length === 0) return;
+        const store = useComposerStore.getState();
+        for (const att of atts) store.addAttachment(att);
+      })
+      .catch((err) => console.error("[Composer] fetchForwardAttachments failed:", err));
+    // NOTE: do not reset the ref on cleanup — re-running would duplicate attachments.
+  }, [mode, isOpen, effectiveAccountId, forwardSourceMessageId]);
+
+  // For any quoted compose (reply/replyAll/forward), resolve cid: inline image
+  // references in the quoted HTML to base64 data URLs so they render in the composer
+  // and get embedded correctly in the sent MIME message via emailBuilder.extractInlineImages.
+  const setQuotedHtml = useComposerStore((s) => s.setQuotedHtml);
+  const cidResolvedRef = useRef(false);
+  useEffect(() => {
+    const hasCid = !!quotedHtml && /\bcid:/i.test(quotedHtml);
+    if (mode === "new" || !isOpen || !effectiveAccountId || !quotedHtml) return;
+    if (cidResolvedRef.current) return;
+    if (!hasCid) return;
+    cidResolvedRef.current = true;
+    (async () => {
+      // Gather the message IDs whose inline images may be referenced by the quote.
+      let ids: string[] = [];
+      if (threadId) {
+        const { getMessagesForThread } = await import("@/services/db/messages");
+        ids = (await getMessagesForThread(effectiveAccountId, threadId)).map((m) => m.id);
+      }
+      if (forwardSourceMessageId && !ids.includes(forwardSourceMessageId)) {
+        ids.push(forwardSourceMessageId);
+      }
+      if (ids.length === 0) return;
+      const { resolveQuoteHtmlCids } = await import("@/services/email/forwardAttachments");
+      const resolved = await resolveQuoteHtmlCids(effectiveAccountId, ids, quotedHtml);
+      if (resolved !== quotedHtml) setQuotedHtml(resolved);
+    })().catch((err) => console.error("[Composer] resolveQuoteHtmlCids failed:", err));
+    // NOTE: do not reset the ref on cleanup — the resolved html re-triggers this effect.
+  }, [mode, isOpen, effectiveAccountId, threadId, forwardSourceMessageId, quotedHtml, setQuotedHtml]);
 
   // Listen for window close event to save draft
   useEffect(() => {

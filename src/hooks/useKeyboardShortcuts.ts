@@ -10,7 +10,6 @@ import { archiveThread, trashThread, permanentDeleteThread, starThread, spamThre
 import { deleteThread as deleteThreadFromDb, pinThread as pinThreadDb, unpinThread as unpinThreadDb, muteThread as muteThreadDb, unmuteThread as unmuteThreadDb } from "@/services/db/threads";
 import { logInteraction } from "@/services/ai/reputationEngine";
 import { getMessagesForThread, type DbMessage } from "@/services/db/messages";
-import { fetchForwardAttachments } from "@/services/email/forwardAttachments";
 import { escapeHtml, sanitizeHtml } from "@/utils/sanitize";
 import { parseUnsubscribeUrl } from "@/components/email/MessageItem";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -235,7 +234,14 @@ async function executeAction(actionId: string): Promise<void> {
     }
   }
 const currentIdx = threads.findIndex((t) => t.id === selectedId);
-   let activeAccountId = useAccountStore.getState().activeAccountId;
+   // Thread-bound actions (reply/forward/archive/…) must operate on the SELECTED
+   // thread's own account, not the globally-active account — otherwise in a
+   // multi-account or unified view a reply/forward would query the wrong account
+   // (returning no messages) or send from the wrong identity.
+   const selectedThreadAccountId = selectedId
+     ? (useThreadStore.getState().threadMap.get(selectedId)?.accountId ?? null)
+     : null;
+   let activeAccountId = selectedThreadAccountId ?? useAccountStore.getState().activeAccountId;
    if (!activeAccountId) {
      // Fallback: try to get from URL params (for ThreadWindow)
      const params = new URLSearchParams(window.location.search);
@@ -340,9 +346,9 @@ case "action.reply": {
             lastMessage.to_addresses?.split(",").forEach(a => { const t = a.trim(); if (t && !myEmails.has(t.toLowerCase())) allRecipients.add(t); });
             const ccList: string[] = [];
             lastMessage.cc_addresses?.split(",").forEach(a => { const t = a.trim(); if (t && !myEmails.has(t.toLowerCase())) ccList.push(t); });
-            useComposerStore.getState().openComposer({ mode: "replyAll", to: [...allRecipients].filter(r => !myEmails.has(r.toLowerCase())), cc: ccList, subject: `Re: ${lastMessage.subject ?? ""}`, quotedHtml: buildReplyQuote(messages), threadId: lastMessage.thread_id, inReplyToMessageId: lastMessage.id });
+            useComposerStore.getState().openComposer({ mode: "replyAll", to: [...allRecipients].filter(r => !myEmails.has(r.toLowerCase())), cc: ccList, subject: `Re: ${lastMessage.subject ?? ""}`, quotedHtml: buildReplyQuote(messages), threadId: lastMessage.thread_id, inReplyToMessageId: lastMessage.id, accountId: activeAccountId });
           } else {
-            useComposerStore.getState().openComposer({ mode: "reply", to: replyTo ? [replyTo] : [], subject: `Re: ${lastMessage.subject ?? ""}`, quotedHtml: buildReplyQuote(messages), threadId: lastMessage.thread_id, inReplyToMessageId: lastMessage.id });
+            useComposerStore.getState().openComposer({ mode: "reply", to: replyTo ? [replyTo] : [], subject: `Re: ${lastMessage.subject ?? ""}`, quotedHtml: buildReplyQuote(messages), threadId: lastMessage.thread_id, inReplyToMessageId: lastMessage.id, accountId: activeAccountId });
           }
         }
       }
@@ -360,7 +366,7 @@ case "action.reply": {
           lastMessage.to_addresses?.split(",").forEach(a => { const t = a.trim(); if (t && !myEmails.has(t.toLowerCase())) allRecipients.add(t); });
           const ccList: string[] = [];
           lastMessage.cc_addresses?.split(",").forEach(a => { const t = a.trim(); if (t && !myEmails.has(t.toLowerCase())) ccList.push(t); });
-          useComposerStore.getState().openComposer({ mode: "replyAll", to: [...allRecipients].filter(r => !myEmails.has(r.toLowerCase())), cc: ccList, subject: `Re: ${lastMessage.subject ?? ""}`, quotedHtml: buildReplyQuote(messages), threadId: lastMessage.thread_id, inReplyToMessageId: lastMessage.id });
+          useComposerStore.getState().openComposer({ mode: "replyAll", to: [...allRecipients].filter(r => !myEmails.has(r.toLowerCase())), cc: ccList, subject: `Re: ${lastMessage.subject ?? ""}`, quotedHtml: buildReplyQuote(messages), threadId: lastMessage.thread_id, inReplyToMessageId: lastMessage.id, accountId: activeAccountId });
         }
       }
       break;
@@ -370,8 +376,7 @@ case "action.reply": {
         const lastMessage = messages[messages.length - 1];
         if (lastMessage) {
           const threadSubject = useThreadStore.getState().threads.find(t => t.id === selectedId)?.subject ?? null;
-          const attachments = await fetchForwardAttachments(activeAccountId, lastMessage.id).catch(() => []);
-          useComposerStore.getState().openComposer({ mode: "forward", to: [], subject: `Fwd: ${lastMessage.subject ?? threadSubject ?? ""}`, quotedHtml: buildForwardQuote(messages), threadId: lastMessage.thread_id, inReplyToMessageId: lastMessage.id, attachments });
+          useComposerStore.getState().openComposer({ mode: "forward", to: [], subject: `Fwd: ${lastMessage.subject ?? threadSubject ?? ""}`, quotedHtml: buildForwardQuote(messages), threadId: lastMessage.thread_id, inReplyToMessageId: lastMessage.id, forwardSourceMessageId: lastMessage.id, accountId: activeAccountId });
         }
       }
       break;

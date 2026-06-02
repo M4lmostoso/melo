@@ -216,7 +216,7 @@ export function ActionBar({ thread, messages, noReply, defaultReplyMode = "reply
               variant="secondary"
               iconOnly
               icon={defaultReplyMode === "replyAll" ? <ReplyAll size={15} /> : <Reply size={15} />}
-              onClick={defaultReplyMode === "replyAll" ? onReplyAll : onReply}
+              onClick={() => (defaultReplyMode === "replyAll" ? onReplyAll : onReply)?.()}
               disabled={noReply}
               title={noReply ? t("actionBar.noReply") : defaultReplyMode === "replyAll" ? t("actionBar.replyAllSwitched") : t("actionBar.reply")}
               className="disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-text-secondary"
@@ -225,7 +225,7 @@ export function ActionBar({ thread, messages, noReply, defaultReplyMode = "reply
               variant="secondary"
               iconOnly
               icon={defaultReplyMode === "replyAll" ? <Reply size={15} /> : <ReplyAll size={15} />}
-              onClick={defaultReplyMode === "replyAll" ? onReply : onReplyAll}
+              onClick={() => (defaultReplyMode === "replyAll" ? onReply : onReplyAll)?.()}
               disabled={noReply}
               title={noReply ? t("actionBar.noReply") : defaultReplyMode === "replyAll" ? t("actionBar.replySwitched") : t("actionBar.replyAll")}
               className="disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-text-secondary"
@@ -234,7 +234,7 @@ export function ActionBar({ thread, messages, noReply, defaultReplyMode = "reply
               variant="secondary"
               iconOnly
               icon={<Forward size={15} />}
-              onClick={onForward}
+              onClick={() => onForward?.()}
               title={t("actionBar.forward")}
             />
             <Separator />

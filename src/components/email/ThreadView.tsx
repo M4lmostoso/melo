@@ -13,7 +13,6 @@ import { LabelBreadcrumb } from "@/components/labels/LabelBreadcrumb";
 import { useComposerStore } from "@/stores/composerStore";
 import { useContextMenuStore } from "@/stores/contextMenuStore";
 import { markThreadRead, deleteSingleMessage } from "@/services/emailActions";
-import { fetchForwardAttachments } from "@/services/email/forwardAttachments";
 import { useActiveLabel } from "@/hooks/useRouteNavigation";
 import { getSetting } from "@/services/db/settings";
 import { getAllowlistedSenders } from "@/services/db/imageAllowlist";
@@ -239,7 +238,10 @@ export function ThreadView({ thread }: ThreadViewProps) {
   }, [selectedMessage, openComposer, activeAccount, accounts, messages, thread.accountId]);
 
   const handleForward = useCallback(async (msgOverride?: DbMessage) => {
-    const msg = msgOverride ?? selectedMessage;
+    // Guard against being invoked directly as an onClick handler (which would pass
+    // a click event as msgOverride): only accept a real DbMessage.
+    const override = msgOverride && "id" in msgOverride ? msgOverride : undefined;
+    const msg = override ?? selectedMessage;
     if (!msg) return;
     const msgIndex = messages.findIndex(m => m.id === msg.id);
     const quotedMessages = msgIndex >= 0 ? messages.slice(0, msgIndex + 1) : messages;
@@ -247,7 +249,6 @@ export function ThreadView({ thread }: ThreadViewProps) {
     const refs = rfcMsgId
       ? [msg.references_header, rfcMsgId].filter(Boolean).join(" ")
       : null;
-    const attachments = await fetchForwardAttachments(thread.accountId, msg.id).catch(() => []);
     openComposer({
       mode: "forward",
       to: [],
@@ -257,7 +258,7 @@ export function ThreadView({ thread }: ThreadViewProps) {
       inReplyToMessageId: rfcMsgId,
       references: refs,
       accountId: thread.accountId,
-      attachments,
+      forwardSourceMessageId: msg.id,
     });
   }, [selectedMessage, openComposer, messages, thread.accountId, thread.subject]);
 

@@ -119,10 +119,9 @@ export default function ComposerWindow() {
          const fromEmail = params.get("fromEmail");
          const accountId = params.get("accountId");
 
-         // quotedHtml/bodyHtml/attachments are passed via SQLite (too large for URL, localStorage not shared across windows)
+         // quotedHtml/bodyHtml are passed via SQLite (too large for URL, localStorage not shared across windows)
          let quotedHtml = "";
          let bodyHtml = "";
-         let attachments: import("./stores/composerStore").ComposerAttachment[] = [];
          if (windowLabel) {
            const payloadKey = `__composer_payload_${windowLabel}`;
            const raw = await getSetting(payloadKey);
@@ -131,7 +130,6 @@ export default function ComposerWindow() {
                const payload = JSON.parse(raw);
                if (payload.quotedHtml) quotedHtml = payload.quotedHtml;
                if (payload.bodyHtml) bodyHtml = payload.bodyHtml;
-               if (Array.isArray(payload.attachments)) attachments = payload.attachments;
              } catch { /* ignore */ }
              await deleteSetting(payloadKey);
            }
@@ -148,8 +146,9 @@ export default function ComposerWindow() {
         // We pass it into opts so openComposer() sets composerAccountId atomically
         // (it would otherwise reset it to null if opts.accountId is undefined).
         const resolvedAccountId = accountId ?? savedAccountId ?? undefined;
+        const forwardSourceMessageId = params.get("forwardSourceMessageId") ?? undefined;
 
-        const opts = { mode, to, cc, bcc, subject, bodyHtml, quotedHtml, threadId, inReplyToMessageId, references, draftId, accountId: resolvedAccountId, attachments };
+        const opts = { mode, to, cc, bcc, subject, bodyHtml, quotedHtml, threadId, inReplyToMessageId, references, draftId, accountId: resolvedAccountId, forwardSourceMessageId };
 
         // Open composer with parsed state
         useComposerStore.getState().openComposer(opts);

@@ -20,7 +20,6 @@ import {
 } from "@/services/ai/writingStyleService";
 import type { DbMessage } from "@/services/db/messages";
 import type { Thread } from "@/stores/threadStore";
-import { fetchForwardAttachments } from "@/services/email/forwardAttachments";
 
 type ReplyMode = "reply" | "replyAll" | "forward";
 
@@ -223,13 +222,10 @@ export function InlineReply({ thread, messages, accountId, noReply, onSent }: In
     }
   }, [activeAccount, editor, sending, getRecipients, getSubject, signatureHtml, lastMessage, thread.id, accountId, mode, onSent]);
 
-  const handleExpandToComposer = useCallback(async () => {
+  const handleExpandToComposer = useCallback(() => {
     if (!editor || !lastMessage) return;
     const { to, cc } = getRecipients();
     const bodyHtml = editor.getHTML();
-    const attachments = mode === "forward"
-      ? await fetchForwardAttachments(accountId, lastMessage.id).catch(() => [])
-      : [];
 
     openComposer({
       mode: mode === "forward" ? "forward" : mode === "replyAll" ? "replyAll" : "reply",
@@ -240,7 +236,7 @@ export function InlineReply({ thread, messages, accountId, noReply, onSent }: In
       threadId: thread.id,
       inReplyToMessageId: lastMessage.id,
       accountId,
-      attachments,
+      ...(mode === "forward" ? { forwardSourceMessageId: lastMessage.id } : {}),
     });
 
     // Reset inline state
