@@ -163,7 +163,7 @@ describe("accounts", () => {
       expect(mockExecute).toHaveBeenCalledTimes(1);
       const [sql, params] = mockExecute.mock.calls[0] as [string, unknown[]];
       expect(sql).toContain("INSERT INTO accounts");
-      expect(sql).toContain("'imap'");
+      expect(sql).toContain("provider"); // provider is parameterized ($17)
       expect(params).toEqual([
         "new-imap",
         "user@fastmail.com",
@@ -181,6 +181,7 @@ describe("accounts", () => {
         null, // smtp_username
         null, // imap_username
         0, // accept_invalid_certs
+        "imap", // provider
       ]);
     });
 
@@ -227,9 +228,9 @@ describe("accounts", () => {
         password: "pass",
       });
 
-      const [sql] = mockExecute.mock.calls[0] as [string, unknown[]];
+      const [sql, params] = mockExecute.mock.calls[0] as [string, unknown[]];
       expect(sql).toContain("NULL, NULL");
-      expect(sql).toContain("'imap'");
+      expect(params).toContain("imap"); // provider is parameterized ($17)
     });
   });
 

@@ -35,6 +35,7 @@ import {
 } from "../threading/threadBuilder";
 import { getThreadSubjectMap } from "../db/threads";
 import { getPendingOpResourceIds } from "../db/pendingOperations";
+import { applyPendingLabelAssignments } from "../db/pendingLabelAssignments";
 import { processThreadUrgency, type ThreadUrgencyParams } from "@/services/ai/urgencyPipeline";
 import { getSetting } from "../db/settings";
 import { getVipSenders } from "../db/notificationVips";
@@ -900,6 +901,12 @@ export async function imapInitialSync(
   // Persist folder sync states only after thread storage succeeds to prevent stuck messages
   await Promise.all(pendingFolderStates.map(upsertFolderSyncState));
 
+  // Apply any deferred cross-account user-label carry-overs now that the moved
+  // messages have been imported and assigned thread_ids.
+  await applyPendingLabelAssignments(accountId).catch((err) =>
+    console.error(`[imapSync] applyPendingLabelAssignments error:`, err),
+  );
+
   onProgress?.({ phase: "storing_threads", current: threadGroups.length, total: threadGroups.length });
 
   // Fire urgency scoring outside of any DB lock
@@ -1189,6 +1196,11 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
   if (storedHeaders.length === 0) {
     // No new messages, but still persist folder states (records last_uid / last_sync_at)
     await Promise.all(pendingFolderStates.map(upsertFolderSyncState));
+    // A prior cycle may have imported a cross-account-moved message whose
+    // deferred label is still pending — try to apply it now.
+    await applyPendingLabelAssignments(accountId).catch((err) =>
+      console.error(`[imapSync] applyPendingLabelAssignments error:`, err),
+    );
     return { messages: [], storedCount: 0, flagChangedCount };
   }
 
@@ -1215,6 +1227,12 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
   await imapStoreThreads(accountId, updates, allLocalIds);
   // Persist folder sync states only after thread storage succeeds to prevent stuck messages
   await Promise.all(pendingFolderStates.map(upsertFolderSyncState));
+
+  // Apply any deferred cross-account user-label carry-overs now that the moved
+  // messages have been imported and assigned thread_ids.
+  await applyPendingLabelAssignments(accountId).catch((err) =>
+    console.error(`[imapSync] applyPendingLabelAssignments error:`, err),
+  );
 
   // Run fragmented-thread reconciliation on every cycle that stored new messages.
   // New messages can create new fragments (subject mismatches, missing parents arriving

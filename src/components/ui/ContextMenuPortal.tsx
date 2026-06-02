@@ -14,6 +14,7 @@ import { getSchedulePresets } from "@/utils/schedulePresets";
 import { deleteThread as deleteThreadFromDb, pinThread as pinThreadDb, unpinThread as unpinThreadDb, muteThread as muteThreadDb, unmuteThread as unmuteThreadDb } from "@/services/db/threads";
 import { logInteraction } from "@/services/ai/reputationEngine";
 import { getMessagesForThread } from "@/services/db/messages";
+import { fetchForwardAttachments } from "@/services/email/forwardAttachments";
 import { snoozeThread } from "@/services/snooze/snoozeManager";
 import { getEnabledQuickStepsForAccount, type DbQuickStep } from "@/services/db/quickSteps";
 import { executeQuickStep } from "@/services/quickSteps/executor";
@@ -329,13 +330,15 @@ function ThreadMenu({
     const messages = await getMessagesForThread(resolvedAccountId, thread.id);
     const lastMessage = messages[messages.length - 1];
     if (!lastMessage) return;
+    const attachments = await fetchForwardAttachments(resolvedAccountId, lastMessage.id).catch(() => []);
     openComposer({
       mode: "forward",
       to: [],
-      subject: `Fwd: ${lastMessage.subject ?? ""}`,
+      subject: `Fwd: ${lastMessage.subject ?? thread.subject ?? ""}`,
       quotedHtml: buildForwardQuote(messages),
       threadId: lastMessage.thread_id,
       inReplyToMessageId: lastMessage.id,
+      attachments,
     });
   };
 
@@ -751,6 +754,9 @@ function MessageMenu({
         msgs = idx >= 0 ? fetched.slice(0, idx + 1) : fetched;
       } catch { /* fall back to single message */ }
     }
+    const attachments = accountId
+      ? await fetchForwardAttachments(accountId, messageId).catch(() => [])
+      : [];
     openComposer({
       mode: "forward",
       to: [],
@@ -758,6 +764,7 @@ function MessageMenu({
       quotedHtml: buildForwardQuote(msgs),
       threadId,
       inReplyToMessageId: messageId,
+      attachments,
     });
   };
 

@@ -13,6 +13,7 @@ export function createMockThreadStoreState(
 ) {
   return {
     threads: [],
+    threadMap: new Map(),
     updateThread: vi.fn(),
     removeThread: vi.fn(),
     removeThreads: vi.fn(),

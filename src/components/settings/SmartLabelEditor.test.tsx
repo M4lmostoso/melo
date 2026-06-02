@@ -3,12 +3,13 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { SmartLabelEditor } from "./SmartLabelEditor";
 import { useAccountStore } from "@/stores/accountStore";
 
-vi.mock("@/services/db/labels", () => ({
-  getLabelsForAccount: vi.fn(() =>
+// The editor reads labels from user_labels, which only ever holds user labels
+// (system labels are excluded at the data layer, not filtered in the component).
+vi.mock("@/services/db/userLabels", () => ({
+  getUserLabelsForAccount: vi.fn(() =>
     Promise.resolve([
-      { id: "label-work", name: "Work", type: "user", account_id: "acc1" },
-      { id: "label-personal", name: "Personal", type: "user", account_id: "acc1" },
-      { id: "INBOX", name: "Inbox", type: "system", account_id: "acc1" },
+      { id: "label-work", name: "Work", color: null, account_id: "acc1", system_label_id: null, sort_order: 0, created_at: 0 },
+      { id: "label-personal", name: "Personal", color: null, account_id: "acc1", system_label_id: null, sort_order: 1, created_at: 0 },
     ]),
   ),
 }));

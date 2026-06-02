@@ -10,6 +10,7 @@ import { archiveThread, trashThread, permanentDeleteThread, starThread, spamThre
 import { deleteThread as deleteThreadFromDb, pinThread as pinThreadDb, unpinThread as unpinThreadDb, muteThread as muteThreadDb, unmuteThread as unmuteThreadDb } from "@/services/db/threads";
 import { logInteraction } from "@/services/ai/reputationEngine";
 import { getMessagesForThread, type DbMessage } from "@/services/db/messages";
+import { fetchForwardAttachments } from "@/services/email/forwardAttachments";
 import { escapeHtml, sanitizeHtml } from "@/utils/sanitize";
 import { parseUnsubscribeUrl } from "@/components/email/MessageItem";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -368,7 +369,9 @@ case "action.reply": {
         const messages = await getMessagesForThread(activeAccountId, selectedId);
         const lastMessage = messages[messages.length - 1];
         if (lastMessage) {
-          useComposerStore.getState().openComposer({ mode: "forward", to: [], subject: `Fwd: ${lastMessage.subject ?? ""}`, quotedHtml: buildForwardQuote(messages), threadId: lastMessage.thread_id, inReplyToMessageId: lastMessage.id });
+          const threadSubject = useThreadStore.getState().threads.find(t => t.id === selectedId)?.subject ?? null;
+          const attachments = await fetchForwardAttachments(activeAccountId, lastMessage.id).catch(() => []);
+          useComposerStore.getState().openComposer({ mode: "forward", to: [], subject: `Fwd: ${lastMessage.subject ?? threadSubject ?? ""}`, quotedHtml: buildForwardQuote(messages), threadId: lastMessage.thread_id, inReplyToMessageId: lastMessage.id, attachments });
         }
       }
       break;

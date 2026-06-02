@@ -13,6 +13,7 @@ import { LabelBreadcrumb } from "@/components/labels/LabelBreadcrumb";
 import { useComposerStore } from "@/stores/composerStore";
 import { useContextMenuStore } from "@/stores/contextMenuStore";
 import { markThreadRead, deleteSingleMessage } from "@/services/emailActions";
+import { fetchForwardAttachments } from "@/services/email/forwardAttachments";
 import { useActiveLabel } from "@/hooks/useRouteNavigation";
 import { getSetting } from "@/services/db/settings";
 import { getAllowlistedSenders } from "@/services/db/imageAllowlist";
@@ -246,17 +247,19 @@ export function ThreadView({ thread }: ThreadViewProps) {
     const refs = rfcMsgId
       ? [msg.references_header, rfcMsgId].filter(Boolean).join(" ")
       : null;
+    const attachments = await fetchForwardAttachments(thread.accountId, msg.id).catch(() => []);
     openComposer({
       mode: "forward",
       to: [],
-      subject: `Fwd: ${msg.subject ?? ""}`,
+      subject: `Fwd: ${msg.subject ?? thread.subject ?? ""}`,
       quotedHtml: buildThreadForwardQuote(quotedMessages),
       threadId: msg.thread_id,
       inReplyToMessageId: rfcMsgId,
       references: refs,
       accountId: thread.accountId,
+      attachments,
     });
-  }, [selectedMessage, openComposer, messages, thread.accountId]);
+  }, [selectedMessage, openComposer, messages, thread.accountId, thread.subject]);
 
 const handlePrint = useCallback(async () => {
     if (messages.length === 0) {
@@ -552,12 +555,12 @@ const handlePrint = useCallback(async () => {
       replyTo: msg.reply_to,
       toAddresses: msg.to_addresses,
       ccAddresses: msg.cc_addresses,
-      subject: msg.subject,
+      subject: msg.subject ?? thread.subject,
       date: msg.date,
       bodyHtml: msg.body_html,
       bodyText: msg.body_text,
     });
-  }, [openMenu]);
+  }, [openMenu, thread.subject]);
 
   const handleExport = useCallback(async () => {
     if (messages.length === 0) return;

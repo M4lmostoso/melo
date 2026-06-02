@@ -7,6 +7,7 @@ export function createMockGmailClient(
   return {
     listLabels: vi.fn(),
     createLabel: vi.fn(),
+    createOrGetLabel: vi.fn(),
     deleteLabel: vi.fn(),
     updateLabel: vi.fn(),
     modifyThread: vi.fn(),

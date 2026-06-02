@@ -1175,6 +1175,21 @@ const MIGRATIONS = [
         AND  l.type = 'user';
     `,
   },
+  {
+    version: 59,
+    description: "Add pending_label_assignments for deferred cross-account user-label carry-over on IMAP targets (applied once the moved message is synced)",
+    sql: `
+      CREATE TABLE IF NOT EXISTS pending_label_assignments (
+        account_id        TEXT    NOT NULL,
+        message_id_header TEXT    NOT NULL,
+        label_id          TEXT    NOT NULL,
+        created_at        INTEGER NOT NULL DEFAULT (unixepoch()),
+        PRIMARY KEY (account_id, message_id_header, label_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_pending_label_assignments_account
+        ON pending_label_assignments(account_id);
+    `,
+  },
 ];
 
 // ---------------------------------------------------------------------------

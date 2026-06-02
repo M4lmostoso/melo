@@ -20,6 +20,7 @@ import {
 } from "@/services/ai/writingStyleService";
 import type { DbMessage } from "@/services/db/messages";
 import type { Thread } from "@/stores/threadStore";
+import { fetchForwardAttachments } from "@/services/email/forwardAttachments";
 
 type ReplyMode = "reply" | "replyAll" | "forward";
 
@@ -155,10 +156,10 @@ export function InlineReply({ thread, messages, accountId, noReply, onSent }: In
   }, [lastMessage, mode, activeAccount?.email]);
 
   const getSubject = useCallback((): string => {
-    const sub = lastMessage?.subject ?? "";
+    const sub = lastMessage?.subject ?? thread.subject ?? "";
     if (mode === "forward") return sub.startsWith("Fwd:") ? sub : `Fwd: ${sub}`;
     return sub.startsWith("Re:") ? sub : `Re: ${sub}`;
-  }, [lastMessage, mode]);
+  }, [lastMessage, thread.subject, mode]);
 
   const handleSend = useCallback(async () => {
     if (!activeAccount || !editor || sending) return;
@@ -222,10 +223,13 @@ export function InlineReply({ thread, messages, accountId, noReply, onSent }: In
     }
   }, [activeAccount, editor, sending, getRecipients, getSubject, signatureHtml, lastMessage, thread.id, accountId, mode, onSent]);
 
-  const handleExpandToComposer = useCallback(() => {
+  const handleExpandToComposer = useCallback(async () => {
     if (!editor || !lastMessage) return;
     const { to, cc } = getRecipients();
     const bodyHtml = editor.getHTML();
+    const attachments = mode === "forward"
+      ? await fetchForwardAttachments(accountId, lastMessage.id).catch(() => [])
+      : [];
 
     openComposer({
       mode: mode === "forward" ? "forward" : mode === "replyAll" ? "replyAll" : "reply",
@@ -236,12 +240,13 @@ export function InlineReply({ thread, messages, accountId, noReply, onSent }: In
       threadId: thread.id,
       inReplyToMessageId: lastMessage.id,
       accountId,
+      attachments,
     });
 
     // Reset inline state
     editor.commands.setContent("");
     setMode(null);
-  }, [editor, lastMessage, getRecipients, getSubject, mode, thread.id, openComposer]);
+  }, [editor, lastMessage, getRecipients, getSubject, mode, thread.id, openComposer, accountId]);
 
   const handleRegenerateDraft = useCallback(async () => {
     if (!editor || !mode || mode === "forward") return;

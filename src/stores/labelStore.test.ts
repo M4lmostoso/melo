@@ -8,17 +8,36 @@ vi.mock("@/services/db/labels", () => ({
   upsertLabel: vi.fn(),
 }));
 
+vi.mock("@/services/db/userLabels", () => ({
+  getUserLabelsForAccount: vi.fn(),
+  upsertUserLabel: vi.fn(),
+  deleteUserLabel: vi.fn(),
+  updateUserLabelSortOrder: vi.fn(),
+}));
+
 vi.mock("@/services/gmail/tokenManager", () => ({
   getGmailClient: vi.fn(),
 }));
 
+// labelStore.isGmailAccount() reads the account provider from accountStore.
+vi.mock("@/stores/accountStore", () => ({
+  useAccountStore: {
+    getState: vi.fn(() => ({ accounts: [{ id: "acc1", provider: "gmail_api" }] })),
+  },
+}));
+
 import { getLabelsForAccount, deleteLabel as dbDeleteLabel, updateLabelSortOrder, upsertLabel } from "@/services/db/labels";
+import { getUserLabelsForAccount, upsertUserLabel, deleteUserLabel, updateUserLabelSortOrder } from "@/services/db/userLabels";
 import { getGmailClient } from "@/services/gmail/tokenManager";
 
 const mockGetLabels = vi.mocked(getLabelsForAccount);
 const mockDbDeleteLabel = vi.mocked(dbDeleteLabel);
 const mockUpdateSortOrder = vi.mocked(updateLabelSortOrder);
 const mockUpsertLabel = vi.mocked(upsertLabel);
+const mockGetUserLabels = vi.mocked(getUserLabelsForAccount);
+const mockUpsertUserLabel = vi.mocked(upsertUserLabel);
+const mockDeleteUserLabel = vi.mocked(deleteUserLabel);
+const mockUpdateUserSortOrder = vi.mocked(updateUserLabelSortOrder);
 const mockGetGmailClient = vi.mocked(getGmailClient);
 import { createMockGmailClient } from "@/test/mocks";
 
@@ -48,12 +67,14 @@ describe("labelStore", () => {
   });
 
   it("should load labels and filter out system labels", async () => {
-    mockGetLabels.mockResolvedValue([
-      { id: "INBOX", account_id: "acc1", name: "INBOX", type: "system", color_bg: null, color_fg: null, visible: 1, sort_order: 0 },
-      { id: "SENT", account_id: "acc1", name: "SENT", type: "system", color_bg: null, color_fg: null, visible: 1, sort_order: 1 },
-      { id: "CATEGORY_SOCIAL", account_id: "acc1", name: "Social", type: "system", color_bg: null, color_fg: null, visible: 1, sort_order: 2 },
-      { id: "Label_1", account_id: "acc1", name: "Work", type: "user", color_bg: "#4285f4", color_fg: "#ffffff", visible: 1, sort_order: 3 },
-      { id: "Label_2", account_id: "acc1", name: "Personal", type: "user", color_bg: null, color_fg: null, visible: 1, sort_order: 4 },
+    // loadLabels reads from user_labels; system labels are filtered by id and
+    // colorFg is derived from colorBg via WCAG contrast (not stored).
+    mockGetUserLabels.mockResolvedValue([
+      { id: "INBOX", name: "INBOX", color: null, account_id: "acc1", system_label_id: "INBOX", sort_order: 0, created_at: 0 },
+      { id: "SENT", name: "SENT", color: null, account_id: "acc1", system_label_id: "SENT", sort_order: 1, created_at: 0 },
+      { id: "CATEGORY_SOCIAL", name: "Social", color: null, account_id: "acc1", system_label_id: "CATEGORY_SOCIAL", sort_order: 2, created_at: 0 },
+      { id: "Label_1", name: "Work", color: "#4285f4", account_id: "acc1", system_label_id: "Label_1", sort_order: 3, created_at: 0 },
+      { id: "Label_2", name: "Personal", color: null, account_id: "acc1", system_label_id: "Label_2", sort_order: 4, created_at: 0 },
     ]);
 
     await useLabelStore.getState().loadLabels("acc1");
@@ -66,7 +87,7 @@ describe("labelStore", () => {
       name: "Work",
       type: "user",
       colorBg: "#4285f4",
-      colorFg: "#ffffff",
+      colorFg: "#000000", // derived: #4285f4 is light → black text
       sortOrder: 3,
     });
     expect(state.labels[1]).toEqual({
@@ -82,7 +103,7 @@ describe("labelStore", () => {
   });
 
   it("should handle load error gracefully", async () => {
-    mockGetLabels.mockRejectedValue(new Error("DB error"));
+    mockGetUserLabels.mockRejectedValue(new Error("DB error"));
     await useLabelStore.getState().loadLabels("acc1");
     const state = useLabelStore.getState();
     expect(state.labels).toEqual([]);
@@ -91,7 +112,8 @@ describe("labelStore", () => {
 
   it("should create a label via Gmail API and update DB", async () => {
     const mockClient = createMockGmailClient();
-    mockClient.createLabel.mockResolvedValue({
+    // createLabel uses createOrGetLabel (creates parent hierarchy + leaf, tolerating 409s).
+    mockClient.createOrGetLabel.mockResolvedValue({
       id: "Label_new",
       name: "New Label",
       type: "user",
@@ -100,11 +122,13 @@ describe("labelStore", () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     mockGetGmailClient.mockResolvedValue(mockClient as any);
     mockUpsertLabel.mockResolvedValue(undefined);
+    mockUpsertUserLabel.mockResolvedValue(undefined);
+    mockGetUserLabels.mockResolvedValue([]);
     mockGetLabels.mockResolvedValue([]);
 
     await useLabelStore.getState().createLabel("acc1", "New Label", { textColor: "#ffffff", backgroundColor: "#fb4c2f" });
 
-    expect(mockClient.createLabel).toHaveBeenCalledWith("New Label", { textColor: "#ffffff", backgroundColor: "#fb4c2f" });
+    expect(mockClient.createOrGetLabel).toHaveBeenCalledWith("New Label", { textColor: "#ffffff", backgroundColor: "#fb4c2f" });
     expect(mockUpsertLabel).toHaveBeenCalledWith({
       id: "Label_new",
       accountId: "acc1",
@@ -113,7 +137,14 @@ describe("labelStore", () => {
       colorBg: "#fb4c2f",
       colorFg: "#ffffff",
     });
-    expect(mockGetLabels).toHaveBeenCalledWith("acc1");
+    expect(mockUpsertUserLabel).toHaveBeenCalledWith({
+      id: "Label_new",
+      name: "New Label",
+      color: "#fb4c2f",
+      accountId: "acc1",
+      systemLabelId: "Label_new",
+    });
+    expect(mockGetUserLabels).toHaveBeenCalledWith("acc1");
   });
 
   it("should update a label via Gmail API and update DB", async () => {
@@ -127,6 +158,8 @@ describe("labelStore", () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     mockGetGmailClient.mockResolvedValue(mockClient as any);
     mockUpsertLabel.mockResolvedValue(undefined);
+    mockUpsertUserLabel.mockResolvedValue(undefined);
+    mockGetUserLabels.mockResolvedValue([]);
     mockGetLabels.mockResolvedValue([]);
 
     await useLabelStore.getState().updateLabel("acc1", "Label_1", {
@@ -139,6 +172,7 @@ describe("labelStore", () => {
       color: { textColor: "#ffffff", backgroundColor: "#16a765" },
     });
     expect(mockUpsertLabel).toHaveBeenCalled();
+    expect(mockUpsertUserLabel).toHaveBeenCalled();
   });
 
   it("should delete a label via Gmail API and DB", async () => {
@@ -147,27 +181,35 @@ describe("labelStore", () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     mockGetGmailClient.mockResolvedValue(mockClient as any);
     mockDbDeleteLabel.mockResolvedValue(undefined);
+    mockDeleteUserLabel.mockResolvedValue(undefined);
+    mockGetUserLabels.mockResolvedValue([]);
     mockGetLabels.mockResolvedValue([]);
 
     await useLabelStore.getState().deleteLabel("acc1", "Label_1");
 
     expect(mockClient.deleteLabel).toHaveBeenCalledWith("Label_1");
     expect(mockDbDeleteLabel).toHaveBeenCalledWith("acc1", "Label_1");
-    expect(mockGetLabels).toHaveBeenCalledWith("acc1");
+    expect(mockDeleteUserLabel).toHaveBeenCalledWith("Label_1");
+    expect(mockGetUserLabels).toHaveBeenCalledWith("acc1");
   });
 
   it("should reorder labels by updating sort order in DB", async () => {
     mockUpdateSortOrder.mockResolvedValue(undefined);
+    mockUpdateUserSortOrder.mockResolvedValue(undefined);
+    mockGetUserLabels.mockResolvedValue([]);
     mockGetLabels.mockResolvedValue([]);
 
     await useLabelStore.getState().reorderLabels("acc1", ["Label_2", "Label_1", "Label_3"]);
 
-    expect(mockUpdateSortOrder).toHaveBeenCalledWith("acc1", [
+    const expectedOrders = [
       { id: "Label_2", sortOrder: 0 },
       { id: "Label_1", sortOrder: 1 },
       { id: "Label_3", sortOrder: 2 },
-    ]);
-    expect(mockGetLabels).toHaveBeenCalledWith("acc1");
+    ];
+    // user_labels is the source of truth; labels table is kept in sync for Gmail.
+    expect(mockUpdateUserSortOrder).toHaveBeenCalledWith("acc1", expectedOrders);
+    expect(mockUpdateSortOrder).toHaveBeenCalledWith("acc1", expectedOrders);
+    expect(mockGetUserLabels).toHaveBeenCalledWith("acc1");
   });
 });
 

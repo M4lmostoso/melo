@@ -5,7 +5,7 @@ export type ComposerViewMode = "modal" | "fullpage";
 
 export interface ComposerAttachment {
   id: string;
-  file: File;
+  file?: File;
   filename: string;
   mimeType: string;
   size: number;
@@ -54,6 +54,7 @@ export interface ComposerState {
     draftId?: string | null;
     /** Force a specific account for this compose session (overrides activeAccountId). */
     accountId?: string;
+    attachments?: ComposerAttachment[];
   }) => void;
   closeComposer: () => void;
   setTo: (to: string[]) => void;
@@ -140,7 +141,7 @@ openComposer: (opts) => {
         viewMode: isFullComposerWindow && !isTest ? "fullpage" : "modal",
         fromEmail: null,
         composerAccountId: opts?.accountId ?? null,
-        attachments: [],
+        attachments: opts?.attachments ?? [],
         lastSavedAt: null,
         isSaving: false,
         isSending: false,
@@ -170,11 +171,15 @@ openComposer: (opts) => {
         if (opts?.draftId) params.set("draftId", opts.draftId);
         if (opts?.accountId) params.set("accountId", opts.accountId);
 
-        // quotedHtml is too large for URLs — write to SQLite (shared across all windows)
-        if (opts?.quotedHtml || opts?.bodyHtml) {
+        // quotedHtml/bodyHtml/attachments are too large for URLs — write to SQLite (shared across all windows)
+        if (opts?.quotedHtml || opts?.bodyHtml || opts?.attachments?.length) {
           await setSetting(
             `__composer_payload_${windowLabel}`,
-            JSON.stringify({ quotedHtml: opts?.quotedHtml ?? "", bodyHtml: opts?.bodyHtml ?? "" }),
+            JSON.stringify({
+              quotedHtml: opts?.quotedHtml ?? "",
+              bodyHtml: opts?.bodyHtml ?? "",
+              attachments: opts?.attachments ?? [],
+            }),
           );
         }
 
