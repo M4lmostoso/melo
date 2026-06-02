@@ -208,6 +208,7 @@ function ExpandableNavItem({
   onNavigate,
   onToggleExpand,
   leftBorderColor,
+  dragHighlight,
   children,
 }: {
   id: string;
@@ -218,9 +219,11 @@ function ExpandableNavItem({
   onNavigate: () => void;
   onToggleExpand: () => void;
   leftBorderColor?: string;
+  dragHighlight?: boolean;
   children: React.ReactNode;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id });
+  const highlighted = isOver || dragHighlight;
 
   if (collapsed) {
     return (
@@ -229,7 +232,7 @@ function ExpandableNavItem({
         onClick={onNavigate}
         title={label}
         className={`flex items-center justify-center w-full py-2 text-sm transition-colors press-scale ${
-          isOver
+          highlighted
             ? "bg-accent/20 ring-1 ring-accent"
             : isActive
               ? "bg-accent/10 text-accent font-medium"
@@ -244,9 +247,10 @@ function ExpandableNavItem({
   return (
     <div
       ref={setNodeRef}
+      data-section-header={id}
       style={leftBorderColor ? { borderLeft: `3px solid ${leftBorderColor}` } : undefined}
       className={`flex items-center w-full text-sm transition-colors ${
-        isOver
+        highlighted
           ? "bg-accent/20 ring-1 ring-accent"
           : isActive
             ? "bg-accent/10 text-accent font-medium"
@@ -432,6 +436,28 @@ const GLOBAL_FOLDER_ITEMS: { id: string; label: string; icon: LucideIcon }[] = [
   { id: "attachments", label: t("sidebar.nav.attachments"), icon: Paperclip },
 ];
 
+/** Maps a section key ("unified-inbox" | "global-sent" | …) to its folder key. */
+function folderKeyForSection(sectionKey: string): string {
+  return sectionKey === "unified-inbox" ? "inbox" : sectionKey.replace(/^global-/, "");
+}
+
+/**
+ * Hit-test the pointer against the bounding rects of DOM nodes matching an
+ * attribute selector ("[data-section-header]" / "[data-section-zone]"), returning
+ * the attribute value of the first node containing the pointer, or null.
+ */
+function hitTestSection(selector: string, clientX: number, clientY: number): string | null {
+  const attr = selector.slice(1, -1); // "[data-x]" → "data-x"
+  for (const node of document.querySelectorAll<HTMLElement>(selector)) {
+    const r = node.getBoundingClientRect();
+    if (r.width === 0 || r.height === 0) continue;
+    if (clientX >= r.left && clientX <= r.right && clientY >= r.top && clientY <= r.bottom) {
+      return node.getAttribute(attr);
+    }
+  }
+  return null;
+}
+
 export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   const activeLabel = useActiveLabel();
   const toggleSidebar = useUIStore((s) => s.toggleSidebar);
@@ -550,34 +576,25 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   const labelGroupsInitialized = useRef(false);
 
   const [expandedGlobalItems, setExpandedGlobalItems] = useState<Record<string, boolean>>({});
+  // Which section header is currently under the dragged item (drives the highlight)
+  const [dragOverSection, setDragOverSection] = useState<string | null>(null);
+  const dragOverSectionRef = useRef<string | null>(null);
 
-  const hoverTimerRef   = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hoverTimerRef    = useRef<ReturnType<typeof setTimeout> | null>(null);
   const collapseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const autoExpandedRef = useRef<{ sectionKey: string; folderKey: string } | null>(null);
+  const autoExpandedRef  = useRef<{ sectionKey: string; folderKey: string } | null>(null);
+  // Track which section header the hover timer is currently counting for
+  const hoverTargetRef   = useRef<string | null>(null);
   // Mirror of expandedGlobalItems in a ref so callbacks always see the latest value
   const expandedItemsRef = useRef(expandedGlobalItems);
   useEffect(() => { expandedItemsRef.current = expandedGlobalItems; }, [expandedGlobalItems]);
 
-  // Returns { sectionKey, folderKey } when overId is the HEADER of a unified section,
-  // OR when it is a sub-item (xacc:…) whose folderKey matches that section.
-  const getSectionInfo = useCallback((overId: string): { sectionKey: string; folderKey: string } | null => {
-    if (overId === "unified-inbox") return { sectionKey: "unified-inbox", folderKey: "inbox" };
-    if (overId.startsWith("global-")) {
-      const fk = overId.slice("global-".length);
-      if (GLOBAL_FOLDER_ITEMS.some((gi) => gi.id === fk)) return { sectionKey: overId, folderKey: fk };
-    }
-    // Sub-item of an already-expanded section: xacc:{accountId}:{folderKey}
-    if (overId.startsWith(XACC_PREFIX)) {
-      const parts = overId.slice(XACC_PREFIX.length).split(":");
-      const fk = parts[1] ?? "";
-      if (fk === "inbox") return { sectionKey: "unified-inbox", folderKey: "inbox" };
-      const sectionKey = `global-${fk}`;
-      if (GLOBAL_FOLDER_ITEMS.some((gi) => gi.id === fk)) return { sectionKey, folderKey: fk };
-    }
-    return null;
-  }, []);
+  const pointerMoveHandlerRef = useRef<((e: PointerEvent) => void) | null>(null);
 
-  const clearHoverTimer   = useCallback(() => { if (hoverTimerRef.current)   { clearTimeout(hoverTimerRef.current);   hoverTimerRef.current = null;   } }, []);
+  const clearHoverTimer   = useCallback(() => {
+    if (hoverTimerRef.current) { clearTimeout(hoverTimerRef.current); hoverTimerRef.current = null; }
+    hoverTargetRef.current = null;
+  }, []);
   const clearCollapseTimer = useCallback(() => { if (collapseTimerRef.current) { clearTimeout(collapseTimerRef.current); collapseTimerRef.current = null; } }, []);
 
   const doCollapse = useCallback(() => {
@@ -590,46 +607,95 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
     }
   }, [clearCollapseTimer, clearHoverTimer]);
 
-  useDndMonitor({
-    onDragOver({ over }) {
-      const overId = (over?.id ?? "") as string;
-      const section = getSectionInfo(overId);
+  // Auto-expand + drag highlight driven by the REAL pointer position, hit-tested
+  // against the bounding rects of section DOM nodes. This is fully independent of
+  // dnd-kit's collision detection (which reports the wrong droppable when many are
+  // stacked vertically in the scrollable sidebar) and of elementFromPoint
+  // (unreliable under pointer-capture in WebKit/Tauri).
+  //   • [data-section-header]: the header row only → drives highlight + expand timer
+  //   • [data-section-zone]:   header + account list → drives keep-open / collapse
+  const setHighlight = useCallback((section: string | null) => {
+    if (dragOverSectionRef.current === section) return;
+    dragOverSectionRef.current = section;
+    setDragOverSection(section);
+  }, []);
 
-      // ── Within the auto-expanded section ────────────────────────────────────
-      if (autoExpandedRef.current) {
-        if (section?.sectionKey === autoExpandedRef.current.sectionKey) {
-          // Pointer re-entered → cancel pending collapse
-          clearCollapseTimer();
-        } else {
-          // Pointer left → start 500ms collapse delay (idempotent)
-          if (!collapseTimerRef.current) {
-            collapseTimerRef.current = setTimeout(() => {
-              collapseTimerRef.current = null;
-              doCollapse();
-            }, 1000);
-          }
-        }
+  const onDragPointerMove = useCallback((clientX: number, clientY: number) => {
+    const hoveredHeader = hitTestSection("[data-section-header]", clientX, clientY);
+    const hoveredZone   = hitTestSection("[data-section-zone]", clientX, clientY);
+
+    setHighlight(hoveredHeader); // highlight only when over the header row itself
+
+    if (hoveredHeader) {
+      // Over a section header
+      if (autoExpandedRef.current?.sectionKey === hoveredHeader) {
+        clearCollapseTimer();
+        clearHoverTimer();
         return;
       }
+      clearCollapseTimer(); // hold off collapsing the old one until the swap
+      if (expandedItemsRef.current[hoveredHeader]) return; // user opened it manually
+      if (hoverTargetRef.current === hoveredHeader) return; // already timing this one
 
-      // ── Not auto-expanded yet ────────────────────────────────────────────────
       clearHoverTimer();
-
-      // Only the section HEADER (not sub-items) triggers the expand timer
-      const isHeader = overId === "unified-inbox" || overId.startsWith("global-");
-      if (!section || !isHeader) return;
-      if (expandedItemsRef.current[section.sectionKey]) return; // already open by user
-
-      const { sectionKey, folderKey } = section;
+      hoverTargetRef.current = hoveredHeader;
       hoverTimerRef.current = setTimeout(() => {
         hoverTimerRef.current = null;
-        autoExpandedRef.current = { sectionKey, folderKey };
-        setExpandedGlobalItems((prev) => ({ ...prev, [sectionKey]: true }));
+        hoverTargetRef.current = null;
+        // Atomic swap: collapse the previously auto-expanded section (if different)
+        // and expand the new one in a single layout change to avoid a cursor jump.
+        setExpandedGlobalItems((prev) => {
+          const next = { ...prev };
+          const prevAuto = autoExpandedRef.current?.sectionKey;
+          if (prevAuto && prevAuto !== hoveredHeader) next[prevAuto] = false;
+          next[hoveredHeader] = true;
+          return next;
+        });
+        autoExpandedRef.current = {
+          sectionKey: hoveredHeader,
+          folderKey: folderKeyForSection(hoveredHeader),
+        };
       }, 2000);
+      return;
+    }
+
+    // Not over a header. If still within the auto/user-expanded section's zone
+    // (i.e. over its account sub-items), keep it open.
+    if (hoveredZone && (autoExpandedRef.current?.sectionKey === hoveredZone || expandedItemsRef.current[hoveredZone])) {
+      clearCollapseTimer();
+      clearHoverTimer();
+      return;
+    }
+
+    // Pointer left every section zone → cancel pending expand, schedule collapse
+    clearHoverTimer();
+    if (autoExpandedRef.current && !collapseTimerRef.current) {
+      collapseTimerRef.current = setTimeout(() => {
+        collapseTimerRef.current = null;
+        doCollapse();
+      }, 1000);
+    }
+  }, [clearHoverTimer, clearCollapseTimer, doCollapse, setHighlight]);
+
+  const detachPointerMove = useCallback(() => {
+    if (pointerMoveHandlerRef.current) {
+      window.removeEventListener("pointermove", pointerMoveHandlerRef.current, true);
+      pointerMoveHandlerRef.current = null;
+    }
+  }, []);
+
+  useDndMonitor({
+    onDragStart() {
+      detachPointerMove();
+      const handler = (e: PointerEvent) => onDragPointerMove(e.clientX, e.clientY);
+      pointerMoveHandlerRef.current = handler;
+      window.addEventListener("pointermove", handler, true);
     },
-    onDragEnd:   doCollapse,
-    onDragCancel: doCollapse,
+    onDragEnd()    { detachPointerMove(); doCollapse(); setHighlight(null); },
+    onDragCancel() { detachPointerMove(); doCollapse(); setHighlight(null); },
   });
+
+  useEffect(() => detachPointerMove, [detachPointerMove]);
 
   const toggleLabelGroup = useCallback((accountId: string) => {
     setCollapsedLabelGroups((prev) => {
@@ -917,6 +983,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                 </span>
               </div>
             )}
+            <div data-section-zone="unified-inbox">
             <ExpandableNavItem
               id="unified-inbox"
               label="Inbox"
@@ -928,6 +995,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                 navigateToLabel("unified-inbox");
               }}
               onToggleExpand={() => toggleGlobalItem("unified-inbox")}
+              dragHighlight={dragOverSection === "unified-inbox"}
             >
               <Inbox size={18} className="shrink-0" />
               {!collapsed && (
@@ -975,6 +1043,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                 </div>
               </div>
             )}
+            </div>
             {/* ─── Other global folder items ─── */}
             {GLOBAL_FOLDER_ITEMS.filter((gi) =>
               visibleNavItems.some((vi) => vi.id === gi.id)
@@ -997,7 +1066,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
               const globalTaskOverdue = gi.id === "tasks" ? taskOverdueTotal : 0;
               return (
                 <Fragment key={`global-${gi.id}`}>
-                  <div>
+                  <div data-section-zone={`global-${gi.id}`}>
                     <ExpandableNavItem
                       id={`global-${gi.id}`}
                       label={gi.label}
@@ -1009,6 +1078,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                         navigateToLabel(gi.id);
                       }}
                       onToggleExpand={() => toggleGlobalItem(`global-${gi.id}`)}
+                      dragHighlight={dragOverSection === `global-${gi.id}`}
                     >
                       <GIcon size={18} className="shrink-0" />
                       {!collapsed && (

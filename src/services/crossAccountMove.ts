@@ -5,12 +5,36 @@ import { buildImapConfig } from "./imap/imapConfigBuilder";
 import { imapFetchRawMessage, imapAppendMessage, imapDeleteMessages } from "./imap/tauriCommands";
 import { getGmailClient } from "./gmail/tokenManager";
 
+// Maps sidebar folder keys → Gmail label IDs to apply on insert
+const FOLDER_KEY_TO_GMAIL: Record<string, string[]> = {
+  inbox:   ["INBOX"],
+  starred: ["STARRED", "INBOX"],
+  sent:    ["SENT"],
+  drafts:  ["DRAFT"],
+  trash:   ["TRASH"],
+  spam:    ["SPAM"],
+  snoozed: ["SNOOZED"],
+  all:     ["INBOX"],
+};
+
+// Maps sidebar folder keys → standard IMAP folder name (RFC 6154 / common conventions)
+const FOLDER_KEY_TO_IMAP: Record<string, string> = {
+  inbox:   "INBOX",
+  starred: "INBOX",
+  sent:    "Sent",
+  drafts:  "Drafts",
+  trash:   "Trash",
+  spam:    "Junk",
+  snoozed: "INBOX",
+  all:     "INBOX",
+};
+
 /**
  * Move all messages of the given threads from sourceAccountId to targetAccountId.
  *
  * Flow per message:
  *   1. Fetch raw RFC 2822 bytes from source
- *   2. INSERT / APPEND into target account's INBOX
+ *   2. INSERT / APPEND into target account's target folder
  *   3. DELETE from source
  *
  * Supports IMAP→IMAP, Gmail→Gmail, and mixed combinations.
@@ -20,6 +44,7 @@ export async function crossAccountMoveThreads(
   sourceAccountId: string,
   targetAccountId: string,
   threadIds: string[],
+  targetFolderKey = "inbox",
 ): Promise<void> {
   const [sourceAccount, targetAccount] = await Promise.all([
     getAccount(sourceAccountId),
@@ -34,6 +59,9 @@ export async function crossAccountMoveThreads(
   const targetConfig = targetIsImap ? buildImapConfig(targetAccount) : null;
   const sourceGmail = !sourceIsImap ? await getGmailClient(sourceAccountId) : null;
   const targetGmail = !targetIsImap ? await getGmailClient(targetAccountId) : null;
+
+  const targetImapFolder = FOLDER_KEY_TO_IMAP[targetFolderKey] ?? "INBOX";
+  const targetGmailLabels = FOLDER_KEY_TO_GMAIL[targetFolderKey] ?? ["INBOX"];
 
   for (const threadId of threadIds) {
     const messages = await getMessagesForThread(sourceAccountId, threadId, true);
@@ -60,10 +88,10 @@ export async function crossAccountMoveThreads(
       // ── 2. Insert into target ─────────────────────────────────────────────
       if (targetIsImap) {
         if (!targetConfig) continue;
-        await imapAppendMessage(targetConfig, "INBOX", rawBase64url);
+        await imapAppendMessage(targetConfig, targetImapFolder, rawBase64url);
       } else {
         if (!targetGmail) continue;
-        await targetGmail.insertMessage(rawBase64url, ["INBOX"]);
+        await targetGmail.insertMessage(rawBase64url, targetGmailLabels);
       }
 
       // ── 3. Delete from source ─────────────────────────────────────────────

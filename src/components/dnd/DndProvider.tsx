@@ -6,6 +6,7 @@ import {
   useSensors,
   DragOverlay,
   pointerWithin,
+  MeasuringStrategy,
   type DragStartEvent,
   type DragEndEvent,
 } from "@dnd-kit/core";
@@ -115,6 +116,7 @@ export function DndProvider({ children }: DndProviderProps) {
       const withoutPrefix = rawId.slice(XACC_PREFIX.length);
       const colonIdx = withoutPrefix.indexOf(":");
       const targetAccountId = withoutPrefix.slice(0, colonIdx);
+      const targetFolderKey = withoutPrefix.slice(colonIdx + 1); // "inbox","trash","sent",…
 
       if (targetAccountId && targetAccountId !== dragData.sourceAccountId) {
         try {
@@ -122,6 +124,7 @@ export function DndProvider({ children }: DndProviderProps) {
             dragData.sourceAccountId,
             targetAccountId,
             dragData.threadIds,
+            targetFolderKey,
           );
           removeThreads(dragData.threadIds);
         } catch (err) {
@@ -161,6 +164,7 @@ export function DndProvider({ children }: DndProviderProps) {
     <DndContext
       sensors={sensors}
       collisionDetection={pointerWithin}
+      measuring={{ droppable: { strategy: MeasuringStrategy.Always } }}
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
     >
