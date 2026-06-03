@@ -10,9 +10,13 @@ import {
   Check,
   RefreshCw,
   AlertCircle,
+  Lock,
+  LockKeyhole,
+  X,
 } from "lucide-react";
 import { t } from "@/i18n";
 import { useAccountStore } from "@/stores/accountStore";
+import { useLabelStore } from "@/stores/labelStore";
 import { useClickOutside } from "@/hooks/useClickOutside";
 import { getAccount } from "@/services/db/accounts";
 import { buildImapConfig } from "@/services/imap/imapConfigBuilder";
@@ -25,6 +29,12 @@ import {
   type ImapConfig,
 } from "@/services/imap/tauriCommands";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import {
+  getAllFolderLabelMappings,
+  setFolderLabelMapping,
+  removeFolderLabelMapping,
+  type FolderLabelMapping,
+} from "@/services/db/folderLabelMappings";
 
 // --- helpers ---
 
@@ -61,6 +71,7 @@ interface FolderTreeNodeProps {
   isSelected: boolean;
   isRenaming: boolean;
   renameName: string;
+  mappedLabel: { labelId: string; labelName: string; labelColor: string | null } | null;
   onToggleExpand: () => void;
   onSelect: () => void;
   onRenameStart: () => void;
@@ -68,6 +79,7 @@ interface FolderTreeNodeProps {
   onRenameCommit: () => void;
   onRenameCancel: () => void;
   onDeleteRequest: () => void;
+  onToggleMapping: () => void;
   renameInputRef: React.RefObject<HTMLInputElement | null>;
   children?: React.ReactNode;
   createInputNode?: React.ReactNode;
@@ -80,6 +92,7 @@ function FolderTreeNode({
   isSelected,
   isRenaming,
   renameName,
+  mappedLabel,
   onToggleExpand,
   onSelect,
   onRenameStart,
@@ -87,6 +100,7 @@ function FolderTreeNode({
   onRenameCommit,
   onRenameCancel,
   onDeleteRequest,
+  onToggleMapping,
   renameInputRef,
   children,
   createInputNode,
@@ -141,7 +155,17 @@ function FolderTreeNode({
             className="flex-1 min-w-0 text-xs bg-bg-primary border border-accent rounded px-1 py-0.5 outline-none"
           />
         ) : (
-          <span className="flex-1 min-w-0 text-xs truncate">{folder.name}</span>
+          <div className="flex-1 min-w-0">
+            <span className="text-xs truncate block">{folder.name}</span>
+            {mappedLabel && (
+              <span
+                className="text-[0.6rem] leading-tight truncate block"
+                style={{ color: mappedLabel.labelColor ?? "var(--color-accent)" }}
+              >
+                #{mappedLabel.labelName}
+              </span>
+            )}
+          </div>
         )}
 
         {/* message count */}
@@ -151,29 +175,52 @@ function FolderTreeNode({
           </span>
         )}
 
-        {/* hover actions */}
+        {/* actions */}
         {!isRenaming && (
-          <span className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 shrink-0 ml-1">
+          <span className="flex items-center gap-0.5 shrink-0 ml-1">
+            {/* lock/map button — always visible if mapped, hover-only otherwise */}
             <button
-              title={t("common.edit")}
+              title={
+                mappedLabel
+                  ? t("settings.imapFolderEditor.editMapping")
+                  : t("settings.imapFolderEditor.mapLabel")
+              }
               onClick={(e) => {
                 e.stopPropagation();
-                onRenameStart();
+                onToggleMapping();
               }}
-              className="p-0.5 rounded hover:bg-bg-tertiary text-text-tertiary hover:text-text-primary transition-colors"
+              className={`p-0.5 rounded transition-colors ${
+                mappedLabel
+                  ? "text-accent"
+                  : "opacity-0 group-hover:opacity-100 text-text-tertiary hover:text-text-primary hover:bg-bg-tertiary"
+              }`}
             >
-              <Pencil size={11} />
+              {mappedLabel ? <LockKeyhole size={11} /> : <Lock size={11} />}
             </button>
-            <button
-              title={t("common.delete")}
-              onClick={(e) => {
-                e.stopPropagation();
-                onDeleteRequest();
-              }}
-              className="p-0.5 rounded hover:bg-bg-tertiary text-text-tertiary hover:text-red-400 transition-colors"
-            >
-              <Trash2 size={11} />
-            </button>
+
+            {/* edit + delete — hover only */}
+            <span className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
+              <button
+                title={t("common.edit")}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRenameStart();
+                }}
+                className="p-0.5 rounded hover:bg-bg-tertiary text-text-tertiary hover:text-text-primary transition-colors"
+              >
+                <Pencil size={11} />
+              </button>
+              <button
+                title={t("common.delete")}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDeleteRequest();
+                }}
+                className="p-0.5 rounded hover:bg-bg-tertiary text-text-tertiary hover:text-red-400 transition-colors"
+              >
+                <Trash2 size={11} />
+              </button>
+            </span>
           </span>
         )}
       </div>
@@ -193,6 +240,7 @@ function FolderTreeNode({
 export function ImapFolderEditor() {
   const accounts = useAccountStore((s) => s.accounts);
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
+  const allAccountLabels = useLabelStore((s) => s.allAccountLabels);
 
   // Only IMAP-based accounts (imap + icloud are both IMAP under the hood)
   const imapAccounts = useMemo(
@@ -233,6 +281,13 @@ export function ImapFolderEditor() {
   // delete confirm
   const [deleteTarget, setDeleteTarget] = useState<ImapFolder | null>(null);
   const [busy, setBusy] = useState(false);
+
+  // folder-label mappings: folderPath → { labelId, labelName, labelColor }
+  const [mappings, setMappings] = useState<Map<string, { labelId: string; labelName: string; labelColor: string | null }>>(new Map());
+  // which folder has the mapping picker open
+  const [mappingPickerFolder, setMappingPickerFolder] = useState<ImapFolder | null>(null);
+  const mappingPickerRef = useRef<HTMLDivElement>(null);
+  useClickOutside(mappingPickerRef, () => setMappingPickerFolder(null));
 
   // --- init selected account ---
   useEffect(() => {
@@ -290,6 +345,25 @@ export function ImapFolderEditor() {
     loadFolders();
   }, [loadFolders]);
 
+  // --- load folder-label mappings ---
+  const loadMappings = useCallback(async () => {
+    if (!selectedAccountId) return;
+    const rows = await getAllFolderLabelMappings(selectedAccountId).catch(() => [] as FolderLabelMapping[]);
+    const labels = allAccountLabels[selectedAccountId] ?? [];
+    const map = new Map<string, { labelId: string; labelName: string; labelColor: string | null }>();
+    for (const row of rows) {
+      const label = labels.find((l) => l.id === row.label_id);
+      if (label) {
+        map.set(row.folder_path, { labelId: row.label_id, labelName: label.name, labelColor: label.colorBg });
+      }
+    }
+    setMappings(map);
+  }, [selectedAccountId, allAccountLabels]);
+
+  useEffect(() => {
+    loadMappings();
+  }, [loadMappings]);
+
   // --- derived tree data ---
   const delimiter = folders[0]?.delimiter ?? "/";
 
@@ -303,11 +377,6 @@ export function ImapFolderEditor() {
     return set;
   }, [folders]);
 
-  // A non-system folder is a "root" in the visible tree when:
-  //   a) it has no parent on the server (parent_path === null), OR
-  //   b) its direct parent is a system folder (e.g. INBOX/MyFolder on servers
-  //      that nest everything under INBOX — INBOX is hidden but MyFolder must
-  //      surface at the top of the visible tree).
   const rootFolders = useMemo(
     () =>
       folders
@@ -437,6 +506,32 @@ export function ImapFolderEditor() {
     }
   }, [imapConfig, deleteTarget, selectedPath, loadFolders]);
 
+  // --- folder-label mapping ---
+  const handleSelectMapping = useCallback(async (folder: ImapFolder, labelId: string) => {
+    if (!selectedAccountId) return;
+    try {
+      await setFolderLabelMapping(selectedAccountId, folder.path, labelId);
+      await loadMappings();
+    } catch (e) {
+      setOpError(String(e));
+    }
+    setMappingPickerFolder(null);
+  }, [selectedAccountId, loadMappings]);
+
+  const handleRemoveMapping = useCallback(async (folder: ImapFolder) => {
+    if (!selectedAccountId) return;
+    try {
+      await removeFolderLabelMapping(selectedAccountId, folder.path);
+      await loadMappings();
+    } catch (e) {
+      setOpError(String(e));
+    }
+    setMappingPickerFolder(null);
+  }, [selectedAccountId, loadMappings]);
+
+  // labels available for this account (user-defined only)
+  const accountLabels = selectedAccountId ? (allAccountLabels[selectedAccountId] ?? []) : [];
+
   // --- inline create input node ---
   function renderInlineCreate(parentPath: string | null) {
     if (creatingUnder === undefined) return null;
@@ -471,6 +566,7 @@ export function ImapFolderEditor() {
     const isSelected = selectedPath === folder.path;
     const isRenaming = renamingPath === folder.path;
     const nodeChildren = childrenOf(folder.path);
+    const mappedLabel = mappings.get(folder.path) ?? null;
 
     return (
       <FolderTreeNode
@@ -481,6 +577,7 @@ export function ImapFolderEditor() {
         isSelected={isSelected}
         isRenaming={isRenaming}
         renameName={renameName}
+        mappedLabel={mappedLabel}
         onToggleExpand={() => toggleExpand(folder.path)}
         onSelect={() => {
           setSelectedPath(folder.path);
@@ -492,6 +589,11 @@ export function ImapFolderEditor() {
         onRenameCommit={commitRename}
         onRenameCancel={cancelRename}
         onDeleteRequest={() => requestDelete(folder)}
+        onToggleMapping={() =>
+          setMappingPickerFolder((prev) =>
+            prev?.path === folder.path ? null : folder,
+          )
+        }
         renameInputRef={renameInputRef}
         createInputNode={isExpanded ? renderInlineCreate(folder.path) : null}
       >
@@ -625,6 +727,75 @@ export function ImapFolderEditor() {
               {renderInlineCreate(null)}
             </div>
           )}
+        </div>
+      )}
+
+      {/* label mapping picker — shown below the tree when a folder lock is clicked */}
+      {mappingPickerFolder && (
+        <div
+          ref={mappingPickerRef}
+          className="border border-accent/30 rounded-md bg-bg-primary shadow-md overflow-hidden"
+        >
+          <div className="flex items-center justify-between px-3 py-2 bg-accent/8 border-b border-accent/20">
+            <div className="flex items-center gap-1.5 min-w-0">
+              <LockKeyhole size={12} className="shrink-0 text-accent" />
+              <span className="text-xs font-medium text-text-primary truncate">
+                {t("settings.imapFolderEditor.mapLabel")}
+              </span>
+              <span className="text-xs text-text-tertiary truncate">
+                · {mappingPickerFolder.name}
+              </span>
+            </div>
+            <button
+              onClick={() => setMappingPickerFolder(null)}
+              className="p-0.5 rounded text-text-tertiary hover:text-text-primary hover:bg-bg-hover transition-colors shrink-0"
+            >
+              <X size={12} />
+            </button>
+          </div>
+          <div className="py-1 max-h-48 overflow-y-auto">
+            {accountLabels.length === 0 ? (
+              <p className="px-3 py-2 text-xs text-text-tertiary">
+                {t("settings.imapFolderEditor.noLabels")}
+              </p>
+            ) : (
+              accountLabels.map((label) => {
+                const isMapped = mappings.get(mappingPickerFolder.path)?.labelId === label.id;
+                return (
+                  <div
+                    key={label.id}
+                    className={`flex items-center gap-2 px-3 py-1.5 text-xs transition-colors ${
+                      isMapped
+                        ? "bg-accent/8 text-accent"
+                        : "text-text-primary hover:bg-bg-hover"
+                    }`}
+                  >
+                    {label.colorBg && (
+                      <span
+                        className="w-2 h-2 rounded-full shrink-0"
+                        style={{ backgroundColor: label.colorBg }}
+                      />
+                    )}
+                    <button
+                      className="flex-1 text-left truncate"
+                      onClick={() => handleSelectMapping(mappingPickerFolder, label.id)}
+                    >
+                      {label.name}
+                    </button>
+                    {isMapped ? (
+                      <button
+                        title={t("settings.imapFolderEditor.unmapLabel")}
+                        onClick={() => handleRemoveMapping(mappingPickerFolder)}
+                        className="shrink-0 text-accent hover:text-red-400 transition-colors p-0.5 rounded"
+                      >
+                        <X size={11} />
+                      </button>
+                    ) : null}
+                  </div>
+                );
+              })
+            )}
+          </div>
         </div>
       )}
 

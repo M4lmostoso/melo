@@ -347,7 +347,7 @@ function Submenu({
                   e.preventDefault();
                   const items = submenuRef.current?.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]:not([disabled])');
                   if (items && items.length > 0) {
-                    (e.shiftKey ? items[items.length - 1] : items[0]).focus();
+                    (e.shiftKey ? items[items.length - 1]! : items[0]!).focus();
                   }
                 }
               }}
@@ -382,10 +382,10 @@ function Submenu({
               );
               const idx = allItems.indexOf(e.currentTarget);
               if (!e.shiftKey) {
-                if (idx < allItems.length - 1) allItems[idx + 1].focus();
+                if (idx < allItems.length - 1) allItems[idx + 1]!.focus();
                 else searchRef.current?.focus();
               } else {
-                if (idx > 0) allItems[idx - 1].focus();
+                if (idx > 0) allItems[idx - 1]!.focus();
                 else searchRef.current?.focus();
               }
             }}

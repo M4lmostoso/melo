@@ -1635,7 +1635,11 @@
       "errorLoad": "Impossibile caricare le cartelle: {{error}}",
       "errorCreate": "Impossibile creare la cartella: {{error}}",
       "errorRename": "Impossibile rinominare la cartella: {{error}}",
-      "errorDelete": "Impossibile eliminare la cartella: {{error}}"
+      "errorDelete": "Impossibile eliminare la cartella: {{error}}",
+      "mapLabel": "Associa etichetta",
+      "editMapping": "Modifica associazione etichetta",
+      "unmapLabel": "Rimuovi associazione",
+      "noLabels": "Nessuna etichetta disponibile per questo account."
     }
   },
   "labels": {
@@ -1910,7 +1914,8 @@
     "messageCount": "{count} messaggio in questo thread",
     "messageCountPlural": "{count} messaggi in questo thread",
     "loadEarlier": "Carica {count} messaggio precedente ({hidden} nascosto)",
-    "loadEarlierPlural": "Carica {count} messaggi precedenti ({hidden} nascosti)"
+    "loadEarlierPlural": "Carica {count} messaggi precedenti ({hidden} nascosti)",
+    "folderMapped": "Etichetta collegata a una cartella IMAP"
   },
   "messageItem": {
     "unknown": "Sconosciuto",

@@ -17,7 +17,7 @@ import { useActiveLabel } from "@/hooks/useRouteNavigation";
 import { getSetting } from "@/services/db/settings";
 import { getAllowlistedSenders } from "@/services/db/imageAllowlist";
 import { normalizeEmail } from "@/utils/emailUtils";
-import { VolumeX } from "lucide-react";
+import { VolumeX, LockKeyhole } from "lucide-react";
 import { escapeHtml, sanitizeHtml } from "@/utils/sanitize";
 import { restoreRemoteImages } from "@/utils/imageBlocker";
 import { isNoReplyAddress } from "@/utils/noReply";
@@ -97,11 +97,26 @@ export function ThreadView({ thread }: ThreadViewProps) {
   // null = not yet loaded; defer iframe rendering until setting is known
   const [blockImages, setBlockImages] = useState<boolean | null>(null);
   const [allowlistedSenders, setAllowlistedSenders] = useState<Set<string>>(new Set());
+  // label IDs that are mapped to an IMAP folder (for the lock icon)
+  const [mappedLabelIds, setMappedLabelIds] = useState<Set<string>>(new Set());
 
   // Preload settings eagerly on mount (parallel with message loading)
   useEffect(() => {
     getSetting("block_remote_images").then((val) => setBlockImages(val !== "false"));
   }, []);
+
+  // Load which labels for this thread have an IMAP folder mapping (for lock icon)
+  useEffect(() => {
+    let cancelled = false;
+    import("@/services/db/folderLabelMappings").then(({ getAllFolderLabelMappings }) =>
+      getAllFolderLabelMappings(thread.accountId),
+    ).then((rows) => {
+      if (!cancelled) {
+        setMappedLabelIds(new Set(rows.map((r) => r.label_id)));
+      }
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [thread.accountId]);
 
   // Load all messages for the thread immediately.
   useEffect(() => {
@@ -660,12 +675,18 @@ const handlePrint = useCallback(async () => {
             {threadUserLabels.length > 0 && (
               <div className="flex items-center gap-1 flex-wrap justify-end">
                 {threadUserLabels.map((label) => (
-                  <LabelBreadcrumb
-                    key={label.id}
-                    label={label}
-                    accountColor={threadAccount?.color ?? label.colorBg}
-                    onLeafClick={() => {}}
-                  />
+                  <span key={label.id} className="flex items-center gap-0.5">
+                    {mappedLabelIds.has(label.id) && (
+                      <span title={t("threadView.folderMapped")} className="shrink-0">
+                        <LockKeyhole size={10} className="text-accent" />
+                      </span>
+                    )}
+                    <LabelBreadcrumb
+                      label={label}
+                      accountColor={threadAccount?.color ?? label.colorBg}
+                      onLeafClick={() => {}}
+                    />
+                  </span>
                 ))}
               </div>
             )}

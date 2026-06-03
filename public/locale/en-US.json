@@ -1635,7 +1635,11 @@
       "errorLoad": "Failed to load folders: {{error}}",
       "errorCreate": "Failed to create folder: {{error}}",
       "errorRename": "Failed to rename folder: {{error}}",
-      "errorDelete": "Failed to delete folder: {{error}}"
+      "errorDelete": "Failed to delete folder: {{error}}",
+      "mapLabel": "Associate label",
+      "editMapping": "Edit label mapping",
+      "unmapLabel": "Remove mapping",
+      "noLabels": "No user labels available for this account."
     }
   },
   "labels": {
@@ -1910,7 +1914,8 @@
     "messageCount": "{count} message in this thread",
     "messageCountPlural": "{count} messages in this thread",
     "loadEarlier": "Load {count} earlier message ({hidden} hidden)",
-    "loadEarlierPlural": "Load {count} earlier messages ({hidden} hidden)"
+    "loadEarlierPlural": "Load {count} earlier messages ({hidden} hidden)",
+    "folderMapped": "Label linked to an IMAP folder"
   },
   "messageItem": {
     "unknown": "Unknown",

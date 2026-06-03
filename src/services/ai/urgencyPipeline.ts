@@ -185,9 +185,36 @@ export async function processThreadUrgency(params: ThreadUrgencyParams): Promise
       ? await adjustUrgencyWithReputation(params.accountId, fromAddress, boostedScore)
       : boostedScore;
 
-    await setThreadUrgency(params.accountId, params.threadId, finalScore);
+    // Reduce urgency by 50% when the account is in CC/BCC but not a direct TO recipient
+    const recipientRows = await db.select<{
+      email: string;
+      to_addresses: string | null;
+      cc_addresses: string | null;
+      bcc_addresses: string | null;
+    }[]>(
+      `SELECT a.email, m.to_addresses, m.cc_addresses, m.bcc_addresses
+       FROM accounts a
+       JOIN messages m ON m.account_id = a.id AND m.thread_id = ?2
+       WHERE a.id = ?1
+       ORDER BY m.date DESC LIMIT 1`,
+      [params.accountId, params.threadId],
+    );
+    const recipientRow = recipientRows[0];
+    let adjustedScore = finalScore;
+    if (recipientRow) {
+      const email = recipientRow.email.toLowerCase();
+      const inTo = (recipientRow.to_addresses ?? "").toLowerCase().includes(email);
+      const inCcOrBcc =
+        (recipientRow.cc_addresses ?? "").toLowerCase().includes(email) ||
+        (recipientRow.bcc_addresses ?? "").toLowerCase().includes(email);
+      if (!inTo && inCcOrBcc) {
+        adjustedScore = finalScore * 0.5;
+      }
+    }
 
-    if (finalScore >= EXTINGUISH_RESET_THRESHOLD) {
+    await setThreadUrgency(params.accountId, params.threadId, adjustedScore);
+
+    if (adjustedScore >= EXTINGUISH_RESET_THRESHOLD) {
       await setHeatExtinguished(params.accountId, params.threadId, false);
     }
   } catch {

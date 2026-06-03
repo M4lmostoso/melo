@@ -578,23 +578,38 @@ export class ImapSmtpProvider implements EmailProvider {
         targetFolder =
           (await findSpecialFolder(this.accountId, "\\Drafts")) ?? "Drafts";
         break;
-      default:
-        // IMAP has no concept of custom labels
-        console.warn(
-          `[imap_] addLabel: "${labelId}" — IMAP does not support custom labels`,
-        );
-        return;
+      default: {
+        // Check if the label is mapped to an IMAP folder (bidirectional mapping feature)
+        const { getLabelFolderMapping } = await import("@/services/db/folderLabelMappings");
+        const mappedFolder = await getLabelFolderMapping(this.accountId, labelId);
+        if (mappedFolder) {
+          targetFolder = mappedFolder;
+        } else {
+          // IMAP has no concept of custom labels
+          console.warn(
+            `[imap_] addLabel: "${labelId}" — IMAP does not support custom labels`,
+          );
+          return;
+        }
+      }
     }
     await this.moveToFolder(threadId, [], targetFolder);
   }
 
   async removeLabel(threadId: string, labelId: string): Promise<void> {
-    // After addLabel() has already moved the messages to the target folder, the
-    // source folder (e.g. Trash) no longer contains them, so no server action is
-    // needed here. The local DB is updated by the emailActions pipeline.
-    console.log(
-      `[imap_] removeLabel: "${labelId}" on thread ${threadId} — handled by prior addLabel move`,
-    );
+    // For system label removes (e.g. un-archive → add INBOX) addLabel already moved the
+    // messages, so no server action is needed here.
+    // For user labels that are mapped to an IMAP folder, move the thread back to INBOX.
+    const { getLabelFolderMapping } = await import("@/services/db/folderLabelMappings");
+    const mappedFolder = await getLabelFolderMapping(this.accountId, labelId);
+    if (mappedFolder) {
+      // Only move back if messages are currently in that mapped folder
+      await this.moveToFolder(threadId, [], "INBOX");
+    } else {
+      console.log(
+        `[imap_] removeLabel: "${labelId}" on thread ${threadId} — handled by prior addLabel move`,
+      );
+    }
   }
 
   // ---- Send/Draft operations ----

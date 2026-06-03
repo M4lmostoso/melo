@@ -907,6 +907,13 @@ export async function imapInitialSync(
     console.error(`[imapSync] applyPendingLabelAssignments error:`, err),
   );
 
+  // Apply folder→label mappings: any thread whose messages live in a mapped folder
+  // receives the corresponding user label automatically.
+  const { applyFolderLabelMappings } = await import("@/services/db/folderLabelMappings");
+  await applyFolderLabelMappings(accountId).catch((err) =>
+    console.error(`[imapSync] applyFolderLabelMappings error:`, err),
+  );
+
   onProgress?.({ phase: "storing_threads", current: threadGroups.length, total: threadGroups.length });
 
   // Fire urgency scoring outside of any DB lock
@@ -1232,6 +1239,12 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
   // messages have been imported and assigned thread_ids.
   await applyPendingLabelAssignments(accountId).catch((err) =>
     console.error(`[imapSync] applyPendingLabelAssignments error:`, err),
+  );
+
+  // Apply folder→label mappings for new messages in mapped folders
+  const { applyFolderLabelMappings } = await import("@/services/db/folderLabelMappings");
+  await applyFolderLabelMappings(accountId).catch((err) =>
+    console.error(`[imapSync] applyFolderLabelMappings error:`, err),
   );
 
   // Run fragmented-thread reconciliation on every cycle that stored new messages.

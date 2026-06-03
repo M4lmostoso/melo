@@ -1200,6 +1200,24 @@ const MIGRATIONS = [
         ('ai_auto_label_threshold', '75');
     `,
   },
+  {
+    version: 61,
+    description: "Add IMAP folder ↔ user label bidirectional mapping table",
+    sql: `
+      CREATE TABLE IF NOT EXISTS imap_folder_label_mappings (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        account_id TEXT    NOT NULL,
+        folder_path TEXT   NOT NULL,
+        label_id   TEXT    NOT NULL,
+        UNIQUE(account_id, folder_path),
+        FOREIGN KEY(label_id) REFERENCES user_labels(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_imap_flm_account
+        ON imap_folder_label_mappings(account_id);
+      CREATE INDEX IF NOT EXISTS idx_imap_flm_label
+        ON imap_folder_label_mappings(account_id, label_id);
+    `,
+  },
 ];
 
 // ---------------------------------------------------------------------------
