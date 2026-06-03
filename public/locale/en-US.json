@@ -930,6 +930,11 @@
       "ai": "AI",
       "sounds": "Sounds"
     },
+    "sidebar": {
+      "accounts": "Accounts",
+      "intelligence": "AI & Intelligence",
+      "tools": "Tools"
+    },
     "filterEditor": {
       "title": "Filters",
       "newFilter": "New Filter",

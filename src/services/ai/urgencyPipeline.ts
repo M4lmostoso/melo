@@ -6,6 +6,7 @@ import {
   adjustUrgencyWithReputation,
   ragPriorityDomainBoost,
   sanitizeForUrgencyScoring,
+  logInteraction,
 } from "./reputationEngine";
 import { scoreUrgencyWithAi } from "./aiService";
 import { isAiAvailable } from "./providerManager";
@@ -293,6 +294,7 @@ export async function runExtinguishBackfill(): Promise<void> {
     thread_id: string;
     account_id: string;
     urgency_score: number;
+    from_address: string | null;
     received_subject: string | null;
     received_text: string | null;
     reply_text: string | null;
@@ -301,6 +303,7 @@ export async function runExtinguishBackfill(): Promise<void> {
        t.id            AS thread_id,
        t.account_id,
        t.urgency_score,
+       t.from_address,
        (SELECT m.subject FROM messages m
         WHERE m.account_id = t.account_id AND m.thread_id = t.id
         ORDER BY m.date ASC LIMIT 1)                              AS received_subject,
@@ -352,6 +355,10 @@ export async function runExtinguishBackfill(): Promise<void> {
       } else {
         const decayed = row.urgency_score * 0.5;
         await setThreadUrgency(row.account_id, row.thread_id, decayed);
+      }
+
+      if (row.from_address) {
+        await logInteraction(row.account_id, row.from_address, "REPLY_SENT", row.thread_id);
       }
     } catch {
       // best-effort — never block

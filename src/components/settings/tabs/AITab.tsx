@@ -251,10 +251,7 @@ export function AITab() {
 
   return (
     <>
-      <Section title={t("settings.ai.sections.provider")}>
-        <p className="text-xs text-text-tertiary mb-3">
-          {t("settings.ai.providerDesc")}
-        </p>
+      <Section title={t("settings.ai.sections.provider")} description={t("settings.ai.providerDesc")}>
         <SettingRow label={t("settings.ai.aiProvider")}>
           <select
             value={aiProvider}
@@ -551,10 +548,7 @@ export function AITab() {
         )}
       </Section>
 
-      <Section title={t("settings.ai.sections.aiSoul")}>
-        <p className="text-xs text-text-tertiary mb-2">
-          {t("settings.ai.soulDesc")}
-        </p>
+      <Section title={t("settings.ai.sections.aiSoul")} description={t("settings.ai.soulDesc")}>
         <div className="flex items-center gap-2">
           <Button variant="secondary" size="md" onClick={() => setSoulEditorOpen(true)}>
             {t("settings.ai.editSoul")}
@@ -567,10 +561,10 @@ export function AITab() {
       </Section>
 
       <Section title={t("settings.ai.sections.categories")}>
-        <p className="text-xs text-text-tertiary mb-1">
+        <p className="text-xs text-text-tertiary">
           {t("settings.ai.categoriesDesc")}
         </p>
-        <p className="text-xs text-text-tertiary mb-3">
+        <p className="text-xs text-text-tertiary">
           {t("settings.ai.categoriesAutoArchiveDesc")}
         </p>
         {(["Updates", "Promotions", "Social", "Newsletters"] as const).map((cat) => (
@@ -590,17 +584,11 @@ export function AITab() {
         ))}
       </Section>
 
-      <Section title={t("settings.ai.sections.bundling")}>
-        <p className="text-xs text-text-tertiary mb-3">
-          {t("settings.ai.bundlingDesc")}
-        </p>
+      <Section title={t("settings.ai.sections.bundling")} description={t("settings.ai.bundlingDesc")}>
         <BundleSettings />
       </Section>
 
-      <Section title={t("settings.ai.sections.behavioralIntelligence")}>
-        <p className="text-xs text-text-tertiary mb-3">
-          {t("settings.ai.behavioralIntelligenceDesc")}
-        </p>
+      <Section title={t("settings.ai.sections.behavioralIntelligence")} description={t("settings.ai.behavioralIntelligenceDesc")}>
         <ToggleRow
           label={t("settings.ai.enableBehavioral")}
           description={t("settings.ai.enableBehavioralDesc")}
@@ -636,10 +624,7 @@ export function AITab() {
 
       {behaviorEnabled && (
         <>
-          <Section title={t("settings.ai.sections.senderReputation")}>
-            <p className="text-xs text-text-tertiary mb-3">
-              {t("settings.ai.senderReputationDesc")}
-            </p>
+          <Section title={t("settings.ai.sections.senderReputation")} description={t("settings.ai.senderReputationDesc")}>
             <div className="flex items-start gap-4">
               <div className="flex-1">
                 <TextField

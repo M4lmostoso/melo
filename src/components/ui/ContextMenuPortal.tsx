@@ -242,6 +242,10 @@ function ThreadMenu({
     });
   }, [activeAccountId]);
 
+  useEffect(() => {
+    if (!threads.some((t) => t.id === threadId)) onClose();
+  }, [threads, threadId, onClose]);
+
   // Determine target threads: if right-clicked thread is in multi-select, use all selected; otherwise just this one
   const isInMultiSelect = selectedThreadIds.has(threadId);
   const targetIds = isInMultiSelect && selectedThreadIds.size > 1

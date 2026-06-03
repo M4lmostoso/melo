@@ -1,21 +1,26 @@
 export function Section({
   title,
+  description,
   children,
   action,
 }: {
   title: string;
+  description?: string;
   children: React.ReactNode;
   action?: React.ReactNode;
 }) {
   return (
     <div>
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-xs font-semibold uppercase tracking-wider text-text-tertiary">
-          {title}
-        </h3>
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-sm font-medium text-text-primary">{title}</h3>
         {action}
       </div>
-      <div className="space-y-3">{children}</div>
+      <div className="rounded-xl bg-bg-secondary/60 px-5 py-4 space-y-3">
+        {description && (
+          <p className="text-xs text-text-tertiary leading-relaxed">{description}</p>
+        )}
+        {children}
+      </div>
     </div>
   );
 }
@@ -28,7 +33,7 @@ export function SettingRow({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between">
+    <div className="flex items-center justify-between py-0.5">
       <label className="text-sm text-text-secondary">{label}</label>
       {children}
     </div>
@@ -47,8 +52,8 @@ export function ToggleRow({
   onToggle: () => void;
 }) {
   return (
-    <div className="flex items-center justify-between">
-      <div>
+    <div className="flex items-center justify-between py-0.5">
+      <div className="flex-1">
         <span className="text-sm text-text-secondary">{label}</span>
         {description && (
           <p className="text-xs text-text-tertiary mt-0.5">{description}</p>

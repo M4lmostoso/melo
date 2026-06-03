@@ -125,10 +125,7 @@ export function IntelligenceTab() {
         </div>
       </Section>
 
-      <Section title={t("settings.intelligence.sections.semanticSearch")}>
-        <p className="text-xs text-text-tertiary mb-3">
-          {t("settings.intelligence.semanticRagDesc")}
-        </p>
+      <Section title={t("settings.intelligence.sections.semanticSearch")} description={t("settings.intelligence.semanticRagDesc")}>
         <ToggleRow
           label={t("settings.intelligence.enableSemantic")}
           description={t("settings.intelligence.enableSemanticDesc")}
@@ -148,10 +145,7 @@ export function IntelligenceTab() {
         />
       </Section>
 
-      <Section title={t("settings.intelligence.sections.indexedAccounts")}>
-        <p className="text-xs text-text-tertiary mb-3">
-          {t("settings.intelligence.indexedAccountsDesc")}
-        </p>
+      <Section title={t("settings.intelligence.sections.indexedAccounts")} description={t("settings.intelligence.indexedAccountsDesc")}>
         {accounts.length === 0 ? (
           <p className="text-xs text-text-tertiary">{t("settings.intelligence.noAccountsConfigured")}</p>
         ) : (
@@ -186,10 +180,7 @@ export function IntelligenceTab() {
         )}
       </Section>
 
-      <Section title={t("settings.intelligence.sections.embeddingModel")}>
-        <p className="text-xs text-text-tertiary mb-3">
-          {t("settings.intelligence.embeddingModelDesc")}
-        </p>
+      <Section title={t("settings.intelligence.sections.embeddingModel")} description={t("settings.intelligence.embeddingModelDesc")}>
         <div className="space-y-3">
           <TextField
             label={t("settings.intelligence.ollamaServerUrl")}
@@ -502,10 +493,7 @@ export function IntelligenceTab() {
         </div>
       </Section>
 
-      <Section title={t("settings.intelligence.sections.temporalAging")}>
-        <p className="text-xs text-text-tertiary mb-3">
-          {t("settings.intelligence.temporalAgingDesc")}
-        </p>
+      <Section title={t("settings.intelligence.sections.temporalAging")} description={t("settings.intelligence.temporalAgingDesc")}>
         <div className="flex items-start gap-4 mb-3">
           <div className="flex-1">
             <TextField
@@ -552,10 +540,7 @@ export function IntelligenceTab() {
         </Button>
       </Section>
 
-      <Section title={t("settings.intelligence.sections.priorityDomains")}>
-        <p className="text-xs text-text-tertiary mb-3">
-          {t("settings.intelligence.priorityDomainsDesc")}
-        </p>
+      <Section title={t("settings.intelligence.sections.priorityDomains")} description={t("settings.intelligence.priorityDomainsDesc")}>
         <TextField
           label={t("settings.intelligence.priorityDomainsLabel")}
           placeholder={t("settings.intelligence.priorityDomainsPlaceholder")}
@@ -574,10 +559,7 @@ export function IntelligenceTab() {
         </div>
       </Section>
 
-      <Section title={t("settings.intelligence.sections.autoLabel")}>
-        <p className="text-xs text-text-tertiary mb-3">
-          {t("settings.intelligence.autoLabelDesc")}
-        </p>
+      <Section title={t("settings.intelligence.sections.autoLabel")} description={t("settings.intelligence.autoLabelDesc")}>
         <ToggleRow
           label={t("settings.intelligence.enableAutoLabel")}
           description={t("settings.intelligence.enableAutoLabelDesc")}
