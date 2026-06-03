@@ -6,7 +6,9 @@ import { t } from "@/i18n";
 import { useAccountStore } from "@/stores/accountStore";
 import {
   getAttachmentsForAccount,
+  getAttachmentsForAccounts,
   getAttachmentSenders,
+  getAttachmentSendersForAccounts,
   type AttachmentWithContext,
   type AttachmentSender,
 } from "@/services/db/attachments";
@@ -87,8 +89,28 @@ function matchesSize(att: AttachmentWithContext, filter: SizeFilter): boolean {
 
 export function AttachmentLibrary() {
   const accounts = useAccountStore((s) => s.accounts);
-  const activeAccount = accounts.find((a) => a.isActive);
-  const accountId = activeAccount?.id ?? null;
+  // null = unified view (all accounts included in global), mirrors EmailList / TasksPage.
+  const activeAccountId = useAccountStore((s) => s.activeAccountId);
+  const isUnified = activeAccountId === null;
+
+  // Accounts whose attachments are shown: the single active one, or every global account.
+  const visibleAccountIds = useMemo(
+    () =>
+      activeAccountId
+        ? [activeAccountId]
+        : accounts.filter((a) => a.includeInGlobal).map((a) => a.id),
+    [activeAccountId, accounts],
+  );
+  const accountIdsKey = visibleAccountIds.join(",");
+
+  // Lookup for rendering per-account badges in unified view.
+  const accountMeta = useMemo(() => {
+    const map = new Map<string, { label: string; color: string | null }>();
+    for (const a of accounts) {
+      map.set(a.id, { label: a.label || a.displayName || a.email, color: a.color });
+    }
+    return map;
+  }, [accounts]);
 
   const [attachments, setAttachments] = useState<AttachmentWithContext[]>([]);
   const [senders, setSenders] = useState<AttachmentSender[]>([]);
@@ -97,17 +119,19 @@ export function AttachmentLibrary() {
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [senderFilter, setSenderFilter] = useState("all");
+  const [accountFilter, setAccountFilter] = useState("all");
   const [dateFilter, setDateFilter] = useState<DateFilter>("all");
   const [sizeFilter, setSizeFilter] = useState<SizeFilter>("all");
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [previewAttachment, setPreviewAttachment] = useState<AttachmentWithContext | null>(null);
 
-  const loadData = useCallback(async (acctId: string) => {
+  const loadData = useCallback(async (acctIds: string[]) => {
     setLoading(true);
     try {
+      const single = acctIds.length === 1 ? acctIds[0] : null;
       const [atts, snds] = await Promise.all([
-        getAttachmentsForAccount(acctId),
-        getAttachmentSenders(acctId),
+        single ? getAttachmentsForAccount(single) : getAttachmentsForAccounts(acctIds),
+        single ? getAttachmentSenders(single) : getAttachmentSendersForAccounts(acctIds),
       ]);
       setAttachments(atts);
       setSenders(snds);
@@ -118,25 +142,32 @@ export function AttachmentLibrary() {
     }
   }, []);
 
+  // Reset the account subdivision filter when leaving unified view.
+  useEffect(() => {
+    if (!isUnified) setAccountFilter("all");
+  }, [isUnified]);
+
   // Load on account change
   useEffect(() => {
-    if (accountId) {
-      loadData(accountId);
+    if (visibleAccountIds.length > 0) {
+      loadData(visibleAccountIds);
     } else {
       setAttachments([]);
       setSenders([]);
       setLoading(false);
     }
-  }, [accountId, loadData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountIdsKey, loadData]);
 
   // Refresh on sync
   useEffect(() => {
     const handler = () => {
-      if (accountId) loadData(accountId);
+      if (visibleAccountIds.length > 0) loadData(visibleAccountIds);
     };
     window.addEventListener("melo-sync-done", handler);
     return () => window.removeEventListener("melo-sync-done", handler);
-  }, [accountId, loadData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountIdsKey, loadData]);
 
   const filtered = useMemo(() => {
     const q = searchQuery.toLowerCase();
@@ -149,15 +180,16 @@ export function AttachmentLibrary() {
       }
       if (!matchesType(att, typeFilter)) return false;
       if (senderFilter !== "all" && att.from_address !== senderFilter) return false;
+      if (accountFilter !== "all" && att.account_id !== accountFilter) return false;
       if (!matchesDate(att, dateFilter)) return false;
       if (!matchesSize(att, sizeFilter)) return false;
       return true;
     });
-  }, [attachments, searchQuery, typeFilter, senderFilter, dateFilter, sizeFilter]);
+  }, [attachments, searchQuery, typeFilter, senderFilter, accountFilter, dateFilter, sizeFilter]);
 
   const handleDownload = useCallback(async (att: AttachmentWithContext) => {
     const attachmentId = att.gmail_attachment_id ?? att.imap_part_id;
-    if (!attachmentId || !accountId) return;
+    if (!attachmentId) return;
     try {
       const filePath = await save({
         defaultPath: att.filename ?? "attachment",
@@ -165,7 +197,7 @@ export function AttachmentLibrary() {
       });
       if (!filePath) return;
 
-      const provider = await getEmailProvider(accountId);
+      const provider = await getEmailProvider(att.account_id);
       const response = await provider.fetchAttachment(att.message_id, attachmentId);
       const base64 = response.data.replace(/-/g, "+").replace(/_/g, "/");
       const binaryStr = atob(base64);
@@ -177,7 +209,7 @@ export function AttachmentLibrary() {
     } catch (err) {
       console.error("Download failed:", err);
     }
-  }, [accountId]);
+  }, []);
 
   const handleJumpToEmail = useCallback((att: AttachmentWithContext) => {
     if (att.thread_id) {
@@ -238,6 +270,22 @@ export function AttachmentLibrary() {
             ))}
           </select>
 
+          {/* Account subdivision — only meaningful in unified view */}
+          {isUnified && visibleAccountIds.length > 1 && (
+            <select
+              value={accountFilter}
+              onChange={(e) => setAccountFilter(e.target.value)}
+              className="text-xs rounded-md border border-border-primary bg-bg-secondary text-text-primary px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-accent max-w-40"
+            >
+              <option value="all">{t("attachments.library.accountFilterAll")}</option>
+              {visibleAccountIds.map((id) => (
+                <option key={id} value={id}>
+                  {accountMeta.get(id)?.label ?? id}
+                </option>
+              ))}
+            </select>
+          )}
+
           <select
             value={dateFilter}
             onChange={(e) => setDateFilter(e.target.value as DateFilter)}
@@ -296,6 +344,8 @@ export function AttachmentLibrary() {
               <AttachmentGridItem
                 key={att.id}
                 attachment={att}
+                accountLabel={isUnified ? accountMeta.get(att.account_id)?.label : undefined}
+                accountColor={isUnified ? accountMeta.get(att.account_id)?.color ?? undefined : undefined}
                 onPreview={() => setPreviewAttachment(att)}
                 onDownload={() => handleDownload(att)}
                 onJumpToEmail={() => handleJumpToEmail(att)}
@@ -308,6 +358,8 @@ export function AttachmentLibrary() {
               <AttachmentListItem
                 key={att.id}
                 attachment={att}
+                accountLabel={isUnified ? accountMeta.get(att.account_id)?.label : undefined}
+                accountColor={isUnified ? accountMeta.get(att.account_id)?.color ?? undefined : undefined}
                 onPreview={() => setPreviewAttachment(att)}
                 onDownload={() => handleDownload(att)}
                 onJumpToEmail={() => handleJumpToEmail(att)}
@@ -321,7 +373,7 @@ export function AttachmentLibrary() {
       {previewAttachment && (
         <AttachmentPreview
           attachment={previewAttachment}
-          accountId={accountId!}
+          accountId={previewAttachment.account_id}
           messageId={previewAttachment.message_id}
           onClose={() => setPreviewAttachment(null)}
         />

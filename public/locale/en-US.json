@@ -551,6 +551,7 @@
       "sizeMedium": "1–10 MB",
       "sizeLarge": "> 10 MB",
       "senderFilterAll": "All senders",
+      "accountFilterAll": "All accounts",
       "gridView": "Grid view",
       "listView": "List view",
       "downloadError": "Download failed",

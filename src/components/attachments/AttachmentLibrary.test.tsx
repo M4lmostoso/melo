@@ -5,14 +5,27 @@ import type { AttachmentWithContext, AttachmentSender } from "@/services/db/atta
 
 // Mock dependencies
 vi.mock("@/stores/accountStore", () => ({
-  useAccountStore: vi.fn((selector: (s: { accounts: { id: string; isActive: boolean }[] }) => unknown) =>
-    selector({ accounts: [{ id: "acc-1", isActive: true }] }),
+  useAccountStore: vi.fn(
+    (
+      selector: (s: {
+        accounts: { id: string; includeInGlobal: boolean; color: string | null; label: string | null; displayName: string | null; email: string }[];
+        activeAccountId: string | null;
+      }) => unknown,
+    ) =>
+      selector({
+        accounts: [
+          { id: "acc-1", includeInGlobal: true, color: null, label: null, displayName: "Acc One", email: "one@example.com" },
+        ],
+        activeAccountId: "acc-1",
+      }),
   ),
 }));
 
 vi.mock("@/services/db/attachments", () => ({
   getAttachmentsForAccount: vi.fn(() => Promise.resolve([])),
+  getAttachmentsForAccounts: vi.fn(() => Promise.resolve([])),
   getAttachmentSenders: vi.fn(() => Promise.resolve([])),
+  getAttachmentSendersForAccounts: vi.fn(() => Promise.resolve([])),
 }));
 
 vi.mock("@/services/email/providerFactory", () => ({
@@ -35,7 +48,13 @@ vi.mock("@/router/navigate", () => ({
   navigateToLabel: vi.fn(),
 }));
 
-import { getAttachmentsForAccount, getAttachmentSenders } from "@/services/db/attachments";
+import {
+  getAttachmentsForAccount,
+  getAttachmentsForAccounts,
+  getAttachmentSenders,
+  getAttachmentSendersForAccounts,
+} from "@/services/db/attachments";
+import { useAccountStore } from "@/stores/accountStore";
 
 const mockAttachments: AttachmentWithContext[] = [
   {
@@ -162,5 +181,27 @@ describe("AttachmentLibrary", () => {
     render(<AttachmentLibrary />);
 
     expect(await screen.findByText("Attachments")).toBeInTheDocument();
+  });
+
+  it("loads attachments across all global accounts in unified view", async () => {
+    // activeAccountId null = unified; two accounts included in global.
+    vi.mocked(useAccountStore).mockImplementation((selector: (s: unknown) => unknown) =>
+      selector({
+        accounts: [
+          { id: "acc-1", includeInGlobal: true, color: "#f00", label: "Work", displayName: null, email: "one@example.com" },
+          { id: "acc-2", includeInGlobal: true, color: "#00f", label: "Personal", displayName: null, email: "two@example.com" },
+        ],
+        activeAccountId: null,
+      }),
+    );
+    vi.mocked(getAttachmentsForAccounts).mockResolvedValue(mockAttachments);
+    vi.mocked(getAttachmentSendersForAccounts).mockResolvedValue(mockSenders);
+
+    render(<AttachmentLibrary />);
+    await screen.findByText("report.pdf");
+
+    expect(getAttachmentsForAccounts).toHaveBeenCalledWith(["acc-1", "acc-2"]);
+    // Per-account subdivision filter is offered.
+    expect(screen.getByText("All accounts")).toBeInTheDocument();
   });
 });

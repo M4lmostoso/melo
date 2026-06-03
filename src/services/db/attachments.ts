@@ -86,6 +86,27 @@ export async function getAttachmentsForAccount(
   );
 }
 
+/** Unified-view variant: load attachments across multiple accounts at once. */
+export async function getAttachmentsForAccounts(
+  accountIds: string[],
+  limit = 200,
+  offset = 0,
+): Promise<AttachmentWithContext[]> {
+  if (accountIds.length === 0) return [];
+  const db = await getDb();
+  const placeholders = accountIds.map((_, i) => `$${i + 1}`).join(", ");
+  return db.select<AttachmentWithContext[]>(
+    `SELECT a.*, m.from_address, m.from_name, m.date, m.subject, m.thread_id
+     FROM attachments a
+     JOIN messages m ON a.message_id = m.id AND a.account_id = m.account_id
+     WHERE a.account_id IN (${placeholders}) AND a.filename IS NOT NULL AND a.filename != ''
+       AND a.is_inline = 0 AND a.content_id IS NULL
+     ORDER BY m.date DESC
+     LIMIT $${accountIds.length + 1} OFFSET $${accountIds.length + 2}`,
+    [...accountIds, limit, offset],
+  );
+}
+
 export interface AttachmentSender {
   from_address: string;
   from_name: string | null;
@@ -106,6 +127,26 @@ export async function getAttachmentSenders(
      GROUP BY m.from_address
      ORDER BY count DESC`,
     [accountId],
+  );
+}
+
+/** Unified-view variant: aggregate senders across multiple accounts. */
+export async function getAttachmentSendersForAccounts(
+  accountIds: string[],
+): Promise<AttachmentSender[]> {
+  if (accountIds.length === 0) return [];
+  const db = await getDb();
+  const placeholders = accountIds.map((_, i) => `$${i + 1}`).join(", ");
+  return db.select<AttachmentSender[]>(
+    `SELECT m.from_address, m.from_name, COUNT(*) as count
+     FROM attachments a
+     JOIN messages m ON a.message_id = m.id AND a.account_id = m.account_id
+     WHERE a.account_id IN (${placeholders}) AND a.filename IS NOT NULL AND a.filename != ''
+       AND a.is_inline = 0 AND a.content_id IS NULL
+       AND m.from_address IS NOT NULL
+     GROUP BY m.from_address
+     ORDER BY count DESC`,
+    accountIds,
   );
 }
 

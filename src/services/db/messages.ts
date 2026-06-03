@@ -249,6 +249,14 @@ export async function deleteMessagesForFolder(
   imapFolder: string,
 ): Promise<void> {
   const db = await getDb();
+
+  // Collect affected thread IDs before deleting so we can clean up empty threads after.
+  const threadRows = await db.select<{ thread_id: string }[]>(
+    "SELECT DISTINCT thread_id FROM messages WHERE account_id = $1 AND imap_folder = $2",
+    [accountId, imapFolder],
+  );
+  const affectedThreadIds = threadRows.map((r) => r.thread_id);
+
   await db.execute(
     `DELETE FROM message_embeddings WHERE account_id = $1 AND message_id IN (
       SELECT id FROM messages WHERE account_id = $1 AND imap_folder = $2
@@ -259,6 +267,22 @@ export async function deleteMessagesForFolder(
     "DELETE FROM messages WHERE account_id = $1 AND imap_folder = $2",
     [accountId, imapFolder],
   );
+
+  // Delete threads that became empty — prevents phantom canonical threads (imap-thread-*)
+  // after UIDVALIDITY-triggered purges.
+  if (affectedThreadIds.length > 0) {
+    const ph = affectedThreadIds.map((_, i) => `$${i + 2}`).join(",");
+    await db.execute(
+      `DELETE FROM thread_labels WHERE account_id = $1 AND thread_id IN (${ph})
+         AND thread_id NOT IN (SELECT DISTINCT thread_id FROM messages WHERE account_id = $1)`,
+      [accountId, ...affectedThreadIds],
+    );
+    await db.execute(
+      `DELETE FROM threads WHERE account_id = $1 AND id IN (${ph})
+         AND NOT EXISTS (SELECT 1 FROM messages WHERE account_id = $1 AND thread_id = threads.id)`,
+      [accountId, ...affectedThreadIds],
+    );
+  }
 }
 
 export async function getStoredImapUidsForFolder(
@@ -287,18 +311,17 @@ export async function deleteAllMessagesForAccount(
 }
 
 /**
- * Remove orphan placeholder threads — IMAP-style thread rows whose ID matches the
- * `imap-{accountId}-{folder}-{uid}` per-message placeholder pattern and that have no
- * messages pointing at them. These leak when the IMAP sync creates a placeholder
- * thread for a UID that was already saved locally (e.g. by saveSentMessageLocally)
- * and `imap_store_threads`'s orphan cleanup misses them in a later sync.
+ * Remove orphan IMAP threads — both placeholder-format (`imap-{accountId}-*`) and
+ * canonical-format (`imap-thread-*`) threads that have no messages pointing at them.
+ * Canonical phantoms arise when UIDVALIDITY changes wipe messages via
+ * deleteMessagesForFolder before imap_store_threads can reassign them.
  */
 export async function purgeOrphanPlaceholderThreads(accountId: string): Promise<number> {
   const db = await getDb();
   const rows = await db.select<{ id: string }[]>(
     `SELECT t.id FROM threads t
      WHERE t.account_id = $1
-       AND t.id LIKE 'imap-' || $1 || '-%'
+       AND (t.id LIKE 'imap-' || $1 || '-%' OR t.id LIKE 'imap-thread-%')
        AND NOT EXISTS (
          SELECT 1 FROM messages m
          WHERE m.account_id = t.account_id AND m.thread_id = t.id

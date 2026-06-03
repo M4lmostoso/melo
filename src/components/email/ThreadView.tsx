@@ -713,7 +713,7 @@ const handlePrint = useCallback(async () => {
                   onReplyAll={() => handleReplyAll(msg)}
                   onForward={() => handleForward(msg)}
                   onDelete={() => deleteSingleMessage(msg.account_id, msg.thread_id, msg.id).catch(console.error)}
-                  onMarkRead={msg.is_read === 0 ? () => {
+                  onMarkRead={msg.is_read !== 1 ? () => {
                     markThreadRead(threadAccountId, thread.id, [msg.id], true).catch(console.error);
                     setMessages((prev) => prev.map((m) => m.id === msg.id ? { ...m, is_read: 1 } : m));
                   } : undefined}

@@ -223,7 +223,7 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
 
   // Per-message read tracking: mark as read when visible in viewport for configured duration
   useEffect(() => {
-    if (!onMarkRead || message.is_read !== 0 || markAsReadBehavior === "manual" || !expanded) return;
+    if (!onMarkRead || message.is_read === 1 || markAsReadBehavior === "manual" || !expanded) return;
     const el = observerContainerRef.current;
     if (!el) return;
 

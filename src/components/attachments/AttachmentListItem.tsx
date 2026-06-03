@@ -5,6 +5,9 @@ import type { AttachmentWithContext } from "@/services/db/attachments";
 
 interface AttachmentListItemProps {
   attachment: AttachmentWithContext;
+  /** Account name shown as a badge in unified view; omit to hide. */
+  accountLabel?: string;
+  accountColor?: string;
   onPreview: () => void;
   onDownload: () => void;
   onJumpToEmail: () => void;
@@ -19,7 +22,7 @@ function formatShortDate(timestamp: number | null): string {
   });
 }
 
-export function AttachmentListItem({ attachment, onPreview, onDownload, onJumpToEmail }: AttachmentListItemProps) {
+export function AttachmentListItem({ attachment, accountLabel, accountColor, onPreview, onDownload, onJumpToEmail }: AttachmentListItemProps) {
   const previewable = canPreview(attachment.mime_type, attachment.filename);
   const senderName = attachment.from_name || attachment.from_address || t("attachments.library.unknownSender");
 
@@ -37,6 +40,17 @@ export function AttachmentListItem({ attachment, onPreview, onDownload, onJumpTo
       <span className="text-xs text-text-secondary truncate w-36 shrink-0 hidden md:block" title={senderName}>
         {senderName}
       </span>
+
+      {/* Account badge (unified view) */}
+      {accountLabel && (
+        <span className="text-xs text-text-tertiary truncate w-28 shrink-0 hidden lg:flex items-center gap-1.5" title={accountLabel}>
+          <span
+            className="inline-block size-1.5 rounded-full shrink-0"
+            style={{ backgroundColor: accountColor ?? "var(--color-accent)" }}
+          />
+          <span className="truncate">{accountLabel}</span>
+        </span>
+      )}
 
       {/* Date */}
       <span className="text-xs text-text-tertiary w-24 shrink-0 text-right hidden md:block">
