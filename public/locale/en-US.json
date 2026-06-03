@@ -1297,7 +1297,8 @@
         "indexingParams": "Indexing Parameters",
         "indexingProgress": "Indexing Progress",
         "temporalAging": "Temporal Aging",
-        "priorityDomains": "Priority Domains"
+        "priorityDomains": "Priority Domains",
+        "autoLabel": "Auto-Label"
       },
       "onDeviceTitle": "100% On-device — no data leaves your machine",
       "onDeviceDesc": "Melo uses a local Ollama server ({url}) to generate vector embeddings of your emails. These embeddings are stored in the local SQLite database and never sent to any external server. Semantic search uses cosine similarity computed in-process.",
@@ -1361,7 +1362,13 @@
       "priorityDomainsDesc": "Emails from these domains, or emails mentioning new projects and quotes, receive a +0.15–0.3 urgency boost regardless of keywords. Comma-separated.",
       "priorityDomainsLabel": "Priority domains",
       "priorityDomainsPlaceholder": "client.com, partner.io",
-      "saveDomains": "Save Domains"
+      "saveDomains": "Save Domains",
+      "autoLabelDesc": "Automatically assign your custom labels to incoming emails. The AI analyzes subject, sender, and body in cascade — it only assigns a label when confidence meets the threshold.",
+      "enableAutoLabel": "Enable Auto-Label",
+      "enableAutoLabelDesc": "Incoming emails are analyzed and labeled automatically when the AI confidence score meets the minimum threshold. Runs on new mail only — not during re-sync.",
+      "autoLabelThreshold": "Minimum confidence",
+      "autoLabelThresholdDesc": "Only assign a label if the AI confidence score reaches this value (50–95%). Higher values reduce false assignments. Default: 75%.",
+      "autoLabelAccountsDesc": "Enable auto-labeling per account. Only enabled accounts have their incoming emails auto-labeled."
     },
     "tasks": {
       "sections": {

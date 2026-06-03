@@ -1190,6 +1190,16 @@ const MIGRATIONS = [
         ON pending_label_assignments(account_id);
     `,
   },
+  {
+    version: 60,
+    description: "Add AI auto-label per-account flag and global settings",
+    sql: `
+      ALTER TABLE accounts ADD COLUMN ai_auto_label_enabled INTEGER DEFAULT 0;
+      INSERT OR IGNORE INTO settings (key, value) VALUES
+        ('ai_auto_label_enabled', 'false'),
+        ('ai_auto_label_threshold', '75');
+    `,
+  },
 ];
 
 // ---------------------------------------------------------------------------

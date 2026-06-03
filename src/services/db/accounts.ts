@@ -498,3 +498,21 @@ export async function setAccountRagEnabled(accountId: string, enabled: boolean):
     [enabled ? 1 : 0, accountId],
   );
 }
+
+export async function getAccountAutoLabelEnabled(accountId: string): Promise<boolean> {
+  const db = await getDb();
+  type Row = { ai_auto_label_enabled: number };
+  const [row] = await db.select<Row[]>(
+    "SELECT ai_auto_label_enabled FROM accounts WHERE id = $1",
+    [accountId],
+  );
+  return (row?.ai_auto_label_enabled ?? 0) === 1;
+}
+
+export async function setAccountAutoLabelEnabled(accountId: string, enabled: boolean): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    "UPDATE accounts SET ai_auto_label_enabled = $1 WHERE id = $2",
+    [enabled ? 1 : 0, accountId],
+  );
+}

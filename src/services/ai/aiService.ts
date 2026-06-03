@@ -20,6 +20,7 @@ import {
   EXTRACT_TASK_PROMPT,
   HEAT_EXTINGUISH_JUDGE_PROMPT,
   URGENCY_SCORE_PROMPT,
+  UNIFIED_URGENCY_AUTOLABEL_PROMPT_TEMPLATE,
 } from "./prompts";
 import { getSoul } from "./soulService";
 
@@ -364,9 +365,16 @@ export async function judgeUrgencyResolved(
   }
 }
 
+export interface UrgencyResult {
+  score: number;
+  labelId?: string;
+  confidence?: number;
+}
+
 /**
  * Score urgency for an email thread using the active AI provider.
- * Returns a value in [0, 1], or null if AI is not available / fails.
+ * When `labels` is provided (auto-label enabled), performs a unified call that
+ * returns both urgency score and a label suggestion in one AI round-trip.
  * Results are cached in ai_cache (type "urgency") to avoid repeated calls.
  */
 export async function scoreUrgencyWithAi(
@@ -376,12 +384,18 @@ export async function scoreUrgencyWithAi(
   bodyText: string,
   fromAddress: string,
   fromName: string,
-): Promise<number | null> {
+  labels?: { id: string; name: string; examples?: { subject: string; fromAddress: string }[] }[],
+): Promise<UrgencyResult | null> {
   const cached = await getAiCache(accountId, threadId, "urgency");
   if (cached !== null) {
     try {
-      const parsed = JSON.parse(cached) as { score: number };
-      return typeof parsed.score === "number" ? Math.min(1, Math.max(0, parsed.score)) : null;
+      const parsed = JSON.parse(cached) as { score: number; label?: { id: string; confidence: number } };
+      if (typeof parsed.score !== "number") return null;
+      return {
+        score: Math.min(1, Math.max(0, parsed.score)),
+        labelId: parsed.label?.id,
+        confidence: parsed.label?.confidence,
+      };
     } catch {
       // Corrupted cache — fall through to re-score
     }
@@ -389,22 +403,54 @@ export async function scoreUrgencyWithAi(
 
   const header = `From: ${fromName ? `${fromName} ` : ""}<${fromAddress}>\nSubject: ${subject}`;
   const content = `${header}\n\n${bodyText}`.slice(0, 2000);
+
+  const useUnified = labels && labels.length > 0;
+  let systemPrompt: string;
+  if (useUnified) {
+    const labelList = labels.map((l) => {
+      let entry = `- "${l.name}" (id: ${l.id})`;
+      if (l.examples && l.examples.length > 0) {
+        const exList = l.examples
+          .map((e) => `"${(e.subject || "(no subject)").slice(0, 80)} | from: ${e.fromAddress}"`)
+          .join(", ");
+        entry += `\n  Past examples: ${exList}`;
+      }
+      return entry;
+    }).join("\n");
+    systemPrompt = UNIFIED_URGENCY_AUTOLABEL_PROMPT_TEMPLATE.replace("{{LABELS}}", labelList);
+  } else {
+    systemPrompt = URGENCY_SCORE_PROMPT;
+  }
+
   const result = await callAi(
-    URGENCY_SCORE_PROMPT,
+    systemPrompt,
     `<email_content>${content}</email_content>`,
     { skipLanguage: true, skipSoul: true },
   );
 
   try {
-    const jsonMatch = result.match(/\{[\s\S]*?\}/);
-    const parsed = jsonMatch ? (JSON.parse(jsonMatch[0]) as { score: number }) : null;
-    const score = parsed && typeof parsed.score === "number"
-      ? Math.min(1, Math.max(0, parsed.score))
-      : null;
-    if (score !== null) {
+    const jsonMatch = result.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return null;
+
+    if (useUnified) {
+      const parsed = JSON.parse(jsonMatch[0]) as {
+        score: number;
+        label: { id: string; confidence: number } | null;
+      };
+      if (typeof parsed.score !== "number") return null;
+      const score = Math.min(1, Math.max(0, parsed.score));
+      const label = parsed.label && typeof parsed.label.id === "string" && typeof parsed.label.confidence === "number"
+        ? { id: parsed.label.id, confidence: parsed.label.confidence }
+        : null;
+      await setAiCache(accountId, threadId, "urgency", JSON.stringify({ score, label }));
+      return { score, labelId: label?.id, confidence: label?.confidence };
+    } else {
+      const parsed = JSON.parse(jsonMatch[0]) as { score: number };
+      if (typeof parsed.score !== "number") return null;
+      const score = Math.min(1, Math.max(0, parsed.score));
       await setAiCache(accountId, threadId, "urgency", JSON.stringify({ score }));
+      return { score };
     }
-    return score;
   } catch {
     return null;
   }

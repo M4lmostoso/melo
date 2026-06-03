@@ -20,6 +20,39 @@ export async function getUserLabelsForAccount(
   );
 }
 
+export interface LabelExample {
+  subject: string;
+  fromAddress: string;
+}
+
+/**
+ * Returns up to `limit` recent (subject, from_address) pairs for threads
+ * already carrying the given user label. Used as few-shot examples in the
+ * unified urgency + auto-label AI prompt.
+ */
+export async function getLabelExamples(
+  accountId: string,
+  labelId: string,
+  limit = 3,
+): Promise<LabelExample[]> {
+  const db = await getDb();
+  return db.select<LabelExample[]>(
+    `SELECT t.subject, m.from_address AS fromAddress
+     FROM thread_labels tl
+     JOIN threads t ON t.account_id = tl.account_id AND t.id = tl.thread_id
+     LEFT JOIN messages m
+       ON m.account_id = t.account_id
+      AND m.thread_id  = t.id
+      AND m.date       = t.last_message_at
+     WHERE tl.account_id = $1
+       AND tl.label_id   = $2
+       AND t.subject IS NOT NULL
+     ORDER BY t.last_message_at DESC
+     LIMIT $3`,
+    [accountId, labelId, limit],
+  );
+}
+
 export async function upsertUserLabel(label: {
   id: string;
   name: string;

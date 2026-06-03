@@ -26,6 +26,8 @@ interface UrgencySettings {
   priorityDomains: string;
   decayStartDays: number;
   decayFloorDays: number;
+  autoLabelEnabled: boolean;
+  autoLabelThreshold: number;
 }
 
 let _cache: UrgencySettings | null = null;
@@ -35,12 +37,14 @@ const CACHE_TTL = 60_000;
 async function getUrgencySettings(): Promise<UrgencySettings> {
   const now = Date.now();
   if (_cache && now - _cacheTime < CACHE_TTL) return _cache;
-  const [behaviorEnabled, urgencyEnabled, priorityDomains, decayStart, decayFloor] = await Promise.all([
+  const [behaviorEnabled, urgencyEnabled, priorityDomains, decayStart, decayFloor, autoLabel, autoLabelThreshold] = await Promise.all([
     getSetting("ai_behavior_enabled"),
     getSetting("ai_urgency_enabled"),
     getSetting("rag_priority_domains"),
     getSetting("ai_urgency_decay_start_days"),
     getSetting("ai_urgency_decay_floor_days"),
+    getSetting("ai_auto_label_enabled"),
+    getSetting("ai_auto_label_threshold"),
   ]);
   _cache = {
     behaviorEnabled: behaviorEnabled !== "false",
@@ -48,6 +52,8 @@ async function getUrgencySettings(): Promise<UrgencySettings> {
     priorityDomains: priorityDomains ?? "",
     decayStartDays: parseInt(decayStart ?? "20", 10),
     decayFloorDays: parseInt(decayFloor ?? "30", 10),
+    autoLabelEnabled: autoLabel === "true",
+    autoLabelThreshold: parseInt(autoLabelThreshold ?? "75", 10),
   };
   _cacheTime = now;
   return _cache;
@@ -72,6 +78,8 @@ export interface ThreadUrgencyParams {
   fromName?: string | null;
   lastMessageAt: number; // ms since epoch
   labelIds: string[];
+  /** True when called from a backfill job — skips auto-labeling to avoid overloading the AI on re-sync. */
+  isBackfill?: boolean;
 }
 
 /**
@@ -105,18 +113,57 @@ export async function processThreadUrgency(params: ThreadUrgencyParams): Promise
 
     let rawScore: number;
 
+    // Resolve labels (with few-shot examples) for the unified AI call
+    let autoLabelLabels: { id: string; name: string; examples: { subject: string; fromAddress: string }[] }[] | undefined;
+    if (!params.isBackfill && settings.autoLabelEnabled) {
+      try {
+        const { getAccountAutoLabelEnabled } = await import("@/services/db/accounts");
+        const accountEnabled = await getAccountAutoLabelEnabled(params.accountId);
+        if (accountEnabled) {
+          const { getUserLabelsForAccount, getLabelExamples } = await import("@/services/db/userLabels");
+          const userLabels = await getUserLabelsForAccount(params.accountId);
+          if (userLabels.length > 0) {
+            autoLabelLabels = await Promise.all(
+              userLabels.map(async (l) => ({
+                id: l.id,
+                name: l.name,
+                examples: await getLabelExamples(params.accountId, l.id, 3),
+              })),
+            );
+          }
+        }
+      } catch {
+        // Non-fatal — auto-label is best-effort
+      }
+    }
+
     const aiAvailable = await isAiAvailable();
     if (aiAvailable) {
-      const aiScore = await scoreUrgencyWithAi(
+      const aiResult = await scoreUrgencyWithAi(
         params.accountId,
         params.threadId,
         subject,
         sanitizeForUrgencyScoring(bodyText),
         fromAddress,
         fromName,
+        autoLabelLabels,
       );
-      if (aiScore !== null) {
-        rawScore = aiScore;
+      if (aiResult !== null) {
+        rawScore = aiResult.score;
+        // Apply auto-label if suggestion meets the confidence threshold
+        if (
+          autoLabelLabels &&
+          aiResult.labelId &&
+          (aiResult.confidence ?? 0) >= settings.autoLabelThreshold
+        ) {
+          try {
+            const { addThreadLabel } = await import("@/services/emailActions");
+            await addThreadLabel(params.accountId, params.threadId, aiResult.labelId);
+            window.dispatchEvent(new CustomEvent("melo-sync-done"));
+          } catch {
+            // Non-fatal — label application is best-effort
+          }
+        }
       } else {
         // AI call failed — fall back to keywords
         rawScore = scoreUrgencyFromText(subject, sanitizeForUrgencyScoring(bodyText));
@@ -210,6 +257,7 @@ export async function runUrgencyBackfill(): Promise<void> {
         fromName: row.from_name,
         lastMessageAt: row.last_message_at ?? 0,
         labelIds: row.label_ids ? row.label_ids.split(",") : [],
+        isBackfill: true,
       });
       await new Promise<void>((r) => setTimeout(r, BACKFILL_DELAY_MS));
     }

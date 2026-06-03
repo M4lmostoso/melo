@@ -1297,7 +1297,8 @@
         "indexingParams": "Parametri di indicizzazione",
         "indexingProgress": "Progresso indicizzazione",
         "temporalAging": "Decadimento temporale",
-        "priorityDomains": "Domini prioritari"
+        "priorityDomains": "Domini prioritari",
+        "autoLabel": "Etichettatura automatica"
       },
       "onDeviceTitle": "100% sul dispositivo — nessun dato lascia il tuo computer",
       "onDeviceDesc": "Melo usa un server Ollama locale ({url}) per generare embedding vettoriali delle tue email. Gli embedding sono archiviati nel database SQLite locale e non vengono mai inviati a server esterni. La ricerca semantica usa la similarità del coseno calcolata in-process.",
@@ -1361,7 +1362,13 @@
       "priorityDomainsDesc": "Le email da questi domini, o le email che menzionano nuovi progetti e preventivi, ricevono un boost di urgenza +0.15–0.3 indipendentemente dalle parole chiave. Separati da virgola.",
       "priorityDomainsLabel": "Domini prioritari",
       "priorityDomainsPlaceholder": "cliente.com, partner.io",
-      "saveDomains": "Salva domini"
+      "saveDomains": "Salva domini",
+      "autoLabelDesc": "Assegna automaticamente le tue etichette personalizzate alle email in arrivo. L'AI analizza oggetto, mittente e corpo in cascata — assegna un'etichetta solo se la confidenza supera la soglia.",
+      "enableAutoLabel": "Abilita etichettatura automatica",
+      "enableAutoLabelDesc": "Le email in arrivo vengono analizzate ed etichettate automaticamente quando il punteggio di confidenza AI raggiunge la soglia minima. Funziona solo sulle nuove email — non durante il re-sync.",
+      "autoLabelThreshold": "Confidenza minima",
+      "autoLabelThresholdDesc": "Assegna un'etichetta solo se il punteggio di confidenza AI raggiunge questo valore (50–95%). Valori più alti riducono le assegnazioni errate. Predefinito: 75%.",
+      "autoLabelAccountsDesc": "Abilita l'etichettatura automatica per account. Solo gli account abilitati ricevono l'etichettatura automatica sulle email in arrivo."
     },
     "tasks": {
       "sections": {

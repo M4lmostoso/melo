@@ -30,6 +30,9 @@ export function IntelligenceTab() {
   const [accountRagFlags, setAccountRagFlags] = useState<Record<string, boolean>>({});
   const [ragReindexConfirm, setRagReindexConfirm] = useState(false);
   const [ragClearing, setRagClearing] = useState(false);
+  const [autoLabelEnabled, setAutoLabelEnabled] = useState(false);
+  const [autoLabelThreshold, setAutoLabelThreshold] = useState(75);
+  const [accountAutoLabelFlags, setAccountAutoLabelFlags] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     async function load() {
@@ -50,13 +53,21 @@ export function IntelligenceTab() {
       const priorityDomains = await getSetting("rag_priority_domains");
       if (priorityDomains !== null) setRagPriorityDomains(priorityDomains);
 
+      const autoLabelEn = await getSetting("ai_auto_label_enabled");
+      setAutoLabelEnabled(autoLabelEn === "true");
+      const autoLabelThr = await getSetting("ai_auto_label_threshold");
+      if (autoLabelThr) setAutoLabelThreshold(parseInt(autoLabelThr, 10));
+
       try {
-        const { getAccountRagEnabled } = await import("@/services/db/accounts");
+        const { getAccountRagEnabled, getAccountAutoLabelEnabled } = await import("@/services/db/accounts");
         const flags: Record<string, boolean> = {};
+        const autoLabelFlags: Record<string, boolean> = {};
         for (const acc of accounts) {
           flags[acc.id] = await getAccountRagEnabled(acc.id);
+          autoLabelFlags[acc.id] = await getAccountAutoLabelEnabled(acc.id);
         }
         setAccountRagFlags(flags);
+        setAccountAutoLabelFlags(autoLabelFlags);
 
         const ragEnabledIds = accounts.filter((a) => flags[a.id]).map((a) => a.id);
         if (ragEnabledIds.length > 0) {
@@ -561,6 +572,82 @@ export function IntelligenceTab() {
             {t("settings.intelligence.saveDomains")}
           </Button>
         </div>
+      </Section>
+
+      <Section title={t("settings.intelligence.sections.autoLabel")}>
+        <p className="text-xs text-text-tertiary mb-3">
+          {t("settings.intelligence.autoLabelDesc")}
+        </p>
+        <ToggleRow
+          label={t("settings.intelligence.enableAutoLabel")}
+          description={t("settings.intelligence.enableAutoLabelDesc")}
+          checked={autoLabelEnabled}
+          onToggle={async () => {
+            const next = !autoLabelEnabled;
+            setAutoLabelEnabled(next);
+            await setSetting("ai_auto_label_enabled", next ? "true" : "false");
+            const { invalidateUrgencySettingsCache } = await import("@/services/ai/urgencyPipeline");
+            invalidateUrgencySettingsCache();
+          }}
+        />
+        {autoLabelEnabled && (
+          <>
+            <div className="mt-4">
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-medium text-text-secondary">
+                  {t("settings.intelligence.autoLabelThreshold")}
+                </label>
+                <span className="text-xs font-medium text-text-primary tabular-nums">
+                  {autoLabelThreshold}%
+                </span>
+              </div>
+              <input
+                type="range"
+                min="50"
+                max="95"
+                step="5"
+                value={autoLabelThreshold}
+                onChange={(e) => setAutoLabelThreshold(Number(e.target.value))}
+                onPointerUp={async (e) => {
+                  const val = Number((e.target as HTMLInputElement).value);
+                  await setSetting("ai_auto_label_threshold", String(val));
+                  const { invalidateUrgencySettingsCache } = await import("@/services/ai/urgencyPipeline");
+                  invalidateUrgencySettingsCache();
+                }}
+                className="w-full accent-accent"
+              />
+              <p className="text-xs text-text-tertiary mt-1.5">
+                {t("settings.intelligence.autoLabelThresholdDesc")}
+              </p>
+            </div>
+
+            <div className="mt-4">
+              <p className="text-xs text-text-tertiary mb-2">
+                {t("settings.intelligence.autoLabelAccountsDesc")}
+              </p>
+              {accounts.length === 0 ? (
+                <p className="text-xs text-text-tertiary">{t("settings.intelligence.noAccountsConfigured")}</p>
+              ) : (
+                <div className="space-y-2">
+                  {accounts.map((acc) => (
+                    <ToggleRow
+                      key={acc.id}
+                      label={acc.email}
+                      description={acc.provider === "gmail" ? t("settings.intelligence.gmailAccount") : t("settings.intelligence.imapAccount")}
+                      checked={accountAutoLabelFlags[acc.id] ?? false}
+                      onToggle={async () => {
+                        const next = !(accountAutoLabelFlags[acc.id] ?? false);
+                        setAccountAutoLabelFlags((prev) => ({ ...prev, [acc.id]: next }));
+                        const { setAccountAutoLabelEnabled } = await import("@/services/db/accounts");
+                        await setAccountAutoLabelEnabled(acc.id, next);
+                      }}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </Section>
     </>
   );
