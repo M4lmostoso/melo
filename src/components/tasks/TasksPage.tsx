@@ -352,6 +352,7 @@ export function TasksPage() {
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder={t("tasks.searchPlaceholder")}
               className="w-44 pl-8 pr-3 py-1.5 bg-bg-tertiary border border-border-primary rounded-lg text-xs text-text-primary outline-none focus:border-accent"
+              spellCheck={false}
             />
           </div>
 

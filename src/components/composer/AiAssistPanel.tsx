@@ -107,7 +107,15 @@ export function AiAssistPanel({ editor, isReplyMode, threadMessages, senderPastR
   const [available, setAvailable] = useState<boolean | null>(null);
   const [messages, setMessages] = useState<AiMessage[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const setBodyHtml = useComposerStore((s) => s.setBodyHtml);
+
+  const resizeTextarea = () => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+  };
 
   useEffect(() => {
     isAiAvailable().then(setAvailable);
@@ -189,6 +197,7 @@ export function AiAssistPanel({ editor, isReplyMode, threadMessages, senderPastR
     setLoading(true);
     setError(null);
     setPrompt("");
+    if (textareaRef.current) textareaRef.current.style.height = "auto";
 
     try {
       let result: string;
@@ -369,11 +378,15 @@ export function AiAssistPanel({ editor, isReplyMode, threadMessages, senderPastR
 
       {/* Input */}
       <div className="p-3 border-t border-border-secondary flex-shrink-0">
-        <div className="flex items-center gap-2">
-          <input
-            type="text"
+        <div className="flex items-end gap-2">
+          <textarea
+            ref={textareaRef}
+            rows={1}
             value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
+            onChange={(e) => {
+              setPrompt(e.target.value);
+              resizeTextarea();
+            }}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
@@ -387,17 +400,18 @@ export function AiAssistPanel({ editor, isReplyMode, threadMessages, senderPastR
                   ? t("composer.aiAssist.promptPlaceholderReply")
                   : t("composer.aiAssist.promptPlaceholderCompose")
             }
-            className="flex-1 px-3 py-2 text-sm bg-bg-tertiary border border-border-primary rounded-lg outline-none focus:border-accent text-text-primary placeholder:text-text-tertiary"
+            className="flex-1 px-3 py-2 text-sm bg-bg-tertiary border border-border-primary rounded-lg outline-none focus:border-accent text-text-primary placeholder:text-text-tertiary resize-none overflow-y-auto leading-5"
             disabled={loading}
           />
           <button
             onClick={handleSend}
             disabled={loading || !prompt.trim()}
-            className="p-2 bg-accent text-white rounded-lg hover:bg-accent-hover transition-colors disabled:opacity-50"
+            className="p-2 bg-accent text-white rounded-lg hover:bg-accent-hover transition-colors disabled:opacity-50 flex-shrink-0"
           >
             <Send size={16} />
           </button>
         </div>
+        <p className="mt-1 text-[10px] text-text-tertiary">{t("composer.aiAssist.newlineHint")}</p>
       </div>
     </div>
   );

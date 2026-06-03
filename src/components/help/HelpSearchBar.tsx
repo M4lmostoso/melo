@@ -19,6 +19,7 @@ export function HelpSearchBar({ query, onChange }: HelpSearchBarProps) {
         onChange={(e) => onChange(e.target.value)}
         placeholder={t("help.searchPlaceholder")}
         className="w-full pl-9 pr-9 py-2 text-sm rounded-lg bg-bg-secondary border border-border-secondary text-text-primary placeholder:text-text-tertiary focus:outline-none focus:border-accent transition-colors"
+        spellCheck={false}
       />
       {query && (
         <button

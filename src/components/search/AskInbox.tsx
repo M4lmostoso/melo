@@ -88,6 +88,7 @@ export function AskInbox({ isOpen, onClose }: AskInboxProps) {
             onKeyDown={handleKeyDown}
             placeholder={t("search.askInbox.placeholder")}
             className="flex-1 bg-transparent text-sm text-text-primary outline-none placeholder:text-text-tertiary"
+            spellCheck={false}
           />
           <button
             onClick={handleAsk}

@@ -629,3 +629,9 @@ html.dark.bg-spotlight .animated-bg::after {
 }
 
 .swiping-active * { pointer-events: none !important; }
+
+/* Thread list — prevent WKWebView from selecting words on right-click */
+.thread-list-scroll, .thread-list-scroll * {
+    -webkit-user-select: none !important;
+    user-select: none !important;
+}

@@ -64,6 +64,7 @@ export function ContactEditor() {
           onChange={(e) => setSearch(e.target.value)}
           placeholder={t("settings.contactEditor.searchPlaceholder")}
           className="w-full pl-8 pr-3 py-1.5 bg-bg-tertiary border border-border-primary rounded text-sm text-text-primary outline-none focus:border-accent"
+          spellCheck={false}
         />
       </div>
 

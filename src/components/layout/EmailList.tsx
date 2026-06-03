@@ -849,6 +849,8 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     return () => container.removeEventListener("scroll", handleScroll);
   }, [loadMore]);
 
+
+
   return (
     <div
       ref={listRef}
@@ -997,7 +999,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
       )}
 
       {/* Thread list */}
-      <div ref={scrollContainerRef} className={`flex-1 overflow-y-auto ${activeLabel === "outgoing" || activeLabel === "scheduled" ? "hidden" : ""}`}>
+      <div ref={scrollContainerRef} className={`flex-1 overflow-y-auto thread-list-scroll ${activeLabel === "outgoing" || activeLabel === "scheduled" ? "hidden" : ""}`}>
         {(isLoading && threads.length === 0) || (searchLoading && !isSearchActive) ? (
           <EmailListSkeleton />
         ) : filteredThreads.length === 0 && (isSearchActive || bundleRules.length === 0) ? (

@@ -756,7 +756,8 @@
       "transform": "Transform:",
       "improve": "Improve",
       "shorter": "Shorter",
-      "formal": "Formal"
+      "formal": "Formal",
+      "newlineHint": "Shift+Enter for new line"
     },
     "scheduleSend": {
       "title": "Schedule send",

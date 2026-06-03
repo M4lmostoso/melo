@@ -29,6 +29,8 @@ export function SearchBar() {
   const openComposer = useComposerStore((s) => s.openComposer);
   const activeLabel = useActiveLabel();
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const smartFolderBtnRef = useRef<HTMLButtonElement | null>(null);
+  const clearBtnRef = useRef<HTMLButtonElement | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const senderDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -273,6 +275,38 @@ export function SearchBar() {
         hideSuggestions();
         return;
       }
+      if (e.key === "Tab") {
+        e.preventDefault();
+        if (!e.shiftKey) {
+          if (activeSuggestionIdx < allSuggestions.length - 1) {
+            setActiveSuggestionIdx((i) => i + 1);
+          } else {
+            setActiveSuggestionIdx(-1);
+            if (searchQuery.trim().length >= 2 && smartFolderBtnRef.current) {
+              smartFolderBtnRef.current.focus();
+            } else {
+              clearBtnRef.current?.focus();
+            }
+          }
+        } else {
+          if (activeSuggestionIdx > 0) {
+            setActiveSuggestionIdx((i) => i - 1);
+          } else {
+            setActiveSuggestionIdx(-1);
+          }
+        }
+        return;
+      }
+    } else if (e.key === "Tab" && searchQuery) {
+      e.preventDefault();
+      if (!e.shiftKey) {
+        if (searchQuery.trim().length >= 2 && smartFolderBtnRef.current) {
+          smartFolderBtnRef.current.focus();
+        } else {
+          clearBtnRef.current?.focus();
+        }
+      }
+      return;
     }
 
     if (e.key === "Escape") {
@@ -285,6 +319,39 @@ export function SearchBar() {
       textareaRef.current?.blur();
     } else if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
+    }
+  };
+
+  const handleSmartFolderBtnKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (e.key !== "Tab") return;
+    e.preventDefault();
+    if (!e.shiftKey) {
+      clearBtnRef.current?.focus();
+    } else {
+      if (showSuggestions && allSuggestions.length > 0) {
+        setActiveSuggestionIdx(allSuggestions.length - 1);
+      }
+      textareaRef.current?.focus();
+    }
+  };
+
+  const handleClearBtnKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (e.key !== "Tab") return;
+    e.preventDefault();
+    if (!e.shiftKey) {
+      if (showSuggestions && allSuggestions.length > 0) {
+        setActiveSuggestionIdx(0);
+      }
+      textareaRef.current?.focus();
+    } else {
+      if (searchQuery.trim().length >= 2 && smartFolderBtnRef.current) {
+        smartFolderBtnRef.current.focus();
+      } else {
+        if (showSuggestions && allSuggestions.length > 0) {
+          setActiveSuggestionIdx(allSuggestions.length - 1);
+        }
+        textareaRef.current?.focus();
+      }
     }
   };
 
@@ -321,12 +388,15 @@ export function SearchBar() {
           placeholder={t("search.placeholder")}
           className="w-full bg-bg-tertiary text-text-primary text-sm pl-8 pr-10 py-1.5 rounded-md border border-border-primary focus:border-accent focus:outline-none placeholder:text-text-tertiary resize-none leading-5 overflow-hidden"
           style={{ minHeight: "2rem", maxHeight: "6rem" }}
+          spellCheck={false}
         />
         {searchQuery && (
           <div className="absolute right-2 top-[0.375rem] flex items-center gap-1">
             {searchQuery.trim().length >= 2 && (
               <button
+                ref={smartFolderBtnRef}
                 onClick={handleSaveAsSmartFolder}
+                onKeyDown={handleSmartFolderBtnKeyDown}
                 className="text-text-tertiary hover:text-accent transition-colors"
                 title={t("search.saveAsSmartFolder")}
               >
@@ -334,7 +404,9 @@ export function SearchBar() {
               </button>
             )}
             <button
+              ref={clearBtnRef}
               onClick={handleClear}
+              onKeyDown={handleClearBtnKeyDown}
               className="text-text-tertiary hover:text-text-primary transition-colors"
             >
               <X size={14} />

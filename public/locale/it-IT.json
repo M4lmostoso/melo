@@ -756,7 +756,8 @@
       "transform": "Trasforma:",
       "improve": "Migliora",
       "shorter": "Più breve",
-      "formal": "Formale"
+      "formal": "Formale",
+      "newlineHint": "Shift+Invio per andare a capo"
     },
     "scheduleSend": {
       "title": "Programmazione invio",

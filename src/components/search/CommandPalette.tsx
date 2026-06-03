@@ -165,6 +165,7 @@ export function CommandPalette({ isOpen, onClose }: CommandPaletteProps) {
             onKeyDown={handleKeyDown}
             placeholder={t("search.commandPalette.placeholder")}
             className="w-full bg-transparent text-sm text-text-primary outline-none placeholder:text-text-tertiary"
+            spellCheck={false}
           />
         </div>
 

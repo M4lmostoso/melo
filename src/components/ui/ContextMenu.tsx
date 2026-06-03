@@ -341,9 +341,19 @@ function Submenu({
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              onKeyDown={(e) => e.stopPropagation()}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (e.key === "Tab") {
+                  e.preventDefault();
+                  const items = submenuRef.current?.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]:not([disabled])');
+                  if (items && items.length > 0) {
+                    (e.shiftKey ? items[items.length - 1] : items[0]).focus();
+                  }
+                }
+              }}
               placeholder="Cerca…"
               className="flex-1 bg-transparent text-xs text-text-primary outline-none placeholder:text-text-tertiary min-w-0"
+              spellCheck={false}
             />
           </div>
         </div>
@@ -362,6 +372,21 @@ function Submenu({
               // Don't close on label toggle — allow multi-apply
               if (item.checked == null) {
                 onClose();
+              }
+            }}
+            onKeyDown={(e) => {
+              if (e.key !== "Tab") return;
+              e.preventDefault();
+              const allItems = Array.from(
+                submenuRef.current?.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]:not([disabled])') ?? []
+              );
+              const idx = allItems.indexOf(e.currentTarget);
+              if (!e.shiftKey) {
+                if (idx < allItems.length - 1) allItems[idx + 1].focus();
+                else searchRef.current?.focus();
+              } else {
+                if (idx > 0) allItems[idx - 1].focus();
+                else searchRef.current?.focus();
               }
             }}
             className={`flex items-center gap-2 w-full px-3 py-1.5 text-xs text-left transition-colors ${
