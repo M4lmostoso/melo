@@ -95,6 +95,7 @@ export function AttachmentPreview({
 }) {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [downloading, setDownloading] = useState(false);
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [previewBytes, setPreviewBytes] = useState<Uint8Array | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -152,13 +153,12 @@ export function AttachmentPreview({
   }, [isPreviewable, blobUrl, previewBytes, loading, error, handlePreviewLoad]);
 
   const handleDownload = async () => {
-    if (!attachmentId || saving) return;
+    if (!attachmentId || saving || downloading) return;
 
     setSaving(true);
     try {
       const filePath = await save({
         defaultPath: attachment.filename ?? "attachment",
-        filters: [{ name: "All Files", extensions: ["*"] }],
       });
 
       if (!filePath) {
@@ -166,12 +166,17 @@ export function AttachmentPreview({
         return;
       }
 
+      setSaving(false);
+      setDownloading(true);
+      setError(null);
       const bytes = await fetchData();
       await writeFile(filePath, bytes);
     } catch (err) {
       console.error("Failed to save attachment:", err);
+      setError(t("email.attachmentList.downloadFailed"));
     } finally {
       setSaving(false);
+      setDownloading(false);
     }
   };
 
@@ -196,11 +201,15 @@ export function AttachmentPreview({
       <div className="flex items-center gap-2 shrink-0 ml-4">
         <button
           onClick={handleDownload}
-          disabled={saving}
+          disabled={saving || downloading}
           className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-accent hover:bg-accent-hover rounded-md transition-colors disabled:opacity-50"
         >
           <Download size={13} />
-          {saving ? t("email.attachmentList.saving") : t("email.attachmentList.download")}
+          {saving
+            ? t("email.attachmentList.saving")
+            : downloading
+              ? t("email.attachmentList.downloading")
+              : t("email.attachmentList.download")}
         </button>
         <button
           onClick={handleClose}

@@ -696,6 +696,8 @@
       "unnamed": "Senza nome",
       "download": "Scarica",
       "saving": "Salvataggio...",
+      "downloading": "Download in corso...",
+      "downloadFailed": "Download fallito. Riprova.",
       "loadingPreview": "Caricamento anteprima...",
       "previewNotAvailable": "Anteprima non disponibile per questo tipo di file",
       "unknownType": "Tipo sconosciuto",

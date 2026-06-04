@@ -696,6 +696,8 @@
       "unnamed": "Unnamed",
       "download": "Download",
       "saving": "Saving...",
+      "downloading": "Downloading...",
+      "downloadFailed": "Download failed. Please try again.",
       "loadingPreview": "Loading preview...",
       "previewNotAvailable": "Preview not available for this file type",
       "unknownType": "Unknown type",

@@ -26,6 +26,8 @@ export interface SameDomainContact {
 
 /**
  * Search contacts by email or name prefix for autocomplete.
+ * Falls back to from_name from messages when display_name is null,
+ * so contacts whose name appears in email headers are still found by name.
  */
 export async function searchContacts(
   query: string,
@@ -34,9 +36,26 @@ export async function searchContacts(
   const db = await getDb();
   const pattern = `%${query}%`;
   return db.select<DbContact[]>(
-    `SELECT * FROM contacts
-     WHERE email LIKE $1 OR display_name LIKE $1
-     ORDER BY frequency DESC, display_name ASC
+    `SELECT c.id, c.email,
+       COALESCE(c.display_name, (
+         SELECT from_name FROM messages
+         WHERE from_address = c.email AND from_name IS NOT NULL AND from_name != ''
+         ORDER BY date DESC LIMIT 1
+       )) as display_name,
+       c.avatar_url, c.frequency, c.last_contacted_at, c.notes
+     FROM contacts c
+     WHERE c.email LIKE $1
+        OR c.display_name LIKE $1
+        OR EXISTS (
+          SELECT 1 FROM messages
+          WHERE from_address = c.email AND from_name LIKE $1
+        )
+     ORDER BY
+       CASE WHEN c.display_name LIKE $1
+                 OR EXISTS (SELECT 1 FROM messages WHERE from_address = c.email AND from_name LIKE $1)
+            THEN 0 ELSE 1 END,
+       c.frequency DESC,
+       display_name ASC
      LIMIT $2`,
     [pattern, limit],
   );

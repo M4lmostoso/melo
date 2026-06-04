@@ -369,7 +369,9 @@ export async function recalculateThreadStats(
   threadId: string,
 ): Promise<void> {
   await withTransaction(async (db) => {
-    // 1. Update basic stats — exclude trashed messages from counts and last date
+    // 1. Update basic stats — exclude trashed messages from counts and last date.
+    // Also update snippet and subject from the most recent non-trashed message so that
+    // deleting a message (e.g. a bounce notification) doesn't leave stale metadata.
     await db.execute(
       `UPDATE threads
        SET
@@ -377,7 +379,9 @@ export async function recalculateThreadStats(
          is_starred = COALESCE((SELECT MAX(is_starred) FROM messages WHERE account_id = $1 AND thread_id = $2 AND is_trashed = 0), 0),
          has_attachments = CASE WHEN EXISTS(SELECT 1 FROM attachments a JOIN messages m ON a.message_id = m.id WHERE m.account_id = $1 AND m.thread_id = $2 AND m.is_trashed = 0 AND a.is_inline = 0 AND a.content_id IS NULL) THEN 1 ELSE 0 END,
          message_count = (SELECT COUNT(*) FROM messages WHERE account_id = $1 AND thread_id = $2 AND is_draft = 0 AND is_trashed = 0),
-         last_message_at = COALESCE((SELECT MAX(date) FROM messages WHERE account_id = $1 AND thread_id = $2 AND is_trashed = 0), threads.last_message_at)
+         last_message_at = COALESCE((SELECT MAX(date) FROM messages WHERE account_id = $1 AND thread_id = $2 AND is_trashed = 0), threads.last_message_at),
+         snippet = COALESCE((SELECT snippet FROM messages WHERE account_id = $1 AND thread_id = $2 AND is_draft = 0 AND is_trashed = 0 ORDER BY date DESC LIMIT 1), threads.snippet),
+         subject = COALESCE((SELECT subject FROM messages WHERE account_id = $1 AND thread_id = $2 AND is_draft = 0 AND is_trashed = 0 ORDER BY date DESC LIMIT 1), threads.subject)
        WHERE account_id = $1 AND id = $2`,
       [accountId, threadId],
     );
