@@ -139,6 +139,8 @@ function AddressInput({
           value={inputValue}
           onChange={(e) => handleInputChange(e.target.value)}
           onKeyDown={handleKeyDown}
+          spellCheck={false}
+          autoComplete="off"
           onBlur={() => {
             // Delay to allow click on suggestion
             if (blurTimerRef.current) clearTimeout(blurTimerRef.current);

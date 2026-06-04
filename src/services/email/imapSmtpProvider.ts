@@ -73,30 +73,49 @@ function parseBasicHeaders(raw: string): Map<string, string> {
 /**
  * Extract a plain-text snippet from a raw RFC 2822 email body.
  */
-function extractSnippet(raw: string, maxLen = 200): string {
+function extractPlainText(raw: string): string | null {
   const bodyStart = raw.indexOf("\r\n\r\n");
-  if (bodyStart === -1) return "";
+  if (bodyStart === -1) return null;
 
-  let body = raw.slice(bodyStart + 4);
-
-  // For multipart messages, try to find the text/plain part
+  const body = raw.slice(bodyStart + 4);
   const contentType = parseBasicHeaders(raw).get("content-type") ?? "";
-  const boundaryMatch = contentType.match(/boundary="?([^";\s]+)"?/);
-  if (boundaryMatch) {
-    const boundary = boundaryMatch[1]!;
-    const parts = body.split(`--${boundary}`);
-    for (const part of parts) {
-      if (part.toLowerCase().includes("content-type: text/plain")) {
-        const partBodyStart = part.indexOf("\r\n\r\n");
-        if (partBodyStart !== -1) {
-          body = part.slice(partBodyStart + 4);
-          break;
-        }
-      }
-    }
+  const ctLow = contentType.toLowerCase();
+
+  if (!ctLow.startsWith("multipart/")) {
+    return ctLow.startsWith("text/plain") ? body : null;
   }
 
-  // Strip HTML tags if present, trim, and truncate
+  const boundaryMatch = contentType.match(/boundary="?([^";\s]+)"?/i);
+  if (!boundaryMatch) return null;
+  const boundary = boundaryMatch[1]!;
+
+  const parts = body.split(`--${boundary}`);
+  for (const part of parts) {
+    if (part === "--" || part.trim() === "") continue;
+    const partHeaderEnd = part.indexOf("\r\n\r\n");
+    if (partHeaderEnd === -1) continue;
+    const partHeaders = part.slice(0, partHeaderEnd);
+    const partBody = part.slice(partHeaderEnd + 4);
+    const partCT = (partHeaders.match(/content-type:\s*([^\r\n]+)/i)?.[1] ?? "").toLowerCase();
+
+    if (partCT.startsWith("text/plain")) {
+      return partBody.replace(/\r\n--[^\r\n]+(--)?\s*$/, "");
+    }
+    if (partCT.startsWith("multipart/")) {
+      const nested = extractPlainText(part.replace(/^\r\n/, ""));
+      if (nested !== null) return nested;
+    }
+  }
+  return null;
+}
+
+function extractSnippet(raw: string, maxLen = 200): string {
+  const plain = extractPlainText(raw);
+  const body = plain ?? (() => {
+    const bodyStart = raw.indexOf("\r\n\r\n");
+    return bodyStart !== -1 ? raw.slice(bodyStart + 4) : "";
+  })();
+
   const stripped = body
     .replace(/<[^>]+>/g, "")
     .replace(/&nbsp;/g, " ")

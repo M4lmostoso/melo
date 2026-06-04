@@ -1639,4 +1639,41 @@ async function _runMigrations(): Promise<void> {
       "INSERT OR REPLACE INTO settings (key, value) VALUES ('imap_attachment_repair_v1', '1')",
     );
   }
+
+  // One-time repair: fix snippets that contain raw MIME boundary markers.
+  // These were stored by saveSentMessageLocally before the nested-multipart fix.
+  // Re-generate snippet from body_html when available; fall back to clearing it.
+  const mimeSnippetRepairFlag = await db.select<{ value: string }[]>(
+    "SELECT value FROM settings WHERE key = 'mime_snippet_repair_v1'",
+  );
+  if (mimeSnippetRepairFlag.length === 0) {
+    const badRows = await db.select<{ id: string; account_id: string; body_html: string | null }[]>(
+      "SELECT id, account_id, body_html FROM messages WHERE snippet LIKE '------=_%'",
+    );
+    if (badRows.length > 0) {
+      console.log(`[repair] Fixing ${badRows.length} message(s) with MIME-boundary snippets...`);
+      for (const row of badRows) {
+        let newSnippet = "";
+        if (row.body_html) {
+          newSnippet = row.body_html
+            .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+            .replace(/<[^>]+>/g, "")
+            .replace(/&nbsp;/g, " ")
+            .replace(/&amp;/g, "&")
+            .replace(/&lt;/g, "<")
+            .replace(/&gt;/g, ">")
+            .replace(/\s+/g, " ")
+            .trim()
+            .slice(0, 200);
+        }
+        await db.execute(
+          "UPDATE messages SET snippet = $1, body_text = $1 WHERE account_id = $2 AND id = $3",
+          [newSnippet, row.account_id, row.id],
+        );
+      }
+    }
+    await db.execute(
+      "INSERT OR REPLACE INTO settings (key, value) VALUES ('mime_snippet_repair_v1', '1')",
+    );
+  }
 }

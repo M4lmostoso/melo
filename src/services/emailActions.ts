@@ -999,6 +999,7 @@ export async function deleteSingleMessage(
         snippet: updated.snippet,
         fromName: updated.from_name,
         fromAddress: updated.from_address,
+        allSenders: updated.all_senders,
       });
     }
     window.dispatchEvent(new CustomEvent("melo-message-deleted", { detail: { messageId, threadId } }));
