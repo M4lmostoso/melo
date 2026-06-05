@@ -135,6 +135,25 @@ export class GmailApiProvider implements EmailProvider {
     return { data: resp.data, size: resp.size };
   }
 
+  async downloadAttachmentToPath(
+    messageId: string,
+    attachmentId: string,
+    destPath: string,
+    dbId: string,
+    totalSize: number,
+  ): Promise<void> {
+    const token = await this.client.getValidToken();
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("gmail_download_attachment_to_path", {
+      accessToken: token,
+      messageId,
+      gmailAttachmentId: attachmentId,
+      destPath,
+      attachmentId: dbId,
+      totalSize,
+    });
+  }
+
   async fetchRawMessage(messageId: string): Promise<string> {
     // Gmail API with format=raw returns a { raw: string } field (base64url-encoded RFC822)
     const resp = (await this.client.getMessage(

@@ -332,6 +332,25 @@ export async function imapFetchAttachment(
 }
 
 /**
+ * Fetch an IMAP attachment and write it directly to a user-chosen path.
+ * Binary data stays entirely in Rust — never crosses the WKWebView IPC bridge.
+ * Emits `attachment-download-progress` Tauri events during download.
+ */
+export async function imapDownloadAttachmentToPath(
+  config: ImapConfig,
+  folder: string,
+  uid: number,
+  partId: string,
+  destPath: string,
+  attachmentId: string,
+  totalSize: number,
+): Promise<void> {
+  return invoke<void>('imap_download_attachment_to_path', {
+    config, folder, uid, partId, destPath, attachmentId, totalSize,
+  });
+}
+
+/**
  * Fetch the raw RFC822 source of a single message by UID.
  * Returns the full message as a UTF-8 string.
  */

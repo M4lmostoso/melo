@@ -6,6 +6,8 @@
  * CSS/JS constants are injected into the iframe srcdoc by EmailRenderer.
  */
 
+import { t } from "@/i18n";
+
 const HEADER_KEYS = new Set([
   "from", "date", "subject", "to", "cc", "bcc", "reply-to",
   "sent", "mailed-by", "signed-by", "delivered-to",
@@ -47,7 +49,22 @@ export const FW_DARK_CSS = `
 .fw-lbl{color:#6b7280}.fw-val{color:#d1d5db}
 `;
 
-export const FW_JS = `document.querySelectorAll('.fw-hd').forEach(function(h){h.addEventListener('click',function(){h.closest('.fw-blk').classList.toggle('fw-open')})});`;
+// Three-dots toggle for collapsed quoted text ("citation"). The quote starts
+// collapsed; clicking the dots reveals it. Styled to match the fw-blk accent.
+export const QUOTE_CSS = `
+.q-tgl{display:inline-flex;align-items:center;justify-content:center;gap:3px;height:18px;padding:0 11px;margin:6px 0;background:rgba(99,102,241,.12);border:none;border-radius:9px;cursor:pointer;vertical-align:middle}
+.q-tgl:hover{background:rgba(99,102,241,.22)}
+.q-tgl span{display:block;width:3px;height:3px;border-radius:50%;background:#6366f1}
+.q-hidden{display:none!important}
+`;
+
+export const QUOTE_DARK_CSS = `
+.q-tgl{background:rgba(129,140,248,.18)}
+.q-tgl:hover{background:rgba(129,140,248,.28)}
+.q-tgl span{background:#818cf8}
+`;
+
+export const FW_JS = `document.querySelectorAll('.fw-hd').forEach(function(h){h.addEventListener('click',function(){h.closest('.fw-blk').classList.toggle('fw-open')})});document.querySelectorAll('.q-tgl').forEach(function(b){b.addEventListener('click',function(){var q=b.nextElementSibling;if(!q)return;var hidden=q.classList.toggle('q-hidden');b.setAttribute('aria-expanded',hidden?'false':'true')})});`;
 
 function esc(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -238,6 +255,154 @@ function parseHtmlHeaders(block: string): Array<[string, string]> {
 
 const WROTE_RE = /(?:wrote|ha scritto|a [eé]crit|schrieb|escribi[oó]|escreveu)\s*:/i;
 
+// Recognizes a reply-attribution LINE: a leading date keyword (On / Il [giorno] /
+// Le / Am / El / Em / Den), then somewhere a year, an email "@", or a clock time,
+// then the "wrote:" verb. The leading-keyword anchor (^) plus the date/@/time guard
+// keep ordinary prose like "Il libro che ha scritto:" from matching.
+const ATTR_LINE_RE =
+  /^\s*(?:on|il(?:\s+giorno)?|le|am|el|em|den)\b[\s\S]{0,250}?(?:\d{4}|@|\d{1,2}:\d{2})[\s\S]{0,160}?(?:wrote|ha scritto|a [eé]crit|schrieb|escribi[oó]|escreveu)\s*:/i;
+
+// Forwarded-message separators across clients ("---------- Forwarded message ---------",
+// "Messaggio inoltrato", "Begin forwarded message", etc.).
+const FW_SEP_RE =
+  /(?:-{2,}\s*(?:forwarded\s+(?:message|mail|email)|original\s+(?:message|mail|email)|messaggio\s+inoltrato|message\s+(?:transmis|transf[eé]r[eé])|mensaje\s+reenviado|weitergeleitete\s+nachricht)\b|begin\s+forwarded\s+message)/i;
+
+// The first header line of a forwarded/replied block (From:/Da:/De:/Date:/Subject:…),
+// used together with a preceding <hr> as the Outlook reply signal.
+const HEADER_LINE_RE =
+  /^\s*(?:from|da|de|von|date|data|sent|inviato|envoy[eé]|gesendet|to|an|subject|oggetto|objet|asunto|betreff)\s*:/i;
+
+const TOGGLE_HTML = "<span></span><span></span><span></span>";
+
+function makeToggle(doc: Document, label: string): HTMLButtonElement {
+  const btn = doc.createElement("button");
+  btn.className = "q-tgl";
+  btn.setAttribute("type", "button");
+  btn.setAttribute("aria-expanded", "false");
+  btn.setAttribute("aria-label", label);
+  btn.setAttribute("title", label);
+  btn.innerHTML = TOGGLE_HTML;
+  return btn;
+}
+
+/** Next sibling that isn't whitespace text or a <br>. */
+function nextSignificantSibling(node: ChildNode): ChildNode | null {
+  let n = node.nextSibling;
+  while (n && ((n.nodeType === Node.TEXT_NODE && !n.textContent?.trim())
+    || (n.nodeType === Node.ELEMENT_NODE && (n as Element).tagName === "BR"))) {
+    n = n.nextSibling;
+  }
+  return n;
+}
+
+/**
+ * True if a node marks the start of quoted/forwarded history. Recognized signals,
+ * all reliable enough not to fire on ordinary body content:
+ *   • reply attribution line ("On … wrote:", "Il giorno … ha scritto:")
+ *   • forwarded-message separator ("---------- Forwarded message ---------")
+ *   • a styled fw-blk header already built by the regex passes
+ *   • explicit quote markers: .gmail_quote, blockquote[type=cite]
+ *   • an <hr> immediately followed by a header line (Outlook reply divider)
+ */
+function isQuoteStart(node: Node): boolean {
+  if (node.nodeType === Node.TEXT_NODE) {
+    const t = node.textContent ?? "";
+    return ATTR_LINE_RE.test(t) || FW_SEP_RE.test(t);
+  }
+  if (node.nodeType !== Node.ELEMENT_NODE) return false;
+  const el = node as Element;
+  const tag = el.tagName;
+
+  if (el.classList.contains("fw-blk")) return true;
+  if (el.classList.contains("gmail_quote")) return true;
+  if (tag === "BLOCKQUOTE" && el.getAttribute("type") === "cite") return true;
+
+  if (tag === "HR") {
+    const next = nextSignificantSibling(el);
+    return !!next && HEADER_LINE_RE.test((next.textContent ?? "").trim());
+  }
+
+  // Leaf-ish line whose own text is an attribution / separator. The length cap stops a
+  // big wrapper (that also holds the new message above the quote) from matching — the
+  // TreeWalker visits parents before children, so we still reach the tight inner line.
+  const text = (el.textContent ?? "").trim();
+  return text.length <= 600 && (ATTR_LINE_RE.test(text) || FW_SEP_RE.test(text));
+}
+
+/** Visible text of everything before `anchor` in document order, collapsed to one line. */
+function textBefore(doc: Document, anchor: Node): string {
+  try {
+    const range = doc.createRange();
+    range.selectNodeContents(doc.body);
+    range.setEndBefore(anchor);
+    return range.toString().replace(/\s+/g, " ").trim();
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Collapses quoted reply / forwarded history behind a three-dots toggle (Gmail-style).
+ * The cut lands AT the attribution / forward separator (not after it), so it folds
+ * together with the quote.
+ *
+ * Safety rails — this runs on every rendered message, so it must never hide real
+ * content or corrupt layout:
+ *   • only fires on the explicit quote signals in isQuoteStart (no bare-<blockquote>
+ *     guessing, which used to swallow received messages whose body is a blockquote);
+ *   • refuses to collapse when there is no visible content ABOVE the quote (otherwise
+ *     a reply with the quote on top would render as nothing but "…");
+ *   • leaves table-structured layouts alone (moving cells/rows would break them);
+ *   • wrapped in try/catch so a parsing hiccup can never blank out the message.
+ */
+function collapseQuotes(html: string): string {
+  // Cheap guard: skip the DOM round-trip for emails with no quote/forward markers.
+  if (!/<blockquote|gmail_quote|<hr|ha scritto|wrote\s*:|a [eé]crit|schrieb|escrib|escreveu|forwarded message|messaggio inoltrato|original message/i
+    .test(html)) {
+    return html;
+  }
+
+  try {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+
+    let anchor: Node | null = null;
+    const walker = doc.createTreeWalker(
+      doc.body,
+      NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT,
+    );
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      if (isQuoteStart(n)) {
+        anchor = n;
+        break;
+      }
+    }
+    if (!anchor || !anchor.parentNode) return html;
+
+    // Don't fold to nothing: require some real text above the quote.
+    if (textBefore(doc, anchor).length < 2) return html;
+
+    // Don't restructure table layouts (moving cells/rows would garble them).
+    const parent = anchor.parentNode as Element;
+    if (["TABLE", "TBODY", "THEAD", "TFOOT", "TR"].includes(parent.tagName)) return html;
+
+    // Move the anchor + every following sibling into one hidden wrapper, toggle in front.
+    const toMove: ChildNode[] = [];
+    for (let n: ChildNode | null = anchor as ChildNode; n; n = n.nextSibling) {
+      toMove.push(n);
+    }
+    const btn = makeToggle(doc, t("email.renderer.showQuotedText"));
+    const wrapper = doc.createElement("div");
+    wrapper.className = "q-quote q-hidden";
+    parent.insertBefore(btn, anchor);
+    parent.insertBefore(wrapper, anchor);
+    for (const n of toMove) wrapper.appendChild(n);
+
+    return doc.body.innerHTML;
+  } catch {
+    return html; // never let a quote-collapse failure blank out the message body
+  }
+}
+
 /**
  * Transforms forwarded blocks in HTML emails.
  * Handles Gmail's .gmail_attr div, inline <br>-separated header lines,
@@ -308,5 +473,8 @@ export function transformHtml(html: string): string {
     },
   );
 
-  return html;
+  // Finally, collapse the quoted citation body behind a three-dots toggle.
+  // Runs last so any fw-blk attribution headers built above end up nested
+  // inside the collapsed quote container where applicable.
+  return collapseQuotes(html);
 }

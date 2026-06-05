@@ -623,6 +623,7 @@ export async function getUnreadCountsByLabel(
      FROM threads t
      INNER JOIN thread_labels tl ON tl.account_id = t.account_id AND tl.thread_id = t.id
      WHERE t.account_id = $1 AND t.is_read = 0
+       AND tl.label_id != 'SENT'
        AND NOT (
          EXISTS (SELECT 1 FROM thread_labels tl_d WHERE tl_d.account_id = t.account_id AND tl_d.thread_id = t.id AND tl_d.label_id = 'DRAFT')
          AND NOT EXISTS (SELECT 1 FROM thread_labels tl_i WHERE tl_i.account_id = t.account_id AND tl_i.thread_id = t.id AND tl_i.label_id = 'INBOX')
@@ -1060,6 +1061,7 @@ export async function getGlobalUnreadCounts(
      INNER JOIN threads t ON t.id = tl.thread_id AND t.account_id = tl.account_id
      WHERE tl.account_id IN (${placeholders})
        AND t.is_read = 0
+       AND tl.label_id != 'SENT'
        AND EXISTS (
          SELECT 1 FROM thread_labels inbox
          WHERE inbox.thread_id = tl.thread_id

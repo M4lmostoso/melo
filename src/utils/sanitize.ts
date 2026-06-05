@@ -24,6 +24,7 @@ export function sanitizeHtml(html: string): string {
       "style",
       "target",
       "rel",
+      "type",
       "colspan",
       "rowspan",
       "cellpadding",

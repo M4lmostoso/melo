@@ -416,7 +416,6 @@ function getSmartFolderIcon(iconName: string): LucideIcon {
 const LABELS_COLLAPSED_COUNT = 3;
 
 const FOLDER_UNREAD_KEY: Record<string, string> = {
-  sent: "SENT",
   drafts: "DRAFT",
   trash: "TRASH",
   spam: "SPAM",

@@ -11,6 +11,7 @@ import {
   imapDeleteMessages,
   imapFetchMessageBody,
   imapFetchAttachment,
+  imapDownloadAttachmentToPath,
   imapFetchRawMessage,
   imapTestConnection,
   imapAppendMessage,
@@ -356,15 +357,56 @@ export class ImapSmtpProvider implements EmailProvider {
     messageId: string,
     attachmentId: string,
   ): Promise<{ data: string; size: number }> {
-    const { folder, uid } = this.parseImapMessageId(messageId);
+    const db = await getDb();
+    const rows = await db.select<{ imap_folder: string | null; imap_uid: number | null }[]>(
+      "SELECT imap_folder, imap_uid FROM messages WHERE id = $1 AND account_id = $2 LIMIT 1",
+      [messageId, this.accountId],
+    );
+    const dbFolder = rows[0]?.imap_folder ?? null;
+    const dbUid = rows[0]?.imap_uid ?? null;
 
-    if (uid === null || !folder) {
-      throw new Error(`Invalid IMAP message ID format: ${messageId}`);
+    const { folder: parsedFolder, uid: parsedUid } = this.parseImapMessageId(messageId);
+    const folder = dbFolder ?? parsedFolder;
+    const uid = dbUid ?? parsedUid;
+
+    if (!folder || uid === null) {
+      throw new Error(`Cannot resolve IMAP location for message: ${messageId}`);
     }
 
     const config = await this.getImapConfig();
     const data = await imapFetchAttachment(config, folder, uid, attachmentId);
     return { data, size: data.length };
+  }
+
+  async downloadAttachmentToPath(
+    messageId: string,
+    attachmentId: string,
+    destPath: string,
+    dbId: string,
+    totalSize: number,
+  ): Promise<void> {
+    // Prefer imap_folder/imap_uid from the DB — these stay current through syncs
+    // and folder moves, whereas the synthetic message ID encodes the original folder.
+    const db = await getDb();
+    const rows = await db.select<{ imap_folder: string | null; imap_uid: number | null }[]>(
+      "SELECT imap_folder, imap_uid FROM messages WHERE id = $1 AND account_id = $2 LIMIT 1",
+      [messageId, this.accountId],
+    );
+    const dbFolder = rows[0]?.imap_folder ?? null;
+    const dbUid = rows[0]?.imap_uid ?? null;
+
+    const { folder: parsedFolder, uid: parsedUid } = this.parseImapMessageId(messageId);
+    const folder = dbFolder ?? parsedFolder;
+    const uid = dbUid ?? parsedUid;
+
+    if (!folder || uid === null) {
+      throw new Error(`Cannot resolve IMAP location for message: ${messageId}`);
+    }
+
+    console.log(`[imap] download folder=${folder} uid=${uid} part=${attachmentId} size=${totalSize}`);
+    const config = await this.getImapConfig();
+    await imapDownloadAttachmentToPath(config, folder, uid, attachmentId, destPath, dbId, totalSize);
+    console.log(`[imap] download done`);
   }
 
   async fetchRawMessage(messageId: string): Promise<string> {

@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { save } from "@tauri-apps/plugin-dialog";
-import { writeFile } from "@tauri-apps/plugin-fs";
+import { listen } from "@tauri-apps/api/event";
 import { getAttachmentsForMessage, type DbAttachment } from "@/services/db/attachments";
 import { getEmailProvider } from "@/services/email/providerFactory";
 import { Modal } from "@/components/ui/Modal";
@@ -99,7 +99,25 @@ export function AttachmentPreview({
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [previewBytes, setPreviewBytes] = useState<Uint8Array | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Download progress (0-100) while saving; undefined when idle. Separate red flag
+  // so the bar only turns red for download failures, not preview-load errors.
+  const [downloadProgress, setDownloadProgress] = useState<number | undefined>(undefined);
+  const [downloadFailed, setDownloadFailed] = useState(false);
   const bytesRef = useRef<Uint8Array | null>(null);
+
+  // Listen to Rust byte-level progress events for this attachment
+  useEffect(() => {
+    const unlisten = listen<{ attachmentId: string; downloaded: number; total: number }>(
+      "attachment-download-progress",
+      (e) => {
+        if (e.payload.attachmentId !== attachment.id) return;
+        const { downloaded, total } = e.payload;
+        const pct = total > 0 ? Math.min(100, Math.round((downloaded / total) * 100)) : 0;
+        setDownloadProgress(pct);
+      },
+    );
+    return () => { unlisten.then((f) => f()); };
+  }, [attachment.id]);
 
   const isPreviewable = canPreview(attachment.mime_type, attachment.filename);
   const isOffice = isOfficeDoc(attachment.mime_type, attachment.filename) || isOfficeSpreadsheet(attachment.mime_type, attachment.filename);
@@ -156,26 +174,35 @@ export function AttachmentPreview({
     if (!attachmentId || saving || downloading) return;
 
     setSaving(true);
+    let filePath: string | null = null;
     try {
-      const filePath = await save({
+      filePath = await save({
         defaultPath: attachment.filename ?? "attachment",
       });
-
-      if (!filePath) {
-        setSaving(false);
-        return;
-      }
-
-      setSaving(false);
-      setDownloading(true);
-      setError(null);
-      const bytes = await fetchData();
-      await writeFile(filePath, bytes);
-    } catch (err) {
-      console.error("Failed to save attachment:", err);
-      setError(t("email.attachmentList.downloadFailed"));
     } finally {
       setSaving(false);
+    }
+
+    if (!filePath) return;
+
+    setDownloading(true);
+    setError(null);
+    setDownloadFailed(false);
+    setDownloadProgress(0);
+    try {
+      const provider = await getEmailProvider(accountId);
+      await provider.downloadAttachmentToPath(messageId, attachmentId, filePath, attachment.id, attachment.size ?? 0);
+      setDownloadProgress(100);
+      const { revealItemInDir } = await import("@tauri-apps/plugin-opener");
+      await revealItemInDir(filePath);
+      setTimeout(() => setDownloadProgress(undefined), 1500);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("Failed to save attachment:", msg);
+      setError(msg);
+      setDownloadFailed(true);
+      setDownloadProgress(undefined);
+    } finally {
       setDownloading(false);
     }
   };
@@ -185,8 +212,9 @@ export function AttachmentPreview({
     onClose();
   };
 
+  const dlPct = downloadProgress ?? 0;
   const header = (
-    <div className="px-4 py-3 border-b border-border-primary flex items-center justify-between shrink-0">
+    <div className="relative px-4 py-3 border-b border-border-primary flex items-center justify-between shrink-0">
       <div className="flex items-center gap-2 min-w-0">
         <span>{getFileIcon(attachment.mime_type, attachment.filename)}</span>
         <span className="text-sm font-medium text-text-primary truncate">
@@ -218,6 +246,24 @@ export function AttachmentPreview({
           ×
         </button>
       </div>
+
+      {/* Download progress bar — absolute overlay on the header's bottom edge.
+          Breathing accent while waiting on the server (0%), smooth fill on real
+          byte progress, solid red on failure. Mirrors the attachment library. */}
+      {(downloadProgress !== undefined || downloadFailed) && (
+        <div
+          className="absolute bottom-0 left-0 right-0 h-1 bg-accent/15 overflow-hidden"
+          title={downloadFailed ? (error ?? undefined) : dlPct > 0 ? `${dlPct}%` : t("attachments.library.actionPreparing")}
+        >
+          <div
+            className={`h-full transition-[width] duration-300 ease-out ${downloadFailed ? "bg-red-500" : "bg-accent"}`}
+            style={{ width: downloadFailed ? "100%" : `${dlPct}%` }}
+          />
+          {!downloadFailed && dlPct === 0 && (
+            <div className="absolute inset-0 bg-accent animate-progress-breathe" />
+          )}
+        </div>
+      )}
     </div>
   );
 

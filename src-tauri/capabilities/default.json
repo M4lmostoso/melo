@@ -33,6 +33,8 @@
     "core:event:allow-emit",
     "opener:default",
     "opener:allow-open-url",
+    "opener:allow-open-path",
+    "opener:allow-reveal-item-in-dir",
     "dialog:default",
     "dialog:allow-save",
     "fs:default",
@@ -48,7 +50,8 @@
       "identifier": "fs:scope",
       "allow": [
         { "path": "$APPDATA" },
-        { "path": "$APPDATA/**" }
+        { "path": "$APPDATA/**" },
+        { "path": "$HOME/**" }
       ]
     },
     "core:window:allow-minimize",

@@ -564,7 +564,10 @@
       "unknownSender": "Unknown",
       "actionPreview": "Preview",
       "actionDownload": "Download",
-      "actionJumpToEmail": "Jump to email"
+      "actionDownloading": "Downloading...",
+      "actionDownloadError": "Download failed. Please try again.",
+      "actionJumpToEmail": "Jump to email",
+      "actionPreparing": "Preparing…"
     },
     "title": "Attachments",
     "searchPlaceholder": "Search attachments...",
@@ -742,7 +745,8 @@
       "iframeTitle": "Email content",
       "imagesHidden": "Images hidden to protect your privacy.",
       "loadImages": "Load images",
-      "alwaysLoadFromSender": "Always load from sender"
+      "alwaysLoadFromSender": "Always load from sender",
+      "showQuotedText": "Show quoted text"
     }
   },
   "composer": {

@@ -564,7 +564,10 @@
       "unknownSender": "Sconosciuto",
       "actionPreview": "Anteprima",
       "actionDownload": "Scarica",
-      "actionJumpToEmail": "Vai all'email"
+      "actionDownloading": "Download in corso...",
+      "actionDownloadError": "Download fallito. Riprova.",
+      "actionJumpToEmail": "Vai all'email",
+      "actionPreparing": "Preparazione…"
     },
     "title": "Allegati",
     "searchPlaceholder": "Cerca allegati...",
@@ -742,7 +745,8 @@
       "iframeTitle": "Contenuto email",
       "imagesHidden": "Immagini nascoste per proteggere la tua privacy.",
       "loadImages": "Carica immagini",
-      "alwaysLoadFromSender": "Carica sempre da questo mittente"
+      "alwaysLoadFromSender": "Carica sempre da questo mittente",
+      "showQuotedText": "Mostra testo citato"
     }
   },
   "composer": {

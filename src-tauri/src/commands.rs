@@ -101,37 +101,56 @@ pub async fn imap_fetch_messages(
 
 #[tauri::command]
 pub async fn imap_fetch_new_uids(
+    pool: tauri::State<'_, ImapSessionPool>,
     config: ImapConfig,
     folder: String,
     since_uid: u32,
 ) -> Result<Vec<u32>, String> {
-    let mut session = imap_client::connect(&config).await?;
-    let uids = imap_client::fetch_new_uids(&mut session, &folder, since_uid).await?;
-    let _ = session.logout().await;
-    Ok(uids)
+    // Pooled: reuse a live session instead of a fresh TCP+TLS+LOGIN per call.
+    // One LOGIN per folder per sync cycle is what trips strict servers' connection
+    // limits ("Connection reset by peer" on login). Sequential sync calls now share
+    // a single pooled connection instead of opening dozens.
+    let (mut session, key) = pool.acquire(&config).await?;
+    match imap_client::fetch_new_uids(&mut session, &folder, since_uid).await {
+        Ok(uids) => {
+            pool.release(key, session).await;
+            Ok(uids)
+        }
+        Err(e) => Err(e), // session dropped here → connection closed
+    }
 }
 
 #[tauri::command]
 pub async fn imap_search_all_uids(
+    pool: tauri::State<'_, ImapSessionPool>,
     config: ImapConfig,
     folder: String,
 ) -> Result<Vec<u32>, String> {
-    let mut session = imap_client::connect(&config).await?;
-    let uids = imap_client::search_all_uids(&mut session, &folder).await?;
-    let _ = session.logout().await;
-    Ok(uids)
+    let (mut session, key) = pool.acquire(&config).await?;
+    match imap_client::search_all_uids(&mut session, &folder).await {
+        Ok(uids) => {
+            pool.release(key, session).await;
+            Ok(uids)
+        }
+        Err(e) => Err(e),
+    }
 }
 
 #[tauri::command]
 pub async fn imap_check_seen_uids(
+    pool: tauri::State<'_, ImapSessionPool>,
     config: ImapConfig,
     folder: String,
     uids: Vec<u32>,
 ) -> Result<Vec<u32>, String> {
-    let mut session = imap_client::connect(&config).await?;
-    let seen = imap_client::check_seen_uids(&mut session, &folder, &uids).await?;
-    let _ = session.logout().await;
-    Ok(seen)
+    let (mut session, key) = pool.acquire(&config).await?;
+    match imap_client::check_seen_uids(&mut session, &folder, &uids).await {
+        Ok(seen) => {
+            pool.release(key, session).await;
+            Ok(seen)
+        }
+        Err(e) => Err(e),
+    }
 }
 
 #[tauri::command]
@@ -256,13 +275,18 @@ pub async fn imap_delete_messages(
 
 #[tauri::command]
 pub async fn imap_get_folder_status(
+    pool: tauri::State<'_, ImapSessionPool>,
     config: ImapConfig,
     folder: String,
 ) -> Result<ImapFolderStatus, String> {
-    let mut session = imap_client::connect(&config).await?;
-    let status = imap_client::get_folder_status(&mut session, &folder).await?;
-    let _ = session.logout().await;
-    Ok(status)
+    let (mut session, key) = pool.acquire(&config).await?;
+    match imap_client::get_folder_status(&mut session, &folder).await {
+        Ok(status) => {
+            pool.release(key, session).await;
+            Ok(status)
+        }
+        Err(e) => Err(e),
+    }
 }
 
 #[tauri::command]
@@ -290,6 +314,130 @@ pub async fn imap_fetch_attachment(
             Err(e)
         }
     }
+}
+
+/// Progress event emitted during attachment downloads. Payload is JSON-serialised
+/// and sent as a Tauri event `attachment-download-progress` to all windows.
+#[derive(Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AttachmentDownloadProgress {
+    attachment_id: String,
+    downloaded: u64,
+    total: u64,
+}
+
+fn emit_progress(app: &tauri::AppHandle, id: &str, downloaded: u64, total: u64) {
+    use tauri::Emitter;
+    let _ = app.emit("attachment-download-progress", AttachmentDownloadProgress {
+        attachment_id: id.to_string(),
+        downloaded,
+        total,
+    });
+}
+
+/// Download an IMAP attachment directly to a user-chosen path with real
+/// byte-level progress. Binary data stays in Rust — never crosses the WKWebView
+/// IPC bridge. Uses the raw-TCP path which is immune to the async-imap parser
+/// hang on large attachments and exposes genuine network progress via the IMAP
+/// literal size. `total_size` is only a hint; the real total comes from the wire.
+#[tauri::command]
+pub async fn imap_download_attachment_to_path(
+    app: tauri::AppHandle,
+    config: ImapConfig,
+    folder: String,
+    uid: u32,
+    part_id: String,
+    dest_path: String,
+    attachment_id: String,
+    total_size: u64,
+) -> Result<(), String> {
+    let _ = total_size; // real total is reported by the IMAP literal
+    let mut last_pct: i64 = -1;
+    imap_client::raw_download_attachment_to_file(
+        &config,
+        &folder,
+        uid,
+        &part_id,
+        &dest_path,
+        |downloaded, total| {
+            let pct = if total > 0 { (downloaded as i64 * 100) / total as i64 } else { 0 };
+            if pct != last_pct {
+                last_pct = pct;
+                emit_progress(&app, &attachment_id, downloaded, total);
+            }
+        },
+    )
+    .await
+}
+
+/// Download a Gmail attachment directly to a user-chosen path with real
+/// byte-level progress. Binary data stays in Rust — never crosses the WKWebView
+/// IPC bridge. Streams the HTTP response so progress reflects actual bytes
+/// transferred rather than synthetic milestones.
+#[tauri::command]
+pub async fn gmail_download_attachment_to_path(
+    app: tauri::AppHandle,
+    access_token: String,
+    message_id: String,
+    gmail_attachment_id: String,
+    dest_path: String,
+    attachment_id: String,
+    total_size: u64,
+) -> Result<(), String> {
+    use base64::Engine;
+
+    let url = format!(
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages/{}/attachments/{}",
+        message_id, gmail_attachment_id
+    );
+
+    let client = reqwest::Client::new();
+    let mut res = client
+        .get(&url)
+        .bearer_auth(&access_token)
+        .send()
+        .await
+        .map_err(|e| format!("Network error: {e}"))?;
+
+    if !res.status().is_success() {
+        return Err(format!("Gmail API error: HTTP {}", res.status()));
+    }
+
+    // Gmail wraps the attachment in JSON; the base64url `data` field is ~33% larger
+    // than the file. Stream the JSON body and report progress against its length.
+    let total = res.content_length().unwrap_or(total_size).max(1);
+    emit_progress(&app, &attachment_id, 0, total);
+
+    let mut body: Vec<u8> = Vec::new();
+    let mut downloaded: u64 = 0;
+    let mut last_pct: i64 = -1;
+    while let Some(chunk) = res.chunk().await.map_err(|e| format!("Network error: {e}"))? {
+        body.extend_from_slice(&chunk);
+        downloaded += chunk.len() as u64;
+        let pct = (downloaded as i64 * 100) / total as i64;
+        if pct != last_pct {
+            last_pct = pct;
+            emit_progress(&app, &attachment_id, downloaded.min(total), total);
+        }
+    }
+
+    let attachment: GmailAttachmentResponse = serde_json::from_slice(&body)
+        .map_err(|e| format!("Response parse error: {e}"))?;
+
+    let base64_data = attachment.data.replace('-', "+").replace('_', "/");
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(base64_data.as_bytes())
+        .map_err(|e| format!("Base64 decode failed: {e}"))?;
+
+    if let Some(parent) = std::path::Path::new(&dest_path).parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Cannot create destination directory: {e}"))?;
+    }
+    std::fs::write(&dest_path, &bytes)
+        .map_err(|e| format!("Failed to write file: {e}"))?;
+
+    emit_progress(&app, &attachment_id, total, total);
+    Ok(())
 }
 
 /// Background attachment pre-caching: fetch from IMAP and write to disk entirely in Rust.
@@ -683,6 +831,7 @@ pub async fn imap_search_folder(
 
 #[tauri::command]
 pub async fn imap_sync_folder(
+    pool: tauri::State<'_, ImapSessionPool>,
     sync_semaphore: tauri::State<'_, SyncSemaphore>,
     config: ImapConfig,
     folder: String,
@@ -693,10 +842,14 @@ pub async fn imap_sync_folder(
     let _permit = sync_semaphore.semaphore.acquire().await
         .map_err(|e| format!("semaphore acquire: {e}"))?;
 
-    let mut session = imap_client::connect(&config).await?;
-    let result = imap_client::sync_folder(&mut session, &folder, batch_size, since_date).await;
-    let _ = session.logout().await;
-    result
+    let (mut session, key) = pool.acquire(&config).await?;
+    match imap_client::sync_folder(&mut session, &folder, batch_size, since_date).await {
+        Ok(result) => {
+            pool.release(key, session).await;
+            Ok(result)
+        }
+        Err(e) => Err(e), // session dropped → connection closed
+    }
 }
 
 #[tauri::command]
@@ -710,14 +863,21 @@ pub async fn imap_raw_fetch_diagnostic(
 
 #[tauri::command]
 pub async fn imap_delta_check(
+    pool: tauri::State<'_, ImapSessionPool>,
     config: ImapConfig,
     folders: Vec<DeltaCheckRequest>,
 ) -> Result<Vec<DeltaCheckResult>, String> {
     log::debug!("[imap_delta_check: {} folders", folders.len());
-    let mut session = imap_client::connect(&config).await?;
-    let results = imap_client::delta_check_folders(&mut session, &folders).await?;
-    let _ = session.logout().await;
-    Ok(results)
+    // Pooled: the once-per-cycle batch check reuses a live session instead of
+    // forcing a fresh LOGIN every 60s.
+    let (mut session, key) = pool.acquire(&config).await?;
+    match imap_client::delta_check_folders(&mut session, &folders).await {
+        Ok(results) => {
+            pool.release(key, session).await;
+            Ok(results)
+        }
+        Err(e) => Err(e),
+    }
 }
 
 /// Fetch messages from IMAP but keep body_html in a Rust-side BodyCache.

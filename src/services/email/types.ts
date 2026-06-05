@@ -48,6 +48,13 @@ export interface EmailProvider {
     messageId: string,
     attachmentId: string,
   ): Promise<{ data: string; size: number }>;
+  downloadAttachmentToPath(
+    messageId: string,
+    attachmentId: string,
+    destPath: string,
+    dbId: string,
+    totalSize: number,
+  ): Promise<void>;
   fetchRawMessage(messageId: string): Promise<string>;
 
   // Actions (operate on thread/message level)

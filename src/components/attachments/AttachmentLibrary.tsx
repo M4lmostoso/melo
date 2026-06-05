@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { save } from "@tauri-apps/plugin-dialog";
-import { writeFile } from "@tauri-apps/plugin-fs";
+import { listen } from "@tauri-apps/api/event";
 import { Paperclip, Search, LayoutGrid, List } from "lucide-react";
 import { t } from "@/i18n";
 import { useAccountStore } from "@/stores/accountStore";
@@ -124,6 +124,20 @@ export function AttachmentLibrary() {
   const [sizeFilter, setSizeFilter] = useState<SizeFilter>("all");
   const [viewMode, setViewMode] = useState<ViewMode>("grid");
   const [previewAttachment, setPreviewAttachment] = useState<AttachmentWithContext | null>(null);
+  // progress: 0-100 while downloading, -1 on error; absent when idle
+  const [downloadProgress, setDownloadProgress] = useState<Map<string, number>>(new Map());
+  const [downloadErrors, setDownloadErrors] = useState<Map<string, string>>(new Map());
+
+  // Listen to Rust progress events
+  useEffect(() => {
+    type ProgressPayload = { attachmentId: string; downloaded: number; total: number };
+    const unlisten = listen<ProgressPayload>("attachment-download-progress", (e) => {
+      const { attachmentId, downloaded, total } = e.payload;
+      const pct = total > 0 ? Math.min(100, Math.round((downloaded / total) * 100)) : 0;
+      setDownloadProgress((prev) => new Map(prev).set(attachmentId, pct));
+    });
+    return () => { unlisten.then((f) => f()); };
+  }, []);
 
   const loadData = useCallback(async (acctIds: string[]) => {
     setLoading(true);
@@ -190,26 +204,31 @@ export function AttachmentLibrary() {
   const handleDownload = useCallback(async (att: AttachmentWithContext) => {
     const attachmentId = att.gmail_attachment_id ?? att.imap_part_id;
     if (!attachmentId) return;
-    try {
-      const filePath = await save({
-        defaultPath: att.filename ?? "attachment",
-        filters: [{ name: "All Files", extensions: ["*"] }],
-      });
-      if (!filePath) return;
+    if (downloadProgress.has(att.id)) return; // already in progress
 
+    const filePath = await save({ defaultPath: att.filename ?? "attachment" });
+    if (!filePath) return;
+
+    setDownloadErrors((prev) => { const m = new Map(prev); m.delete(att.id); return m; });
+    setDownloadProgress((prev) => new Map(prev).set(att.id, 0));
+    try {
       const provider = await getEmailProvider(att.account_id);
-      const response = await provider.fetchAttachment(att.message_id, attachmentId);
-      const base64 = response.data.replace(/-/g, "+").replace(/_/g, "/");
-      const binaryStr = atob(base64);
-      const bytes = new Uint8Array(binaryStr.length);
-      for (let i = 0; i < binaryStr.length; i++) {
-        bytes[i] = binaryStr.charCodeAt(i);
-      }
-      await writeFile(filePath, bytes);
+      await provider.downloadAttachmentToPath(
+        att.message_id, attachmentId, filePath, att.id, att.size ?? 0,
+      );
+      const { revealItemInDir } = await import("@tauri-apps/plugin-opener");
+      await revealItemInDir(filePath);
     } catch (err) {
-      console.error("Download failed:", err);
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[attachment] download failed:`, msg);
+      setDownloadErrors((prev) => new Map(prev).set(att.id, msg));
+    } finally {
+      // keep progress at 100 briefly so user sees completion, then clear
+      setTimeout(() => {
+        setDownloadProgress((prev) => { const m = new Map(prev); m.delete(att.id); return m; });
+      }, 1500);
     }
-  }, []);
+  }, [downloadProgress]);
 
   const handleJumpToEmail = useCallback((att: AttachmentWithContext) => {
     if (att.thread_id) {
@@ -327,6 +346,29 @@ export function AttachmentLibrary() {
         </div>
       </div>
 
+      {/* Download error banner — exact reason, no per-row height growth */}
+      {downloadErrors.size > 0 && (
+        <div className="shrink-0 px-4 py-2 bg-red-500/10 border-b border-red-500/20 flex items-start justify-between gap-2">
+          <div className="flex flex-col gap-0.5 min-w-0">
+            {[...downloadErrors.entries()].map(([id, msg]) => {
+              const att = attachments.find((a) => a.id === id);
+              return (
+                <span key={id} className="text-xs text-red-500 truncate" title={msg}>
+                  {att?.filename ? `${att.filename}: ` : ""}{msg}
+                </span>
+              );
+            })}
+          </div>
+          <button
+            onClick={() => setDownloadErrors(new Map())}
+            className="text-red-400 hover:text-red-500 text-base leading-none shrink-0"
+            title={t("common.close")}
+          >
+            ×
+          </button>
+        </div>
+      )}
+
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-4">
         {loading ? (
@@ -347,6 +389,8 @@ export function AttachmentLibrary() {
                 attachment={att}
                 accountLabel={isUnified ? accountMeta.get(att.account_id)?.label : undefined}
                 accountColor={isUnified ? accountMeta.get(att.account_id)?.color ?? undefined : undefined}
+                downloadProgress={downloadProgress.get(att.id)}
+                downloadError={downloadErrors.get(att.id)}
                 onPreview={() => setPreviewAttachment(att)}
                 onDownload={() => handleDownload(att)}
                 onJumpToEmail={() => handleJumpToEmail(att)}
@@ -361,6 +405,8 @@ export function AttachmentLibrary() {
                 attachment={att}
                 accountLabel={isUnified ? accountMeta.get(att.account_id)?.label : undefined}
                 accountColor={isUnified ? accountMeta.get(att.account_id)?.color ?? undefined : undefined}
+                downloadProgress={downloadProgress.get(att.id)}
+                downloadError={downloadErrors.get(att.id)}
                 onPreview={() => setPreviewAttachment(att)}
                 onDownload={() => handleDownload(att)}
                 onJumpToEmail={() => handleJumpToEmail(att)}

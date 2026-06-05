@@ -904,6 +904,152 @@ pub async fn raw_fetch_cid_attachment(
     Err(format!("Content-ID {target} not found in UID {uid}"))
 }
 
+/// Download a single MIME part directly to a file via raw TCP, reporting real
+/// byte-level progress.
+///
+/// Uses the raw-TCP path (like [`raw_fetch_cid_attachment`]) which is immune to the
+/// async-imap parser hang on large attachments. The IMAP literal `{size}` announces
+/// the exact byte count of the part body up front, and we read it in chunks — so the
+/// reported progress is genuine network progress, not synthetic milestones.
+///
+/// `on_progress(downloaded, total)` is invoked as bytes arrive; the caller is
+/// responsible for any throttling (e.g. emitting only on whole-percent changes).
+pub async fn raw_download_attachment_to_file<F>(
+    config: &ImapConfig,
+    folder: &str,
+    uid: u32,
+    part_id: &str,
+    dest_path: &str,
+    mut on_progress: F,
+) -> Result<(), String>
+where
+    F: FnMut(u64, u64),
+{
+    log::debug!("[raw_download_attachment] folder={folder} uid={uid} part={part_id}");
+
+    let stream = if config.security == "starttls" {
+        raw_connect_starttls(config).await?
+    } else {
+        connect_stream(config).await?
+    };
+    let mut reader = BufReader::new(stream);
+
+    // Read greeting (non-STARTTLS only — STARTTLS path already consumed it)
+    if config.security != "starttls" {
+        let mut line = String::new();
+        reader.read_line(&mut line).await.map_err(|e| format!("greeting: {e}"))?;
+    }
+
+    // LOGIN
+    let login_cmd = if config.auth_method == "oauth2" {
+        let xoauth2 = format!("user={}\x01auth=Bearer {}\x01\x01", config.username, config.password);
+        let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, xoauth2.as_bytes());
+        format!("a1 AUTHENTICATE XOAUTH2 {b64}\r\n")
+    } else {
+        let esc_user = config.username.replace('\\', "\\\\").replace('"', "\\\"");
+        let esc_pass = config.password.replace('\\', "\\\\").replace('"', "\\\"");
+        format!("a1 LOGIN \"{esc_user}\" \"{esc_pass}\"\r\n")
+    };
+    raw_send_and_wait(&mut reader, login_cmd.as_bytes(), "a1").await?;
+
+    // SELECT folder
+    let select_cmd = format!("a2 SELECT \"{folder}\"\r\n");
+    raw_send_and_wait(&mut reader, select_cmd.as_bytes(), "a2").await?;
+
+    // FETCH only the requested MIME part
+    let fetch_cmd = format!("a3 UID FETCH {uid} BODY.PEEK[{part_id}]\r\n");
+    reader.get_mut().write_all(fetch_cmd.as_bytes()).await
+        .map_err(|e| format!("FETCH write: {e}"))?;
+
+    // Find the untagged "* n FETCH (... {size}" line that announces the literal.
+    //
+    // Time-to-first-byte here can be long: for a large MIME part the server must
+    // read it from storage and re-encode it (base64) before it can emit the literal
+    // size — tens of seconds for a 20 MB attachment on a slow server. Use the longer
+    // fetch timeout, not the per-command timeout, or large attachments stall here.
+    let literal_size = loop {
+        let mut line = String::new();
+        match tokio::time::timeout(IMAP_FETCH_TIMEOUT, reader.read_line(&mut line)).await {
+            Ok(Ok(0)) => return Err("connection closed during FETCH".to_string()),
+            Ok(Ok(_)) => {
+                if line.starts_with("a3 NO") || line.starts_with("a3 BAD") {
+                    return Err(format!("server rejected FETCH: {}", line.trim()));
+                }
+                if line.starts_with("a3 OK") {
+                    return Err(format!("part {part_id} returned no data for UID {uid}"));
+                }
+                if line.starts_with("* ") && line.contains("FETCH") {
+                    match extract_literal_size(&line) {
+                        Some(size) => break size,
+                        None => return Err(format!("part {part_id} not present in UID {uid}")),
+                    }
+                }
+                // other untagged line (e.g. a stray FLAGS update) — keep reading
+            }
+            Ok(Err(e)) => return Err(format!("FETCH read: {e}")),
+            Err(_) => return Err(format!(
+                "FETCH header timed out after {}s — the server is taking too long to prepare this attachment",
+                IMAP_FETCH_TIMEOUT.as_secs()
+            )),
+        }
+    };
+
+    // Read exactly `literal_size` bytes in 64 KiB chunks, reporting progress.
+    // BufReader::read drains its internal buffer first, so this is correct even
+    // though we just used read_line on the same reader.
+    let total = literal_size as u64;
+    on_progress(0, total);
+    let mut buf: Vec<u8> = Vec::with_capacity(literal_size);
+    let mut chunk = vec![0u8; 64 * 1024];
+    let mut remaining = literal_size;
+    while remaining > 0 {
+        let want = remaining.min(chunk.len());
+        let n = tokio::time::timeout(IMAP_FETCH_TIMEOUT, reader.read(&mut chunk[..want]))
+            .await
+            .map_err(|_| format!(
+                "attachment download stalled (no data for {}s) — check your network connection",
+                IMAP_FETCH_TIMEOUT.as_secs()
+            ))?
+            .map_err(|e| format!("attachment read: {e}"))?;
+        if n == 0 {
+            return Err("connection closed mid-attachment".to_string());
+        }
+        buf.extend_from_slice(&chunk[..n]);
+        remaining -= n;
+        on_progress((literal_size - remaining) as u64, total);
+    }
+
+    // Drain the trailing ")\r\n" and tagged completion, then LOGOUT, best-effort.
+    let mut tail = String::new();
+    let _ = tokio::time::timeout(IMAP_CMD_TIMEOUT, reader.read_line(&mut tail)).await;
+    let mut tagline = String::new();
+    let _ = tokio::time::timeout(IMAP_CMD_TIMEOUT, reader.read_line(&mut tagline)).await;
+    let _ = reader.get_mut().write_all(b"a4 LOGOUT\r\n").await;
+
+    // The literal is the Content-Transfer-Encoded part body. For base64 parts it is
+    // base64 text with MIME line breaks — strip whitespace and decode. If decoding
+    // fails (CTE 8bit/binary), the bytes are already the raw content.
+    let decoded: Vec<u8> = match std::str::from_utf8(&buf) {
+        Ok(s) => {
+            let stripped: String = s.split_whitespace().collect();
+            match base64::engine::general_purpose::STANDARD.decode(stripped.as_bytes()) {
+                Ok(bytes) => bytes,
+                Err(_) => buf,
+            }
+        }
+        Err(_) => buf,
+    };
+
+    if let Some(parent) = std::path::Path::new(dest_path).parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("Cannot create destination directory: {e}"))?;
+    }
+    std::fs::write(dest_path, &decoded)
+        .map_err(|e| format!("Failed to write file: {e}"))?;
+
+    Ok(())
+}
+
 /// Fetch the raw RFC822 source of a single message by UID.
 /// Returns the full message as a UTF-8 string (lossy conversion for non-UTF-8 bytes).
 pub async fn fetch_raw_message(

@@ -507,6 +507,21 @@ async function reconcileDeletedMessages(
     return;
   }
 
+  // SAFETY GUARD: never mass-delete on an empty server result.
+  // Some servers (and flaky/rate-limited connections) return an empty UID SEARCH
+  // even though the folder is full — the same "returns empty despite valid UIDs"
+  // quirk documented for UID FETCH in the Rust client. Without this guard, an empty
+  // result makes EVERY locally stored message look "deleted on the server" and wipes
+  // the whole folder from the DB (this is what nuked thousands of messages). A real
+  // empty folder is harmless to skip: there is nothing new to reconcile, and any
+  // genuine deletions are caught on a later cycle once the search returns properly.
+  if (serverUids.length === 0) {
+    console.warn(
+      `[imapSync] Reconciliation: server returned 0 UIDs for ${folderPath} but ${stored.length} message(s) are stored locally — skipping deletion (treating as a failed/empty search, not a mass purge).`,
+    );
+    return;
+  }
+
   const serverSet = new Set(serverUids);
   const orphans = stored.filter((row) => !serverSet.has(row.uid));
   if (orphans.length === 0) return;

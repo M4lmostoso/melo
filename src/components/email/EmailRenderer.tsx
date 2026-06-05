@@ -5,7 +5,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { stripRemoteImages, hasBlockedImages } from "@/utils/imageBlocker";
 import { addToAllowlist } from "@/services/db/imageAllowlist";
 import { sanitizeHtml } from "@/utils/sanitize";
-import { transformPlainText, transformHtml, FW_CSS, FW_DARK_CSS, FW_JS } from "@/utils/forwardedMessage";
+import { transformPlainText, transformHtml, FW_CSS, FW_DARK_CSS, FW_JS, QUOTE_CSS, QUOTE_DARK_CSS } from "@/utils/forwardedMessage";
 import { useUIStore } from "@/stores/uiStore";
 import { useComposerStore } from "@/stores/composerStore";
 import { parseMailtoUrl } from "@/utils/mailtoParser";
@@ -153,7 +153,9 @@ export function EmailRenderer({
     pre { overflow-x: auto; }
     table { max-width: 100%; }
     ${FW_CSS}
+    ${QUOTE_CSS}
     ${isDark ? FW_DARK_CSS : ""}
+    ${isDark ? QUOTE_DARK_CSS : ""}
   </style>
   <script>(function() {
     var NONCE = '${nonce}';
