@@ -17,11 +17,12 @@ const HEADER_KEYS = new Set([
 const LOCALE_HEADER_MAP: Record<string, string> = {
   // Italian
   "da": "from", "inviato": "sent", "data": "date",
-  "a": "to", "oggetto": "subject",
+  "a": "to", "oggetto": "subject", "rispondi a": "reply-to",
   // French
-  "de": "from", "envoyé": "sent", "à": "to", "objet": "subject",
+  "de": "from", "envoyé": "sent", "envoye": "sent",
+  "à": "to", "objet": "subject",
   // Spanish
-  "enviado": "sent", "para": "to", "asunto": "subject",
+  "enviado": "sent", "enviado el": "sent", "para": "to", "asunto": "subject",
   // German
   "von": "from", "gesendet": "sent", "an": "to", "betreff": "subject",
 };
@@ -63,6 +64,30 @@ export const QUOTE_DARK_CSS = `
 .q-tgl:hover{background:rgba(129,140,248,.28)}
 .q-tgl span{background:#818cf8}
 `;
+
+/**
+ * Parses a hex color string (#RRGGBB or #RGB) into "r,g,b" format for use in rgba().
+ * Returns "99,102,241" (indigo fallback) if the input is invalid.
+ */
+function hexToRgbStr(hex: string): string {
+  const h = hex.replace("#", "");
+  const full = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
+  const n = parseInt(full.slice(0, 6), 16);
+  if (isNaN(n)) return "99,102,241";
+  return `${(n >> 16) & 0xff},${(n >> 8) & 0xff},${n & 0xff}`;
+}
+
+/**
+ * Returns a CSS block that overrides the hardcoded indigo accent on fw-blk and q-tgl
+ * with the user's chosen theme accent color.
+ */
+export function buildAccentOverride(accent: string, isDark: boolean): string {
+  const rgb = hexToRgbStr(accent);
+  if (isDark) {
+    return `.fw-blk{border-color:rgba(${rgb},.25);border-left-color:${accent}}.fw-hd{color:${accent};background:rgba(${rgb},.12)}.fw-hd:hover{background:rgba(${rgb},.18)}.fw-meta{background:rgba(${rgb},.05);border-bottom-color:rgba(${rgb},.2)}.q-tgl{background:rgba(${rgb},.18)}.q-tgl:hover{background:rgba(${rgb},.28)}.q-tgl span{background:${accent}}`;
+  }
+  return `.fw-blk{border-color:rgba(${rgb},.2);border-left-color:${accent}}.fw-hd{color:${accent};background:rgba(${rgb},.07)}.fw-hd:hover{background:rgba(${rgb},.12)}.fw-meta{background:rgba(${rgb},.02);border-bottom-color:rgba(${rgb},.12)}.q-tgl{background:rgba(${rgb},.12)}.q-tgl:hover{background:rgba(${rgb},.22)}.q-tgl span{background:${accent}}`;
+}
 
 export const FW_JS = `document.querySelectorAll('.fw-hd').forEach(function(h){h.addEventListener('click',function(){h.closest('.fw-blk').classList.toggle('fw-open')})});document.querySelectorAll('.q-tgl').forEach(function(b){b.addEventListener('click',function(){var q=b.nextElementSibling;if(!q)return;var hidden=q.classList.toggle('q-hidden');b.setAttribute('aria-expanded',hidden?'false':'true')})});`;
 
@@ -232,8 +257,9 @@ export function transformPlainText(text: string): string {
 function parseHtmlHeaders(block: string): Array<[string, string]> {
   const text = block
     .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p[^>]*>/gi, "\n")
     .replace(/<[^>]+>/g, "")
-    .replace(/&nbsp;/g, " ");
+    .replace(/&nbsp;|&#160;| /g, " ");
 
   return text
     .split(/\n+/)
@@ -241,8 +267,9 @@ function parseHtmlHeaders(block: string): Array<[string, string]> {
     .map((line): [string, string] | null => {
       const trimmed = line.trim();
       const i = trimmed.indexOf(":");
-      // Allow i >= 1 for single-char locale keys like "A:" (Italian To)
-      if (i < 1 || i > 20) return null;
+      // Allow i >= 1 for single-char locale keys like "A:" (Italian To);
+      // allow up to 25 chars to cover "Enviado el" / "Rispondi a" multi-word keys
+      if (i < 1 || i > 25) return null;
       const raw = trimmed.slice(0, i).trim();
       const norm = normalizeKey(raw);
       if (!HEADER_KEYS.has(norm)) return null;
@@ -265,12 +292,12 @@ const ATTR_LINE_RE =
 // Forwarded-message separators across clients ("---------- Forwarded message ---------",
 // "Messaggio inoltrato", "Begin forwarded message", etc.).
 const FW_SEP_RE =
-  /(?:-{2,}\s*(?:forwarded\s+(?:message|mail|email)|original\s+(?:message|mail|email)|messaggio\s+inoltrato|message\s+(?:transmis|transf[eé]r[eé])|mensaje\s+reenviado|weitergeleitete\s+nachricht)\b|begin\s+forwarded\s+message)/i;
+  /(?:-{2,}\s*(?:forwarded\s+(?:message|mail|email)|original\s+(?:message|mail|email)|messaggio\s+inoltrato|message\s+(?:transmis|transf[eé]r[eé])|mensaje\s+reenviado|weitergeleitete\s+nachricht)\b|begin\s+forwarded\s+message|inizio\s+messaggio\s+inoltrato)/i;
 
 // The first header line of a forwarded/replied block (From:/Da:/De:/Date:/Subject:…),
 // used together with a preceding <hr> as the Outlook reply signal.
 const HEADER_LINE_RE =
-  /^\s*(?:from|da|de|von|date|data|sent|inviato|envoy[eé]|gesendet|to|an|subject|oggetto|objet|asunto|betreff)\s*:/i;
+  /^\s*(?:from|da|de|von|date|data|sent|inviato|envoy[eé]|gesendet|to|a\b|à|an|subject|oggetto|objet|asunto|betreff)\s*:/i;
 
 const TOGGLE_HTML = "<span></span><span></span><span></span>";
 
@@ -322,6 +349,27 @@ function isQuoteStart(node: Node): boolean {
     return !!next && HEADER_LINE_RE.test((next.textContent ?? "").trim());
   }
 
+  // Outlook reply divider: a <div> with border-top CSS that wraps a fw-blk header block.
+  // Detecting the outer div (pre-order traversal finds it before the inner fw-blk) ensures
+  // collapseQuotes moves the div PLUS all following siblings (old message body) into the
+  // hidden wrapper — not just the inner siblings of the fw-blk.
+  if (tag === "DIV" && /border-top/i.test(el.getAttribute("style") ?? "") && el.querySelector(".fw-blk")) {
+    return true;
+  }
+
+  // Fallback for consecutive single-header <p> elements not caught by Case 6 (e.g. no bold
+  // tags). The first <p> whose text starts with a "From/Da/De/Von" key, whose next sibling
+  // is also a header line, is treated as the quote start.
+  if (tag === "P" || tag === "DIV") {
+    const text = (el.textContent ?? "").trim();
+    if (/^(?:from|da|de|von)\s*:/i.test(text)) {
+      const next = nextSignificantSibling(el as ChildNode);
+      if (next && HEADER_LINE_RE.test((next.textContent ?? "").trim())) {
+        return true;
+      }
+    }
+  }
+
   // Leaf-ish line whose own text is an attribution / separator. The length cap stops a
   // big wrapper (that also holds the new message above the quote) from matching — the
   // TreeWalker visits parents before children, so we still reach the tight inner line.
@@ -355,12 +403,11 @@ function textBefore(doc: Document, anchor: Node): string {
  *   • leaves table-structured layouts alone (moving cells/rows would break them);
  *   • wrapped in try/catch so a parsing hiccup can never blank out the message.
  */
-function collapseQuotes(html: string): string {
+const QUOTE_MARKER_RE = /<blockquote|gmail_quote|<hr|ha scritto|wrote\s*:|a [eé]crit|schrieb|escrib|escreveu|forwarded message|messaggio inoltrato|original message|inizio messaggio inoltrato/i;
+
+function collapseQuotes(html: string, depth = 0): string {
   // Cheap guard: skip the DOM round-trip for emails with no quote/forward markers.
-  if (!/<blockquote|gmail_quote|<hr|ha scritto|wrote\s*:|a [eé]crit|schrieb|escrib|escreveu|forwarded message|messaggio inoltrato|original message/i
-    .test(html)) {
-    return html;
-  }
+  if (!QUOTE_MARKER_RE.test(html)) return html;
 
   try {
     const doc = new DOMParser().parseFromString(html, "text/html");
@@ -396,6 +443,12 @@ function collapseQuotes(html: string): string {
     parent.insertBefore(btn, anchor);
     parent.insertBefore(wrapper, anchor);
     for (const n of toMove) wrapper.appendChild(n);
+
+    // Recursively collapse nested quotes inside the hidden wrapper (up to 3 levels).
+    if (depth < 3) {
+      const innerCollapsed = collapseQuotes(wrapper.innerHTML, depth + 1);
+      if (innerCollapsed !== wrapper.innerHTML) wrapper.innerHTML = innerCollapsed;
+    }
 
     return doc.body.innerHTML;
   } catch {
@@ -446,13 +499,18 @@ export function transformHtml(html: string): string {
     },
   );
 
-  // Case 5: Outlook body metadata block — multi-line bold key/value <p> WITHOUT <hr>.
-  // Outlook embeds the outer email's Da/Inviato/A/Oggetto at the top of the forwarded body.
-  // Requires 3+ recognized headers AND a From/Da equivalent to avoid false positives.
+  // Case 5: Outlook/Word <p> containing reply headers. Outlook wraps keys in
+  // <b><span style='...'>Key:</span></b> with values in <span>, email addresses as
+  // <a href="mailto:...">, and appends <o:p></o:p> before </p>. The old structural
+  // regex couldn't handle these; we strip all markup and let parseHtmlHeaders decide.
   html = html.replace(
-    /<p[^>]*>((?:(?:<b>|<strong>)[^<]+(?:<\/b>|<\/strong>)[^<]*(?:<br\s*\/?>)?[ \t\r\n]*){3,})<\/p>/gi,
-    (full, headerBlock) => {
-      const headers = parseHtmlHeaders(headerBlock);
+    /<p([^>]*)>([\s\S]{1,1500}?)<\/p>/gi,
+    (full, _attrs, inner) => {
+      // Fast-skip: no bold tag means no header block
+      if (!/<b\b|<strong\b/i.test(inner)) return full;
+      // Skip containers with nested block elements
+      if (/<\/(?:div|p|table|ul|ol|li|blockquote|h[1-6])/i.test(inner)) return full;
+      const headers = parseHtmlHeaders(inner);
       if (headers.length < 3 || !headers.some(([k]) => k.toLowerCase() === "from")) return full;
       return buildBlock(headers);
     },
@@ -470,6 +528,21 @@ export function transformHtml(html: string): string {
       if (/<\/(?:div|p|table|ul|ol|li|blockquote|h[1-6])/i.test(inner)) return full;
       const attr = parseAttribution(innerToPlain(inner));
       return attr ? buildAttributionBlock(attr) : full;
+    },
+  );
+
+  // Case 6: Consecutive <p> elements each containing a single bold key/value header.
+  // New Outlook / Outlook 365 sometimes emits one <p> per field instead of grouping
+  // them in a single <p> with <br> separators (which Case 5 handles). Require 3+
+  // consecutive such <p>s including a From/Da equivalent to avoid false positives.
+  html = html.replace(
+    /((?:<p[^>]*>[ \t\r\n]*(?:<b>|<strong>)[^:<]{1,30}:(?:<\/b>|<\/strong>)[^<]*<\/p>[ \t\r\n]*){3,})/gi,
+    (full) => {
+      // Convert </p> to <br> so parseHtmlHeaders can split on newlines
+      const normalized = full.replace(/<\/p[^>]*>[ \t\r\n]*/gi, "<br>").replace(/<p[^>]*>/gi, "");
+      const headers = parseHtmlHeaders(normalized);
+      if (headers.length < 3 || !headers.some(([k]) => k.toLowerCase() === "from")) return full;
+      return buildBlock(headers);
     },
   );
 

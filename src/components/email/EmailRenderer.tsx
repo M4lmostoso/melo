@@ -5,8 +5,9 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { stripRemoteImages, hasBlockedImages } from "@/utils/imageBlocker";
 import { addToAllowlist } from "@/services/db/imageAllowlist";
 import { sanitizeHtml } from "@/utils/sanitize";
-import { transformPlainText, transformHtml, FW_CSS, FW_DARK_CSS, FW_JS, QUOTE_CSS, QUOTE_DARK_CSS } from "@/utils/forwardedMessage";
+import { transformPlainText, transformHtml, FW_CSS, FW_DARK_CSS, FW_JS, QUOTE_CSS, QUOTE_DARK_CSS, buildAccentOverride } from "@/utils/forwardedMessage";
 import { useUIStore } from "@/stores/uiStore";
+import { getThemeById } from "@/constants/themes";
 import { useComposerStore } from "@/stores/composerStore";
 import { parseMailtoUrl } from "@/utils/mailtoParser";
 
@@ -40,8 +41,10 @@ export function EmailRenderer({
   const [overrideShow, setOverrideShow] = useState(false);
 
   const theme = useUIStore((s) => s.theme);
+  const colorTheme = useUIStore((s) => s.colorTheme);
   const isDark = theme === "dark"
     || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  const accentColor = getThemeById(colorTheme)[isDark ? "dark" : "light"].accent;
 
   const shouldBlock = blockImages && !senderAllowlisted && !overrideShow;
 
@@ -156,6 +159,7 @@ export function EmailRenderer({
     ${QUOTE_CSS}
     ${isDark ? FW_DARK_CSS : ""}
     ${isDark ? QUOTE_DARK_CSS : ""}
+    ${buildAccentOverride(accentColor, isDark)}
   </style>
   <script>(function() {
     var NONCE = '${nonce}';
@@ -193,7 +197,7 @@ export function EmailRenderer({
 </head>
 <body>${bodyHtml}</body>
 </html>`;
-  }, [bodyHtml, isDark, isPlainText]);
+  }, [bodyHtml, isDark, isPlainText, accentColor]);
 
   // Unmount cleanup: navigate to about:blank to force WebKit to destroy the
   // document and release all decoded image textures and GPU allocations immediately.
