@@ -175,6 +175,22 @@ export function Composer() {
   const composerFontFamily = useUIStore((s) => s.composerFontFamily);
   const composerFontSize = useUIStore((s) => s.composerFontSize);
 
+  const handleAddressDrop = useCallback(
+    (targetFieldId: string, email: string, sourceFieldId: string) => {
+      const withoutEmail = (arr: string[]) => arr.filter((a) => a !== email);
+      const withEmail = (arr: string[]) => arr.includes(email) ? arr : [...arr, email];
+      // Remove from source
+      if (sourceFieldId === "to") setTo(withoutEmail(to));
+      else if (sourceFieldId === "cc") setCc(withoutEmail(cc));
+      else if (sourceFieldId === "bcc") setBcc(withoutEmail(bcc));
+      // Add to target (open CC/BCC panel if needed)
+      if (targetFieldId === "to") setTo(withEmail(to));
+      else if (targetFieldId === "cc") { setShowCcBcc(true); setCc(withEmail(cc)); }
+      else if (targetFieldId === "bcc") { setShowCcBcc(true); setBcc(withEmail(bcc)); }
+    },
+    [to, cc, bcc, setTo, setCc, setBcc],
+  );
+
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -894,25 +910,31 @@ const getFullHtml = useCallback(() => {
         <AddressInput
           ref={toInputRef}
           label={t("composer.to")}
+          fieldId="to"
           addresses={to}
           onChange={setTo}
           onTabNext={() => showCcBcc ? ccInputRef.current?.focus() : subjectInputRef.current?.focus()}
+          onExternalDrop={(email, src) => handleAddressDrop("to", email, src)}
         />
         {showCcBcc ? (
           <>
             <AddressInput
               ref={ccInputRef}
               label={t("composer.cc")}
+              fieldId="cc"
               addresses={cc}
               onChange={setCc}
               onTabNext={() => bccInputRef.current?.focus()}
+              onExternalDrop={(email, src) => handleAddressDrop("cc", email, src)}
             />
             <AddressInput
               ref={bccInputRef}
               label={t("composer.bcc")}
+              fieldId="bcc"
               addresses={bcc}
               onChange={setBcc}
               onTabNext={() => subjectInputRef.current?.focus()}
+              onExternalDrop={(email, src) => handleAddressDrop("bcc", email, src)}
             />
           </>
         ) : (

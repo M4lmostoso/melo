@@ -13,6 +13,7 @@ import {
 } from "@/services/db/threads";
 import { useAccountStore } from "@/stores/accountStore";
 import { useThreadStore, type Thread } from "@/stores/threadStore";
+import { useContactsStore } from "@/stores/contactsStore";
 import { useSmartFolderStore } from "@/stores/smartFolderStore";
 import { useComposerStore } from "@/stores/composerStore";
 import { useActiveLabel } from "@/hooks/useRouteNavigation";
@@ -35,6 +36,7 @@ export function SearchBar() {
   const senderDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
+  const contactsMap = useContactsStore((s) => s.contactsMap);
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [senderSuggestions, setSenderSuggestions] = useState<SenderSuggestion[]>([]);
   const [recipientSuggestions, setRecipientSuggestions] = useState<RecipientSuggestion[]>([]);
@@ -51,9 +53,19 @@ export function SearchBar() {
 
   const allSuggestions: Array<{ label: string; address: string; name: string | null; operator: "from" | "to" }> =
     suggestionMode === "from"
-      ? senderSuggestions.map((s) => ({ label: s.from_address, address: s.from_address, name: s.from_name, operator: "from" as const }))
+      ? senderSuggestions.map((s) => ({
+          label: s.from_address,
+          address: s.from_address,
+          name: contactsMap[s.from_address.toLowerCase()] ?? s.from_name,
+          operator: "from" as const,
+        }))
       : suggestionMode === "to"
-        ? recipientSuggestions.map((s) => ({ label: s.address, address: s.address, name: s.name, operator: "to" as const }))
+        ? recipientSuggestions.map((s) => ({
+            label: s.address,
+            address: s.address,
+            name: contactsMap[s.address.toLowerCase()] ?? s.name,
+            operator: "to" as const,
+          }))
         : [];
 
   const resizeTextarea = (el: HTMLTextAreaElement) => {

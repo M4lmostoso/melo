@@ -4,10 +4,12 @@ import { searchContacts, type DbContact } from "@/services/db/contacts";
 
 interface AddressInputProps {
   label: string;
+  fieldId: string;
   addresses: string[];
   onChange: (addresses: string[]) => void;
   placeholder?: string;
   onTabNext?: () => void;
+  onExternalDrop?: (email: string, sourceFieldId: string) => void;
 }
 
 export interface AddressInputHandle {
@@ -17,16 +19,19 @@ export interface AddressInputHandle {
 export const AddressInput = forwardRef<AddressInputHandle, AddressInputProps>(
 function AddressInput({
   label,
+  fieldId,
   addresses,
   onChange,
   placeholder,
   onTabNext,
+  onExternalDrop,
 }: AddressInputProps, ref) {
   const resolvedPlaceholder = placeholder ?? t("composer.addressInput.addRecipients");
   const [inputValue, setInputValue] = useState("");
   const [suggestions, setSuggestions] = useState<DbContact[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedIdx, setSelectedIdx] = useState(-1);
+  const [isDragOver, setIsDragOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const blurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -82,6 +87,34 @@ function AddressInput({
     [addresses, onChange],
   );
 
+  const handleDragStart = useCallback(
+    (e: React.DragEvent, email: string) => {
+      e.dataTransfer.setData("application/melo-address", JSON.stringify({ email, sourceFieldId: fieldId }));
+      e.dataTransfer.effectAllowed = "move";
+    },
+    [fieldId],
+  );
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    if (e.dataTransfer.types.includes("application/melo-address")) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+    }
+  }, []);
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      setIsDragOver(false);
+      const raw = e.dataTransfer.getData("application/melo-address");
+      if (!raw) return;
+      const { email, sourceFieldId } = JSON.parse(raw) as { email: string; sourceFieldId: string };
+      if (sourceFieldId === fieldId) return;
+      onExternalDrop?.(email, sourceFieldId);
+    },
+    [fieldId, onExternalDrop],
+  );
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Tab") {
       e.preventDefault();
@@ -118,11 +151,19 @@ function AddressInput({
       <span className="text-xs text-text-tertiary pt-1.5 w-12 shrink-0">
         {label}
       </span>
-      <div className="flex-1 flex flex-wrap items-center gap-1 min-h-[32px] relative">
+      <div
+        className={`flex-1 flex flex-wrap items-center gap-1 min-h-[32px] relative rounded transition-colors ${isDragOver ? "bg-accent-light/30 outline outline-1 outline-accent/40" : ""}`}
+        onDragOver={handleDragOver}
+        onDragEnter={(e) => { if (e.dataTransfer.types.includes("application/melo-address")) setIsDragOver(true); }}
+        onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setIsDragOver(false); }}
+        onDrop={handleDrop}
+      >
         {addresses.map((addr) => (
           <span
             key={addr}
-            className="inline-flex items-center gap-1 bg-accent-light text-accent text-xs px-2 py-0.5 rounded-full"
+            draggable
+            onDragStart={(e) => handleDragStart(e, addr)}
+            className="inline-flex items-center gap-1 bg-accent-light text-accent text-xs px-2 py-0.5 rounded-full cursor-grab active:cursor-grabbing select-none"
           >
             {addr}
             <button
