@@ -128,6 +128,11 @@ describe("navigate", () => {
 
     it("should append thread to /label/$labelId route", () => {
       mockState.location.pathname = "/label/Label_5";
+      // navigateToThread reads the decoded labelId from router.state.matches
+      // (not the raw URL) to avoid double-encoding special characters.
+      mockState.matches = [
+        { routeId: "/label/$labelId", params: { labelId: "Label_5" } },
+      ];
       navigateToThread("thread-abc");
       expect(mockNavigate).toHaveBeenCalledWith({
         to: "/label/$labelId/thread/$threadId",

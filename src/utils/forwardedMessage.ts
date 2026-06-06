@@ -334,6 +334,14 @@ const FW_SEP_RE =
 const HEADER_LINE_RE =
   /^\s*(?:from|da|de|von|date|data|sent|inviato|envoy[eé]|gesendet|to|a\b|à|an|subject|oggetto|objet|asunto|betreff)\s*:/i;
 
+// A run of Outlook/Word reply-header text: a From-equivalent key (From/Da/De/Von),
+// then within a short span another header key (Sent/Date/To/Subject equivalents).
+// Two keyed lines in close proximity reliably mark a forwarded/reply header block and
+// won't fire on ordinary prose. Used to recognise a border-top divider whose fw-blk
+// was not built by the regex passes.
+const FW_HEADER_BLOCK_RE =
+  /\b(?:from|da|de|von)\s*:[\s\S]{0,400}?\b(?:sent|inviato|envoy[eé]|gesendet|date|data|to|oggetto|subject|objet|asunto|betreff)\s*:/i;
+
 const TOGGLE_HTML = "<span></span><span></span><span></span>";
 
 function makeToggle(doc: Document, label: string): HTMLButtonElement {
@@ -384,12 +392,33 @@ function isQuoteStart(node: Node): boolean {
     return !!next && HEADER_LINE_RE.test((next.textContent ?? "").trim());
   }
 
-  // Outlook reply divider: a <div> with border-top CSS that wraps a fw-blk header block.
-  // Detecting the outer div (pre-order traversal finds it before the inner fw-blk) ensures
+  // Outlook reply divider: a <div> with border-top CSS that wraps a header block — either
+  // a pre-built fw-blk OR raw Outlook header text ("Da: … Inviato: … Oggetto: …"). The raw
+  // case matters because the regex passes sometimes fail to build the fw-blk (e.g. an empty
+  // <p></p> right before the divider makes the Case-5 regex bridge across block boundaries).
+  // Detecting the outer div (pre-order traversal finds it before the inner header) ensures
   // collapseQuotes moves the div PLUS all following siblings (old message body) into the
-  // hidden wrapper — not just the inner siblings of the fw-blk.
-  if (tag === "DIV" && /border-top/i.test(el.getAttribute("style") ?? "") && el.querySelector(".fw-blk")) {
+  // hidden wrapper — not just the inner siblings.
+  if (tag === "DIV" && /border-top/i.test(el.getAttribute("style") ?? "")
+    && (el.querySelector(".fw-blk") || FW_HEADER_BLOCK_RE.test(el.textContent ?? ""))) {
     return true;
+  }
+
+  // Outlook outer wrapper: a plain <div> that wraps a border-top header div as its last
+  // meaningful element child. This div often also contains a preamble paragraph (e.g.
+  // "Uso Interno / Internal Use") before the header, and the forwarded body lives as a
+  // SIBLING of this wrapper — not inside it. Recognising the wrapper as the quote start
+  // (pre-order traversal visits it first) means collapseQuotes moves the wrapper PLUS
+  // its following siblings (the actual forwarded body) into the hidden section.
+  if (tag === "DIV" && !el.getAttribute("style")?.match(/border-top/i)) {
+    let lastEl: Element | null = null;
+    for (let c = el.lastElementChild; c; c = c.previousElementSibling) {
+      if (c.tagName !== "BR") { lastEl = c; break; }
+    }
+    if (lastEl && /border-top/i.test(lastEl.getAttribute("style") ?? "")
+      && (lastEl.querySelector(".fw-blk") || FW_HEADER_BLOCK_RE.test(lastEl.textContent ?? ""))) {
+      return true;
+    }
   }
 
   // Fallback for consecutive single-header <p> elements not caught by Case 6 (e.g. no bold
@@ -471,7 +500,7 @@ function textBefore(doc: Document, anchor: Node): string {
  *   • leaves table-structured layouts alone (moving cells/rows would break them);
  *   • wrapped in try/catch so a parsing hiccup can never blank out the message.
  */
-const QUOTE_MARKER_RE = /<blockquote|gmail_quote|<hr|ha scritto|wrote\s*:|a [eé]crit|schrieb|escrib|escreveu|forwarded message|messaggio inoltrato|original message|inizio messaggio inoltrato|border-left/i;
+const QUOTE_MARKER_RE = /<blockquote|gmail_quote|<hr|ha scritto|wrote\s*:|a [eé]crit|schrieb|escrib|escreveu|forwarded message|messaggio inoltrato|original message|inizio messaggio inoltrato|border-left|border-top/i;
 
 function collapseQuotes(html: string, depth = 0): string {
   // Cheap guard: skip the DOM round-trip for emails with no quote/forward markers.
@@ -480,37 +509,45 @@ function collapseQuotes(html: string, depth = 0): string {
   try {
     const doc = new DOMParser().parseFromString(html, "text/html");
 
-    let anchor: Node | null = null;
+    // Walk the tree looking for the first quote-start node that has real visible
+    // content BEFORE it (so we never fold to nothing). When promoteAnchor bubbles
+    // a candidate up to an ancestor that has no textBefore (e.g. the anchor is the
+    // very first element in a wrapper), we skip it and keep scanning — this lets us
+    // reach a later quote-start that does have content above it.
+    let anchor: ChildNode | null = null;
     const walker = doc.createTreeWalker(
       doc.body,
       NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT,
     );
     for (let n = walker.nextNode(); n; n = walker.nextNode()) {
-      if (isQuoteStart(n)) {
-        anchor = n;
-        break;
-      }
+      if (!isQuoteStart(n)) continue;
+      const promoted = promoteAnchor(n, doc.body);
+      if (!promoted.parentNode) continue;
+      if (textBefore(doc, promoted).length < 2) continue;  // no visible content above — keep scanning
+      const candidateParent = promoted.parentNode as Element;
+      if (["TABLE", "TBODY", "THEAD", "TFOOT", "TR"].includes(candidateParent.tagName)) continue;
+      anchor = promoted;
+      break;
     }
     if (!anchor || !anchor.parentNode) return html;
 
-    // Bubble up: if the found anchor node is the first meaningful content in its
-    // parent container (e.g. a text node at the start of a <div style="border-left:...">),
-    // promote the parent element as the anchor so the entire block is collapsed —
-    // not just the content inside it.
-    anchor = promoteAnchor(anchor, doc.body);
-    if (!anchor.parentNode) return html;
-
-    // Don't fold to nothing: require some real text above the quote.
-    if (textBefore(doc, anchor).length < 2) return html;
-
-    // Don't restructure table layouts (moving cells/rows would garble them).
     const parent = anchor.parentNode as Element;
-    if (["TABLE", "TBODY", "THEAD", "TFOOT", "TR"].includes(parent.tagName)) return html;
 
     // Move the anchor + every following sibling into one hidden wrapper, toggle in front.
     const toMove: ChildNode[] = [];
     for (let n: ChildNode | null = anchor as ChildNode; n; n = n.nextSibling) {
       toMove.push(n);
+    }
+
+    // At depth > 0 (inside an already-hidden wrapper), skip a collapse that would
+    // wrap only a single fw-blk header with no body content after it. The fw-blk
+    // already has its own internal toggle; adding an outer one is redundant and
+    // visually confusing.  Depth-0 always collapses regardless.
+    if (depth > 0) {
+      const hasBodyAfter = toMove.slice(1).some(
+        (nd) => (nd.textContent ?? "").trim().length > 0
+      );
+      if (!hasBodyAfter) return html;
     }
     const btn = makeToggle(doc, t("email.renderer.showQuotedText"));
     const wrapper = doc.createElement("div");

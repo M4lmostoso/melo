@@ -14,13 +14,18 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
   save: vi.fn(),
 }));
 
-vi.mock("@tauri-apps/plugin-fs", () => ({
-  writeFile: vi.fn(),
+// Progress events listener used by the preview modal's useEffect.
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn().mockResolvedValue(() => {}),
+}));
+
+// Reveal-in-folder after a successful raw download.
+vi.mock("@tauri-apps/plugin-opener", () => ({
+  revealItemInDir: vi.fn().mockResolvedValue(undefined),
 }));
 
 import { getEmailProvider } from "@/services/email/providerFactory";
 import { save } from "@tauri-apps/plugin-dialog";
-import { writeFile } from "@tauri-apps/plugin-fs";
 
 const makeAttachment = (overrides: Partial<DbAttachment> = {}): DbAttachment => ({
   id: "att-1",
@@ -38,11 +43,13 @@ const makeAttachment = (overrides: Partial<DbAttachment> = {}): DbAttachment => 
 
 describe("AttachmentList", () => {
   const mockFetchAttachment = vi.fn();
+  const mockDownloadAttachmentToPath = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(getEmailProvider).mockResolvedValue({
       fetchAttachment: mockFetchAttachment,
+      downloadAttachmentToPath: mockDownloadAttachmentToPath,
     } as never);
   });
 
@@ -167,8 +174,8 @@ describe("AttachmentList", () => {
       data: btoa("file-content"),
       size: 12,
     });
+    mockDownloadAttachmentToPath.mockResolvedValue(undefined);
     vi.mocked(save).mockResolvedValue("/downloads/photo.png");
-    vi.mocked(writeFile).mockResolvedValue(undefined as never);
 
     render(
       <AttachmentList
@@ -188,9 +195,17 @@ describe("AttachmentList", () => {
 
     fireEvent.click(screen.getByText("Download"));
 
+    // Download now streams straight to the chosen path via the provider's
+    // raw-TCP downloadAttachmentToPath (no in-JS writeFile step).
     await waitFor(() => {
       expect(save).toHaveBeenCalled();
-      expect(writeFile).toHaveBeenCalled();
+      expect(mockDownloadAttachmentToPath).toHaveBeenCalledWith(
+        "msg-1",
+        "gmail-att-1",
+        "/downloads/photo.png",
+        "att-1",
+        1024,
+      );
     });
   });
 
