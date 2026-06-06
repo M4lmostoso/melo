@@ -148,21 +148,27 @@ interface Attribution {
 /**
  * Matches locale-aware reply attribution lines:
  *   English:    "On Mon, 20 May 2025 at 10:08, John Doe <j@x.com> wrote:"
+ *   English:    "On 23/05/2026, 14:58:42, email@x.com wrote:"  (bare email, no name)
  *   Italian:    "Il 18 mag 2026, 15:51 +0200, Studio Fraietta <i@x.com>, ha scritto:"
  *   French:     "Le 20 mai 2025 à 10:08, Jean Dupont <j@x.com> a écrit :"
  *   Spanish:    "El 20 de mayo de 2025, 10:08, Juan <j@x.com> escribió:"
  *   Portuguese: "Em 20 de maio de 2025, João <j@x.com> escreveu:"
  *
- * Strategy: greedy (.+) before the last ", NAME <email>" so date ends at the
- * rightmost comma+space before the sender name.
+ * Strategy: greedy (.+) before the last ", NAME <email>" or bare email, so date ends at
+ * the rightmost comma+space before the sender. Two alternatives in the sender group:
+ *   • Name <email>  (groups 2 + 3)
+ *   • bare email@domain  (group 4)
  */
 const ATTRIB_RE =
-  /^(?:on|il|le|am|el|em)\s+(.+),\s+(.+?)\s+<([^>@\s]+@[^>\s]+)>\s*,?\s*(?:wrote|ha scritto|a [eé]crit|schrieb|escribi[oó]|escreveu)\s*:[ \t]*$/i;
+  /^(?:on|il|le|am|el|em)\s+(.+),\s+(?:(.+?)\s+<([^>@\s]+@[^>\s]+)>|([^@\s<>]+@[^@\s<>,]+))\s*,?\s*(?:wrote|ha scritto|a [eé]crit|schrieb|escribi[oó]|escreveu)\s*:[ \t]*$/i;
 
 function parseAttribution(text: string): Attribution | null {
   const m = text.trim().match(ATTRIB_RE);
   if (!m) return null;
-  return { date: (m[1] ?? "").trim(), name: (m[2] ?? "").trim(), email: (m[3] ?? "").trim() };
+  // m[2]+m[3] = Name <email>; m[4] = bare email (no name)
+  const email = (m[3] ?? m[4] ?? "").trim();
+  const name = m[4] ? email : (m[2] ?? "").trim();
+  return { date: (m[1] ?? "").trim(), name, email };
 }
 
 function buildAttributionBlock(attr: Attribution): string {
@@ -186,9 +192,10 @@ function innerToPlain(inner: string): string {
 const PRE = (s: string) =>
   s ? `<pre style="white-space:pre-wrap;font-family:inherit;margin:0;">${esc(s)}</pre>` : "";
 
-// Source string for attribution detection in plain text (recreated per call to reset lastIndex)
+// Source string for attribution detection in plain text (recreated per call to reset lastIndex).
+// Matches both "Name <email>" and bare "email@x.com" sender formats.
 const ATTRIB_LINE_SRC =
-  /^[ \t]*(?:on|il|le|am|el|em)\s+.+,\s+.+<[^>]+@[^>]+>.*?(?:wrote|ha scritto|a [eé]crit|schrieb|escribi[oó]|escreveu)\s*:[ \t]*$/.source;
+  /^[ \t]*(?:on|il|le|am|el|em)\s+.+,\s+(?:.+<[^>]+@[^>]+>|[^@\s<>]+@[^@\s<>]+).*?(?:wrote|ha scritto|a [eé]crit|schrieb|escribi[oó]|escreveu)\s*:[ \t]*$/.source;
 
 function segToHtml(seg: string): string {
   if (!seg) return "";
@@ -204,6 +211,32 @@ function segToHtml(seg: string): string {
   }
   parts.push(PRE(seg.slice(last)));
   return parts.join("");
+}
+
+/**
+ * Collapses consecutive ">"-prefixed lines (standard plain-text quoting) behind
+ * a three-dots toggle. Each contiguous block of ">" lines becomes one toggle.
+ */
+function collapseGtQuotes(html: string): string {
+  // Operates on <pre>-wrapped segments produced by segToHtml.
+  // Replace each <pre> whose content has any ">"-prefixed lines, splitting at the
+  // first such line so everything from that point folds behind the toggle.
+  return html.replace(/<pre[^>]*>([\s\S]*?)<\/pre>/g, (full, inner) => {
+    const lines = inner.split(/\r?\n/);
+    const firstQuote = lines.findIndex((l: string) => /^&gt;/.test(l.trimStart()));
+    if (firstQuote < 0) return full;
+    // Must have some visible text before the quote.
+    const before = lines.slice(0, firstQuote).join("\n");
+    if (!before.trim()) return full;
+    const quoted = lines.slice(firstQuote).join("\n");
+    const btnLabel = t("email.renderer.showQuotedText");
+    const btn = `<button class="q-tgl" type="button" aria-expanded="false" aria-label="${esc(btnLabel)}" title="${esc(btnLabel)}"><span></span><span></span><span></span></button>`;
+    return (
+      `<pre style="white-space:pre-wrap;font-family:inherit;margin:0;">${before}</pre>` +
+      btn +
+      `<pre class="q-quote q-hidden" style="white-space:pre-wrap;font-family:inherit;margin:0;">${quoted}</pre>`
+    );
+  });
 }
 
 /**
@@ -238,16 +271,18 @@ export function transformPlainText(text: string): string {
   segments.push(text.slice(last));
 
   if (!blocks.length) {
-    // No forwarded blocks — still scan for attribution lines
-    return segToHtml(text);
+    // No forwarded blocks — still scan for attribution lines, then ">"-quotes.
+    return collapseGtQuotes(segToHtml(text));
   }
 
-  return segments
-    .map((seg, i) => {
-      const block = i < blocks.length ? buildBlock(blocks[i] ?? []) : "";
-      return segToHtml(seg) + block;
-    })
-    .join("");
+  return collapseGtQuotes(
+    segments
+      .map((seg, i) => {
+        const block = i < blocks.length ? buildBlock(blocks[i] ?? []) : "";
+        return segToHtml(seg) + block;
+      })
+      .join(""),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -377,6 +412,39 @@ function isQuoteStart(node: Node): boolean {
   return text.length <= 600 && (ATTR_LINE_RE.test(text) || FW_SEP_RE.test(text));
 }
 
+/**
+ * Promotes an anchor node upward through the DOM tree as long as:
+ *   • the current node has no meaningful content BEFORE it in its parent
+ *     (only whitespace text nodes or <br> elements)
+ *   • the parent is not the document body
+ *
+ * Purpose: when the walker lands on a text node like "On DATE, Name wrote:" that
+ * is the FIRST child of a <div style="border-left:..."> wrapper, we want the
+ * collapse to fold the ENTIRE wrapper — not just the content inside it.
+ *
+ * Example: text node → <div style="border-left:2px solid #ccc"> → body
+ *   • no content before the text node in its parent div → bubble up
+ *   • div's parent is body → stop
+ *   → anchor becomes the border-left div itself
+ */
+function promoteAnchor(anchor: Node, body: Element): ChildNode {
+  let n: Node = anchor;
+  while (true) {
+    const parent = n.parentNode;
+    if (!parent || parent === body) break;
+    let sib = (n as ChildNode).previousSibling;
+    let hasBefore = false;
+    while (sib) {
+      if (sib.nodeType === Node.TEXT_NODE && (sib.textContent ?? "").trim()) { hasBefore = true; break; }
+      if (sib.nodeType === Node.ELEMENT_NODE && (sib as Element).tagName !== "BR") { hasBefore = true; break; }
+      sib = sib.previousSibling;
+    }
+    if (hasBefore) break;
+    n = parent;
+  }
+  return n as ChildNode;
+}
+
 /** Visible text of everything before `anchor` in document order, collapsed to one line. */
 function textBefore(doc: Document, anchor: Node): string {
   try {
@@ -403,7 +471,7 @@ function textBefore(doc: Document, anchor: Node): string {
  *   • leaves table-structured layouts alone (moving cells/rows would break them);
  *   • wrapped in try/catch so a parsing hiccup can never blank out the message.
  */
-const QUOTE_MARKER_RE = /<blockquote|gmail_quote|<hr|ha scritto|wrote\s*:|a [eé]crit|schrieb|escrib|escreveu|forwarded message|messaggio inoltrato|original message|inizio messaggio inoltrato/i;
+const QUOTE_MARKER_RE = /<blockquote|gmail_quote|<hr|ha scritto|wrote\s*:|a [eé]crit|schrieb|escrib|escreveu|forwarded message|messaggio inoltrato|original message|inizio messaggio inoltrato|border-left/i;
 
 function collapseQuotes(html: string, depth = 0): string {
   // Cheap guard: skip the DOM round-trip for emails with no quote/forward markers.
@@ -424,6 +492,13 @@ function collapseQuotes(html: string, depth = 0): string {
       }
     }
     if (!anchor || !anchor.parentNode) return html;
+
+    // Bubble up: if the found anchor node is the first meaningful content in its
+    // parent container (e.g. a text node at the start of a <div style="border-left:...">),
+    // promote the parent element as the anchor so the entire block is collapsed —
+    // not just the content inside it.
+    anchor = promoteAnchor(anchor, doc.body);
+    if (!anchor.parentNode) return html;
 
     // Don't fold to nothing: require some real text above the quote.
     if (textBefore(doc, anchor).length < 2) return html;

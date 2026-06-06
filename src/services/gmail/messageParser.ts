@@ -1,6 +1,7 @@
 import type { GmailMessage, GmailMessagePart, GmailHeader } from "./client";
 import { parseAuthenticationResults } from "./authParser";
 import { decodeHtml } from "@/utils/sanitize";
+import { fixMojibake } from "@/utils/emailUtils";
 
 export interface ParsedAttachment {
   filename: string;
@@ -51,12 +52,12 @@ export function parseGmailMessage(msg: GmailMessage): ParsedMessage {
     id: msg.id,
     threadId: msg.threadId,
     fromAddress: fromAddress,
-    fromName: fromName,
+    fromName: applyMojibake(fromName),
     toAddresses: getHeader(headers, "To"),
     ccAddresses: getHeader(headers, "Cc"),
     bccAddresses: getHeader(headers, "Bcc"),
     replyTo: getHeader(headers, "Reply-To"),
-    subject: getHeader(headers, "Subject"),
+    subject: applyMojibake(getHeader(headers, "Subject")),
     snippet: decodeHtml(msg.snippet),
     date: parseInt(msg.internalDate, 10),
     isRead: !msg.labelIds.includes("UNREAD"),
@@ -79,6 +80,10 @@ function getHeader(headers: GmailHeader[], name: string): string | null {
     (h) => h.name.toLowerCase() === name.toLowerCase(),
   );
   return header?.value ?? null;
+}
+
+function applyMojibake(value: string | null): string | null {
+  return value ? fixMojibake(value) : null;
 }
 
 function parseEmailAddress(raw: string | null): {

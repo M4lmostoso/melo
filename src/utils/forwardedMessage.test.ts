@@ -85,4 +85,33 @@ describe("transformHtml — quote collapsing", () => {
     const html = "<div>Just a normal email body</div>";
     expect(transformHtml(html)).toBe(html);
   });
+
+  it("collapses Gmail border-left reply div INCLUDING its body content", () => {
+    const html =
+      "<p>My new reply text</p>" +
+      '<div style="border-left:2px solid #ccc;padding-left:12px;margin-left:0;">' +
+      "On 22/05/2026, 21:57:45, Mirko Landenna &lt;mirko.landenna@gmail.com&gt; wrote:<br>" +
+      "<div>Quoted body content here</div>" +
+      "</div>";
+    const out = transformHtml(html);
+    expect(toggles(out)).toBe(1);
+    expect(at(out, "My new reply")).toBeLessThan(at(out, "q-tgl"));
+    // Both the attribution AND the quoted body must be hidden behind the toggle
+    expect(at(out, "q-tgl")).toBeLessThan(at(out, "wrote"));
+    expect(at(out, "q-tgl")).toBeLessThan(at(out, "Quoted body"));
+  });
+
+  it("collapses forwarded message fw-blk AND its following body content", () => {
+    const html =
+      "<p>Mirko forwarding note</p>" +
+      "<br><br>---------- Forwarded message ---------<br><br>" +
+      "From: Sylvie &lt;s@x.fr&gt;<br>Subject: Test subj<br><br>" +
+      '<div class="WordSection1"><p>Bonjour à tous,</p></div>';
+    const out = transformHtml(html);
+    expect(toggles(out)).toBe(1);
+    expect(at(out, "Mirko")).toBeLessThan(at(out, "q-tgl"));
+    // Both the fw-blk header AND the body must be hidden behind the single toggle
+    expect(at(out, "q-tgl")).toBeLessThan(at(out, "Forwarded message"));
+    expect(at(out, "q-tgl")).toBeLessThan(at(out, "Bonjour"));
+  });
 });
