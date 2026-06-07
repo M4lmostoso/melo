@@ -5,27 +5,32 @@ const toggles = (html: string) => html.match(/class="q-tgl"/g)?.length ?? 0;
 const at = (html: string, needle: string) => html.indexOf(needle);
 
 describe("transformHtml — quote collapsing", () => {
-  it("cuts AT the attribution line, not after it", () => {
+  it("boxes the attribution line into an 'In reply to' fw-blk, collapsed before the quote", () => {
     const html =
       "<p>my answer</p>" +
       "<p>Il 27 mag 2026, 12:04 +0200, Bochicchio &lt;avv@tiscali.it&gt;, ha scritto:</p>" +
       "<blockquote>quoted body</blockquote>";
     const out = transformHtml(html);
     expect(toggles(out)).toBe(1);
+    // The attribution becomes a formatted "In reply to" box (no raw "ha scritto").
+    expect(out).toContain("In reply to");
+    expect(out).not.toContain("ha scritto");
+    // New message visible, then the toggle, then the boxed reply + quote.
     expect(at(out, "my answer")).toBeLessThan(at(out, "q-tgl"));
-    expect(at(out, "q-tgl")).toBeLessThan(at(out, "ha scritto"));
-    expect(at(out, "ha scritto")).toBeLessThan(at(out, "quoted body"));
+    expect(at(out, "q-tgl")).toBeLessThan(at(out, "In reply to"));
+    expect(at(out, "In reply to")).toBeLessThan(at(out, "quoted body"));
   });
 
-  it("collapses an attribution + quote that has NO blockquote at all", () => {
+  it("boxes an attribution + quote that has NO blockquote at all", () => {
     const html =
       "<div>reply text</div>" +
       "<div>Il giorno 13 mag 2026, alle ore 12:20, Luigi &lt;lf@x.it&gt; ha scritto:</div>" +
       "<div>quoted line 1</div><div>quoted line 2</div>";
     const out = transformHtml(html);
     expect(toggles(out)).toBe(1);
+    expect(out).toContain("In reply to");
     expect(at(out, "reply text")).toBeLessThan(at(out, "q-tgl"));
-    expect(at(out, "q-tgl")).toBeLessThan(at(out, "ha scritto"));
+    expect(at(out, "q-tgl")).toBeLessThan(at(out, "In reply to"));
   });
 
   it("collapses a Gmail quote marker", () => {
@@ -96,8 +101,9 @@ describe("transformHtml — quote collapsing", () => {
     const out = transformHtml(html);
     expect(toggles(out)).toBe(1);
     expect(at(out, "My new reply")).toBeLessThan(at(out, "q-tgl"));
-    // Both the attribution AND the quoted body must be hidden behind the toggle
-    expect(at(out, "q-tgl")).toBeLessThan(at(out, "wrote"));
+    // The attribution is boxed ("In reply to"); box + quoted body hidden behind the toggle.
+    expect(out).toContain("In reply to");
+    expect(at(out, "q-tgl")).toBeLessThan(at(out, "In reply to"));
     expect(at(out, "q-tgl")).toBeLessThan(at(out, "Quoted body"));
   });
 
@@ -193,5 +199,55 @@ describe("transformHtml — quote collapsing", () => {
     // Both the fw-blk header AND the body must be hidden behind the single toggle
     expect(at(out, "q-tgl")).toBeLessThan(at(out, "Forwarded message"));
     expect(at(out, "q-tgl")).toBeLessThan(at(out, "Bonjour"));
+  });
+
+  // ---- Uniform fw-blk boxing across all Outlook border-top patterns ----
+
+  const fwBlocks = (html: string) => html.match(/class="fw-blk/g)?.length ?? 0;
+
+  it("boxes a border-top header into an fw-blk even when no empty-<p> tricks apply", () => {
+    const html =
+      "<p>Reply text above</p>" +
+      '<div style="border:none;border-top:solid #E1E1E1 1.0pt;padding:3.0pt 0cm 0cm 0cm">' +
+      "<p><b>Da:</b> Yuri Furia &lt;y@x.com&gt;<br><b>Inviato:</b> 4 giugno 2026<br>" +
+      "<b>A:</b> Mirko &lt;m@x.com&gt;<br><b>Oggetto:</b> Test</p>" +
+      "</div>" +
+      "<p>quoted body</p>";
+    const out = transformHtml(html);
+    expect(fwBlocks(out)).toBe(1);
+    expect(toggles(out)).toBe(1);
+  });
+
+  it("DOM pass boxes a deeply nested border-top header that the regex would miss", () => {
+    // The header sits behind a >1500-char body paragraph (which desyncs the bounded
+    // Case-5 regex). The DOM pass must still produce a formatted fw-blk for it.
+    const filler = "x".repeat(1700);
+    const html =
+      "<p>Top reply</p>" +
+      `<blockquote><p>${filler}</p>` +
+      '<div style="border:none;border-top:solid #E1E1E1 1.0pt">' +
+      "<p><b>Da:</b> Mirko &lt;m@x.com&gt;<br><b>Inviato:</b> 3 giugno 2026<br>" +
+      "<b>A:</b> Yuri &lt;y@x.com&gt;<br><b>Oggetto:</b> Deep</p>" +
+      "</div>" +
+      "<p>deep quoted body</p></blockquote>";
+    const out = transformHtml(html);
+    // The nested Outlook header must be boxed, not left as raw "Da:" text.
+    expect(fwBlocks(out)).toBeGreaterThanOrEqual(1);
+    expect(out).not.toMatch(/border-top[^>]*">\s*<p[^>]*>\s*<b>Da:/);
+  });
+
+  it("parses a header whose value hangs on the next line (key alone, value below)", () => {
+    // Outlook variant: "Da:" on its own line, "Mirko <m@x>" on the next.
+    const html =
+      "<p>Reply above</p>" +
+      '<div style="border-top:solid #ccc 1pt">' +
+      "<p><b>Da:</b><br>Mirko Landenna &lt;m@x.com&gt;<br>" +
+      "<b>Inviato:</b> 4 giugno 2026<br><b>Oggetto:</b> Hanging</p>" +
+      "</div>" +
+      "<p>quoted</p>";
+    const out = transformHtml(html);
+    // The From value must be recovered, so the box is built (needs a From key).
+    expect(fwBlocks(out)).toBe(1);
+    expect(out).toContain("Mirko Landenna");
   });
 });

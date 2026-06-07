@@ -289,6 +289,16 @@ export function transformPlainText(text: string): string {
 // HTML transform
 // ---------------------------------------------------------------------------
 
+/** Returns the canonical key if a trimmed line begins with a recognized header key. */
+function headerKeyOf(line: string): string | null {
+  const i = line.indexOf(":");
+  // Allow i >= 1 for single-char locale keys like "A:" (Italian To);
+  // allow up to 25 chars to cover "Enviado el" / "Rispondi a" multi-word keys
+  if (i < 1 || i > 25) return null;
+  const norm = normalizeKey(line.slice(0, i).trim());
+  return HEADER_KEYS.has(norm) ? norm : null;
+}
+
 function parseHtmlHeaders(block: string): Array<[string, string]> {
   const text = block
     .replace(/<br\s*\/?>/gi, "\n")
@@ -296,23 +306,22 @@ function parseHtmlHeaders(block: string): Array<[string, string]> {
     .replace(/<[^>]+>/g, "")
     .replace(/&nbsp;|&#160;| /g, " ");
 
-  return text
-    .split(/\n+/)
-    .filter(Boolean)
-    .map((line): [string, string] | null => {
-      const trimmed = line.trim();
-      const i = trimmed.indexOf(":");
-      // Allow i >= 1 for single-char locale keys like "A:" (Italian To);
-      // allow up to 25 chars to cover "Enviado el" / "Rispondi a" multi-word keys
-      if (i < 1 || i > 25) return null;
-      const raw = trimmed.slice(0, i).trim();
-      const norm = normalizeKey(raw);
-      if (!HEADER_KEYS.has(norm)) return null;
-      const val = trimmed.slice(i + 1).trim();
-      if (!val) return null;
-      return [norm.charAt(0).toUpperCase() + norm.slice(1), val];
-    })
-    .filter((h): h is [string, string] => h !== null);
+  // Hanging value: some Outlook variants put the key ("Da:") on its own line and the
+  // value ("Mirko Landenna <m@x>") on the next — common in deeply nested forwards. We
+  // adopt the next line as the value when that next line isn't itself a header line.
+  const lines = text.split(/\n+/).map((l) => l.trim()).filter(Boolean);
+  const out: Array<[string, string]> = [];
+  for (let li = 0; li < lines.length; li++) {
+    const norm = headerKeyOf(lines[li]!);
+    if (!norm) continue;
+    let val = lines[li]!.slice(lines[li]!.indexOf(":") + 1).trim();
+    if (!val && li + 1 < lines.length && !headerKeyOf(lines[li + 1]!)) {
+      val = lines[li + 1]!;
+      li++;
+    }
+    if (val) out.push([norm.charAt(0).toUpperCase() + norm.slice(1), val]);
+  }
+  return out;
 }
 
 const WROTE_RE = /(?:wrote|ha scritto|a [eé]crit|schrieb|escribi[oó]|escreveu)\s*:/i;
@@ -500,7 +509,99 @@ function textBefore(doc: Document, anchor: Node): string {
  *   • leaves table-structured layouts alone (moving cells/rows would break them);
  *   • wrapped in try/catch so a parsing hiccup can never blank out the message.
  */
-const QUOTE_MARKER_RE = /<blockquote|gmail_quote|<hr|ha scritto|wrote\s*:|a [eé]crit|schrieb|escrib|escreveu|forwarded message|messaggio inoltrato|original message|inizio messaggio inoltrato|border-left|border-top/i;
+const QUOTE_MARKER_RE = /<blockquote|gmail_quote|fw-blk|<hr|ha scritto|wrote\s*:|a [eé]crit|schrieb|escrib|escreveu|forwarded message|messaggio inoltrato|original message|inizio messaggio inoltrato|border-left|border-top/i;
+
+/**
+ * DOM-based pass that converts Outlook/Word "border-top" divider blocks whose header was
+ * NOT already turned into an fw-blk by the regex passes into a formatted fw-blk box — so
+ * the styled box appears UNIFORMLY for every forwarded/reply header, regardless of how
+ * deeply the divider is nested.
+ *
+ * Why a DOM pass instead of more regex: Case 5's <p> regex is bounded ({1,1500}) and
+ * desyncs on long quoted-body paragraphs in deep reply chains, so nested Outlook headers
+ * were left as raw "Da: … Inviato: …" text. Walking the DOM finds every divider reliably.
+ *
+ * Conservative: only replaces the single header-bearing <p> inside the divider (leaving
+ * any surrounding structure intact), and only when that <p> parses to a real header block
+ * (a From-equivalent key plus at least one more). Idempotent — skips dividers already
+ * holding an fw-blk.
+ */
+function boxOutlookHeaders(html: string): string {
+  if (!/border-top/i.test(html)) return html;
+  try {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    let changed = false;
+    doc.querySelectorAll("div").forEach((div) => {
+      if (!/border-top/i.test(div.getAttribute("style") ?? "")) return;
+      if (div.querySelector(".fw-blk")) return; // already boxed by a regex pass
+      // Locate the header-bearing <p> (the divider may hold a preamble <p> too).
+      let target: Element | null = null;
+      for (const p of Array.from(div.querySelectorAll("p"))) {
+        if (FW_HEADER_BLOCK_RE.test(p.textContent ?? "")) { target = p; break; }
+      }
+      if (!target) return;
+      const headers = parseHtmlHeaders(target.innerHTML);
+      if (headers.length < 2 || !headers.some(([k]) => k.toLowerCase() === "from")) return;
+      const holder = doc.createElement("div");
+      holder.innerHTML = buildBlock(headers, "Forwarded message");
+      const blk = holder.firstElementChild;
+      if (!blk) return;
+      target.replaceWith(blk);
+      changed = true;
+    });
+    return changed ? doc.body.innerHTML : html;
+  } catch {
+    return html; // never let a parsing hiccup blank out the message body
+  }
+}
+
+/**
+ * DOM-based pass that converts a reply-attribution line ("Il DATE, NAME <email>, ha
+ * scritto:" and locale variants) into an "In reply to" fw-blk box — for the case where
+ * the attribution is a bare TEXT NODE sitting next to a <blockquote> inside the same
+ * container (Apple Mail / mobile / `<div name="messageReplySection">`).
+ *
+ * The regex Case 4 can't handle these: its container also holds the quoted <blockquote>,
+ * which trips the nested-block guard, so the attribution stayed as raw text. Walking text
+ * nodes finds the attribution directly and boxes only it, leaving the quote intact next to
+ * the new box so collapseQuotes can still fold both behind the three-dots toggle.
+ */
+function boxReplyAttributions(html: string): string {
+  if (!WROTE_RE.test(html)) return html;
+  try {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+    const targets: Text[] = [];
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      const txt = (n.textContent ?? "").trim();
+      if (txt && WROTE_RE.test(txt) && parseAttribution(txt)) targets.push(n as Text);
+    }
+    if (!targets.length) return html;
+    let changed = false;
+    for (const node of targets) {
+      if (node.parentElement?.closest(".fw-blk")) continue; // already boxed
+      // Leave table-structured quote layouts untouched (boxing a cell's text could
+      // disrupt the table); collapseQuotes also refuses to restructure tables.
+      if (node.parentElement?.closest("table")) continue;
+      const attr = parseAttribution((node.textContent ?? "").trim());
+      if (!attr) continue;
+      const holder = doc.createElement("div");
+      holder.innerHTML = buildAttributionBlock(attr);
+      const blk = holder.firstElementChild;
+      if (!blk) continue;
+      const next = node.nextSibling;
+      node.replaceWith(blk);
+      // Drop a trailing <br> that used to separate the attribution from the quote.
+      if (next && next.nodeType === Node.ELEMENT_NODE && (next as Element).tagName === "BR") {
+        next.remove();
+      }
+      changed = true;
+    }
+    return changed ? doc.body.innerHTML : html;
+  } catch {
+    return html; // never let a parsing hiccup blank out the message body
+  }
+}
 
 function collapseQuotes(html: string, depth = 0): string {
   // Cheap guard: skip the DOM round-trip for emails with no quote/forward markers.
@@ -615,8 +716,14 @@ export function transformHtml(html: string): string {
   // <b><span style='...'>Key:</span></b> with values in <span>, email addresses as
   // <a href="mailto:...">, and appends <o:p></o:p> before </p>. The old structural
   // regex couldn't handle these; we strip all markup and let parseHtmlHeaders decide.
+  //
+  // The inner uses a TEMPERED token `(?:(?!<\/p>)[\s\S])` so it can never bridge across a
+  // </p> boundary. Without this, an empty <p></p> right before the header <p> (common in
+  // Outlook: `<p style="MARGIN-BOTTOM:5pt"></p>`) would force the {1,…} minimum to consume
+  // the empty close + the next opening, merging two paragraphs — the merged inner then
+  // starts with </p> and trips the nested-block guard, so the fw-blk was never built.
   html = html.replace(
-    /<p([^>]*)>([\s\S]{1,1500}?)<\/p>/gi,
+    /<p([^>]*)>((?:(?!<\/p>)[\s\S]){1,1500}?)<\/p>/gi,
     (full, _attrs, inner) => {
       // Fast-skip: no bold tag means no header block
       if (!/<b\b|<strong\b/i.test(inner)) return full;
@@ -657,6 +764,14 @@ export function transformHtml(html: string): string {
       return buildBlock(headers);
     },
   );
+
+  // DOM pass: box any Outlook border-top header dividers the regex passes missed
+  // (deeply nested ones), so the formatted fw-blk appears uniformly everywhere.
+  html = boxOutlookHeaders(html);
+
+  // DOM pass: box reply-attribution lines ("Il … ha scritto:") that sit as a bare text
+  // node next to their quote (Apple Mail / messageReplySection), which the regex missed.
+  html = boxReplyAttributions(html);
 
   // Finally, collapse the quoted citation body behind a three-dots toggle.
   // Runs last so any fw-blk attribution headers built above end up nested

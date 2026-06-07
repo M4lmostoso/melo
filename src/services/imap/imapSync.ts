@@ -1271,6 +1271,14 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
       (console.error(`[imapSync] reconcileFragmentedThreads (post-store) error:`, err), 0),
     );
     if (fragmentCount > 0) console.log(`[imapSync] Repaired ${fragmentCount} fragmented thread(s) for ${accountId} (post-store)`);
+
+    // De-dupe right after storing new messages. A just-sent reply is saved locally with
+    // the APPENDUID; when the server returns an inconsistent UID, this delta import creates
+    // a second row for the same physical message (same Message-ID + folder, different UID).
+    // Without this, the duplicate lingered until the next maintenance cycle (~10 min) or a
+    // manual resync. Maintenance cycles already purged at the top; this covers the rest.
+    const dupeCount = await purgeImapDuplicates(accountId).catch(() => 0);
+    if (dupeCount > 0) console.log(`[imapSync] Purged ${dupeCount} duplicate(s) for ${accountId} (post-store)`);
   }
 
   for (const params of urgencyQueue) {
