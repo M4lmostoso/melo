@@ -264,6 +264,7 @@ export default function App() {
   // purged by the composer, so this only touches the server, then refreshes the UI.
   useEffect(() => {
     let unlisten: (() => void) | undefined;
+    let cancelled = false;
     import("@tauri-apps/api/event").then(({ listen }) => {
       listen("melo-delete-draft", async (event) => {
         const p = event.payload as {
@@ -283,16 +284,24 @@ export default function App() {
           window.dispatchEvent(new Event("melo-sync-done"));
         }
       }).then((fn) => {
+        if (cancelled) { fn(); return; }
         unlisten = fn;
       });
     });
-    return () => { unlisten?.(); };
+    return () => { cancelled = true; unlisten?.(); };
   }, []);
 
   // Composer window hands off SMTP to main window via this event so the composer
   // can close immediately after the UNDO period without waiting for SMTP to complete.
+  //
+  // The `cancelled` flag is essential: `listen()` is async, so under React StrictMode
+  // (or any remount) the effect cleanup can run BEFORE the listen Promise resolves —
+  // leaving `unlisten` undefined and the first listener still registered. A second mount
+  // then registers a SECOND listener, so a single `melo-execute-send` is handled twice →
+  // the email is sent twice. Tearing down via the flag guarantees exactly one listener.
   useEffect(() => {
     let unlisten: (() => void) | undefined;
+    let cancelled = false;
     import("@tauri-apps/api/event").then(({ listen }) => {
       listen("melo-execute-send", async (event) => {
         const p = event.payload as {
@@ -401,9 +410,12 @@ export default function App() {
         } finally {
           useOutgoingStore.getState().removeEmail(p.outgoingId);
         }
-      }).then((fn) => { unlisten = fn; });
+      }).then((fn) => {
+        if (cancelled) { fn(); return; } // effect already torn down — unlisten immediately
+        unlisten = fn;
+      });
     });
-    return () => { unlisten?.(); };
+    return () => { cancelled = true; unlisten?.(); };
   }, []);
 
   // Listen for tray "Check for Mail" button
