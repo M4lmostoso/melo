@@ -44,7 +44,9 @@ export function EmailRenderer({
   const colorTheme = useUIStore((s) => s.colorTheme);
   const isDark = theme === "dark"
     || (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
-  const accentColor = getThemeById(colorTheme)[isDark ? "dark" : "light"].accent;
+  const themeColors = getThemeById(colorTheme)[isDark ? "dark" : "light"];
+  const accentColor = themeColors.accent;
+  const accentLight = themeColors.accentLight;
 
   const shouldBlock = blockImages && !senderAllowlisted && !overrideShow;
 
@@ -55,7 +57,11 @@ export function EmailRenderer({
     // the `<pre>${escapeHtml(text)}</pre>` branch in `bodyHtml` below).
     const MAX_BODY_BYTES = 10 * 1024 * 1024;
     if (html.length > MAX_BODY_BYTES) return null;
-    return sanitizeHtml(stripOversizedDataImages(html));
+    // Escape email addresses in angle brackets before sanitization so DOMPurify
+    // doesn't strip <email@domain> as an unknown HTML tag. decodeEntities in
+    // transformHtml will restore them to <email> for attribution matching.
+    const escaped = html.replace(/<([^<>\s]+@[^<>\s]+)>/g, "&lt;$1&gt;");
+    return sanitizeHtml(stripOversizedDataImages(escaped));
   }, [html]);
 
   const isPlainText = !sanitizedBody;
@@ -159,7 +165,8 @@ export function EmailRenderer({
     ${QUOTE_CSS}
     ${isDark ? FW_DARK_CSS : ""}
     ${isDark ? QUOTE_DARK_CSS : ""}
-    ${buildAccentOverride(accentColor, isDark)}
+    ${buildAccentOverride(accentColor, isDark, accentLight)}
+    ${htmlDark ? `.fw-hd,.fw-meta,.q-tgl{filter:invert(1) hue-rotate(180deg)}.fw-body{background:transparent}` : ""}
   </style>
   <script>(function() {
     var NONCE = '${nonce}';
@@ -197,7 +204,7 @@ export function EmailRenderer({
 </head>
 <body>${bodyHtml}</body>
 </html>`;
-  }, [bodyHtml, isDark, isPlainText, accentColor]);
+  }, [bodyHtml, isDark, isPlainText, accentColor, accentLight]);
 
   // Unmount cleanup: navigate to about:blank to force WebKit to destroy the
   // document and release all decoded image textures and GPU allocations immediately.

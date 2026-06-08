@@ -27,47 +27,61 @@ const LOCALE_HEADER_MAP: Record<string, string> = {
   "von": "from", "gesendet": "sent", "an": "to", "betreff": "subject",
 };
 
-const CHEVRON = `<svg class="fw-chv" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>`;
-
-export const FW_CSS = `
-.fw-blk{margin:10px 0;overflow:hidden;border:1px solid rgba(99,102,241,.2);border-left:3px solid #6366f1;border-radius:0 6px 6px 0}
-.fw-hd{display:flex;align-items:center;gap:6px;padding:7px 10px;cursor:pointer;user-select:none;background:rgba(99,102,241,.07);font-size:11px;font-weight:600;color:#6366f1;font-family:system-ui,-apple-system,sans-serif;line-height:1.4}
-.fw-hd:hover{background:rgba(99,102,241,.12)}
-.fw-chv{transition:transform .15s;flex-shrink:0}
-.fw-blk:not(.fw-open) .fw-chv{transform:rotate(-90deg)}
-.fw-snip{color:#9ca3af;font-weight:400;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0;padding-left:4px}
-.fw-meta{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;padding:6px 10px;font-size:11px;background:rgba(99,102,241,.02);border-bottom:1px solid rgba(99,102,241,.12);font-family:system-ui,-apple-system,sans-serif}
-.fw-lbl{color:#9ca3af;font-weight:500;white-space:nowrap;padding-top:1px}
-.fw-val{color:#374151;word-break:break-word}
-.fw-blk:not(.fw-open) .fw-meta{display:none}
-`;
-
-export const FW_DARK_CSS = `
-.fw-blk{border-color:rgba(129,140,248,.25);border-left-color:#818cf8}
-.fw-hd{color:#818cf8;background:rgba(99,102,241,.12)}
-.fw-hd:hover{background:rgba(99,102,241,.18)}
-.fw-meta{background:rgba(99,102,241,.05);border-bottom-color:rgba(129,140,248,.2)}
-.fw-lbl{color:#6b7280}.fw-val{color:#d1d5db}
-`;
-
-// Three-dots toggle for collapsed quoted text ("citation"). The quote starts
-// collapsed; clicking the dots reveals it. Styled to match the fw-blk accent.
-export const QUOTE_CSS = `
-.q-tgl{display:inline-flex;align-items:center;justify-content:center;gap:3px;height:18px;padding:0 11px;margin:6px 0;background:rgba(99,102,241,.12);border:none;border-radius:9px;cursor:pointer;vertical-align:middle}
-.q-tgl:hover{background:rgba(99,102,241,.22)}
-.q-tgl span{display:block;width:3px;height:3px;border-radius:50%;background:#6366f1}
-.q-hidden{display:none!important}
-`;
-
-export const QUOTE_DARK_CSS = `
-.q-tgl{background:rgba(129,140,248,.18)}
-.q-tgl:hover{background:rgba(129,140,248,.28)}
-.q-tgl span{background:#818cf8}
-`;
+const CHEVRON = `<svg class="fw-chv" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>`;
+const DOTS_HTML = `<span class="q-dots"><span class="q-dot"></span><span class="q-dot"></span><span class="q-dot"></span></span>`;
 
 /**
- * Parses a hex color string (#RRGGBB or #RGB) into "r,g,b" format for use in rgba().
- * Returns "99,102,241" (indigo fallback) if the input is invalid.
+ * CSS variables are set per-theme by buildAccentOverride (last rule wins).
+ * Light defaults use indigo; dark defaults are solid neutrals.
+ * Both light and dark text/muted/line vars live in FW_CSS/:root so they can
+ * be overridden by FW_DARK_CSS without touching the accent vars.
+ */
+export const FW_CSS = `
+:root{
+  --fw-accent:#6366f1;
+  --fw-bg:rgba(99,102,241,.09);
+  --fw-hd-hover:rgba(99,102,241,.18);
+  --fw-pill:rgba(99,102,241,.09);
+  --fw-pill-hover:rgba(99,102,241,.20);
+  --fw-border:rgba(0,0,0,.10);
+  --fw-line:rgba(0,0,0,.09);
+  --fw-text:#1a1612;
+  --fw-muted:#6b6259
+}
+.fw-blk{margin:10px 0;overflow:hidden;border-left:2.5px solid var(--fw-accent);border-radius:3px 12px 12px 3px}
+.fw-hd{display:flex;align-items:center;gap:7px;padding:12px 16px;cursor:pointer;user-select:none;font-family:system-ui,-apple-system,sans-serif;font-size:13px;line-height:1.35;background:var(--fw-bg)}
+.fw-hd:hover{background:var(--fw-hd-hover)}
+.fw-blk.fw-plain .fw-hd{cursor:default}
+.fw-chv{color:var(--fw-accent);transition:transform .2s ease;flex-shrink:0}
+.fw-blk:not(.fw-open)>.fw-hd .fw-chv{transform:rotate(-90deg)}
+.fw-from{font-weight:600;color:var(--fw-text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fw-sep{color:var(--fw-muted);flex-shrink:0;padding:0 1px}
+.fw-date{color:var(--fw-muted);font-size:12px;flex-shrink:0;white-space:nowrap}
+.fw-subj{color:var(--fw-muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+.fw-meta{display:grid;grid-template-columns:auto 1fr;row-gap:4px;column-gap:12px;padding:0 16px 13px;font-size:12px;font-family:system-ui,-apple-system,sans-serif;border-top:1px solid var(--fw-line);padding-top:9px;background:var(--fw-bg)}
+.fw-lbl{color:var(--fw-muted);font-weight:600;white-space:nowrap;padding-top:1px;text-transform:uppercase;font-size:10.5px;letter-spacing:.04em}
+.fw-val{color:var(--fw-text);word-break:break-word}
+.fw-blk:not(.fw-open)>.fw-meta,.fw-blk:not(.fw-open)>.fw-body{display:none}
+.fw-body{padding:12px 16px 14px;border-top:1px solid var(--fw-line);color:var(--fw-text);overflow-x:auto;background:color-mix(in srgb,var(--fw-bg) 30%,transparent)}
+`;
+
+export const FW_DARK_CSS = ``;
+
+export const QUOTE_CSS = `
+.q-tgl{display:inline-flex;align-items:center;gap:7px;padding:6px 13px;margin:6px 0;background:var(--fw-pill);color:var(--fw-accent);border:1px solid color-mix(in srgb,var(--fw-accent) 30%,transparent);border-radius:999px;font-size:12.5px;font-weight:600;font-family:system-ui,-apple-system,sans-serif;cursor:pointer;vertical-align:middle;line-height:1.35;transition:background .15s,border-color .15s,color .15s}
+.q-tgl:hover{background:var(--fw-pill-hover);border-color:color-mix(in srgb,var(--fw-accent) 45%,transparent)}
+.q-tgl[aria-expanded="true"]{background:transparent;color:var(--fw-muted);border-color:color-mix(in srgb,var(--fw-muted) 22%,transparent)}
+.q-dots{display:flex;gap:2.5px;align-items:center;flex-shrink:0}
+.q-dot{display:block;width:3.5px;height:3.5px;border-radius:50%;background:currentColor}
+.q-label{color:inherit}
+.q-hidden{display:none!important}
+.q-quote{color:var(--fw-muted)}
+`;
+
+export const QUOTE_DARK_CSS = ``;
+
+/**
+ * Parses a hex color string (#RRGGBB or #RGB) into "r,g,b" for use in rgba().
  */
 function hexToRgbStr(hex: string): string {
   const h = hex.replace("#", "");
@@ -78,18 +92,27 @@ function hexToRgbStr(hex: string): string {
 }
 
 /**
- * Returns a CSS block that overrides the hardcoded indigo accent on fw-blk and q-tgl
- * with the user's chosen theme accent color.
+ * Sets ALL theme-aware CSS variables for fw-blk and q-tgl, running last so it
+ * wins over FW_CSS and FW_DARK_CSS defaults. Callers must pass accentLight from
+ * the theme (e.g. "rgba(155,194,135,0.14)") so we use the EXACT design-system
+ * value as the surface tint instead of a hardcoded alpha approximation.
+ *
+ * Text vars (--fw-text, --fw-muted) are also set here to guarantee the correct
+ * foreground color regardless of what the email HTML itself inherits.
  */
-export function buildAccentOverride(accent: string, isDark: boolean): string {
+export function buildAccentOverride(accent: string, isDark: boolean, accentLight?: string): string {
   const rgb = hexToRgbStr(accent);
-  if (isDark) {
-    return `.fw-blk{border-color:rgba(${rgb},.25);border-left-color:${accent}}.fw-hd{color:${accent};background:rgba(${rgb},.12)}.fw-hd:hover{background:rgba(${rgb},.18)}.fw-meta{background:rgba(${rgb},.05);border-bottom-color:rgba(${rgb},.2)}.q-tgl{background:rgba(${rgb},.18)}.q-tgl:hover{background:rgba(${rgb},.28)}.q-tgl span{background:${accent}}`;
-  }
-  return `.fw-blk{border-color:rgba(${rgb},.2);border-left-color:${accent}}.fw-hd{color:${accent};background:rgba(${rgb},.07)}.fw-hd:hover{background:rgba(${rgb},.12)}.fw-meta{background:rgba(${rgb},.02);border-bottom-color:rgba(${rgb},.12)}.q-tgl{background:rgba(${rgb},.12)}.q-tgl:hover{background:rgba(${rgb},.22)}.q-tgl span{background:${accent}}`;
+  const bg = accentLight ?? `rgba(${rgb},${isDark ? ".14" : ".09"})`;
+  const hover = `rgba(${rgb},${isDark ? ".24" : ".18"})`;
+  const pill = `rgba(${rgb},${isDark ? ".20" : ".12"})`;
+  const pillHover = `rgba(${rgb},${isDark ? ".30" : ".20"})`;
+  const text = isDark ? "#e8eaed" : "#1a1612";
+  const muted = isDark ? "#9aa0a6" : "#6b6259";
+  const border = isDark ? "rgba(255,255,255,.10)" : `rgba(${rgb},.12)`;
+  return `:root{--fw-accent:${accent};--fw-bg:${bg};--fw-hd-hover:${hover};--fw-pill:${pill};--fw-pill-hover:${pillHover};--fw-border:${border};--fw-text:${text};--fw-muted:${muted}}`;
 }
 
-export const FW_JS = `document.querySelectorAll('.fw-hd').forEach(function(h){h.addEventListener('click',function(){h.closest('.fw-blk').classList.toggle('fw-open')})});document.querySelectorAll('.q-tgl').forEach(function(b){b.addEventListener('click',function(){var q=b.nextElementSibling;if(!q)return;var hidden=q.classList.toggle('q-hidden');b.setAttribute('aria-expanded',hidden?'false':'true')})});`;
+export const FW_JS = `document.querySelectorAll('.fw-hd').forEach(function(h){h.addEventListener('click',function(){var blk=h.closest('.fw-blk');if(!blk||blk.classList.contains('fw-plain'))return;blk.classList.toggle('fw-open')})});document.querySelectorAll('.q-tgl').forEach(function(b){b.addEventListener('click',function(){var q=b.nextElementSibling;if(!q)return;var hidden=q.classList.toggle('q-hidden');b.setAttribute('aria-expanded',hidden?'false':'true')})});`;
 
 function esc(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -119,19 +142,32 @@ function parseHeaderLine(line: string): [string, string] | null {
   return val ? [norm.charAt(0).toUpperCase() + norm.slice(1), val] : null;
 }
 
-function buildBlock(headers: Array<[string, string]>, label = "Forwarded message"): string {
+function buildBlock(headers: Array<[string, string]>, label = "Forwarded message", bodyHtml = ""): string {
   if (!headers.length) return "";
-  const from = headers.find(([k]) => k.toLowerCase() === "from")?.[1] ?? "";
-  const subject = headers.find(([k]) => k.toLowerCase() === "subject")?.[1] ?? "";
-  const snip = [from, subject ? `· ${subject}` : ""].filter(Boolean).join(" ");
-  const rows = headers
+  const get = (key: string) => headers.find(([k]) => k.toLowerCase() === key)?.[1] ?? "";
+  const from = get("from");
+  const date = get("date") || get("sent");
+  const subject = get("subject");
+
+  // Only To and Cc appear in the expandable meta — From/Date/Subject are in the header line
+  const metaRows = headers
+    .filter(([k]) => ["to", "cc"].includes(k.toLowerCase()))
     .map(([k, v]) => `<div class="fw-lbl">${k}</div><div class="fw-val">${v}</div>`)
     .join("");
+  const hasDetail = !!metaRows;
+  // Block is collapsible whenever it has meta rows OR a body — not just when it has meta.
+  const hasToggle = hasDetail || !!bodyHtml;
+
+  const hFrom = `<span class="fw-from">${from || label}</span>`;
+  const hDate = date ? `<span class="fw-sep">·</span><span class="fw-date">${date}</span>` : "";
+  const hSubj = subject ? `<span class="fw-sep">—</span><span class="fw-subj">${subject}</span>` : "";
+
   return (
-    `<div class="fw-blk fw-open">` +
-    `<div class="fw-hd">${CHEVRON}<span>${label}</span>` +
-    (snip ? `<span class="fw-snip">${snip}</span>` : "") +
-    `</div><div class="fw-meta">${rows}</div></div>`
+    `<div class="fw-blk${hasToggle ? "" : " fw-plain"}">` +
+    `<div class="fw-hd">${hasToggle ? CHEVRON : ""}${hFrom}${hDate}${hSubj}</div>` +
+    (hasDetail ? `<div class="fw-meta">${metaRows}</div>` : "") +
+    (bodyHtml ? `<div class="fw-body">${bodyHtml}</div>` : "") +
+    `</div>`
   );
 }
 
@@ -229,8 +265,11 @@ function collapseGtQuotes(html: string): string {
     const before = lines.slice(0, firstQuote).join("\n");
     if (!before.trim()) return full;
     const quoted = lines.slice(firstQuote).join("\n");
-    const btnLabel = t("email.renderer.showQuotedText");
-    const btn = `<button class="q-tgl" type="button" aria-expanded="false" aria-label="${esc(btnLabel)}" title="${esc(btnLabel)}"><span></span><span></span><span></span></button>`;
+    const lineCount = quoted.split("\n").filter((l: string) => l.trim().length > 0).length;
+    const btnLabel = lineCount > 0
+      ? t("email.renderer.showNQuotedLines", { count: lineCount })
+      : t("email.renderer.showQuotedText");
+    const btn = `<button class="q-tgl" type="button" aria-expanded="false" aria-label="${esc(btnLabel)}" title="${esc(btnLabel)}">${DOTS_HTML}<span class="q-label">${esc(btnLabel)}</span></button>`;
     return (
       `<pre style="white-space:pre-wrap;font-family:inherit;margin:0;">${before}</pre>` +
       btn +
@@ -275,14 +314,12 @@ export function transformPlainText(text: string): string {
     return collapseGtQuotes(segToHtml(text));
   }
 
-  return collapseGtQuotes(
-    segments
-      .map((seg, i) => {
-        const block = i < blocks.length ? buildBlock(blocks[i] ?? []) : "";
-        return segToHtml(seg) + block;
-      })
-      .join(""),
-  );
+  // segments[0] = preamble; segments[i+1] = body of blocks[i]
+  const parts: string[] = [segToHtml(segments[0] ?? "")];
+  for (let i = 0; i < blocks.length; i++) {
+    parts.push(buildBlock(blocks[i] ?? [], "Forwarded message", segToHtml(segments[i + 1] ?? "")));
+  }
+  return collapseGtQuotes(parts.join(""));
 }
 
 // ---------------------------------------------------------------------------
@@ -351,16 +388,17 @@ const HEADER_LINE_RE =
 const FW_HEADER_BLOCK_RE =
   /\b(?:from|da|de|von)\s*:[\s\S]{0,400}?\b(?:sent|inviato|envoy[eé]|gesendet|date|data|to|oggetto|subject|objet|asunto|betreff)\s*:/i;
 
-const TOGGLE_HTML = "<span></span><span></span><span></span>";
-
-function makeToggle(doc: Document, label: string): HTMLButtonElement {
+function makeToggle(doc: Document, label: string, lineCount = 0): HTMLButtonElement {
   const btn = doc.createElement("button");
   btn.className = "q-tgl";
   btn.setAttribute("type", "button");
   btn.setAttribute("aria-expanded", "false");
   btn.setAttribute("aria-label", label);
   btn.setAttribute("title", label);
-  btn.innerHTML = TOGGLE_HTML;
+  const displayLabel = lineCount > 0
+    ? t("email.renderer.showNQuotedLines", { count: lineCount })
+    : label;
+  btn.innerHTML = `${DOTS_HTML}<span class="q-label">${esc(displayLabel)}</span>`;
   return btn;
 }
 
@@ -650,12 +688,36 @@ function collapseQuotes(html: string, depth = 0): string {
       );
       if (!hasBodyAfter) return html;
     }
-    const btn = makeToggle(doc, t("email.renderer.showQuotedText"));
+    const lineCount = toMove.reduce((acc, n) => {
+      return acc + (n.nodeType === Node.ELEMENT_NODE
+        ? (n as Element).querySelectorAll("p,div,li,br,pre").length + 1
+        : ((n.textContent ?? "").trim() ? 1 : 0));
+    }, 0);
+    const btn = makeToggle(doc, t("email.renderer.showQuotedText"), lineCount);
     const wrapper = doc.createElement("div");
     wrapper.className = "q-quote q-hidden";
     parent.insertBefore(btn, anchor);
     parent.insertBefore(wrapper, anchor);
     for (const n of toMove) wrapper.appendChild(n);
+
+    // At depth 0, also sweep up body-level trailing nodes that live outside the
+    // anchor's immediate container (footers, disclaimers in a sibling div).
+    // We stop as soon as a node triggers isQuoteStart — that would be a NEW message.
+    if (depth === 0 && parent !== doc.body) {
+      let topAncestor: Node = parent;
+      while (topAncestor.parentNode && topAncestor.parentNode !== doc.body) {
+        topAncestor = topAncestor.parentNode;
+      }
+      if (topAncestor.parentNode === doc.body) {
+        let n: ChildNode | null = (topAncestor as ChildNode).nextSibling;
+        while (n) {
+          if (isQuoteStart(n)) break;
+          const next = n.nextSibling;
+          wrapper.appendChild(n);
+          n = next;
+        }
+      }
+    }
 
     // Recursively collapse nested quotes inside the hidden wrapper (up to 3 levels).
     if (depth < 3) {
@@ -666,6 +728,117 @@ function collapseQuotes(html: string, depth = 0): string {
     return doc.body.innerHTML;
   } catch {
     return html; // never let a quote-collapse failure blank out the message body
+  }
+}
+
+/**
+ * DOM pass: absorbs the sibling nodes that follow each top-level fw-blk (up to the
+ * next fw-blk or end-of-parent) into a .fw-body div appended to that block, so the
+ * forwarded header and its body share the same background surface.
+ */
+function mergeBodyIntoBlocks(html: string): string {
+  if (!html.includes("fw-blk")) return html;
+  try {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const blocks = Array.from(doc.querySelectorAll(".fw-blk"));
+    if (!blocks.length) return html;
+
+    let changed = false;
+    for (const blk of blocks) {
+      // Find the node whose *following siblings* contain the body. When fw-blk is
+      // the only meaningful child of a wrapper div (common in Outlook), the body
+      // content lives as a sibling of the wrapper — not of fw-blk itself. Bubble
+      // up through parents (while fw-blk is the last meaningful child at each
+      // level) until we find a level with actual following content or reach body.
+      // Stop at fw-blk/fw-body boundaries so nested blocks don't steal outer content.
+      let ref: ChildNode = blk;
+      while (ref.parentNode && ref.parentNode !== doc.body) {
+        const parentEl = ref.parentNode as Element;
+        if (parentEl.classList?.contains("fw-blk") || parentEl.classList?.contains("fw-body")) break;
+        let sib: ChildNode | null = ref.nextSibling;
+        let hasFollowing = false;
+        while (sib) {
+          if (sib.nodeType === Node.ELEMENT_NODE || (sib.nodeType === Node.TEXT_NODE && (sib.textContent ?? "").trim())) {
+            hasFollowing = true;
+            break;
+          }
+          sib = sib.nextSibling;
+        }
+        if (hasFollowing) break;
+        ref = ref.parentNode as unknown as ChildNode;
+      }
+
+      // Collect following siblings of `ref` up to the next fw-blk.
+      const bodyNodes: ChildNode[] = [];
+      let n: ChildNode | null = ref.nextSibling;
+      while (n) {
+        if (n.nodeType === Node.ELEMENT_NODE && (n as Element).classList.contains("fw-blk")) break;
+        bodyNodes.push(n);
+        n = n.nextSibling;
+      }
+
+      const hasContent = bodyNodes.some(
+        (nd) => nd.nodeType !== Node.TEXT_NODE || (nd.textContent ?? "").trim().length > 0,
+      );
+      if (!hasContent) continue;
+
+      const wrapper = doc.createElement("div");
+      wrapper.className = "fw-body";
+      for (const nd of bodyNodes) wrapper.appendChild(nd);
+      blk.appendChild(wrapper);
+
+      // If the block was built as fw-plain (no meta, no toggle) but now has a
+      // body, upgrade it: remove the plain marker and inject the chevron.
+      if (blk.classList.contains("fw-plain")) {
+        blk.classList.remove("fw-plain");
+        const hd = blk.querySelector(".fw-hd");
+        if (hd) hd.insertAdjacentHTML("afterbegin", CHEVRON);
+      }
+
+      changed = true;
+    }
+
+    return changed ? doc.body.innerHTML : html;
+  } catch {
+    return html;
+  }
+}
+
+/**
+ * DOM pass: converts <hr>-separated header blocks that Case 3 regex missed because
+ * Outlook nests bold keys inside <span> elements (<b><span>Key:</span></b>). Walking
+ * the DOM and calling parseHtmlHeaders (which strips all tags) handles any nesting.
+ */
+function boxHrHeaders(html: string): string {
+  if (!/<hr/i.test(html)) return html;
+  try {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const hrs = Array.from(doc.querySelectorAll("hr"));
+    if (!hrs.length) return html;
+
+    let changed = false;
+    for (const hr of hrs) {
+      // Find the next meaningful sibling (skip whitespace/br).
+      let next = nextSignificantSibling(hr);
+      if (!next || next.nodeType !== Node.ELEMENT_NODE) continue;
+      const nextEl = next as Element;
+      // Quick guard: must contain a recognisable header block.
+      if (!FW_HEADER_BLOCK_RE.test(nextEl.textContent ?? "")) continue;
+      const headers = parseHtmlHeaders(nextEl.innerHTML);
+      if (headers.length < 2 || !headers.some(([k]) => k.toLowerCase() === "from")) continue;
+
+      const holder = doc.createElement("div");
+      holder.innerHTML = buildBlock(headers, "Forwarded message");
+      const blk = holder.firstElementChild;
+      if (!blk) continue;
+      nextEl.replaceWith(blk);
+      hr.remove();
+      changed = true;
+    }
+
+    return changed ? doc.body.innerHTML : html;
+  } catch {
+    return html;
   }
 }
 
@@ -765,6 +938,12 @@ export function transformHtml(html: string): string {
     },
   );
 
+  // DOM pass: box <hr>-separated header blocks that the Case 3 regex missed because
+  // Outlook nests the bold keys inside <span> elements (<b><span>De :</span></b>),
+  // which trips the [^<]+ anchor. Walking the DOM and calling parseHtmlHeaders
+  // (which strips all tags) handles any level of nesting reliably.
+  html = boxHrHeaders(html);
+
   // DOM pass: box any Outlook border-top header dividers the regex passes missed
   // (deeply nested ones), so the formatted fw-blk appears uniformly everywhere.
   html = boxOutlookHeaders(html);
@@ -772,6 +951,10 @@ export function transformHtml(html: string): string {
   // DOM pass: box reply-attribution lines ("Il … ha scritto:") that sit as a bare text
   // node next to their quote (Apple Mail / messageReplySection), which the regex missed.
   html = boxReplyAttributions(html);
+
+  // DOM pass: absorb the content that follows each fw-blk (up to the next fw-blk)
+  // into a .fw-body div inside the block, so header + body share the same background.
+  html = mergeBodyIntoBlocks(html);
 
   // Finally, collapse the quoted citation body behind a three-dots toggle.
   // Runs last so any fw-blk attribution headers built above end up nested

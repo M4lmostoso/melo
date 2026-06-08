@@ -746,7 +746,8 @@
       "imagesHidden": "Images hidden to protect your privacy.",
       "loadImages": "Load images",
       "alwaysLoadFromSender": "Always load from sender",
-      "showQuotedText": "Show quoted text"
+      "showQuotedText": "Show quoted text",
+      "showNQuotedLines": "Show {count} quoted lines"
     }
   },
   "composer": {

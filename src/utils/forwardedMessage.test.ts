@@ -12,13 +12,14 @@ describe("transformHtml — quote collapsing", () => {
       "<blockquote>quoted body</blockquote>";
     const out = transformHtml(html);
     expect(toggles(out)).toBe(1);
-    // The attribution becomes a formatted "In reply to" box (no raw "ha scritto").
-    expect(out).toContain("In reply to");
+    // The attribution becomes a formatted fw-blk box (sender shown, no raw "ha scritto").
+    expect(out).toContain("fw-blk");
+    expect(out).toContain("Bochicchio");
     expect(out).not.toContain("ha scritto");
     // New message visible, then the toggle, then the boxed reply + quote.
     expect(at(out, "my answer")).toBeLessThan(at(out, "q-tgl"));
-    expect(at(out, "q-tgl")).toBeLessThan(at(out, "In reply to"));
-    expect(at(out, "In reply to")).toBeLessThan(at(out, "quoted body"));
+    expect(at(out, "q-tgl")).toBeLessThan(at(out, "Bochicchio"));
+    expect(at(out, "Bochicchio")).toBeLessThan(at(out, "quoted body"));
   });
 
   it("boxes an attribution + quote that has NO blockquote at all", () => {
@@ -28,9 +29,10 @@ describe("transformHtml — quote collapsing", () => {
       "<div>quoted line 1</div><div>quoted line 2</div>";
     const out = transformHtml(html);
     expect(toggles(out)).toBe(1);
-    expect(out).toContain("In reply to");
+    expect(out).toContain("fw-blk");
+    expect(out).toContain("Luigi");
     expect(at(out, "reply text")).toBeLessThan(at(out, "q-tgl"));
-    expect(at(out, "q-tgl")).toBeLessThan(at(out, "In reply to"));
+    expect(at(out, "q-tgl")).toBeLessThan(at(out, "Luigi"));
   });
 
   it("collapses a Gmail quote marker", () => {
@@ -101,9 +103,10 @@ describe("transformHtml — quote collapsing", () => {
     const out = transformHtml(html);
     expect(toggles(out)).toBe(1);
     expect(at(out, "My new reply")).toBeLessThan(at(out, "q-tgl"));
-    // The attribution is boxed ("In reply to"); box + quoted body hidden behind the toggle.
-    expect(out).toContain("In reply to");
-    expect(at(out, "q-tgl")).toBeLessThan(at(out, "In reply to"));
+    // The attribution is boxed (sender shown); box + quoted body hidden behind the toggle.
+    expect(out).toContain("fw-blk");
+    expect(out).toContain("Mirko Landenna");
+    expect(at(out, "q-tgl")).toBeLessThan(at(out, "Mirko Landenna"));
     expect(at(out, "q-tgl")).toBeLessThan(at(out, "Quoted body"));
   });
 
@@ -197,7 +200,7 @@ describe("transformHtml — quote collapsing", () => {
     expect(toggles(out)).toBe(1);
     expect(at(out, "Mirko")).toBeLessThan(at(out, "q-tgl"));
     // Both the fw-blk header AND the body must be hidden behind the single toggle
-    expect(at(out, "q-tgl")).toBeLessThan(at(out, "Forwarded message"));
+    expect(at(out, "q-tgl")).toBeLessThan(at(out, "Sylvie"));
     expect(at(out, "q-tgl")).toBeLessThan(at(out, "Bonjour"));
   });
 

@@ -746,7 +746,8 @@
       "imagesHidden": "Immagini nascoste per proteggere la tua privacy.",
       "loadImages": "Carica immagini",
       "alwaysLoadFromSender": "Carica sempre da questo mittente",
-      "showQuotedText": "Mostra testo citato"
+      "showQuotedText": "Mostra testo citato",
+      "showNQuotedLines": "Mostra {count} righe citate"
     }
   },
   "composer": {
