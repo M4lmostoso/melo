@@ -104,6 +104,7 @@ export async function respondToInvite(params: {
     accountId: account.id,
     sourceMessageId: messageId,
     uid: event.uid ?? messageId,
+    recurrenceId: event.recurrenceId ?? null,
     summary: event.summary,
     description: event.description,
     location: event.location,

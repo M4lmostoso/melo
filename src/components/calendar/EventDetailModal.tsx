@@ -8,7 +8,7 @@ import { TextField } from "@/components/ui/TextField";
 import type { DbCalendarEvent } from "@/services/db/calendarEvents";
 import type { DbCalendar } from "@/services/db/calendars";
 import { getCalendarProvider } from "@/services/calendar/providerFactory";
-import { deleteCalendarEvent as deleteCalendarEventDb } from "@/services/db/calendarEvents";
+import { deleteCalendarEvent as deleteCalendarEventDb, deleteEventsByUid } from "@/services/db/calendarEvents";
 import { getMeetingUrl, isMeetingActive } from "@/utils/meetingUrl";
 
 interface EventDetailModalProps {
@@ -28,9 +28,18 @@ export function EventDetailModal({ event, calendars, accountId, onClose, onUpdat
   const [endTime, setEndTime] = useState(toLocalISOString(new Date(event.end_time * 1000)));
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  // null = idle, 'confirm' = simple confirm (non-recurring), 'choose' = pick single vs series
+  const [deleteState, setDeleteState] = useState<null | 'confirm' | 'choose'>(null);
 
   const calendar = calendars.find((c) => c.id === event.calendar_id);
+
+  // An event is a recurring instance if its google_event_id differs from its uid.
+  // CalDAV instances use uid_startTs; Google instances use baseId_YYYYMMDD(THHMMSSZ)?.
+  const isRecurringInstance = useMemo(() => {
+    if (event.uid && event.google_event_id.startsWith(event.uid + '_')) return true;
+    if (!event.ical_data && /_\d{8}(T\d{6}Z?)?$/.test(event.google_event_id)) return true;
+    return false;
+  }, [event.uid, event.google_event_id, event.ical_data]);
 
   const meetingUrl = useMemo(() => getMeetingUrl(event), [event]);
   const nowTs = Math.floor(Date.now() / 1000);
@@ -69,13 +78,45 @@ export function EventDetailModal({ event, calendars, accountId, onClose, onUpdat
       const remoteEventId = event.remote_event_id ?? event.google_event_id;
 
       await provider.deleteEvent(calendarRemoteId, remoteEventId, event.etag ?? undefined);
-
-      // Remove from local DB
       await deleteCalendarEventDb(event.id);
 
       onUpdated();
     } catch (err) {
       console.error("Failed to delete event:", err);
+    } finally {
+      setDeleting(false);
+    }
+  }, [accountId, calendar, event, onUpdated]);
+
+  const handleDeleteSeries = useCallback(async () => {
+    setDeleting(true);
+    try {
+      const provider = await getCalendarProvider(accountId);
+      const calendarRemoteId = calendar?.remote_id ?? "primary";
+
+      // For Google Calendar: strip the instance timestamp suffix (_YYYYMMDDTHHMMSSZ / _YYYYMMDD)
+      // to obtain the master event ID, then delete the whole series.
+      // For CalDAV: the master .ics URL is not stored on instances, so skip provider delete
+      // and rely on local DB cleanup (series re-appears on next sync until server-side deletion
+      // is implemented).
+      if (!event.ical_data) {
+        const masterEventId = event.google_event_id.replace(/_\d{8}(T\d{6}Z?)?$/, "");
+        try {
+          await provider.deleteEvent(calendarRemoteId, masterEventId);
+        } catch (err) {
+          console.error("Failed to delete series on provider:", err);
+        }
+      }
+
+      if (event.uid) {
+        await deleteEventsByUid(accountId, event.uid);
+      } else {
+        await deleteCalendarEventDb(event.id);
+      }
+
+      onUpdated();
+    } catch (err) {
+      console.error("Failed to delete series:", err);
     } finally {
       setDeleting(false);
     }
@@ -98,7 +139,7 @@ export function EventDetailModal({ event, calendars, accountId, onClose, onUpdat
 
   if (editing) {
     return (
-      <Modal isOpen={true} onClose={onClose} title={t("calendar.eventEditTitle")} width="w-full max-w-md">
+      <Modal isOpen={true} onClose={onClose} title={t("calendar.eventEditTitle")} width="w-full max-w-lg">
         <div className="p-4 space-y-3">
           <TextField
             label={t("calendar.eventTitle")}
@@ -156,7 +197,7 @@ export function EventDetailModal({ event, calendars, accountId, onClose, onUpdat
   }
 
   return (
-    <Modal isOpen={true} onClose={onClose} title={event.summary ?? t("calendar.eventUnknown")} width="w-full max-w-md">
+    <Modal isOpen={true} onClose={onClose} title={event.summary ?? t("calendar.eventUnknown")} width="w-full max-w-lg">
       <div className="p-4 space-y-3">
         {calendar && (
           <div className="flex items-center gap-2 text-xs text-text-tertiary">
@@ -233,13 +274,26 @@ export function EventDetailModal({ event, calendars, accountId, onClose, onUpdat
         )}
 
         <div className="flex justify-between pt-2 border-t border-border-primary">
-          {confirmDelete ? (
+          {deleteState === 'confirm' ? (
             <div className="flex items-center gap-2">
               <span className="text-xs text-danger">{t("calendar.eventDeleteConfirm")}</span>
               <Button variant="danger" size="xs" onClick={handleDelete} disabled={deleting}>
                 {deleting ? t("common.deleting") : t("calendar.eventYesDelete")}
               </Button>
-              <Button variant="secondary" size="xs" onClick={() => setConfirmDelete(false)}>
+              <Button variant="secondary" size="xs" onClick={() => setDeleteState(null)}>
+                {t("common.cancel")}
+              </Button>
+            </div>
+          ) : deleteState === 'choose' ? (
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs text-danger">{t("calendar.deleteRecurringPrompt")}</span>
+              <Button variant="danger" size="xs" onClick={handleDelete} disabled={deleting}>
+                {deleting ? t("common.deleting") : t("calendar.deleteThisEvent")}
+              </Button>
+              <Button variant="danger" size="xs" onClick={handleDeleteSeries} disabled={deleting}>
+                {deleting ? t("common.deleting") : t("calendar.deleteEntireSeries")}
+              </Button>
+              <Button variant="secondary" size="xs" onClick={() => setDeleteState(null)}>
                 {t("common.cancel")}
               </Button>
             </div>
@@ -248,7 +302,7 @@ export function EventDetailModal({ event, calendars, accountId, onClose, onUpdat
               variant="ghost"
               size="sm"
               icon={<Trash2 size={14} />}
-              onClick={() => setConfirmDelete(true)}
+              onClick={() => setDeleteState(isRecurringInstance ? 'choose' : 'confirm')}
             >
               {t("common.delete")}
             </Button>

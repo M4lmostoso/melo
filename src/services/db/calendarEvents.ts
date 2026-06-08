@@ -90,6 +90,7 @@ export async function getCalendarEventsInRange(
   return db.select<DbCalendarEvent[]>(
     `SELECT * FROM calendar_events
      WHERE account_id = $1 AND start_time < $3 AND end_time > $2
+       AND (rsvp_status IS NULL OR rsvp_status != 'declined')
      ORDER BY start_time ASC`,
     [accountId, startTime, endTime],
   );
@@ -110,6 +111,7 @@ export async function getCalendarEventsInRangeMulti(
     `SELECT * FROM calendar_events
      WHERE account_id = $1 AND start_time < $3 AND end_time > $2
        AND (calendar_id IN (${placeholders}) OR calendar_id IS NULL)
+       AND (rsvp_status IS NULL OR rsvp_status != 'declined')
      ORDER BY start_time ASC`,
     [accountId, startTime, endTime, ...calendarIds],
   );
@@ -127,6 +129,7 @@ export async function getCalendarEventsInRangeForCalendars(
     `SELECT * FROM calendar_events
      WHERE start_time < $2 AND end_time > $1
        AND calendar_id IN (${placeholders})
+       AND (rsvp_status IS NULL OR rsvp_status != 'declined')
      ORDER BY start_time ASC`,
     [startTime, endTime, ...calendarIds],
   );
@@ -135,6 +138,14 @@ export async function getCalendarEventsInRangeForCalendars(
 export async function deleteEventsForCalendar(calendarId: string): Promise<void> {
   const db = await getDb();
   await db.execute("DELETE FROM calendar_events WHERE calendar_id = $1", [calendarId]);
+}
+
+export async function deleteEventsByUid(accountId: string, uid: string): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    "DELETE FROM calendar_events WHERE account_id = $1 AND uid = $2",
+    [accountId, uid],
+  );
 }
 
 export async function getEventByRemoteId(
@@ -174,6 +185,7 @@ export async function upsertEmailInviteEvent(event: {
   accountId: string;
   sourceMessageId: string;
   uid: string;
+  recurrenceId?: number | null;
   summary: string | null;
   description: string | null;
   location: string | null;
@@ -188,6 +200,28 @@ export async function upsertEmailInviteEvent(event: {
 }): Promise<void> {
   const db = await getDb();
   const id = crypto.randomUUID();
+  // For recurring overrides, use uid_recurrenceId so it conflicts with the CalDAV-synced
+  // slot (uid_startTs) and doesn't create a duplicate alongside the original occurrence.
+  const googleEventId = event.recurrenceId != null
+    ? `${event.uid}_${event.recurrenceId}`
+    : event.uid;
+
+  if (event.recurrenceId != null) {
+    // Remove any CalDAV-synced rows for the same occurrence slot (the original unmodified
+    // instance and any previous override), so only this email-invite version remains.
+    await db.execute(
+      `DELETE FROM calendar_events
+       WHERE account_id = $1 AND uid = $2
+         AND (google_event_id = $3 OR google_event_id = $4)
+         AND source_message_id IS NULL`,
+      [
+        event.accountId, event.uid,
+        `${event.uid}_${event.recurrenceId}`,
+        `${event.uid}_override_${event.recurrenceId}`,
+      ],
+    );
+  }
+
   await db.execute(
     `INSERT INTO calendar_events
        (id, account_id, google_event_id, summary, description, location, start_time, end_time,
@@ -200,7 +234,7 @@ export async function upsertEmailInviteEvent(event: {
        ical_data=$13, uid=$14, source_message_id=$15, rsvp_status=$16,
        updated_at=unixepoch()`,
     [
-      id, event.accountId, event.uid,
+      id, event.accountId, googleEventId,
       event.summary, event.description, event.location,
       event.startTime, event.endTime, event.isAllDay ? 1 : 0,
       event.status, event.organizerEmail, event.attendeesJson,
