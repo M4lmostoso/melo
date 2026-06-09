@@ -24,6 +24,7 @@ import { getAccount, type DbAccount } from "../db/accounts";
 import { findSpecialFolder } from "../imap/messageHelper";
 import { ensureFreshToken } from "../oauth/oauthTokenManager";
 import { upsertMessage, getMessagesForThread } from "../db/messages";
+import { upsertAttachment } from "../db/attachments";
 import { getDb } from "../db/connection";
 import {
   upsertThread,
@@ -171,6 +172,93 @@ function extractHtmlBody(raw: string): string | null {
   return null;
 }
 
+interface RawMimeAttachment {
+  partId: string;
+  filename: string;
+  mimeType: string;
+  size: number;
+  contentId: string | null;
+  isInline: boolean;
+}
+
+/**
+ * Walk the MIME tree of a raw RFC 2822 message and collect all attachment parts
+ * with their IMAP-compatible part IDs (e.g. "2", "3", "1.2").
+ */
+function walkMimePart(
+  raw: string,
+  partPrefix: string,
+  results: RawMimeAttachment[],
+): void {
+  const sepIdx = raw.indexOf("\r\n\r\n");
+  if (sepIdx === -1) return;
+
+  const headerSection = raw.slice(0, sepIdx);
+  const body = raw.slice(sepIdx + 4);
+
+  const ctLine = headerSection.match(/^content-type:\s*([^\r\n]+(?:\r\n[ \t][^\r\n]+)*)/im)?.[1] ?? "";
+  const ctLow = ctLine.toLowerCase().trimStart();
+
+  if (ctLow.startsWith("multipart/")) {
+    const boundaryMatch = ctLine.match(/boundary="([^"]+)"|boundary=([^\s;]+)/i);
+    if (!boundaryMatch) return;
+    const boundary = (boundaryMatch[1] ?? boundaryMatch[2])!;
+    const delimiter = `\r\n--${boundary}`;
+
+    // Find the first part boundary
+    let pos = body.indexOf(`--${boundary}`);
+    if (pos === -1) return;
+    pos += `--${boundary}`.length;
+    // Skip CRLF after boundary
+    if (body.startsWith("\r\n", pos)) pos += 2;
+
+    let idx = 1;
+    while (true) {
+      const nextDelim = body.indexOf(delimiter, pos);
+      if (nextDelim === -1) break;
+      const partRaw = body.slice(pos, nextDelim);
+      const subId = partPrefix ? `${partPrefix}.${idx}` : `${idx}`;
+      walkMimePart(partRaw, subId, results);
+      idx++;
+      pos = nextDelim + delimiter.length;
+      if (body.startsWith("--", pos)) break; // closing --boundary--
+      if (body.startsWith("\r\n", pos)) pos += 2;
+    }
+  } else {
+    // Leaf part — check if it's an attachment
+    const cdLine = headerSection.match(/^content-disposition:\s*([^\r\n]+(?:\r\n[ \t][^\r\n]+)*)/im)?.[1] ?? "";
+    const filenameFromCD =
+      cdLine.match(/filename\*?="?([^";\r\n]+)"?/i)?.[1]?.trim() ?? null;
+    const filenameFromCT =
+      ctLine.match(/name\*?="?([^";\r\n]+)"?/i)?.[1]?.trim() ?? null;
+    const filename = filenameFromCD ?? filenameFromCT;
+    const cidRaw = headerSection.match(/^content-id:\s*<([^>]+)>/im)?.[1] ?? null;
+    const isInline = cdLine.toLowerCase().trimStart().startsWith("inline");
+    const isAttachment = cdLine.toLowerCase().trimStart().startsWith("attachment") || filename;
+
+    if (isAttachment) {
+      const mimeType = (ctLow.split(";")[0] ?? "application/octet-stream").trim();
+      // Estimate decoded byte size from base64-encoded body length
+      const encodedLen = body.replace(/[\r\n]/g, "").length;
+      const size = Math.floor(encodedLen * 0.75);
+      results.push({
+        partId: partPrefix || "1",
+        filename: filename ?? "attachment",
+        mimeType,
+        size,
+        contentId: cidRaw,
+        isInline: isInline && !filename,
+      });
+    }
+  }
+}
+
+function extractRawMimeAttachments(raw: string): RawMimeAttachment[] {
+  const results: RawMimeAttachment[] = [];
+  walkMimePart(raw, "", results);
+  return results;
+}
+
 /**
  * EmailProvider adapter for IMAP/SMTP accounts.
  * Delegates to Tauri IMAP/SMTP commands via the imapSync engine.
@@ -297,7 +385,15 @@ export class ImapSmtpProvider implements EmailProvider {
   // ---- Message operations ----
 
   async fetchMessage(messageId: string): Promise<ParsedMessage> {
-    const { folder, uid } = this.parseImapMessageId(messageId);
+    // Prefer imap_folder/imap_uid from DB — the UID encoded in the message ID may
+    // differ from the real server UID when APPENDUID returned an incorrect value.
+    const dbRows = await (await getDb()).select<{ imap_folder: string | null; imap_uid: number | null }[]>(
+      "SELECT imap_folder, imap_uid FROM messages WHERE id = $1 AND account_id = $2 LIMIT 1",
+      [messageId, this.accountId],
+    );
+    const { folder: parsedFolder, uid: parsedUid } = this.parseImapMessageId(messageId);
+    const folder = dbRows[0]?.imap_folder ?? parsedFolder;
+    const uid = dbRows[0]?.imap_uid ?? parsedUid;
 
     if (uid === null || !folder) {
       throw new Error(`Invalid IMAP message ID format: ${messageId}`);
@@ -761,6 +857,9 @@ export class ImapSmtpProvider implements EmailProvider {
     // For new compositions, create a new thread.
     const effectiveThreadId = threadId ?? messageId;
 
+    const rawAttachments = extractRawMimeAttachments(raw);
+    const hasAttachments = rawAttachments.some((a) => !a.isInline);
+
     if (!threadId) {
       // New thread: create thread record + SENT label
       await upsertThread({
@@ -773,7 +872,7 @@ export class ImapSmtpProvider implements EmailProvider {
         isRead: true,
         isStarred: false,
         isImportant: false,
-        hasAttachments: false,
+        hasAttachments,
       });
       await setThreadLabels(this.accountId, effectiveThreadId, ["SENT"]);
     }
@@ -810,6 +909,23 @@ export class ImapSmtpProvider implements EmailProvider {
       imapUid: imapUid ?? null,
       imapFolder: imapFolder ?? null,
     });
+
+    // Store attachment metadata so they appear immediately without waiting for delta sync.
+    // imap_part_id is derived from the MIME structure and matches what the IMAP server returns.
+    for (const att of rawAttachments) {
+      await upsertAttachment({
+        id: `${messageId}_${att.partId}`,
+        messageId,
+        accountId: this.accountId,
+        filename: att.filename,
+        mimeType: att.mimeType,
+        size: att.size,
+        gmailAttachmentId: null,
+        imapPartId: att.partId,
+        contentId: att.contentId,
+        isInline: att.isInline,
+      });
+    }
 
     // upsertMessage ON CONFLICT does not update thread_id. If the background IMAP sync
     // stored the row first with a placeholder thread_id, force the correct assignment.

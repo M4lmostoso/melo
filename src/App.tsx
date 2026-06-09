@@ -25,6 +25,7 @@ import {
   startIdleForAccounts,
   stopAllIdle,
 } from "./services/imap/imapIdleManager";
+import { repairSentAttachments, repairSentAttachmentsV3 } from "./services/imap/imapSync";
 import {
   startSnoozeChecker,
   stopSnoozeChecker,
@@ -685,6 +686,17 @@ export default function App() {
             console.warn("[imapIdle] startup failed:", e),
           );
         }
+
+        // One-time repair: re-fetch Sent messages stored without attachment metadata.
+        const imapAccountIds = mapped
+          .filter((a) => a.isActive && a.provider === "imap")
+          .map((a) => a.id);
+        repairSentAttachments(imapAccountIds).catch((e) =>
+          console.warn("[repair] sentAttachments failed:", e),
+        );
+        repairSentAttachmentsV3(imapAccountIds).catch((e) =>
+          console.warn("[repair-v3] sentAttachments failed:", e),
+        );
 
         // If the date-repair ran this startup, force an immediate re-sync of the
         // affected accounts so re-fetched messages appear without waiting 60s.

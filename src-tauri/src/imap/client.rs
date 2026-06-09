@@ -1050,6 +1050,122 @@ where
     Ok(())
 }
 
+/// Fetch a single MIME part by section via RAW TCP and return it base64-encoded.
+///
+/// Used for the attachment *preview* path. The async-imap based `fetch_attachment`
+/// hangs on DavMail (Exchange/EWS → IMAP) because its response parser loops on
+/// DavMail's `BODY[part]` framing. The raw-TCP path parses the literal manually
+/// and is immune — it is the same mechanism the download-to-file path uses.
+pub async fn raw_fetch_attachment_base64(
+    config: &ImapConfig,
+    folder: &str,
+    uid: u32,
+    part_id: &str,
+) -> Result<String, String> {
+    log::debug!("[raw_fetch_attachment_base64] folder={folder} uid={uid} part={part_id}");
+
+    let stream = if config.security == "starttls" {
+        raw_connect_starttls(config).await?
+    } else {
+        connect_stream(config).await?
+    };
+    let mut reader = BufReader::new(stream);
+
+    if config.security != "starttls" {
+        let mut line = String::new();
+        reader.read_line(&mut line).await.map_err(|e| format!("greeting: {e}"))?;
+    }
+
+    let login_cmd = if config.auth_method == "oauth2" {
+        let xoauth2 = format!("user={}\x01auth=Bearer {}\x01\x01", config.username, config.password);
+        let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, xoauth2.as_bytes());
+        format!("a1 AUTHENTICATE XOAUTH2 {b64}\r\n")
+    } else {
+        let esc_user = config.username.replace('\\', "\\\\").replace('"', "\\\"");
+        let esc_pass = config.password.replace('\\', "\\\\").replace('"', "\\\"");
+        format!("a1 LOGIN \"{esc_user}\" \"{esc_pass}\"\r\n")
+    };
+    raw_send_and_wait(&mut reader, login_cmd.as_bytes(), "a1").await?;
+
+    let select_cmd = format!("a2 SELECT \"{folder}\"\r\n");
+    raw_send_and_wait(&mut reader, select_cmd.as_bytes(), "a2").await?;
+
+    let fetch_cmd = format!("a3 UID FETCH {uid} BODY.PEEK[{part_id}]\r\n");
+    reader.get_mut().write_all(fetch_cmd.as_bytes()).await
+        .map_err(|e| format!("FETCH write: {e}"))?;
+
+    let literal_size = loop {
+        let mut line = String::new();
+        match tokio::time::timeout(IMAP_FETCH_TIMEOUT, reader.read_line(&mut line)).await {
+            Ok(Ok(0)) => return Err("connection closed during FETCH".to_string()),
+            Ok(Ok(_)) => {
+                if line.starts_with("a3 NO") || line.starts_with("a3 BAD") {
+                    return Err(format!("server rejected FETCH: {}", line.trim()));
+                }
+                if line.starts_with("a3 OK") {
+                    return Err(format!("part {part_id} returned no data for UID {uid}"));
+                }
+                if line.starts_with("* ") && line.contains("FETCH") {
+                    match extract_literal_size(&line) {
+                        Some(size) => break size,
+                        None => return Err(format!("part {part_id} not present in UID {uid}")),
+                    }
+                }
+            }
+            Ok(Err(e)) => return Err(format!("FETCH read: {e}")),
+            Err(_) => return Err(format!(
+                "FETCH header timed out after {}s — the server is taking too long to prepare this attachment",
+                IMAP_FETCH_TIMEOUT.as_secs()
+            )),
+        }
+    };
+
+    let mut buf: Vec<u8> = Vec::with_capacity(literal_size);
+    let mut chunk = vec![0u8; 64 * 1024];
+    let mut remaining = literal_size;
+    while remaining > 0 {
+        let want = remaining.min(chunk.len());
+        let n = tokio::time::timeout(IMAP_FETCH_TIMEOUT, reader.read(&mut chunk[..want]))
+            .await
+            .map_err(|_| format!(
+                "attachment fetch stalled (no data for {}s) — check your network connection",
+                IMAP_FETCH_TIMEOUT.as_secs()
+            ))?
+            .map_err(|e| format!("attachment read: {e}"))?;
+        if n == 0 {
+            return Err("connection closed mid-attachment".to_string());
+        }
+        buf.extend_from_slice(&chunk[..n]);
+        remaining -= n;
+    }
+
+    let mut tail = String::new();
+    let _ = tokio::time::timeout(IMAP_CMD_TIMEOUT, reader.read_line(&mut tail)).await;
+    let mut tagline = String::new();
+    let _ = tokio::time::timeout(IMAP_CMD_TIMEOUT, reader.read_line(&mut tagline)).await;
+    let _ = reader.get_mut().write_all(b"a4 LOGOUT\r\n").await;
+
+    // The literal is the Content-Transfer-Encoded part body. For base64 parts it is
+    // already base64 text (with MIME line breaks) — strip whitespace and return as-is.
+    // For 8bit/binary CTE, re-encode the raw bytes to standard base64.
+    let base64_str = match std::str::from_utf8(&buf) {
+        Ok(s) => {
+            let stripped: String = s.split_whitespace().collect();
+            // Validate it's real base64; if not, re-encode the raw bytes.
+            if !stripped.is_empty()
+                && base64::engine::general_purpose::STANDARD.decode(stripped.as_bytes()).is_ok()
+            {
+                stripped
+            } else {
+                base64::engine::general_purpose::STANDARD.encode(&buf)
+            }
+        }
+        Err(_) => base64::engine::general_purpose::STANDARD.encode(&buf),
+    };
+
+    Ok(base64_str)
+}
+
 /// Fetch the raw RFC822 source of a single message by UID.
 /// Returns the full message as a UTF-8 string (lossy conversion for non-UTF-8 bytes).
 pub async fn fetch_raw_message(
@@ -2171,9 +2287,44 @@ fn parse_message(
         message.attachments,
     );
 
+    // Collect attachment indices from mail-parser's built-in list first.
+    // Then do a fallback scan of ALL leaf parts in the section_map: any leaf
+    // that is not text/plain or text/html (the body parts) and not already in
+    // the attachment set counts as an attachment.  This catches cases where
+    // mail-parser's heuristic misses a part—most commonly a PDF nested inside
+    // a multipart/mixed that has an additional multipart/related child.
+    let mut att_indices: Vec<usize> = message.attachments.clone();
+    {
+        // Body-part types to skip in the fallback (they are never attachments).
+        let body_types = ["text/plain", "text/html"];
+        let known: std::collections::HashSet<usize> = att_indices.iter().copied().collect();
+        for (&part_idx, _section) in &section_map {
+            if known.contains(&part_idx) {
+                continue;
+            }
+            let Some(part) = message.parts.get(part_idx) else { continue };
+            let mime = part
+                .content_type()
+                .map(|ct| {
+                    format!(
+                        "{}/{}",
+                        ct.ctype(),
+                        ct.subtype().unwrap_or("octet-stream")
+                    )
+                })
+                .unwrap_or_else(|| "application/octet-stream".to_string());
+            if body_types.contains(&mime.as_str()) {
+                continue;
+            }
+            log::debug!(
+                "IMAP UID {uid}: fallback attachment found at part index {part_idx} mime={mime}",
+            );
+            att_indices.push(part_idx);
+        }
+    }
+
     // Attachments
-    let attachments: Vec<ImapAttachment> = message
-        .attachments
+    let attachments: Vec<ImapAttachment> = att_indices
         .iter()
         .filter_map(|&part_idx| {
             let att = message.parts.get(part_idx)?;

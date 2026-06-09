@@ -19,6 +19,14 @@ import { t } from "@/i18n";
 // Module-level semaphore — caps concurrent Gmail CID fetches.
 // IMAP CIDs use the single-command batch resolver and don't need this.
 // ---------------------------------------------------------------------------
+
+/**
+ * Tracks IMAP message IDs that we've checked on-demand this session and confirmed
+ * have no attachments on the server. Prevents re-fetching on every component mount
+ * for messages that truly have no attachments.
+ */
+const _imapNoAttachmentConfirmed = new Set<string>();
+
 let _imapFetchActive = 0;
 const _imapFetchWaiters: Array<() => void> = [];
 const IMAP_FETCH_LIMIT = 6;
@@ -196,8 +204,58 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
     attachmentsLoadedRef.current = true;
     try {
       const atts = await getAttachmentsForMessage(message.account_id, message.id);
-      setAttachments(atts);
-      resolveCidImages(atts);
+      if (atts.length > 0) {
+        setAttachments(atts);
+        resolveCidImages(atts);
+        return;
+      }
+
+      // No attachment rows in DB. If this is an IMAP message (has imap_uid),
+      // the message may have been stored before the fix that populates attachment
+      // metadata locally. Do a one-time on-demand fetch from the IMAP server to
+      // get the real attachment list, persist it to DB, and update the UI.
+      if (
+        message.imap_uid != null &&
+        message.imap_folder != null &&
+        !_imapNoAttachmentConfirmed.has(message.id)
+      ) {
+        try {
+          await _acquireImapSlot();
+          let parsed;
+          try {
+            const { getEmailProvider } = await import("@/services/email/providerFactory");
+            const provider = await getEmailProvider(message.account_id);
+            parsed = await provider.fetchMessage(message.id);
+          } finally {
+            _releaseImapSlot();
+          }
+
+          if (parsed.attachments.length > 0) {
+            const { upsertAttachment } = await import("@/services/db/attachments");
+            for (const att of parsed.attachments) {
+              await upsertAttachment({
+                id: `${message.id}_${att.gmailAttachmentId}`,
+                messageId: message.id,
+                accountId: message.account_id,
+                filename: att.filename,
+                mimeType: att.mimeType,
+                size: att.size,
+                gmailAttachmentId: null,
+                imapPartId: att.gmailAttachmentId,
+                contentId: att.contentId,
+                isInline: att.isInline,
+              });
+            }
+            const fresh = await getAttachmentsForMessage(message.account_id, message.id);
+            setAttachments(fresh);
+            resolveCidImages(fresh);
+          } else {
+            _imapNoAttachmentConfirmed.add(message.id);
+          }
+        } catch {
+          // Non-critical — show no attachments if fetch fails
+        }
+      }
     } catch {
       // Non-critical — just show no attachments
     }
@@ -329,7 +387,7 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
               </div>
             </div>
             <div className={`flex items-center gap-1.5 shrink-0 ml-2 ${hasActions ? "group-hover:invisible" : ""}`}>
-              {!expanded && !!message.has_attachments && (
+              {!!message.has_attachments && (
                 <span className="text-text-tertiary" title={t("threadCard.hasAttachments")}>
                   <Paperclip size={12} />
                 </span>

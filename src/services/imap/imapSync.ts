@@ -61,6 +61,7 @@ const MAINTENANCE_EVERY_N_CYCLES = 10;
 /** Per-account delta sync cycle counters for throttling maintenance work. */
 const _deltaSyncCycleCount = new Map<string, number>();
 
+
 // ---------------------------------------------------------------------------
 // Circuit breaker
 // ---------------------------------------------------------------------------
@@ -1607,6 +1608,174 @@ async function reconcileFragmentedThreads(accountId: string): Promise<number> {
   await imapStoreThreads(accountId, updates, [...allOldThreadIds]);
 
   return changedGroups.length;
+}
+
+/**
+ * One-time startup repair: re-fetches IMAP Sent messages that have an imap_uid but
+ * no rows in the attachments table. These were stored by saveSentMessageLocally()
+ * before the fix that populates attachment metadata immediately on send.
+ *
+ * Targets messages whose imap_folder looks like a Sent folder (case-insensitive
+ * "sent" match) — covers "Sent", "Sent Items", "Sent Messages", "Posta Inviata", etc.
+ * Does NOT rely on thread_labels because sent replies are threaded under INBOX.
+ *
+ * Completion is tracked by the DB setting 'sent_attachment_repair_v2'.
+ */
+export async function repairSentAttachments(imapAccountIds: string[]): Promise<void> {
+  const { getSetting, setSetting } = await import('../db/settings');
+  const already = await getSetting('sent_attachment_repair_v2');
+  if (already === '1') return;
+
+  // Mark done immediately so concurrent calls and restarts don't double-run.
+  await setSetting('sent_attachment_repair_v2', '1');
+
+  if (imapAccountIds.length === 0) return;
+
+  const { getDb } = await import('../db/connection');
+  const db = await getDb();
+
+  const placeholders = imapAccountIds.map((_, i) => `$${i + 1}`).join(', ');
+  const rows = await db.select<{ account_id: string; imap_folder: string; imap_uid: number }[]>(
+    `SELECT m.account_id, m.imap_folder, m.imap_uid
+     FROM messages m
+     WHERE m.account_id IN (${placeholders})
+       AND m.imap_uid IS NOT NULL
+       AND m.imap_folder IS NOT NULL
+       AND LOWER(m.imap_folder) LIKE '%sent%'
+       AND NOT EXISTS (
+         SELECT 1 FROM attachments a WHERE a.message_id = m.id
+       )`,
+    imapAccountIds,
+  );
+
+  if (rows.length === 0) return;
+
+  console.log(`[repair] sentAttachments: found ${rows.length} message(s) to re-fetch`);
+
+  // Group by account + folder to minimise IMAP connections.
+  const groups = new Map<string, { accountId: string; folder: string; uids: number[] }>();
+  for (const row of rows) {
+    const key = `${row.account_id}:${row.imap_folder}`;
+    if (!groups.has(key)) {
+      groups.set(key, { accountId: row.account_id, folder: row.imap_folder, uids: [] });
+    }
+    groups.get(key)!.uids.push(row.imap_uid);
+  }
+
+  for (const { accountId, folder, uids } of groups.values()) {
+    try {
+      const account = await getAccount(accountId);
+      if (!account) continue;
+      const config = buildImapConfig(account);
+      const folderMapping = mapFolderToLabel({
+        path: folder, raw_path: folder, name: folder,
+        delimiter: '/', special_use: null, exists: 0, unseen: 0,
+        parent_path: null, has_children: false,
+      });
+      await fetchAllInBatches(config, accountId, folder, folderMapping.labelId, uids, 0);
+      console.log(
+        `[repair] sentAttachments: re-fetched ${uids.length} message(s) in ${folder} for account ${accountId}`,
+      );
+    } catch (err) {
+      console.warn(`[repair] sentAttachments: failed for account ${accountId}:`, err);
+    }
+  }
+
+  window.dispatchEvent(new Event('melo-sync-done'));
+}
+
+/**
+ * v3: repair sent messages that still have no attachment rows after v2.
+ * Uses the TypeScript IMAP fetch path (imapFetchMessageBody → upsertAttachment)
+ * instead of the Rust imap_fetch_and_store path, which has a deduplication bug
+ * that discards attachment rows when the message ID suffix doesn't match the
+ * real server UID (common for APPENDUID-mismatch messages).
+ *
+ * Tracked by 'sent_attachment_repair_v3'.
+ */
+export async function repairSentAttachmentsV3(imapAccountIds: string[]): Promise<void> {
+  const { getSetting: get, setSetting: set } = await import('../db/settings');
+  const already = await get('sent_attachment_repair_v3');
+  if (already === '1') return;
+
+  // Do NOT mark done yet — only mark after the loop completes so a failed run
+  // retries on the next startup rather than silently giving up forever.
+
+  if (imapAccountIds.length === 0) {
+    await set('sent_attachment_repair_v3', '1');
+    return;
+  }
+
+  const { getDb } = await import('../db/connection');
+  const db = await getDb();
+
+  const placeholders = imapAccountIds.map((_, i) => `$${i + 1}`).join(', ');
+  const rows = await db.select<{ id: string; account_id: string; imap_folder: string; imap_uid: number }[]>(
+    `SELECT m.id, m.account_id, m.imap_folder, m.imap_uid
+     FROM messages m
+     WHERE m.account_id IN (${placeholders})
+       AND m.imap_uid IS NOT NULL
+       AND m.imap_folder IS NOT NULL
+       AND LOWER(m.imap_folder) LIKE '%sent%'
+       AND NOT EXISTS (SELECT 1 FROM attachments a WHERE a.message_id = m.id)
+     LIMIT 30`,
+    imapAccountIds,
+  );
+
+  if (rows.length === 0) {
+    await set('sent_attachment_repair_v3', '1');
+    return;
+  }
+
+  console.log(`[repair-v3] found ${rows.length} sent message(s) with missing attachment rows`);
+
+  const { imapFetchMessageBody } = await import('./tauriCommands');
+  const { upsertAttachment } = await import('../db/attachments');
+
+  // Build config once per account
+  const configCache = new Map<string, ReturnType<typeof buildImapConfig>>();
+  let anyFixed = false;
+
+  for (const row of rows) {
+    try {
+      let config = configCache.get(row.account_id);
+      if (!config) {
+        const account = await getAccount(row.account_id);
+        if (!account) continue;
+        config = buildImapConfig(account);
+        configCache.set(row.account_id, config);
+      }
+
+      const imapMsg = await imapFetchMessageBody(config, row.imap_folder, row.imap_uid);
+      if (imapMsg.attachments.length === 0) continue;
+
+      for (const att of imapMsg.attachments) {
+        await upsertAttachment({
+          id: `${row.id}_${att.part_id}`,
+          messageId: row.id,
+          accountId: row.account_id,
+          filename: att.filename,
+          mimeType: att.mime_type,
+          size: att.size,
+          gmailAttachmentId: null,
+          imapPartId: att.part_id,
+          contentId: att.content_id,
+          isInline: att.is_inline,
+        });
+      }
+      anyFixed = true;
+      console.log(`[repair-v3] stored ${imapMsg.attachments.length} attachment(s) for ${row.id}`);
+    } catch (err) {
+      console.warn(`[repair-v3] failed for ${row.id}:`, err);
+    }
+  }
+
+  // Mark done only after the loop — retries on next startup if we never got here.
+  await set('sent_attachment_repair_v3', '1');
+
+  if (anyFixed) {
+    window.dispatchEvent(new Event('melo-sync-done'));
+  }
 }
 
 /** Accumulate cross-folder label data from a batch of headers. */

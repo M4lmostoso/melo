@@ -299,17 +299,17 @@ pub async fn imap_fetch_attachment(
 ) -> Result<String, String> {
     log::debug!("[imap_fetch_attachment: folder={folder} uid={uid} part={part_id}");
     let t0 = std::time::Instant::now();
-    let (mut session, key) = pool.acquire(&config).await?;
-    log::debug!("[CID-DBG] pool.acquire in {}ms key={key}", t0.elapsed().as_millis());
-
-    match imap_client::fetch_attachment(&mut session, &folder, uid, &part_id).await {
+    // Use the RAW-TCP path (not the pooled async-imap session): async-imap's
+    // response parser loops forever on DavMail's BODY[part] framing (32 GB RSS).
+    // The raw path parses the literal manually and is immune — same mechanism the
+    // download-to-file path uses. `pool` is intentionally unused here now.
+    let _ = &pool;
+    match imap_client::raw_fetch_attachment_base64(&config, &folder, uid, &part_id).await {
         Ok(data) => {
             log::debug!("[CID-DBG] fetch OK in {}ms uid={uid} part={part_id}", t0.elapsed().as_millis());
-            pool.release(key, session).await;
             Ok(data)
         }
         Err(e) => {
-            // Don't return session on error — it may be in a broken state.
             log::warn!("[CID-DBG] fetch failed in {}ms uid={uid} part={part_id}: {e}", t0.elapsed().as_millis());
             Err(e)
         }
