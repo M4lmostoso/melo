@@ -11,7 +11,7 @@ import { getSetting, deleteSetting } from "./services/db/settings";
 import { initializeClients } from "./services/gmail/tokenManager";
 import { getThemeById, COLOR_THEMES } from "./constants/themes";
 import type { ColorThemeId } from "./constants/themes";
-import type { ComposerMode } from "./stores/composerStore";
+import type { ComposerMode, ComposerAttachment } from "./stores/composerStore";
 import { getIsDiscarding } from "./services/composer/draftAutoSave";
 
 export default function ComposerWindow() {
@@ -119,9 +119,10 @@ export default function ComposerWindow() {
          const fromEmail = params.get("fromEmail");
          const accountId = params.get("accountId");
 
-         // quotedHtml/bodyHtml are passed via SQLite (too large for URL, localStorage not shared across windows)
+         // quotedHtml/bodyHtml/attachments are passed via SQLite (too large for URL, localStorage not shared across windows)
          let quotedHtml = "";
          let bodyHtml = "";
+         let attachments: ComposerAttachment[] = [];
          if (windowLabel) {
            const payloadKey = `__composer_payload_${windowLabel}`;
            const raw = await getSetting(payloadKey);
@@ -130,6 +131,7 @@ export default function ComposerWindow() {
                const payload = JSON.parse(raw);
                if (payload.quotedHtml) quotedHtml = payload.quotedHtml;
                if (payload.bodyHtml) bodyHtml = payload.bodyHtml;
+               if (Array.isArray(payload.attachments)) attachments = payload.attachments;
              } catch { /* ignore */ }
              await deleteSetting(payloadKey);
            }
@@ -148,7 +150,7 @@ export default function ComposerWindow() {
         const resolvedAccountId = accountId ?? savedAccountId ?? undefined;
         const forwardSourceMessageId = params.get("forwardSourceMessageId") ?? undefined;
 
-        const opts = { mode, to, cc, bcc, subject, bodyHtml, quotedHtml, threadId, inReplyToMessageId, references, draftId, accountId: resolvedAccountId, forwardSourceMessageId };
+        const opts = { mode, to, cc, bcc, subject, bodyHtml, quotedHtml, threadId, inReplyToMessageId, references, draftId, accountId: resolvedAccountId, forwardSourceMessageId, attachments };
 
         // Open composer with parsed state
         useComposerStore.getState().openComposer(opts);

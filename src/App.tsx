@@ -12,6 +12,7 @@ import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { runMigrations, repairMojibakeData, repairHasAttachmentsFlags } from "./services/db/migrations";
 import { getAllAccounts } from "./services/db/accounts";
 import { getSetting, deleteSetting } from "./services/db/settings";
+import { enqueuePendingOperation, updateOperationStatus } from "./services/db/pendingOperations";
 import { setLocale } from "./i18n";
 import {
   startBackgroundSync,
@@ -320,24 +321,63 @@ export default function App() {
           subject: string;
           bodyHtml: string;
           inReplyToMessageId: string | null;
+          preTombstonedDraftId: string | null;
         };
+
+        // Track the in-flight send in *this* (persistent) window's Outgoing store so the
+        // message shows in Outgoing for the whole real SMTP+APPEND round trip — not just
+        // during the composer's 5s undo window. The composer lives in a separate WebviewWindow
+        // whose store never reaches this sidebar, so without this Outgoing would never appear
+        // for a normal send. Removed in the finally block once the send truly completes
+        // (→ message moves to Sent) or fails permanently. Queued/offline sends are covered
+        // separately by the pending_operations DB count.
+        useOutgoingStore.getState().addEmail({
+          id: p.outgoingId,
+          accountId: p.accountId,
+          to: p.to,
+          cc: p.cc,
+          bcc: p.bcc,
+          subject: p.subject,
+          bodyHtml: p.bodyHtml,
+          threadId: p.threadId,
+          inReplyToMessageId: p.inReplyToMessageId,
+          raw: p.raw,
+          status: "sending",
+          createdAt: Date.now(),
+          timerId: null,
+        });
 
         try {
           const sendResult = await sendEmail(p.accountId, p.raw, p.threadId ?? undefined);
 
           if (!sendResult.success) {
-            // Permanent send failure — notify the user
+            // Permanent send failure. The draft was already tombstoned in the Composer, so
+            // instead of discarding the message (data loss) we persist it in Outgoing as a
+            // FAILED sendMessage operation. The OutgoingQueueView then offers Retry / Edit /
+            // Cancel, so the mail stays recoverable until the user resolves it.
             void playSound("send_error");
+            try {
+              const opId = await enqueuePendingOperation(
+                p.accountId,
+                "sendMessage",
+                p.threadId ?? crypto.randomUUID(),
+                { rawBase64Url: p.raw, threadId: p.threadId ?? undefined },
+              );
+              await updateOperationStatus(opId, "failed", sendResult.error ?? undefined);
+            } catch (e) {
+              console.error("[App] Failed to persist failed send to Outgoing:", e);
+            }
+            window.dispatchEvent(new Event("melo-sync-done"));
             import("@tauri-apps/plugin-notification").then(({ sendNotification }) => {
               sendNotification({
                 title: "Send failed",
                 body: sendResult.error
-                  ? `Could not send email: ${sendResult.error}`
-                  : "Could not send email. Please check your SMTP settings.",
+                  ? `Could not send email: ${sendResult.error}. It's kept in Outgoing.`
+                  : "Could not send email. It's kept in Outgoing — check your SMTP settings.",
               });
             }).catch(() => {});
-            // Draft is already gone (tombstoned in Composer) so we can't recover it.
-            // Skip the rest of the cleanup to avoid deleting unrelated data.
+            // Skip the post-send draft cleanup below: the message lives in Outgoing now and
+            // there is no successful send to reconcile.
             return;
           }
 
@@ -395,6 +435,18 @@ export default function App() {
                 );
               }
             }
+          }
+          // If the 18s server-draft APPEND landed during the send hand-off, saveServer()
+          // saw isDiscarding=true and pre-tombstoned the new UID (local row + re-import
+          // suppressed) but never EXPUNGEd it from the server Drafts folder — so it would
+          // linger there ("stuck in Drafts"). The composer window can't be trusted to finish
+          // that network round trip, so the EXPUNGE is handed to this persistent window.
+          if (p.preTombstonedDraftId) {
+            await deleteDraftAction(
+              p.accountId,
+              p.preTombstonedDraftId,
+              p.threadId ?? undefined,
+            ).catch(() => {});
           }
           // Remove the SQLite persistence key so the composer doesn't restore a stale
           // draft on the next open. The key encodes threadId (for replies) or "new".

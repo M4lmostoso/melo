@@ -2,10 +2,11 @@ import {
   getPendingScheduledEmails,
   updateScheduledEmailStatus,
 } from "../db/scheduledEmails";
-import { getEmailProvider } from "../email/providerFactory";
 import { buildRawEmail, type EmailAttachment } from "@/utils/emailBuilder";
 import { getAccount } from "../db/accounts";
 import { createBackgroundChecker } from "../backgroundCheckers";
+import { sendEmail } from "../emailActions";
+import { useOutgoingStore } from "@/stores/outgoingStore";
 
 /**
  * Check for scheduled emails that are ready to be sent.
@@ -24,8 +25,6 @@ async function checkScheduledEmails(): Promise<void> {
       // Mark as "sending" BEFORE attempting send to prevent duplicate sends
       await updateScheduledEmailStatus(email.id, "sending");
 
-      const provider = await getEmailProvider(email.account_id);
-
       // Parse attachments from JSON if present
       let attachments: EmailAttachment[] | undefined;
       if (email.attachment_paths) {
@@ -36,23 +35,57 @@ async function checkScheduledEmails(): Promise<void> {
         }
       }
 
+      const toList = email.to_addresses.split(",").map((a) => a.trim());
+      const ccList = email.cc_addresses
+        ? email.cc_addresses.split(",").map((a) => a.trim())
+        : [];
+      const bccList = email.bcc_addresses
+        ? email.bcc_addresses.split(",").map((a) => a.trim())
+        : [];
+
       const raw = buildRawEmail({
         from: account.email,
-        to: email.to_addresses.split(",").map((a) => a.trim()),
-        cc: email.cc_addresses
-          ? email.cc_addresses.split(",").map((a) => a.trim())
-          : undefined,
-        bcc: email.bcc_addresses
-          ? email.bcc_addresses.split(",").map((a) => a.trim())
-          : undefined,
+        to: toList,
+        cc: ccList.length > 0 ? ccList : undefined,
+        bcc: bccList.length > 0 ? bccList : undefined,
         subject: email.subject ?? "",
         htmlBody: email.body_html,
         threadId: email.thread_id ?? undefined,
         attachments,
       });
 
-      await provider.sendMessage(raw, email.thread_id ?? undefined);
-      await updateScheduledEmailStatus(email.id, "sent");
+      // Surface the scheduled email in Outgoing only now, at fire time — it stays there
+      // for the few seconds of the real SMTP+APPEND, then disappears (→ Sent). Routing
+      // through sendEmail (not provider.sendMessage directly) means that if we're offline
+      // the send is queued to pending_operations, so it remains visible in Outgoing and
+      // is retried automatically instead of vanishing.
+      const outgoingId = `scheduled-${email.id}`;
+      useOutgoingStore.getState().addEmail({
+        id: outgoingId,
+        accountId: email.account_id,
+        to: toList,
+        cc: ccList,
+        bcc: bccList,
+        subject: email.subject ?? "",
+        bodyHtml: email.body_html,
+        threadId: email.thread_id ?? null,
+        inReplyToMessageId: null,
+        raw,
+        status: "sending",
+        createdAt: Date.now(),
+        timerId: null,
+      });
+
+      try {
+        const result = await sendEmail(email.account_id, raw, email.thread_id ?? undefined);
+        if (!result.success) {
+          throw new Error(result.error ?? "Scheduled send failed");
+        }
+        // Sent or handed to the offline queue (queued) — either way the scheduled row is done.
+        await updateScheduledEmailStatus(email.id, "sent");
+      } finally {
+        useOutgoingStore.getState().removeEmail(outgoingId);
+      }
     } catch (err) {
       console.error(`Failed to send scheduled email ${email.id}:`, err);
       // Distinguish transient vs permanent errors

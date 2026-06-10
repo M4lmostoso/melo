@@ -179,13 +179,14 @@ openComposer: (opts) => {
         if (opts?.accountId) params.set("accountId", opts.accountId);
         if (opts?.forwardSourceMessageId) params.set("forwardSourceMessageId", opts.forwardSourceMessageId);
 
-        // quotedHtml/bodyHtml are too large for URLs — write to SQLite (shared across all windows)
-        if (opts?.quotedHtml || opts?.bodyHtml) {
+        // quotedHtml/bodyHtml/attachments are too large for URLs — write to SQLite (shared across all windows)
+        if (opts?.quotedHtml || opts?.bodyHtml || (opts?.attachments?.length ?? 0) > 0) {
           await setSetting(
             `__composer_payload_${windowLabel}`,
             JSON.stringify({
               quotedHtml: opts?.quotedHtml ?? "",
               bodyHtml: opts?.bodyHtml ?? "",
+              attachments: opts?.attachments ?? [],
             }),
           );
         }

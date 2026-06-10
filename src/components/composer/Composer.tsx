@@ -546,6 +546,10 @@ const getFullHtml = useCallback(() => {
     // For Gmail: composerStore.draftId (the Gmail draft API ID).
     // Must be captured BEFORE closeComposer() resets the store.
     const currentDraftId = getActiveDraftId();
+    // If the in-flight server APPEND (cancelled above via startDiscard) pre-tombstoned a
+    // freshly-appended UID, capture it so the main window can EXPUNGE it from the server
+    // Drafts folder — otherwise the draft lingers there after the send.
+    const preTombstonedDraftId = getPreTombstonedDraftId();
 
     const outgoingId = crypto.randomUUID();
     useOutgoingStore.getState().addEmail({
@@ -595,6 +599,7 @@ const getFullHtml = useCallback(() => {
             subject: state.subject,
             bodyHtml: html,
             inReplyToMessageId: state.inReplyToMessageId ?? null,
+            preTombstonedDraftId: preTombstonedDraftId ?? null,
           });
           handedOff = true;
         } catch {

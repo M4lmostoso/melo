@@ -1953,7 +1953,9 @@
       "retryNow": "Retry now",
       "to": "To",
       "nextRetry": "Retrying soon",
-      "failedPermanently": "Send failed permanently"
+      "failedPermanently": "Send failed permanently",
+      "sending": "Sending…",
+      "edit": "Edit"
     }
   },
   "ai": {

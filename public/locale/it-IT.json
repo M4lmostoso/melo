@@ -1953,7 +1953,9 @@
       "pending": "In coda",
       "retryCount": "Tentativo {count}",
       "retryNow": "Riprova ora",
-      "to": "A"
+      "to": "A",
+      "sending": "Invio in corso…",
+      "edit": "Modifica"
     }
   },
   "ai": {
