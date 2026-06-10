@@ -1,3 +1,5 @@
+import { HelpTooltip } from "@/components/help/HelpTooltip";
+
 export function Section({
   title,
   description,
@@ -28,13 +30,19 @@ export function Section({
 export function SettingRow({
   label,
   children,
+  tip,
 }: {
   label: string;
   children: React.ReactNode;
+  /** Contextual help tip id (from CONTEXTUAL_TIPS) rendered as a ? next to the label. */
+  tip?: string;
 }) {
   return (
     <div className="flex items-center justify-between py-0.5">
-      <label className="text-sm text-text-secondary">{label}</label>
+      <label className="flex items-center gap-1.5 text-sm text-text-secondary">
+        {label}
+        {tip && <HelpTooltip contextId={tip} />}
+      </label>
       {children}
     </div>
   );
@@ -45,16 +53,22 @@ export function ToggleRow({
   description,
   checked,
   onToggle,
+  tip,
 }: {
   label: string;
   description?: string;
   checked: boolean;
   onToggle: () => void;
+  /** Contextual help tip id (from CONTEXTUAL_TIPS) rendered as a ? next to the label. */
+  tip?: string;
 }) {
   return (
     <div className="flex items-center justify-between py-0.5">
       <div className="flex-1">
-        <span className="text-sm text-text-secondary">{label}</span>
+        <span className="inline-flex items-center gap-1.5 text-sm text-text-secondary">
+          {label}
+          {tip && <HelpTooltip contextId={tip} />}
+        </span>
         {description && (
           <p className="text-xs text-text-tertiary mt-0.5">{description}</p>
         )}

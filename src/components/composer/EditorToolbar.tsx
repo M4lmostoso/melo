@@ -3,6 +3,7 @@ import type { Editor } from "@tiptap/react";
 import { InputDialog } from "@/components/ui/InputDialog";
 import { Sparkles, Type } from "lucide-react";
 import "@/components/composer/tiptapExtensions";
+import { resizeImageBlob } from "@/utils/imageResize";
 import { t } from "@/i18n";
 
 interface EditorToolbarProps {
@@ -61,16 +62,25 @@ export function EditorToolbar({ editor, onToggleAiAssist, aiAssistOpen, classNam
 
   if (!editor) return null;
 
-  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
+    if (imageInputRef.current) imageInputRef.current.value = "";
     if (!file) return;
+    // Downscale oversized images before embedding so we don't bloat the email
+    // with a multi-MB base64 data URL. resizeImageBlob returns the original
+    // blob untouched when the image is already within bounds.
+    let blob: Blob = file;
+    try {
+      blob = await resizeImageBlob(file, 1280);
+    } catch {
+      blob = file;
+    }
     const reader = new FileReader();
     reader.onload = () => {
       const dataUrl = reader.result as string;
       editor.chain().focus().setImage({ src: dataUrl }).run();
     };
-    reader.readAsDataURL(file);
-    if (imageInputRef.current) imageInputRef.current.value = "";
+    reader.readAsDataURL(blob);
   };
 
   const btn = (

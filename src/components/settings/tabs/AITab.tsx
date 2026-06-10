@@ -252,7 +252,7 @@ export function AITab() {
   return (
     <>
       <Section title={t("settings.ai.sections.provider")} description={t("settings.ai.providerDesc")}>
-        <SettingRow label={t("settings.ai.aiProvider")}>
+        <SettingRow label={t("settings.ai.aiProvider")} tip="ai-provider">
           <select
             value={aiProvider}
             onChange={async (e) => {

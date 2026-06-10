@@ -44,6 +44,10 @@ vi.mock("@tauri-apps/plugin-fs", () => ({
   writeFile: vi.fn(),
 }));
 
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn().mockResolvedValue(() => {}),
+}));
+
 vi.mock("@/router/navigate", () => ({
   navigateToLabel: vi.fn(),
 }));

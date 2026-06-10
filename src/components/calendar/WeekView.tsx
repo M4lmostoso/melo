@@ -3,6 +3,7 @@ import { t, getLocale } from "@/i18n";
 import { Video } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { getMeetingUrl, isMeetingActive } from "@/utils/meetingUrl";
+import { layoutDayEvents, type PositionedEvent } from "./calendarLayout";
 import type { DbCalendarEvent } from "@/services/db/calendarEvents";
 
 interface WeekViewProps {
@@ -92,6 +93,19 @@ export function WeekView({ currentDate, events, colorMap = {}, onEventClick }: W
     return { allDayByDay: adMap, timedByDay: tdMap };
   }, [events, days]);
 
+  // Per-day column packing for overlapping timed events. Keyed by day-of-month
+  // (matching timedByDay), then by event id for lookup during render.
+  const positionByDay = useMemo(() => {
+    const map = new Map<number, Map<string, PositionedEvent>>();
+    for (const day of days) {
+      const dayKey = day.getDate();
+      const dayTs = Math.floor(day.getTime() / 1000);
+      const positioned = layoutDayEvents(timedByDay.get(dayKey) ?? [], dayTs, HOUR_HEIGHT);
+      map.set(dayKey, new Map(positioned.map((p) => [p.event.id, p])));
+    }
+    return map;
+  }, [days, timedByDay]);
+
   const locale = getLocale();
 
   return (
@@ -180,14 +194,18 @@ export function WeekView({ currentDate, events, colorMap = {}, onEventClick }: W
             {days.map((day, di) => {
               const dayTs = day.getTime() / 1000;
               const dayEvents = timedByDay.get(day.getDate()) ?? [];
+              const dayPos = positionByDay.get(day.getDate());
               return (
                 <div key={di} className="flex-1 relative">
                   {dayEvents.map((e) => {
                     const c = colorMap[e.calendar_id ?? ""] ?? "var(--color-accent)";
-                    const startOffset = e.start_time - dayTs;
-                    const endTs = Math.min(e.end_time, dayTs + 86400);
-                    const top = (startOffset / 3600) * HOUR_HEIGHT;
-                    const height = Math.max(((endTs - e.start_time) / 3600) * HOUR_HEIGHT, MIN_EVENT_HEIGHT);
+                    const pos = dayPos?.get(e.id);
+                    const top = pos?.top ?? ((e.start_time - dayTs) / 3600) * HOUR_HEIGHT;
+                    const height = Math.max(pos?.height ?? 0, MIN_EVENT_HEIGHT);
+                    const colCount = pos?.colCount ?? 1;
+                    const colIndex = pos?.colIndex ?? 0;
+                    const widthPct = 100 / colCount;
+                    const leftPct = colIndex * widthPct;
                     const startLabel = new Date(e.start_time * 1000).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
                     const endLabel = new Date(e.end_time * 1000).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" });
                     const meetingUrl = getMeetingUrl(e);
@@ -201,8 +219,14 @@ export function WeekView({ currentDate, events, colorMap = {}, onEventClick }: W
                         role="button"
                         tabIndex={0}
                         onKeyDown={(ev) => { if (ev.key === "Enter" || ev.key === " ") onEventClick(e); }}
-                        className="pointer-events-auto absolute inset-x-0.5 overflow-hidden rounded text-left transition-opacity hover:opacity-80 flex cursor-pointer"
-                        style={{ top, height, backgroundColor: `${c}26` }}
+                        className="pointer-events-auto absolute overflow-hidden rounded text-left transition-opacity hover:opacity-80 flex cursor-pointer"
+                        style={{
+                          top,
+                          height,
+                          left: `calc(${leftPct}% + 1px)`,
+                          width: `calc(${widthPct}% - 2px)`,
+                          backgroundColor: `${c}26`,
+                        }}
                       >
                         <div className="w-0.5 shrink-0 rounded-l" style={{ backgroundColor: c }} />
                         <div className="flex flex-col min-w-0 px-1 py-0.5 flex-1">

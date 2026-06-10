@@ -34,7 +34,7 @@ export function ComposingTab() {
   return (
     <>
       <Section title={t("settings.composing.sections.sending")}>
-        <SettingRow label={t("settings.composing.undoSendDelay")}>
+        <SettingRow label={t("settings.composing.undoSendDelay")} tip="undo-send">
           <select
             value={undoSendDelay}
             onChange={(e) => handleUndoDelayChange(e.target.value)}

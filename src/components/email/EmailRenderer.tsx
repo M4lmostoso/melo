@@ -10,6 +10,11 @@ import { useUIStore } from "@/stores/uiStore";
 import { getThemeById } from "@/constants/themes";
 import { useComposerStore } from "@/stores/composerStore";
 import { parseMailtoUrl } from "@/utils/mailtoParser";
+import { scanMessageLinks } from "@/services/phishing/phishingScanner";
+import { addToPhishingAllowlist } from "@/services/db/phishingAllowlist";
+import { PhishingBanner } from "./PhishingBanner";
+import { LinkConfirmDialog } from "./LinkConfirmDialog";
+import type { MessageScanResult, LinkAnalysis } from "@/utils/phishingDetector";
 
 interface EmailRendererProps {
   html: string | null;
@@ -20,6 +25,8 @@ interface EmailRendererProps {
   senderAllowlisted?: boolean;
   cidMap?: Map<string, string>;
   cidFailed?: Set<string>;
+  /** When provided alongside accountId, the body is scanned for phishing links. */
+  messageId?: string | null;
 }
 
 export function EmailRenderer({
@@ -31,6 +38,7 @@ export function EmailRenderer({
   senderAllowlisted = false,
   cidMap,
   cidFailed,
+  messageId,
 }: EmailRendererProps) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const rafRef = useRef<number>(0);
@@ -39,6 +47,14 @@ export function EmailRenderer({
   // object for sandboxed null-origin iframes (never === contentWindow).
   const nonceRef = useRef<string>(Math.random().toString(36).slice(2));
   const [overrideShow, setOverrideShow] = useState(false);
+
+  // Phishing link scan state. scanResultRef mirrors scanResult so the iframe
+  // message handler (subscribed once per srcdoc) can read the latest result
+  // without re-subscribing when the async scan completes.
+  const [scanResult, setScanResult] = useState<MessageScanResult | null>(null);
+  const [bannerTrusted, setBannerTrusted] = useState(false);
+  const [pendingLink, setPendingLink] = useState<LinkAnalysis | null>(null);
+  const scanResultRef = useRef<MessageScanResult | null>(null);
 
   const theme = useUIStore((s) => s.theme);
   const colorTheme = useUIStore((s) => s.colorTheme);
@@ -49,6 +65,30 @@ export function EmailRenderer({
   const accentLight = themeColors.accentLight;
 
   const shouldBlock = blockImages && !senderAllowlisted && !overrideShow;
+
+  // Scan inbound message links for phishing indicators. Only runs when both a
+  // messageId and accountId are supplied (i.e. a stored, received message — not
+  // composer previews). scanMessageLinks short-circuits when the feature is
+  // disabled or the sender is allowlisted.
+  useEffect(() => {
+    scanResultRef.current = scanResult;
+  }, [scanResult]);
+
+  useEffect(() => {
+    if (!messageId || !accountId) {
+      setScanResult(null);
+      return;
+    }
+    let cancelled = false;
+    scanMessageLinks(accountId, messageId, html, senderAddress ?? null)
+      .then((result) => {
+        if (!cancelled) setScanResult(result);
+      })
+      .catch((err) => console.error("Phishing scan failed:", err));
+    return () => {
+      cancelled = true;
+    };
+  }, [messageId, accountId, html, senderAddress]);
 
   const sanitizedBody = useMemo(() => {
     if (!html) return null;
@@ -248,7 +288,16 @@ export function EmailRenderer({
           const { to, cc, bcc, subject } = parseMailtoUrl(href);
           useComposerStore.getState().openComposer({ to, cc, bcc, subject });
         } else if (href.startsWith("http://") || href.startsWith("https://")) {
-          openUrl(href).catch((err) => console.error("Failed to open link:", err));
+          // Intercept clicks on links the scan flagged as suspicious and ask
+          // for confirmation before opening; safe links open immediately.
+          const analysis = scanResultRef.current?.links.find(
+            (l) => l.url === href.trim() && l.riskScore >= 20,
+          );
+          if (analysis) {
+            setPendingLink(analysis);
+          } else {
+            openUrl(href).catch((err) => console.error("Failed to open link:", err));
+          }
         }
       }
     };
@@ -282,8 +331,31 @@ export function EmailRenderer({
     setOverrideShow(true);
   }, [accountId, senderAddress]);
 
+  const handleTrustSender = useCallback(async () => {
+    if (accountId && senderAddress) {
+      await addToPhishingAllowlist(accountId, senderAddress);
+    }
+    setBannerTrusted(true);
+  }, [accountId, senderAddress]);
+
+  const handleConfirmLink = useCallback(() => {
+    const url = pendingLink?.url;
+    setPendingLink(null);
+    if (url) openUrl(url).catch((err) => console.error("Failed to open link:", err));
+  }, [pendingLink]);
+
   return (
     <div>
+      {scanResult?.showBanner && !bannerTrusted && (
+        <PhishingBanner scanResult={scanResult} onTrustSender={handleTrustSender} />
+      )}
+      {pendingLink && (
+        <LinkConfirmDialog
+          linkAnalysis={pendingLink}
+          onCancel={() => setPendingLink(null)}
+          onConfirm={handleConfirmLink}
+        />
+      )}
       {blocked && (
         <div className="flex items-center gap-2 px-3 py-2 mb-2 text-xs bg-bg-tertiary rounded-md border border-border-secondary">
           <ImageOff size={14} className="text-text-tertiary shrink-0" />

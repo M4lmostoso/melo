@@ -500,6 +500,7 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
           {blockImages != null ? (
             <EmailRenderer
               key={message.id}
+              messageId={message.id}
               html={message.body_html}
               text={message.body_text}
               blockImages={blockImages}

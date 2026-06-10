@@ -215,7 +215,7 @@ export function GeneralTab() {
             <option value="dark">{t("settings.general.themeDark")}</option>
           </select>
         </SettingRow>
-        <SettingRow label={t("settings.general.readingPane")}>
+        <SettingRow label={t("settings.general.readingPane")} tip="reading-pane">
           <select
             value={readingPanePosition}
             onChange={(e) => {
@@ -284,7 +284,7 @@ export function GeneralTab() {
             })}
           </div>
         </SettingRow>
-        <SettingRow label={t("settings.general.inboxViewMode")}>
+        <SettingRow label={t("settings.general.inboxViewMode")} tip="split-inbox">
           <select
             value={inboxViewMode}
             onChange={(e) => {
@@ -378,7 +378,7 @@ export function GeneralTab() {
           }}
         />
         {phishingDetectionEnabled && (
-          <SettingRow label={t("settings.general.detectionSensitivity")}>
+          <SettingRow label={t("settings.general.detectionSensitivity")} tip="phishing-sensitivity">
             <select
               value={phishingSensitivity}
               onChange={async (e) => {

@@ -3,6 +3,7 @@ import { t, getLocale } from "@/i18n";
 import { CalendarX2, Video } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { getMeetingUrl, isMeetingActive } from "@/utils/meetingUrl";
+import { layoutDayEvents } from "./calendarLayout";
 import type { DbCalendarEvent } from "@/services/db/calendarEvents";
 
 interface DayViewProps {
@@ -161,6 +162,13 @@ export function DayView({
     }
     return { timedEvents: timed, allDayEvents: allDay };
   }, [events, dayTs]);
+
+  // Pack overlapping timed events into side-by-side columns so they don't
+  // cover each other. Keyed by event id for lookup during render.
+  const positionById = useMemo(() => {
+    const positioned = layoutDayEvents(timedEvents, dayTs, HOUR_HEIGHT);
+    return new Map(positioned.map((p) => [p.event.id, p]));
+  }, [timedEvents, dayTs]);
 
   const isToday = currentDate.toDateString() === todayStr;
   const rightScrollRef = useRef<HTMLDivElement>(null);
@@ -398,13 +406,13 @@ export function DayView({
 
               {timedEvents.map((e) => {
                 const c = colorMap[e.calendar_id ?? ""] ?? "var(--color-accent)";
-                const startOffset = e.start_time - dayTs;
-                const endTs = Math.min(e.end_time, dayTs + 86400);
-                const top = (startOffset / 3600) * HOUR_HEIGHT;
-                const height = Math.max(
-                  ((endTs - e.start_time) / 3600) * HOUR_HEIGHT,
-                  MIN_EVENT_HEIGHT,
-                );
+                const pos = positionById.get(e.id);
+                const top = pos?.top ?? ((e.start_time - dayTs) / 3600) * HOUR_HEIGHT;
+                const height = Math.max(pos?.height ?? 0, MIN_EVENT_HEIGHT);
+                const colCount = pos?.colCount ?? 1;
+                const colIndex = pos?.colIndex ?? 0;
+                const widthPct = 100 / colCount;
+                const leftPct = colIndex * widthPct;
                 const startLabel = new Date(e.start_time * 1000).toLocaleTimeString(
                   locale,
                   { hour: "2-digit", minute: "2-digit" },
@@ -423,8 +431,14 @@ export function DayView({
                     role="button"
                     tabIndex={0}
                     onKeyDown={(ev) => { if (ev.key === "Enter" || ev.key === " ") onEventClick(e); }}
-                    className="absolute inset-x-1 overflow-hidden rounded text-left transition-opacity hover:opacity-80 flex cursor-pointer"
-                    style={{ top, height, backgroundColor: `${c}26` }}
+                    className="absolute overflow-hidden rounded text-left transition-opacity hover:opacity-80 flex cursor-pointer"
+                    style={{
+                      top,
+                      height,
+                      left: `calc(${leftPct}% + 2px)`,
+                      width: `calc(${widthPct}% - 4px)`,
+                      backgroundColor: `${c}26`,
+                    }}
                   >
                     <div
                       className="w-0.5 shrink-0 rounded-l"
