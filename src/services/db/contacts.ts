@@ -51,9 +51,14 @@ export async function searchContacts(
           WHERE from_address = c.email AND from_name LIKE $1
         )
      ORDER BY
-       CASE WHEN c.display_name LIKE $1
-                 OR EXISTS (SELECT 1 FROM messages WHERE from_address = c.email AND from_name LIKE $1)
-            THEN 0 ELSE 1 END,
+       CASE
+         -- Tier 0: matches a stored contact name (display_name in the DB)
+         WHEN c.display_name LIKE $1 THEN 0
+         -- Tier 1: matches a name associated with the email in past messages
+         WHEN EXISTS (SELECT 1 FROM messages WHERE from_address = c.email AND from_name LIKE $1) THEN 1
+         -- Tier 2: matches only on the email address itself
+         ELSE 2
+       END,
        c.frequency DESC,
        display_name ASC
      LIMIT $2`,

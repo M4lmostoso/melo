@@ -12,6 +12,7 @@ import { AuthWarningBanner } from "./AuthWarningBanner";
 import { isCalendarInvite } from "@/utils/fileTypeHelpers";
 import { useAccountStore } from "@/stores/accountStore";
 import { useContactsStore } from "@/stores/contactsStore";
+import { parseAddressList, resolveRecipientLabel } from "@/utils/emailUtils";
 import { useUIStore } from "@/stores/uiStore";
 import { t } from "@/i18n";
 
@@ -348,6 +349,16 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
     message.from_address ||
     t("messageItem.unknown");
 
+  // Render a To/Cc/Bcc header with each recipient labelled by the priority:
+  // stored contact name → name on the address → raw email.
+  const formatRecipients = useCallback(
+    (header: string | null | undefined): string =>
+      parseAddressList(header)
+        .map((addr) => resolveRecipientLabel(addr, contactsMap))
+        .join(", "),
+    [contactsMap],
+  );
+
   const showUnread = wasUnreadRef.current && !expanded;
 
   const hasActions = !!(onReply || onReplyAll || onForward || onDelete);
@@ -400,13 +411,13 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
         {expanded && (
           <div className="mt-1 text-xs text-text-tertiary space-y-0.5">
             {message.to_addresses && (
-              <div><span className="text-text-secondary">{t("messageItem.to")}</span> {message.to_addresses}</div>
+              <div><span className="text-text-secondary">{t("messageItem.to")}</span> {formatRecipients(message.to_addresses)}</div>
             )}
             {message.cc_addresses && (
-              <div><span className="text-text-secondary">{t("messageItem.cc")}</span> {message.cc_addresses}</div>
+              <div><span className="text-text-secondary">{t("messageItem.cc")}</span> {formatRecipients(message.cc_addresses)}</div>
             )}
             {message.bcc_addresses && message.from_address?.toLowerCase() === account?.email.toLowerCase() && (
-              <div><span className="text-text-secondary">{t("messageItem.bcc")}</span> {message.bcc_addresses}</div>
+              <div><span className="text-text-secondary">{t("messageItem.bcc")}</span> {formatRecipients(message.bcc_addresses)}</div>
             )}
           </div>
         )}

@@ -7,6 +7,7 @@ import {
   deleteContact,
   type DbContact,
 } from "@/services/db/contacts";
+import { useContactsStore } from "@/stores/contactsStore";
 
 export function ContactEditor() {
   const [contacts, setContacts] = useState<DbContact[]>([]);
@@ -41,13 +42,22 @@ export function ContactEditor() {
 
   const handleSaveEdit = async () => {
     if (!editingId) return;
+    const contact = contacts.find((c) => c.id === editingId);
     await updateContact(editingId, editName || null);
+    // Keep the global display-name cache in sync so threads/lists update without a restart.
+    if (contact) {
+      useContactsStore.getState().updateContactInCache(contact.email, editName || null);
+    }
     setEditingId(null);
     await loadContacts();
   };
 
   const handleDelete = async (id: string) => {
+    const contact = contacts.find((c) => c.id === id);
     await deleteContact(id);
+    if (contact) {
+      useContactsStore.getState().updateContactInCache(contact.email, null);
+    }
     await loadContacts();
   };
 

@@ -54,7 +54,7 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
         const email = (match ? match[2]! : entry).trim().toLowerCase();
         if (email === accountEmail) return [];
         const name = match ? match[1]!.trim().replace(/^["']|["']$/g, "") : entry.trim();
-        return [name || email];
+        return [contactsMap[email] || name || email];
       });
       return names.join(", ") || t("threadCard.unknown");
     }

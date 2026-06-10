@@ -52,3 +52,60 @@ export function normalizeEmail(email: string | null | undefined): string {
   const target = (match ? match[1] : email) || "";
   return target.toLowerCase().trim();
 }
+
+export interface ParsedAddress {
+  /** Display name from the header (e.g. the part before <...>), or null if absent. */
+  name: string | null;
+  email: string;
+}
+
+/**
+ * Parse an RFC 2822 address-list header (To/Cc/Bcc) into individual addresses.
+ * Splits on commas while respecting quoted display names and angle-bracketed addresses,
+ * so `"Doe, John" <j@x.com>, plain@y.com` yields two entries, not three.
+ */
+export function parseAddressList(header: string | null | undefined): ParsedAddress[] {
+  if (!header) return [];
+  const parts: string[] = [];
+  let current = "";
+  let inQuote = false;
+  let angleDepth = 0;
+  for (const ch of header) {
+    if (ch === '"') inQuote = !inQuote;
+    else if (ch === "<") angleDepth++;
+    else if (ch === ">") angleDepth = Math.max(0, angleDepth - 1);
+    if (ch === "," && !inQuote && angleDepth === 0) {
+      parts.push(current);
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+  if (current.trim()) parts.push(current);
+
+  const result: ParsedAddress[] = [];
+  for (const raw of parts) {
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    const angleMatch = trimmed.match(/^(.*?)<([^>]+)>\s*$/);
+    if (angleMatch) {
+      const name = angleMatch[1]!.trim().replace(/^"(.*)"$/, "$1").trim();
+      result.push({ name: name || null, email: angleMatch[2]!.trim() });
+    } else {
+      result.push({ name: null, email: trimmed });
+    }
+  }
+  return result;
+}
+
+/**
+ * Resolve the best display label for a recipient, using the priority:
+ * 1) stored contact name (DB), 2) name associated with the email in the header,
+ * 3) the raw email address.
+ */
+export function resolveRecipientLabel(
+  addr: ParsedAddress,
+  contactsMap: Record<string, string>,
+): string {
+  return contactsMap[addr.email.toLowerCase()] || addr.name || addr.email;
+}
