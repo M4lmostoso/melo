@@ -1,6 +1,21 @@
 import type { EmailProvider, EmailFolder, SyncResult } from "./types";
-import type { GmailClient } from "../gmail/client";
+import type { GmailClient, GmailMessagePart } from "../gmail/client";
 import { parseGmailMessage, type ParsedMessage } from "../gmail/messageParser";
+
+/** Sentinel prefix for attachments whose bytes are inline in body.data (no Gmail attachmentId). */
+const INLINE_ATTACHMENT_PREFIX = "inline:";
+
+/** Recursively find a message part by its partId. */
+function findPartByPartId(part: GmailMessagePart, partId: string): GmailMessagePart | null {
+  if (part.partId === partId) return part;
+  if (part.parts) {
+    for (const child of part.parts) {
+      const found = findPartByPartId(child, partId);
+      if (found) return found;
+    }
+  }
+  return null;
+}
 
 /** Map Gmail system label IDs to IMAP special-use flags */
 const GMAIL_SPECIAL_USE: Record<string, string | null> = {
@@ -131,6 +146,17 @@ export class GmailApiProvider implements EmailProvider {
     messageId: string,
     attachmentId: string,
   ): Promise<{ data: string; size: number }> {
+    // Inline attachments have no Gmail attachmentId — re-fetch the message and
+    // pull the bytes straight from the part's body.data.
+    if (attachmentId.startsWith(INLINE_ATTACHMENT_PREFIX)) {
+      const partId = attachmentId.slice(INLINE_ATTACHMENT_PREFIX.length);
+      const msg = await this.client.getMessage(messageId);
+      const part = findPartByPartId(msg.payload, partId);
+      if (!part?.body.data) {
+        throw new Error(`Inline attachment data not found for part ${partId}`);
+      }
+      return { data: part.body.data, size: part.body.size };
+    }
     const resp = await this.client.getAttachment(messageId, attachmentId);
     return { data: resp.data, size: resp.size };
   }
@@ -142,6 +168,18 @@ export class GmailApiProvider implements EmailProvider {
     dbId: string,
     totalSize: number,
   ): Promise<void> {
+    // Inline attachments can't go through the Rust streaming command (it needs a
+    // real Gmail attachmentId). Fetch the inline bytes and write them directly.
+    if (attachmentId.startsWith(INLINE_ATTACHMENT_PREFIX)) {
+      const { data } = await this.fetchAttachment(messageId, attachmentId);
+      const base64 = data.replace(/-/g, "+").replace(/_/g, "/");
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const { writeFile } = await import("@tauri-apps/plugin-fs");
+      await writeFile(destPath, bytes);
+      return;
+    }
     const token = await this.client.getValidToken();
     const { invoke } = await import("@tauri-apps/api/core");
     await invoke("gmail_download_attachment_to_path", {

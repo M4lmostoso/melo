@@ -129,7 +129,11 @@ function collectAttachments(
   part: GmailMessagePart,
   results: ParsedAttachment[],
 ): void {
-  if (part.body.attachmentId) {
+  // A part carries its bytes either via body.attachmentId (fetched separately)
+  // or, for small parts, inline in body.data with NO attachmentId. Gmail inlines
+  // small attachments this way — handling only the attachmentId case silently
+  // drops them (e.g. a small .xlsx next to a larger .pdf).
+  if (part.body.attachmentId || part.body.data) {
     const contentIdHeader = part.headers?.find(
       (h) => h.name.toLowerCase() === "content-id",
     );
@@ -141,7 +145,9 @@ function collectAttachments(
     const isInline =
       contentDisposition?.value?.toLowerCase().startsWith("inline") ?? false;
 
-    // Collect parts with a filename (regular attachments) or a Content-ID (CID inline images)
+    // Collect parts with a filename (regular attachments) or a Content-ID (CID
+    // inline images). Body parts (text/plain, text/html) have neither and fall
+    // through, so they're never mistaken for attachments.
     if (hasFilename || hasCid) {
       results.push({
         filename:
@@ -150,7 +156,10 @@ function collectAttachments(
           "inline",
         mimeType: part.mimeType,
         size: part.body.size,
-        gmailAttachmentId: part.body.attachmentId,
+        // When there's no attachmentId the bytes live inline in body.data; encode
+        // the stable partId as a sentinel so the provider can re-fetch the message
+        // and extract them at preview/download time.
+        gmailAttachmentId: part.body.attachmentId ?? `inline:${part.partId}`,
         contentId: contentIdHeader?.value?.replace(/[<>]/g, "") ?? null,
         isInline: isInline && !hasFilename,
       });

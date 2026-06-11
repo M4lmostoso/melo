@@ -51,6 +51,33 @@ describe("parseGmailMessage", () => {
     expect(parsed.hasAttachments).toBe(true);
   });
 
+  it("should collect small inline attachments delivered via body.data with no attachmentId", () => {
+    const msg = createMockGmailMessage();
+    // Gmail inlines small attachments: bytes live in body.data and there is no
+    // body.attachmentId. These must still be collected (previously dropped).
+    msg.payload.parts!.push({
+      partId: "2",
+      mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      filename: "data.xlsx",
+      headers: [
+        { name: "Content-Disposition", value: "attachment; filename=\"data.xlsx\"" },
+      ],
+      body: { size: 1234, data: "UEsDBBQA" },
+    });
+
+    const parsed = parseGmailMessage(msg);
+    expect(parsed.attachments).toHaveLength(1);
+    expect(parsed.attachments[0]!.filename).toBe("data.xlsx");
+    // Sentinel encodes the partId so the provider can re-fetch the inline bytes.
+    expect(parsed.attachments[0]!.gmailAttachmentId).toBe("inline:2");
+    expect(parsed.attachments[0]!.isInline).toBe(false);
+  });
+
+  it("should not treat text body parts (data, no filename) as attachments", () => {
+    const parsed = parseGmailMessage(createMockGmailMessage());
+    expect(parsed.attachments).toHaveLength(0);
+  });
+
   it("should handle plain email address without name", () => {
     const msg = createMockGmailMessage();
     msg.payload.headers = [
