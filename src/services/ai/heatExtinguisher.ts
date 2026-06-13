@@ -1,5 +1,5 @@
 import { getSetting } from "@/services/db/settings";
-import { setHeatExtinguished, setManualUrgencyOverride, setThreadUrgency } from "@/services/db/threads";
+import { setHeatExtinguished, setManualUrgencyOverride, setThreadUrgency, getThreadById } from "@/services/db/threads";
 import { useThreadStore } from "@/stores/threadStore";
 import { logInteraction } from "./reputationEngine";
 import { getMessagesForThread } from "@/services/db/messages";
@@ -56,11 +56,17 @@ async function fetchUrgentContext(accountId: string, threadId: string): Promise<
   }
 }
 
+// Replying that does NOT close the topic still reduces urgency by 30%.
+const REPLY_URGENCY_DECAY = 0.7;
+
 /**
- * If ai_urgency_auto_extinguish is enabled, the Smart Judge evaluates whether
- * the user's reply resolves the urgent thread. Uses the configured AI provider.
- * Falls back to always-extinguish if the AI call fails or if there's no context.
- * When the AI returns PENDING, applies a 50% urgency decay instead of doing nothing.
+ * If ai_urgency_auto_extinguish is enabled, the Smart Judge (AI) evaluates whether the
+ * user's reply closes the thread:
+ *   - RESOLVED  → urgency is brought to zero (and the thread is marked resolved).
+ *   - PENDING   → urgency is reduced by 30% (the reply still lowers it, just not to zero).
+ * The AI verdict is the only thing that can zero the urgency. When the AI can't be
+ * consulted (not configured / unavailable / no context), we conservatively apply the
+ * 30% reduction rather than assuming the topic is closed.
  */
 export async function autoExtinguishOnReply(
   accountId: string,
@@ -70,41 +76,46 @@ export async function autoExtinguishOnReply(
   const autoEnabled = await getSetting("ai_urgency_auto_extinguish");
   if (autoEnabled !== "true") return;
 
-  // Only act on threads with active urgency
-  const thread = useThreadStore.getState().threadMap.get(threadId);
-  const hasUrgency = thread && (thread.urgencyScore ?? 0) > 0 && !thread.isHeatExtinguished;
-  if (!hasUrgency) return;
+  // Read urgency state from the DB rather than the in-memory store. The thread may have
+  // been archived (and removed from the list) right after sending — relying on the store
+  // would make this bail before lowering the urgency. The DB is the source of truth.
+  const thread = await getThreadById(accountId, threadId);
+  const currentScore = thread?.urgency_score ?? 0;
+  const isExtinguished = thread?.is_heat_extinguished === 1;
+  const isManualOverride = (thread?.manual_urgency_override ?? 0) === 1;
+  if (!thread || currentScore <= 0 || isExtinguished || isManualOverride) return;
 
-  const currentScore = thread.urgencyScore ?? 0;
-
-  // Fetch original urgent message for AI context
-  const urgentContext = await fetchUrgentContext(accountId, threadId);
-
-  let resolved: boolean;
-  if (urgentContext) {
-    try {
-      const { judgeUrgencyResolved } = await import("./aiService");
-      resolved = await judgeUrgencyResolved(urgentContext, replyText);
-    } catch {
-      // AI unavailable — default to extinguish so UX stays clean
-      resolved = true;
+  // The reply must pass through an AI evaluation to decide whether it closes the topic.
+  // Only zero the urgency when the AI is available, we have context, and it judges RESOLVED.
+  let resolved = false;
+  const { isAiAvailable } = await import("./providerManager");
+  if (await isAiAvailable()) {
+    const urgentContext = await fetchUrgentContext(accountId, threadId);
+    if (urgentContext) {
+      try {
+        const { judgeUrgencyResolved } = await import("./aiService");
+        resolved = await judgeUrgencyResolved(urgentContext, replyText);
+      } catch {
+        // AI call failed — conservatively fall back to the 30% reduction.
+        resolved = false;
+      }
     }
-  } else {
-    // No context available — conservatively extinguish
-    resolved = true;
   }
 
   if (resolved) {
+    // The reply closed the topic → bring urgency to zero and mark the thread resolved.
+    await setThreadUrgency(accountId, threadId, 0);
     await extinguishThread(accountId, threadId);
+    useThreadStore.getState().updateThread(threadId, { urgencyScore: 0 });
   } else {
-    // PENDING: apply 50% decay — replying always reduces urgency even if not fully resolved
-    const decayedScore = currentScore * 0.5;
+    // Topic still open → reduce urgency by 30%.
+    const decayedScore = currentScore * REPLY_URGENCY_DECAY;
     await setThreadUrgency(accountId, threadId, decayedScore);
     useThreadStore.getState().updateThread(threadId, { urgencyScore: decayedScore });
   }
 
   // Always log the reply interaction (contributes to reputation)
-  if (thread?.fromAddress) {
-    await logInteraction(accountId, thread.fromAddress, "REPLY_SENT", threadId);
+  if (thread.from_address) {
+    await logInteraction(accountId, thread.from_address, "REPLY_SENT", threadId);
   }
 }

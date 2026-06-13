@@ -19,6 +19,7 @@ import {
   SMART_LABEL_PROMPT,
   EXTRACT_TASK_PROMPT,
   HEAT_EXTINGUISH_JUDGE_PROMPT,
+  PHISHING_JUDGE_PROMPT,
   URGENCY_SCORE_PROMPT,
   UNIFIED_URGENCY_AUTOLABEL_PROMPT_TEMPLATE,
 } from "./prompts";
@@ -363,6 +364,34 @@ export async function judgeUrgencyResolved(
   } catch {
     return true;
   }
+}
+
+export type PhishingVerdict = "phishing" | "suspicious" | "safe";
+
+export interface PhishingJudgement {
+  verdict: PhishingVerdict;
+  reason: string;
+}
+
+/**
+ * Second-stage phishing judge: given a context built from the sender, the
+ * heuristically-flagged links, and a body excerpt, decides whether the email is
+ * actually phishing. Used to suppress false positives from the heuristic pre-filter.
+ * Throws on AI error so the caller can fall back to the heuristic verdict.
+ */
+export async function judgePhishingRisk(context: string): Promise<PhishingJudgement> {
+  const result = await callAi(PHISHING_JUDGE_PROMPT, context, {
+    skipLanguage: true,
+    skipSoul: true,
+  });
+  const trimmed = result.trim();
+  const upper = trimmed.toUpperCase();
+  let verdict: PhishingVerdict = "safe";
+  if (upper.startsWith("PHISHING")) verdict = "phishing";
+  else if (upper.startsWith("SUSPICIOUS")) verdict = "suspicious";
+  // Reason is whatever follows the verdict word and an optional separator.
+  const reason = trimmed.replace(/^[A-Za-z]+\s*[—\-:]*\s*/, "").trim().slice(0, 240);
+  return { verdict, reason };
 }
 
 export interface UrgencyResult {

@@ -620,6 +620,7 @@
       "oneLink": "1 link sospetto trovato",
       "multipleLinks": "{count} link sospetti trovati",
       "cautionMessage": "in questo messaggio. Fai attenzione prima di cliccare sui link.",
+      "aiAssessment": "Valutazione AI:",
       "trustSender": "Fidati di questo mittente"
     },
     "snooze": {
@@ -1564,6 +1565,8 @@
       "autoCategorizeDesc": "Usa l'AI per perfezionare la categorizzazione basata su regole",
       "autoSummarize": "Riepiloga automaticamente i thread",
       "autoSummarizeDesc": "Mostra riepiloghi AI sui thread con più messaggi",
+      "phishingAiVerdict": "Revisione AI del phishing",
+      "phishingAiVerdictDesc": "Fai ricontrollare all'AI le email segnalate per scartare i falsi positivi (es. newsletter), così gli avvisi compaiono solo per minacce reali",
       "aiLanguage": "Lingua AI",
       "autoDraft": "Bozze risposte automatiche",
       "autoDraftDesc": "Pre-popola l'editor di risposta con una bozza generata dall'AI",
@@ -1675,6 +1678,18 @@
       "archive": "Archivia selezionate",
       "trash": "Elimina selezionate",
       "ban": "Spam",
+      "trashToolbar": {
+        "markAllRead": "Segna tutto come letto",
+        "emptyTrash": "Svuota cestino",
+        "emptyTrashConfirmTitle": "Svuotare il cestino?",
+        "emptyTrashConfirmMessage": "Tutti i messaggi cestinati verranno eliminati definitivamente. Le conversazioni composte da soli messaggi cestinati saranno rimosse; le conversazioni con altri messaggi li manterranno."
+      },
+      "spamToolbar": {
+        "trashAll": "Cestina tutto",
+        "markAllRead": "Segna tutto come letto",
+        "trashAllConfirmTitle": "Cestinare tutto lo spam?",
+        "trashAllConfirmMessage": "Tutte le conversazioni di spam verranno spostate nel cestino."
+      },
       "clearSelection": "Deseleziona tutto",
       "bundleRelease": "Rilascia {count} in attesa",
       "loadMore": "Carica altri",

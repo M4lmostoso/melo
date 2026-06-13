@@ -26,12 +26,18 @@ export function PhishingBanner({ scanResult, onTrustSender }: PhishingBannerProp
         <p className={`text-xs font-medium ${textClass}`}>
           {isHigh ? t("email.phishing.highRisk") : t("email.phishing.suspicious")} {t("email.phishing.linksDetected")}
         </p>
-        <p className="text-xs text-text-tertiary mt-0.5">
-          {scanResult.suspiciousLinkCount === 1
-            ? t("email.phishing.oneLink")
-            : t("email.phishing.multipleLinks", { count: scanResult.suspiciousLinkCount })}
-          {" "}{t("email.phishing.cautionMessage")}
-        </p>
+        {scanResult.aiReason ? (
+          <p className="text-xs text-text-tertiary mt-0.5">
+            <span className="font-medium">{t("email.phishing.aiAssessment")}</span> {scanResult.aiReason}
+          </p>
+        ) : (
+          <p className="text-xs text-text-tertiary mt-0.5">
+            {scanResult.suspiciousLinkCount === 1
+              ? t("email.phishing.oneLink")
+              : t("email.phishing.multipleLinks", { count: scanResult.suspiciousLinkCount })}
+            {" "}{t("email.phishing.cautionMessage")}
+          </p>
+        )}
       </div>
       <button
         onClick={onTrustSender}

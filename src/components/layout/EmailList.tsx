@@ -11,12 +11,13 @@ import { useAccountStore } from "@/stores/accountStore";
 import { useUIStore } from "@/stores/uiStore";
 import { useActiveLabel, useSelectedThreadId, useActiveCategory } from "@/hooks/useRouteNavigation";
 import { navigateToThread, navigateToLabel } from "@/router/navigate";
-import { getThreadsForAccount, getThreadsForCategory, getThreadLabelIds, deleteThread as deleteThreadFromDb, getUnifiedInboxThreads, getUnifiedFolderThreads, getThreadById, getThreadsByIdsBatch, getThreadLabelsByIdsBatch, getThreadsByLabelPrefix, getUnifiedThreadsByLabelPrefix, getThreadsWithoutUserLabel, getUnifiedThreadsWithoutUserLabel, getDraftMessagesForAccount, getUnifiedDraftMessages } from "@/services/db/threads";
+import { getThreadsForAccount, getThreadsForCategory, getThreadLabelIds, deleteThread as deleteThreadFromDb, getUnifiedInboxThreads, getUnifiedFolderThreads, getThreadById, getThreadsByIdsBatch, getThreadLabelsByIdsBatch, getThreadsByLabelPrefix, getUnifiedThreadsByLabelPrefix, getThreadsWithoutUserLabel, getUnifiedThreadsWithoutUserLabel, getDraftMessagesForAccount, getUnifiedDraftMessages, getTrashThreads, getUnifiedTrashThreads } from "@/services/db/threads";
 import { getCategoriesForThreads, getCategoriesForThreadsGlobal, getCategoryUnreadCounts } from "@/services/db/threadCategories";
 import { getActiveFollowUpThreadIds } from "@/services/db/followUpReminders";
 import { getBundleRules, getHeldThreadIds, getBundleSummaries, type DbBundleRule } from "@/services/db/bundleRules";
 import { getGmailClient } from "@/services/gmail/tokenManager";
-import { trashThread, permanentDeleteThread, archiveThread, spamThread } from "@/services/emailActions";
+import { trashThread, permanentDeleteThread, archiveThread, spamThread, emptyTrash, markAllTrashRead, trashAllSpam, markAllSpamRead } from "@/services/emailActions";
+import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { useLabelStore } from "@/stores/labelStore";
 import { useSmartFolderStore } from "@/stores/smartFolderStore";
 import { DEFAULT_SMART_FOLDER_I18N_KEYS } from "@/services/db/smartFolders";
@@ -27,7 +28,7 @@ import { getSmartFolderSearchQuery, mapSmartFolderRows, type SmartFolderRow } fr
 import { applyTemporalDecay } from "@/services/ai/reputationEngine";
 import { getDecaySettings } from "@/services/ai/urgencyPipeline";
 import { getDb } from "@/services/db/connection";
-import { Archive, Trash2, X, Ban, Filter, ChevronRight, Package, FolderSearch, Clock } from "lucide-react";
+import { Archive, Trash2, X, Ban, Filter, ChevronRight, Package, FolderSearch, Clock, CheckCheck } from "lucide-react";
 import { EmptyState } from "../ui/EmptyState";
 import { OutgoingQueueView } from "./OutgoingQueueView";
 import { ScheduledEmailListView } from "./ScheduledEmailListView";
@@ -134,6 +135,10 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
 
   const openComposer = useComposerStore((s) => s.openComposer);
   const multiSelectBarRef = useRef<HTMLDivElement>(null);
+
+  // Bulk Trash/Spam toolbar — confirmation for the destructive actions
+  const [bulkConfirm, setBulkConfirm] = useState<null | "emptyTrash" | "trashSpam">(null);
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   const handleThreadContextMenu = useCallback((e: React.MouseEvent, threadId: string) => {
     e.preventDefault();
@@ -248,6 +253,27 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
       if (!accountId) return;
       await spamThread(accountId, id, [], !isSpamView);
     }));
+  };
+
+  // Scope for the Trash/Spam toolbar: the active account in single-account view,
+  // or every included account in the unified view.
+  const bulkScopeAccountIds = useMemo(
+    () => (activeAccountId ? [activeAccountId] : globalAccountIds),
+    [activeAccountId, globalAccountIds],
+  );
+
+  const runBulkAction = async (fn: (ids: string[]) => Promise<unknown>) => {
+    if (bulkScopeAccountIds.length === 0 || bulkBusy) return;
+    setBulkBusy(true);
+    try {
+      await fn(bulkScopeAccountIds);
+      await loadThreads();
+    } catch (err) {
+      console.error("Bulk trash/spam action failed:", err);
+    } finally {
+      setBulkBusy(false);
+      setBulkConfirm(null);
+    }
   };
 
   const searchResults = useThreadStore((s) => s.searchResults);
@@ -553,6 +579,8 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
           dbThreads = await getUnifiedInboxThreads(globalAccountIds, PAGE_SIZE, 0);
         } else if (activeLabel === "drafts") {
           dbThreads = await getUnifiedDraftMessages(globalAccountIds, PAGE_SIZE, 0);
+        } else if (activeLabel === "trash") {
+          dbThreads = await getUnifiedTrashThreads(globalAccountIds, PAGE_SIZE, 0);
         } else {
           const gmailLabelId = LABEL_MAP[activeLabel] ?? activeLabel;
           dbThreads = await getUnifiedFolderThreads(globalAccountIds, gmailLabelId || "", PAGE_SIZE, 0);
@@ -597,6 +625,8 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
         dbThreads = await getThreadsForCategory(activeAccountId, activeCategory, PAGE_SIZE, 0);
       } else if (activeLabel === "drafts") {
         dbThreads = await getDraftMessagesForAccount(activeAccountId, PAGE_SIZE, 0);
+      } else if (activeLabel === "trash") {
+        dbThreads = await getTrashThreads(activeAccountId, PAGE_SIZE, 0);
       } else {
         const gmailLabelId = LABEL_MAP[activeLabel] ?? activeLabel;
         dbThreads = await getThreadsForAccount(
@@ -665,6 +695,8 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
           dbThreads = await getUnifiedInboxThreads(globalAccountIds, PAGE_SIZE, offset);
         } else if (activeLabel === "drafts") {
           dbThreads = await getUnifiedDraftMessages(globalAccountIds, PAGE_SIZE, offset);
+        } else if (activeLabel === "trash") {
+          dbThreads = await getUnifiedTrashThreads(globalAccountIds, PAGE_SIZE, offset);
         } else {
           const gmailLabelId = LABEL_MAP[activeLabel] ?? activeLabel;
           dbThreads = await getUnifiedFolderThreads(globalAccountIds, gmailLabelId || "", PAGE_SIZE, offset);
@@ -673,6 +705,8 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
         dbThreads = await getThreadsForCategory(activeAccountId, activeCategory, PAGE_SIZE, offset);
       } else if (activeLabel === "drafts") {
         dbThreads = await getDraftMessagesForAccount(activeAccountId, PAGE_SIZE, offset);
+      } else if (activeLabel === "trash") {
+        dbThreads = await getTrashThreads(activeAccountId, PAGE_SIZE, offset);
       } else {
         const gmailLabelId = LABEL_MAP[activeLabel] ?? activeLabel;
         dbThreads = await getThreadsForAccount(
@@ -868,6 +902,33 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
         <SearchBar />
       </div>
 
+      <ConfirmDialog
+        isOpen={bulkConfirm !== null}
+        onClose={() => setBulkConfirm(null)}
+        onConfirm={() =>
+          bulkConfirm === "emptyTrash"
+            ? runBulkAction(emptyTrash)
+            : runBulkAction(trashAllSpam)
+        }
+        variant="danger"
+        loading={bulkBusy}
+        title={
+          bulkConfirm === "trashSpam"
+            ? t("layout.emailList.spamToolbar.trashAllConfirmTitle")
+            : t("layout.emailList.trashToolbar.emptyTrashConfirmTitle")
+        }
+        message={
+          bulkConfirm === "trashSpam"
+            ? t("layout.emailList.spamToolbar.trashAllConfirmMessage")
+            : t("layout.emailList.trashToolbar.emptyTrashConfirmMessage")
+        }
+        confirmLabel={
+          bulkConfirm === "trashSpam"
+            ? t("layout.emailList.spamToolbar.trashAll")
+            : t("layout.emailList.trashToolbar.emptyTrash")
+        }
+      />
+
       {/* AI Answer Panel — shown only when search query looks like a question */}
       <AnswerPanel
         query={searchQuery}
@@ -919,15 +980,62 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
               </span>
             )}
         </div>
-        <select
-          value={readFilter}
-          onChange={(e) => setReadFilter(e.target.value as "all" | "read" | "unread")}
-          className="text-xs bg-bg-tertiary text-text-secondary px-2 py-1 rounded border border-border-primary"
-        >
-          <option value="all">{t("layout.emailList.allEmails")}</option>
-          <option value="unread">{t("layout.emailList.unreadOnly")}</option>
-          <option value="read">{t("layout.emailList.readOnly")}</option>
-        </select>
+        <div className="flex items-center gap-1">
+          {/* Bulk actions — Trash/Spam views only, icon-only, left of the read filter */}
+          {activeLabel === "trash" && (
+            <>
+              <button
+                onClick={() => runBulkAction(markAllTrashRead)}
+                disabled={bulkBusy || filteredThreads.length === 0}
+                title={t("layout.emailList.trashToolbar.markAllRead")}
+                aria-label={t("layout.emailList.trashToolbar.markAllRead")}
+                className="p-1.5 rounded text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <CheckCheck size={15} />
+              </button>
+              <button
+                onClick={() => setBulkConfirm("emptyTrash")}
+                disabled={bulkBusy || filteredThreads.length === 0}
+                title={t("layout.emailList.trashToolbar.emptyTrash")}
+                aria-label={t("layout.emailList.trashToolbar.emptyTrash")}
+                className="p-1.5 rounded text-text-secondary hover:text-error hover:bg-bg-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Trash2 size={15} />
+              </button>
+            </>
+          )}
+          {activeLabel === "spam" && (
+            <>
+              <button
+                onClick={() => setBulkConfirm("trashSpam")}
+                disabled={bulkBusy || filteredThreads.length === 0}
+                title={t("layout.emailList.spamToolbar.trashAll")}
+                aria-label={t("layout.emailList.spamToolbar.trashAll")}
+                className="p-1.5 rounded text-text-secondary hover:text-error hover:bg-bg-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Trash2 size={15} />
+              </button>
+              <button
+                onClick={() => runBulkAction(markAllSpamRead)}
+                disabled={bulkBusy || filteredThreads.length === 0}
+                title={t("layout.emailList.spamToolbar.markAllRead")}
+                aria-label={t("layout.emailList.spamToolbar.markAllRead")}
+                className="p-1.5 rounded text-text-secondary hover:text-text-primary hover:bg-bg-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <CheckCheck size={15} />
+              </button>
+            </>
+          )}
+          <select
+            value={readFilter}
+            onChange={(e) => setReadFilter(e.target.value as "all" | "read" | "unread")}
+            className="text-xs bg-bg-tertiary text-text-secondary px-2 py-1 rounded border border-border-primary"
+          >
+            <option value="all">{t("layout.emailList.allEmails")}</option>
+            <option value="unread">{t("layout.emailList.unreadOnly")}</option>
+            <option value="read">{t("layout.emailList.readOnly")}</option>
+          </select>
+        </div>
       </div>
 
       {/* Category tabs (inbox + split mode only) */}

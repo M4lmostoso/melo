@@ -29,7 +29,18 @@ export interface MessageScanResult {
   suspiciousLinkCount: number;
   showBanner: boolean;
   scannedAt: number;
+  /** AI second-stage verdict (set by the scanner when AI arbitration runs). */
+  aiVerdict?: "phishing" | "suspicious" | "safe";
+  /** Short human-readable reason from the AI verdict. */
+  aiReason?: string;
 }
+
+/** Heuristic rules strong enough to flag on their own — never AI-suppressed. */
+export const HARD_PHISHING_RULES = new Set([
+  "dangerous-protocol",
+  "display-mismatch",
+  "homograph",
+]);
 
 // ── Constants ──────────────────────────────────────────────────────
 

@@ -191,6 +191,58 @@ async function resolveInboxSentLabels(
   };
 }
 
+/**
+ * Mark every non-draft message of a thread as trashed locally (is_trashed=1, is_read=1).
+ * For Gmail also rewrites gmail_label_ids to TRASH. IMAP coordinates (imap_uid/imap_folder)
+ * are kept intact so the provider can still resolve the server UIDs to move; the next sync
+ * reconciles the folder. This mirrors the per-message logic in deleteSingleMessage but for
+ * the whole thread, so whole-thread trash and single-message trash share the is_trashed
+ * model the Trash view relies on.
+ */
+async function markThreadMessagesTrashed(
+  accountId: string,
+  threadId: string,
+): Promise<void> {
+  const db = await getDb();
+  const probe = await db.select<{ gmail_label_ids: string | null }[]>(
+    "SELECT gmail_label_ids FROM messages WHERE account_id = $1 AND thread_id = $2 AND is_draft = 0 LIMIT 1",
+    [accountId, threadId],
+  );
+  const isGmail =
+    probe[0]?.gmail_label_ids !== null && probe[0]?.gmail_label_ids !== undefined;
+  if (isGmail) {
+    await db.execute(
+      `UPDATE messages SET gmail_label_ids = '["TRASH"]', is_trashed = 1, is_read = 1 WHERE account_id = $1 AND thread_id = $2 AND is_draft = 0`,
+      [accountId, threadId],
+    );
+  } else {
+    await db.execute(
+      "UPDATE messages SET is_trashed = 1, is_read = 1 WHERE account_id = $1 AND thread_id = $2 AND is_draft = 0",
+      [accountId, threadId],
+    );
+  }
+}
+
+/**
+ * Reverse of markThreadMessagesTrashed: clear is_trashed and drop the TRASH label when a
+ * thread is restored out of Trash (moved to Inbox / another folder, or reported as spam).
+ * Safe to call on non-trashed threads — it is a no-op there.
+ */
+async function untrashThreadMessages(
+  accountId: string,
+  threadId: string,
+): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    "UPDATE messages SET is_trashed = 0 WHERE account_id = $1 AND thread_id = $2",
+    [accountId, threadId],
+  );
+  await db.execute(
+    "DELETE FROM thread_labels WHERE account_id = $1 AND thread_id = $2 AND label_id = 'TRASH'",
+    [accountId, threadId],
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Local DB updates (so offline reads reflect changes)
 // ---------------------------------------------------------------------------
@@ -268,10 +320,8 @@ async function applyLocalDbUpdate(
         "UPDATE threads SET is_read = 1 WHERE account_id = $1 AND id = $2",
         [accountId, action.threadId],
       );
-      await db.execute(
-        "UPDATE messages SET is_read = 1 WHERE account_id = $1 AND thread_id = $2",
-        [accountId, action.threadId],
-      );
+      // Mark all messages trashed (is_trashed=1) so the message-based Trash view shows them.
+      await markThreadMessagesTrashed(accountId, action.threadId);
       break;
     case "permanentDelete":
       await db.execute(
@@ -287,6 +337,11 @@ async function applyLocalDbUpdate(
         );
         await db.execute(
           "INSERT OR IGNORE INTO thread_labels (account_id, thread_id, label_id) VALUES ($1, $2, 'SPAM')",
+          [accountId, action.threadId],
+        );
+        // Reporting spam moves the thread out of Trash — clear is_trashed.
+        await db.execute(
+          "UPDATE messages SET is_trashed = 0 WHERE account_id = $1 AND thread_id = $2",
           [accountId, action.threadId],
         );
       } else {
@@ -323,6 +378,15 @@ async function applyLocalDbUpdate(
         "INSERT OR IGNORE INTO thread_labels (account_id, thread_id, label_id) VALUES ($1, $2, $3)",
         [accountId, action.threadId, action.labelId],
       );
+      // Restoring to Inbox un-trashes the thread's messages.
+      if (action.labelId === "INBOX") {
+        await untrashThreadMessages(accountId, action.threadId);
+      }
+      break;
+    case "moveToFolder":
+      // Moving a thread to a folder restores it out of Trash (the dialog never uses
+      // moveToFolder to trash — it calls trashThread). No-op if the thread wasn't trashed.
+      await untrashThreadMessages(accountId, action.threadId);
       break;
     case "removeLabel":
       await db.execute(
@@ -1131,4 +1195,178 @@ export async function deleteDraftThread(
   // so we must trigger it manually here (same as executeEmailAction lines 419-420).
   updateBadgeCount().catch(console.error);
   window.dispatchEvent(new Event("melo-badges-refresh"));
+}
+
+// ---------------------------------------------------------------------------
+// Bulk Trash / Spam operations (toolbar actions)
+//
+// Scope is an explicit list of account ids: a single id in single-account view,
+// or every included account id in the unified view.
+// ---------------------------------------------------------------------------
+
+/**
+ * Permanently delete every trashed MESSAGE (is_trashed=1) across the given accounts.
+ * Individual trashed messages are removed; a thread disappears only when it has no
+ * messages left (i.e. it was composed solely of trashed messages). Threads with
+ * surviving (non-trashed) messages remain, now showing only their active messages.
+ */
+export async function emptyTrash(accountIds: string[]): Promise<ActionResult> {
+  const db = await getDb();
+  const isOnline = useUIStore.getState().isOnline;
+
+  for (const accountId of accountIds) {
+    const rows = await db.select<{ id: string; thread_id: string }[]>(
+      "SELECT id, thread_id FROM messages WHERE account_id = $1 AND is_trashed = 1 AND is_draft = 0",
+      [accountId],
+    );
+    if (rows.length === 0) continue;
+
+    const byThread = new Map<string, string[]>();
+    for (const r of rows) {
+      const arr = byThread.get(r.thread_id);
+      if (arr) arr.push(r.id);
+      else byThread.set(r.thread_id, [r.id]);
+    }
+
+    let provider: Awaited<ReturnType<typeof getEmailProvider>> | null = null;
+    if (isOnline) {
+      try {
+        provider = await getEmailProvider(accountId);
+      } catch {
+        provider = null;
+      }
+    }
+
+    for (const [threadId, messageIds] of byThread) {
+      // 1. Server-side permanent delete (queue when offline or on retryable error)
+      if (provider) {
+        try {
+          await provider.permanentDelete(threadId, messageIds);
+        } catch (err) {
+          const classified = classifyError(err);
+          if (classified.isRetryable) {
+            await enqueuePendingOperation(accountId, "permanentDelete", threadId, {
+              threadId,
+              messageIds,
+            });
+          } else {
+            console.error("emptyTrash permanentDelete failed:", err);
+          }
+        }
+      } else {
+        await enqueuePendingOperation(accountId, "permanentDelete", threadId, {
+          threadId,
+          messageIds,
+        });
+      }
+
+      // 2. Local DB cleanup — remove the trashed message rows
+      for (const id of messageIds) {
+        await db.execute(
+          "DELETE FROM message_embeddings WHERE account_id = $1 AND message_id = $2",
+          [accountId, id],
+        );
+        await db.execute("DELETE FROM messages WHERE account_id = $1 AND id = $2", [
+          accountId,
+          id,
+        ]);
+      }
+
+      // 3. Drop the thread if nothing is left, otherwise recompute its stats/labels
+      const remaining = await db.select<{ cnt: number }[]>(
+        "SELECT COUNT(*) as cnt FROM messages WHERE account_id = $1 AND thread_id = $2",
+        [accountId, threadId],
+      );
+      if ((remaining[0]?.cnt ?? 0) === 0) {
+        await db.execute(
+          "DELETE FROM thread_labels WHERE account_id = $1 AND thread_id = $2",
+          [accountId, threadId],
+        );
+        await db.execute("DELETE FROM threads WHERE account_id = $1 AND id = $2", [
+          accountId,
+          threadId,
+        ]);
+        useThreadStore.getState().removeThread(threadId);
+      } else {
+        await recalculateThreadStats(accountId, threadId);
+      }
+    }
+  }
+
+  updateBadgeCount().catch(console.error);
+  window.dispatchEvent(new Event("melo-badges-refresh"));
+  return { success: true };
+}
+
+/** Mark every trashed message (is_trashed=1) as read across the given accounts. */
+export async function markAllTrashRead(accountIds: string[]): Promise<ActionResult> {
+  const db = await getDb();
+  const isOnline = useUIStore.getState().isOnline;
+
+  for (const accountId of accountIds) {
+    const rows = await db.select<{ id: string; thread_id: string }[]>(
+      "SELECT id, thread_id FROM messages WHERE account_id = $1 AND is_trashed = 1 AND is_read = 0 AND is_draft = 0",
+      [accountId],
+    );
+    if (rows.length === 0) continue;
+
+    await db.execute(
+      "UPDATE messages SET is_read = 1 WHERE account_id = $1 AND is_trashed = 1",
+      [accountId],
+    );
+
+    if (isOnline) {
+      let provider: Awaited<ReturnType<typeof getEmailProvider>> | null = null;
+      try {
+        provider = await getEmailProvider(accountId);
+      } catch {
+        provider = null;
+      }
+      if (provider) {
+        const byThread = new Map<string, string[]>();
+        for (const r of rows) {
+          const arr = byThread.get(r.thread_id);
+          if (arr) arr.push(r.id);
+          else byThread.set(r.thread_id, [r.id]);
+        }
+        for (const [threadId, ids] of byThread) {
+          provider.markRead(threadId, ids, true).catch(() => {});
+        }
+      }
+    }
+  }
+
+  updateBadgeCount().catch(console.error);
+  window.dispatchEvent(new Event("melo-badges-refresh"));
+  return { success: true };
+}
+
+/** Move every Spam thread to Trash across the given accounts. */
+export async function trashAllSpam(accountIds: string[]): Promise<ActionResult> {
+  const db = await getDb();
+  for (const accountId of accountIds) {
+    const rows = await db.select<{ thread_id: string }[]>(
+      "SELECT DISTINCT thread_id FROM thread_labels WHERE account_id = $1 AND label_id = 'SPAM'",
+      [accountId],
+    );
+    for (const r of rows) {
+      await trashThread(accountId, r.thread_id, []);
+    }
+  }
+  return { success: true };
+}
+
+/** Mark every Spam thread as read across the given accounts. */
+export async function markAllSpamRead(accountIds: string[]): Promise<ActionResult> {
+  const db = await getDb();
+  for (const accountId of accountIds) {
+    const rows = await db.select<{ thread_id: string }[]>(
+      "SELECT DISTINCT thread_id FROM thread_labels WHERE account_id = $1 AND label_id = 'SPAM'",
+      [accountId],
+    );
+    for (const r of rows) {
+      await markThreadRead(accountId, r.thread_id, [], true);
+    }
+  }
+  return { success: true };
 }

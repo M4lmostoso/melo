@@ -566,7 +566,10 @@ export class ImapSmtpProvider implements EmailProvider {
       }
       return grouped;
     }
-    const msgs = await getMessagesForThread(this.accountId, threadId);
+    // includeTrashed=true: whole-thread operations (empty messageIds) must still resolve
+    // messages that were just marked is_trashed=1 by the optimistic local update, otherwise
+    // the server move/delete would find nothing.
+    const msgs = await getMessagesForThread(this.accountId, threadId, true);
     const grouped = new Map<string, number[]>();
     for (const m of msgs) {
       if (!m.imap_folder || m.imap_uid == null) continue;

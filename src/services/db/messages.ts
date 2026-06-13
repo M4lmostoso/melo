@@ -36,9 +36,17 @@ export async function getMessagesForThread(
   accountId: string,
   threadId: string,
   includeTrashed = false,
+  trashedOnly = false,
 ): Promise<DbMessage[]> {
   const db = await getDb();
-  const trashedFilter = includeTrashed ? "" : "AND m.is_trashed = 0";
+  // trashedOnly (Trash view): show ONLY the messages actually trashed.
+  // includeTrashed: show all messages regardless of trash state.
+  // default: show only non-trashed messages.
+  const trashedFilter = trashedOnly
+    ? "AND m.is_trashed = 1"
+    : includeTrashed
+      ? ""
+      : "AND m.is_trashed = 0";
   return db.select<DbMessage[]>(
     `SELECT m.*,
        (SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END FROM attachments WHERE message_id = m.id AND is_inline = 0) AS has_attachments

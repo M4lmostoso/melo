@@ -10,7 +10,7 @@ vi.mock("@/services/db/connection", async (importOriginal) => {
 });
 
 import { getDb } from "@/services/db/connection";
-import { deleteAllMessagesForAccount, updateMessageThreadIds } from "./messages";
+import { deleteAllMessagesForAccount, updateMessageThreadIds, getMessagesForThread } from "./messages";
 import { createMockDb } from "@/test/mocks";
 
 const mockDb = createMockDb();
@@ -88,6 +88,29 @@ describe("messages service", () => {
       // Second chunk should have just 1 message
       const secondCall = mockDb.execute.mock.calls[1]!;
       expect(secondCall[1]).toHaveLength(3); // threadId + accountId + 1 ID
+    });
+  });
+
+  describe("getMessagesForThread trash filtering", () => {
+    it("default excludes trashed messages", async () => {
+      await getMessagesForThread("acc-1", "thread-1");
+      const sql = mockDb.select.mock.calls[0]![0] as string;
+      expect(sql).toContain("AND m.is_trashed = 0");
+      expect(sql).not.toContain("AND m.is_trashed = 1");
+    });
+
+    it("trashedOnly returns ONLY trashed messages", async () => {
+      await getMessagesForThread("acc-1", "thread-1", false, true);
+      const sql = mockDb.select.mock.calls[0]![0] as string;
+      expect(sql).toContain("AND m.is_trashed = 1");
+      expect(sql).not.toContain("AND m.is_trashed = 0");
+    });
+
+    it("includeTrashed applies no trash filter", async () => {
+      await getMessagesForThread("acc-1", "thread-1", true);
+      const sql = mockDb.select.mock.calls[0]![0] as string;
+      expect(sql).not.toContain("is_trashed = 0");
+      expect(sql).not.toContain("is_trashed = 1");
     });
   });
 });

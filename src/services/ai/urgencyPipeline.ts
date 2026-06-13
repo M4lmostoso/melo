@@ -188,11 +188,12 @@ export async function processThreadUrgency(params: ThreadUrgencyParams): Promise
     // Reduce urgency by 50% when the account is in CC/BCC but not a direct TO recipient
     const recipientRows = await db.select<{
       email: string;
+      from_address: string | null;
       to_addresses: string | null;
       cc_addresses: string | null;
       bcc_addresses: string | null;
     }[]>(
-      `SELECT a.email, m.to_addresses, m.cc_addresses, m.bcc_addresses
+      `SELECT a.email, m.from_address, m.to_addresses, m.cc_addresses, m.bcc_addresses
        FROM accounts a
        JOIN messages m ON m.account_id = a.id AND m.thread_id = ?2
        WHERE a.id = ?1
@@ -201,8 +202,11 @@ export async function processThreadUrgency(params: ThreadUrgencyParams): Promise
     );
     const recipientRow = recipientRows[0];
     let adjustedScore = finalScore;
+    // Whether the most recent message in the thread was sent by the account owner (a reply).
+    let latestFromOwner = false;
     if (recipientRow) {
       const email = recipientRow.email.toLowerCase();
+      latestFromOwner = (recipientRow.from_address ?? "").toLowerCase() === email;
       const inTo = (recipientRow.to_addresses ?? "").toLowerCase().includes(email);
       const inCcOrBcc =
         (recipientRow.cc_addresses ?? "").toLowerCase().includes(email) ||
@@ -214,7 +218,10 @@ export async function processThreadUrgency(params: ThreadUrgencyParams): Promise
 
     await setThreadUrgency(params.accountId, params.threadId, adjustedScore);
 
-    if (adjustedScore >= EXTINGUISH_RESET_THRESHOLD) {
+    // Re-ignite a previously-resolved thread only when genuinely new INBOUND activity
+    // arrives. If the latest message is the user's own reply, leave it extinguished —
+    // otherwise re-scoring on every sync would undo the urgency drop from replying.
+    if (adjustedScore >= EXTINGUISH_RESET_THRESHOLD && !latestFromOwner) {
       await setHeatExtinguished(params.accountId, params.threadId, false);
     }
   } catch {
@@ -366,21 +373,24 @@ export async function runExtinguishBackfill(): Promise<void> {
         .join("\n");
       const replyText = (row.reply_text ?? "").slice(0, 400);
 
-      let resolved: boolean;
+      // Only the AI verdict can zero the urgency. Without AI/context, conservatively
+      // apply the 30% reduction rather than assuming the topic is closed.
+      let resolved = false;
       if (aiAvailable && receivedText) {
         try {
           resolved = await judgeUrgencyResolved(receivedText, replyText);
         } catch {
-          resolved = true; // AI unavailable → treat as resolved
+          resolved = false;
         }
-      } else {
-        resolved = true; // no context or AI → user replied, assume resolved
       }
 
       if (resolved) {
+        // Reply closed the topic → urgency to zero + mark resolved.
+        await setThreadUrgency(row.account_id, row.thread_id, 0);
         await setHeatExtinguished(row.account_id, row.thread_id, true);
       } else {
-        const decayed = row.urgency_score * 0.5;
+        // Topic still open → reduce urgency by 30%.
+        const decayed = row.urgency_score * 0.7;
         await setThreadUrgency(row.account_id, row.thread_id, decayed);
       }
 

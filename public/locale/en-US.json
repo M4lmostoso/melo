@@ -620,6 +620,7 @@
       "oneLink": "1 suspicious link found",
       "multipleLinks": "{count} suspicious links found",
       "cautionMessage": "in this message. Be cautious before clicking any links.",
+      "aiAssessment": "AI assessment:",
       "trustSender": "Trust this sender"
     },
     "snooze": {
@@ -1564,6 +1565,8 @@
       "autoCategorizeDesc": "Use AI to refine rule-based categorization",
       "autoSummarize": "Auto-summarize threads",
       "autoSummarizeDesc": "Show AI summaries on multi-message threads",
+      "phishingAiVerdict": "AI phishing review",
+      "phishingAiVerdictDesc": "Let the AI re-check flagged emails to dismiss false positives (e.g. newsletters), so warnings appear only for real threats",
       "aiLanguage": "AI Language",
       "autoDraft": "Auto-draft replies",
       "autoDraftDesc": "Pre-populate the reply editor with an AI-generated draft",
@@ -1675,6 +1678,18 @@
       "archive": "Archive selected",
       "trash": "Delete selected",
       "ban": "Spam",
+      "trashToolbar": {
+        "markAllRead": "Mark all as read",
+        "emptyTrash": "Empty trash",
+        "emptyTrashConfirmTitle": "Empty trash?",
+        "emptyTrashConfirmMessage": "All trashed messages will be permanently deleted. Conversations made up only of trashed messages will be removed; conversations with other messages will keep them."
+      },
+      "spamToolbar": {
+        "trashAll": "Move all to trash",
+        "markAllRead": "Mark all as read",
+        "trashAllConfirmTitle": "Move all spam to trash?",
+        "trashAllConfirmMessage": "All spam conversations will be moved to the trash."
+      },
       "clearSelection": "Clear selection",
       "bundleRelease": "Release {count} held",
       "loadMore": "Load more",

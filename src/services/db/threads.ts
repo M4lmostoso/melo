@@ -81,6 +81,70 @@ export async function getThreadsForAccount(
   );
 }
 
+/**
+ * Trash view (single account) — message-based.
+ * Returns every thread that has at least one trashed message (is_trashed=1),
+ * with metadata (sender, snippet, count, date) computed from the TRASHED messages only.
+ * A thread with some trashed + some active messages appears here (showing just the
+ * trashed part) and also stays in its normal folder (showing the active part).
+ */
+export async function getTrashThreads(
+  accountId: string,
+  limit = 50,
+  offset = 0,
+): Promise<DbThread[]> {
+  const db = await getDb();
+  return db.select<DbThread[]>(
+    `SELECT t.*, m.from_name, m.from_address,
+       (SELECT to_addresses FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND is_trashed = 1 AND LOWER(from_address) = LOWER((SELECT email FROM accounts WHERE id = t.account_id)) AND to_addresses IS NOT NULL AND to_addresses != '' ORDER BY date DESC LIMIT 1) as all_recipients,
+       (SELECT GROUP_CONCAT(display, ', ') FROM (SELECT CASE WHEN from_name IS NOT NULL AND from_name != '' THEN from_name || ' <' || from_address || '>' ELSE from_address END as display, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_address IS NOT NULL AND is_trashed = 1 AND LOWER(from_address) != LOWER((SELECT email FROM accounts WHERE id = t.account_id)) GROUP BY LOWER(from_address) ORDER BY last_date DESC)) as all_senders,
+       (SELECT COUNT(*) FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND is_read = 0 AND is_draft = 0 AND is_trashed = 1) as unread_count,
+       m.snippet as snippet,
+       (SELECT COUNT(*) FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND is_draft = 0 AND is_trashed = 1) as message_count,
+       (SELECT MAX(date) FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND is_trashed = 1) as last_message_at
+     FROM threads t
+     LEFT JOIN messages m ON m.account_id = t.account_id AND m.thread_id = t.id
+       AND m.date = (SELECT MAX(m2.date) FROM messages m2 WHERE m2.account_id = t.account_id AND m2.thread_id = t.id AND m2.is_trashed = 1)
+     WHERE t.account_id = $1
+       AND EXISTS (SELECT 1 FROM messages mt WHERE mt.account_id = t.account_id AND mt.thread_id = t.id AND mt.is_trashed = 1)
+     GROUP BY t.account_id, t.id
+     ORDER BY t.is_pinned DESC, m.date DESC
+     LIMIT $2 OFFSET $3`,
+    [accountId, limit, offset],
+  );
+}
+
+/** Unified (multi-account) version of getTrashThreads. */
+export async function getUnifiedTrashThreads(
+  accountIds: string[],
+  limit = 50,
+  offset = 0,
+): Promise<DbThread[]> {
+  if (accountIds.length === 0) return [];
+  const db = await getDb();
+  const placeholders = accountIds.map((_, i) => `$${i + 1}`).join(", ");
+  const limitParam = `$${accountIds.length + 1}`;
+  const offsetParam = `$${accountIds.length + 2}`;
+  return db.select<DbThread[]>(
+    `SELECT t.*, m.from_name, m.from_address,
+       (SELECT to_addresses FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND is_trashed = 1 AND LOWER(from_address) = LOWER((SELECT email FROM accounts WHERE id = t.account_id)) AND to_addresses IS NOT NULL AND to_addresses != '' ORDER BY date DESC LIMIT 1) as all_recipients,
+       (SELECT GROUP_CONCAT(display, ', ') FROM (SELECT CASE WHEN from_name IS NOT NULL AND from_name != '' THEN from_name || ' <' || from_address || '>' ELSE from_address END as display, MAX(date) as last_date FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND from_address IS NOT NULL AND is_trashed = 1 AND LOWER(from_address) != LOWER((SELECT email FROM accounts WHERE id = t.account_id)) GROUP BY LOWER(from_address) ORDER BY last_date DESC)) as all_senders,
+       (SELECT COUNT(*) FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND is_read = 0 AND is_draft = 0 AND is_trashed = 1) as unread_count,
+       m.snippet as snippet,
+       (SELECT COUNT(*) FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND is_draft = 0 AND is_trashed = 1) as message_count,
+       (SELECT MAX(date) FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND is_trashed = 1) as last_message_at
+     FROM threads t
+     LEFT JOIN messages m ON m.account_id = t.account_id AND m.thread_id = t.id
+       AND m.date = (SELECT MAX(m2.date) FROM messages m2 WHERE m2.account_id = t.account_id AND m2.thread_id = t.id AND m2.is_trashed = 1)
+     WHERE t.account_id IN (${placeholders})
+       AND EXISTS (SELECT 1 FROM messages mt WHERE mt.account_id = t.account_id AND mt.thread_id = t.id AND mt.is_trashed = 1)
+     GROUP BY t.account_id, t.id
+     ORDER BY t.is_pinned DESC, m.date DESC
+     LIMIT ${limitParam} OFFSET ${offsetParam}`,
+    [...accountIds, limit, offset],
+  );
+}
+
 /** Threads for a single account that have no user label assigned. */
 export async function getThreadsWithoutUserLabel(
   accountId: string,

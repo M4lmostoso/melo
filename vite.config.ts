@@ -2,11 +2,27 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
+import { readFileSync } from "fs";
 
 const host = process.env.TAURI_DEV_HOST;
 
+// Single source of truth for the app version. package.json is bumped by release-please
+// (release-type "node") alongside tauri.conf.json, so the splash screen always matches.
+const appVersion = JSON.parse(
+  readFileSync(path.resolve(__dirname, "package.json"), "utf-8"),
+).version as string;
+
+// Replaces the __APP_VERSION__ token in HTML entries (e.g. splashscreen.html) at
+// build and dev-serve time so the displayed version can never drift from package.json.
+const injectAppVersion = {
+  name: "inject-app-version",
+  transformIndexHtml(html: string) {
+    return html.replace(/__APP_VERSION__/g, appVersion);
+  },
+};
+
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [react(), tailwindcss(), injectAppVersion],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),

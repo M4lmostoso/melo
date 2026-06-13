@@ -24,13 +24,15 @@ vi.mock("@/services/db/pendingOperations", () => ({
   enqueuePendingOperation: vi.fn(() => Promise.resolve("op-1")),
 }));
 
+const { mockDb } = vi.hoisted(() => ({
+  mockDb: {
+    execute: vi.fn(() => Promise.resolve()),
+    select: vi.fn(() => Promise.resolve([] as unknown[])),
+  },
+}));
+
 vi.mock("@/services/db/connection", () => ({
-  getDb: vi.fn(() =>
-    Promise.resolve({
-      execute: vi.fn(() => Promise.resolve()),
-      select: vi.fn(() => Promise.resolve([])),
-    }),
-  ),
+  getDb: vi.fn(() => Promise.resolve(mockDb)),
 }));
 
 vi.mock("@/router/navigate", () => ({
@@ -51,6 +53,9 @@ import {
   spamThread,
   moveThread,
   executeEmailAction,
+  emptyTrash,
+  trashAllSpam,
+  markAllSpamRead,
 } from "./emailActions";
 import { navigateToThread, getSelectedThreadId } from "@/router/navigate";
 import { createMockEmailProvider, createMockUIStoreState, createMockThreadStoreState } from "@/test/mocks";
@@ -63,6 +68,10 @@ const mockRemoveThread = vi.fn();
 describe("emailActions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockDb.select.mockReset();
+    mockDb.select.mockResolvedValue([]);
+    mockDb.execute.mockReset();
+    mockDb.execute.mockResolvedValue(undefined as never);
     vi.mocked(getEmailProvider).mockResolvedValue(mockProvider as never);
     vi.mocked(useUIStore.getState).mockReturnValue(createMockUIStoreState() as never);
     vi.mocked(useThreadStore.getState).mockReturnValue(createMockThreadStoreState({
@@ -268,6 +277,68 @@ describe("emailActions", () => {
 
       await moveThread("acct-1", "t2", ["m1"], "Archive");
       expect(navigateToThread).toHaveBeenCalledWith("t3");
+    });
+  });
+
+  describe("bulk trash/spam actions", () => {
+    it("emptyTrash permanently deletes trashed messages grouped by thread and removes fully-trashed threads", async () => {
+      vi.mocked(useUIStore.getState).mockReturnValue({ isOnline: true } as never);
+      // 1st select: trashed messages; 2nd select: remaining count for thread t1 → 0
+      mockDb.select
+        .mockResolvedValueOnce([
+          { id: "m1", thread_id: "t1" },
+          { id: "m2", thread_id: "t1" },
+        ])
+        .mockResolvedValueOnce([{ cnt: 0 }]);
+
+      const result = await emptyTrash(["acct-1"]);
+
+      expect(result.success).toBe(true);
+      expect(mockProvider.permanentDelete).toHaveBeenCalledWith("t1", ["m1", "m2"]);
+      // Thread had no surviving messages → removed from store
+      expect(mockRemoveThread).toHaveBeenCalledWith("t1");
+    });
+
+    it("emptyTrash queues the permanent delete when offline", async () => {
+      vi.mocked(useUIStore.getState).mockReturnValue({ isOnline: false } as never);
+      mockDb.select
+        .mockResolvedValueOnce([{ id: "m1", thread_id: "t1" }])
+        .mockResolvedValueOnce([{ cnt: 0 }]);
+
+      const result = await emptyTrash(["acct-1"]);
+
+      expect(result.success).toBe(true);
+      expect(mockProvider.permanentDelete).not.toHaveBeenCalled();
+      expect(enqueuePendingOperation).toHaveBeenCalledWith(
+        "acct-1",
+        "permanentDelete",
+        "t1",
+        expect.objectContaining({ threadId: "t1", messageIds: ["m1"] }),
+      );
+    });
+
+    it("trashAllSpam moves every spam thread to trash via provider", async () => {
+      vi.mocked(useUIStore.getState).mockReturnValue({ isOnline: true } as never);
+      mockDb.select.mockResolvedValueOnce([
+        { thread_id: "s1" },
+        { thread_id: "s2" },
+      ]);
+
+      const result = await trashAllSpam(["acct-1"]);
+
+      expect(result.success).toBe(true);
+      expect(mockProvider.trash).toHaveBeenCalledWith("s1", []);
+      expect(mockProvider.trash).toHaveBeenCalledWith("s2", []);
+    });
+
+    it("markAllSpamRead marks every spam thread read via provider", async () => {
+      vi.mocked(useUIStore.getState).mockReturnValue({ isOnline: true } as never);
+      mockDb.select.mockResolvedValueOnce([{ thread_id: "s1" }]);
+
+      const result = await markAllSpamRead(["acct-1"]);
+
+      expect(result.success).toBe(true);
+      expect(mockProvider.markRead).toHaveBeenCalledWith("s1", [], true);
     });
   });
 

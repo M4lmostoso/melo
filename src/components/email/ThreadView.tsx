@@ -76,7 +76,9 @@ export function ThreadView({ thread }: ThreadViewProps) {
   // In global/unified view activeAccountId is null; fall back to the thread's own account.
   const threadAccountId = activeAccountId ?? thread.accountId;
   const activeLabel = useActiveLabel();
-  const includeTrashed = activeLabel === "trash";
+  // In the Trash view show ONLY the messages actually trashed (is_trashed=1), so a thread
+  // with some active + some trashed messages displays just the trashed part here.
+  const trashedOnly = activeLabel === "trash";
 
   // Resolve user labels for this thread (exclude system labels like INBOX, SENT, …)
   const allAccountLabels = useLabelStore((s) => s.allAccountLabels);
@@ -121,7 +123,7 @@ export function ThreadView({ thread }: ThreadViewProps) {
   // Load all messages for the thread immediately.
   useEffect(() => {
     setLoading(true);
-    getMessagesForThread(threadAccountId, thread.id, includeTrashed)
+    getMessagesForThread(threadAccountId, thread.id, false, trashedOnly)
       .then((msgs) => {
         setMessages(msgs);
         if (storeSelectedMessageId && msgs.some((m) => m.id === storeSelectedMessageId)) {
@@ -511,7 +513,7 @@ const handlePrint = useCallback(async () => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail as { threadId: string };
       if (detail.threadId !== thread.id) return;
-      getMessagesForThread(threadAccountId, thread.id, includeTrashed)
+      getMessagesForThread(threadAccountId, thread.id, false, trashedOnly)
         .then(setMessages)
         .catch(console.error);
     };
@@ -524,7 +526,7 @@ const handlePrint = useCallback(async () => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail as { messageId: string; threadId: string };
       if (detail.threadId !== thread.id) return;
-      getMessagesForThread(threadAccountId, thread.id, includeTrashed)
+      getMessagesForThread(threadAccountId, thread.id, false, trashedOnly)
         .then((msgs) => {
           setMessages(msgs);
           setSelectedMessageId(null);
@@ -760,7 +762,7 @@ const handlePrint = useCallback(async () => {
             accountId={threadAccountId}
             noReply={noReply}
             onSent={() => {
-              getMessagesForThread(threadAccountId, thread.id, includeTrashed)
+              getMessagesForThread(threadAccountId, thread.id, false, trashedOnly)
                 .then(setMessages)
                 .catch(console.error);
             }}

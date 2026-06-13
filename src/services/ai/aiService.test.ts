@@ -14,7 +14,7 @@ vi.mock("@/services/db/aiCache", () => ({
   setAiCache: vi.fn(),
 }));
 
-import { classifyThreadsBySmartLabels } from "./aiService";
+import { classifyThreadsBySmartLabels, judgePhishingRisk } from "./aiService";
 
 describe("classifyThreadsBySmartLabels", () => {
   beforeEach(() => {
@@ -105,5 +105,39 @@ describe("classifyThreadsBySmartLabels", () => {
     expect(callArgs.userContent).toContain("Job applications");
     expect(callArgs.userContent).toContain("t1");
     expect(callArgs.userContent).toContain("recruiter@company.com");
+  });
+});
+
+describe("judgePhishingRisk", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("parses a PHISHING verdict with reason", async () => {
+    mockComplete.mockResolvedValueOnce("PHISHING — link text impersonates paypal but points elsewhere");
+    const { verdict, reason } = await judgePhishingRisk("ctx");
+    expect(verdict).toBe("phishing");
+    expect(reason).toContain("impersonates paypal");
+  });
+
+  it("parses a SAFE verdict (false positive cleared)", async () => {
+    mockComplete.mockResolvedValueOnce("SAFE — legitimate newsletter with tracking links");
+    const { verdict } = await judgePhishingRisk("ctx");
+    expect(verdict).toBe("safe");
+  });
+
+  it("parses a SUSPICIOUS verdict with colon separator", async () => {
+    mockComplete.mockResolvedValueOnce("SUSPICIOUS: unusual sender domain");
+    const { verdict, reason } = await judgePhishingRisk("ctx");
+    expect(verdict).toBe("suspicious");
+    expect(reason).toBe("unusual sender domain");
+  });
+
+  it("is case-insensitive and defaults to safe on unrecognized output", async () => {
+    mockComplete.mockResolvedValueOnce("phishing - lowercase still works");
+    expect((await judgePhishingRisk("ctx")).verdict).toBe("phishing");
+
+    mockComplete.mockResolvedValueOnce("I think this is fine");
+    expect((await judgePhishingRisk("ctx")).verdict).toBe("safe");
   });
 });

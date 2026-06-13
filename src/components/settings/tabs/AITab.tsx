@@ -153,6 +153,7 @@ export function AITab() {
   const [aiEnabled, setAiEnabled] = useState(true);
   const [aiAutoCategorize, setAiAutoCategorize] = useState(true);
   const [aiAutoSummarize, setAiAutoSummarize] = useState(true);
+  const [phishingAiVerdictEnabled, setPhishingAiVerdictEnabled] = useState(true);
   const [aiKeySaved, setAiKeySaved] = useState(false);
   const [aiTesting, setAiTesting] = useState(false);
   const [aiTestResult, setAiTestResult] = useState<"success" | "fail" | null>(null);
@@ -200,6 +201,8 @@ export function AITab() {
       setAiAutoCategorize(aiCat !== "false");
       const aiSum = await getSetting("ai_auto_summarize");
       setAiAutoSummarize(aiSum !== "false");
+      const phishingAi = await getSetting("phishing_ai_verdict_enabled");
+      setPhishingAiVerdictEnabled(phishingAi !== "false");
       const aiDraft = await getSetting("ai_auto_draft_enabled");
       setAiAutoDraftEnabled(aiDraft !== "false");
       const aiStyle = await getSetting("ai_writing_style_enabled");
@@ -468,6 +471,16 @@ export function AITab() {
             const newVal = !aiAutoSummarize;
             setAiAutoSummarize(newVal);
             await setSetting("ai_auto_summarize", newVal ? "true" : "false");
+          }}
+        />
+        <ToggleRow
+          label={t("settings.ai.phishingAiVerdict")}
+          description={t("settings.ai.phishingAiVerdictDesc")}
+          checked={phishingAiVerdictEnabled}
+          onToggle={async () => {
+            const newVal = !phishingAiVerdictEnabled;
+            setPhishingAiVerdictEnabled(newVal);
+            await setSetting("phishing_ai_verdict_enabled", newVal ? "true" : "false");
           }}
         />
         <SettingRow label={t("settings.ai.aiLanguage")}>

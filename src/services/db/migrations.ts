@@ -1218,6 +1218,20 @@ const MIGRATIONS = [
         ON imap_folder_label_mappings(account_id, label_id);
     `,
   },
+  {
+    version: 62,
+    description:
+      "Backfill is_trashed=1 on messages of fully-trashed threads (unifies trash model on is_trashed). Threads carry the TRASH label only when all their messages are trashed, so this is safe.",
+    sql: `
+      UPDATE messages SET is_trashed = 1
+      WHERE is_draft = 0 AND is_trashed = 0 AND EXISTS (
+        SELECT 1 FROM thread_labels tl
+        WHERE tl.account_id = messages.account_id
+          AND tl.thread_id = messages.thread_id
+          AND tl.label_id = 'TRASH'
+      );
+    `,
+  },
 ];
 
 // ---------------------------------------------------------------------------
