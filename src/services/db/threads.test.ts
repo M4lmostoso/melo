@@ -10,10 +10,67 @@ vi.mock("@/services/db/connection", async (importOriginal) => {
 });
 
 import { getDb } from "@/services/db/connection";
-import { muteThread, unmuteThread, getMutedThreadIds, deleteAllThreadsForAccount } from "./threads";
+import { muteThread, unmuteThread, getMutedThreadIds, deleteAllThreadsForAccount, recalculateThreadStats } from "./threads";
 import { createMockDb } from "@/test/mocks";
 
 const mockDb = createMockDb();
+
+describe("threads service - recalculateThreadStats IMAP label derivation", () => {
+  // Drives the IMAP branch by stubbing select() per SQL. Verifies that a message
+  // trashed in-place (still in a non-Trash folder) does NOT keep its thread in
+  // INBOX/SENT — which previously left a ghost thread rendering as "unknown sender".
+  function stubSelect(opts: { nonTrashedFolderLabels: string[]; trashedCount: number }) {
+    let capturedFolderSql = "";
+    vi.mocked(getDb).mockResolvedValue(mockDb as unknown as Awaited<ReturnType<typeof getDb>>);
+    mockDb.select.mockImplementation((sql: string) => {
+      if (sql.includes("gmail_label_ids FROM messages")) return Promise.resolve([]); // → IMAP branch
+      if (sql.includes("l.imap_folder_path = m.imap_folder")) {
+        capturedFolderSql = sql;
+        return Promise.resolve(opts.nonTrashedFolderLabels.map((id) => ({ id })));
+      }
+      if (sql.includes("COUNT(*) AS n") && sql.includes("is_trashed = 1")) {
+        return Promise.resolve([{ n: opts.trashedCount }]);
+      }
+      if (sql.includes("SELECT is_read, is_starred FROM threads")) {
+        return Promise.resolve([{ is_read: 1, is_starred: 0 }]);
+      }
+      return Promise.resolve([]);
+    });
+    return () => capturedFolderSql;
+  }
+
+  function insertedLabels(): string[] {
+    return mockDb.execute.mock.calls
+      .filter((c) => String(c[0]).includes("INSERT OR IGNORE INTO thread_labels"))
+      .map((c) => (c[1] as unknown[])[2] as string);
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("only the TRASH label remains when the sole message is trashed in-place", async () => {
+    const getFolderSql = stubSelect({ nonTrashedFolderLabels: [], trashedCount: 1 });
+
+    await recalculateThreadStats("acc-1", "th-1");
+
+    // Folder→label derivation must exclude trashed messages.
+    expect(getFolderSql()).toContain("is_trashed = 0");
+    const labels = insertedLabels();
+    expect(labels).toContain("TRASH");
+    expect(labels).not.toContain("INBOX");
+  });
+
+  it("keeps INBOX (from the surviving message) and adds TRASH when one of several is trashed", async () => {
+    stubSelect({ nonTrashedFolderLabels: ["INBOX"], trashedCount: 1 });
+
+    await recalculateThreadStats("acc-1", "th-1");
+
+    const labels = insertedLabels();
+    expect(labels).toContain("INBOX");
+    expect(labels).toContain("TRASH");
+  });
+});
 
 describe("threads service - deleteAllThreadsForAccount", () => {
   beforeEach(() => {

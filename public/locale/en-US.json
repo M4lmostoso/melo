@@ -1,4 +1,8 @@
 {
+  "date": {
+    "today": "Today",
+    "yesterday": "Yesterday"
+  },
   "common": {
     "cancel": "Cancel",
     "save": "Save",
@@ -525,8 +529,17 @@
       "inDays": "in {n}d",
       "editTask": "Edit task",
       "deleteTask": "Delete task",
+      "linkEmail": "Link to an email",
+      "relinkEmail": "Linked email missing — re-link to an email",
       "clearDueDate": "Clear due date",
       "priorityLabel": "Priority"
+    },
+    "linkEmail": {
+      "title": "Link task to an email",
+      "searchPlaceholder": "Search emails by subject…",
+      "searching": "Searching…",
+      "noResults": "No matching emails",
+      "hint": "Type at least 2 characters to search"
     },
     "dayPanel": {
       "noTasks": "No tasks due",
@@ -1172,6 +1185,9 @@
       "resyncing": "Resyncing…",
       "resyncDone": "Done",
       "resyncFailed": "Failed",
+      "resyncConfirmTitle": "Resync this account?",
+      "resyncConfirmMessage": "This deletes ALL locally stored messages, threads and sync state for this account, then re-downloads them from the server. Local-only data (offline drafts, task ↔ email links) may not survive. Only messages still present on the server within your sync window will be restored. Continue?",
+      "resyncConfirmButton": "Delete & resync",
       "syncContacts": "Sync Contacts",
       "syncingContacts": "Syncing…",
       "syncingContactsProgress": "Syncing ({count})…",
@@ -1886,6 +1902,7 @@
     "save": "Save"
   },
   "actionBar": {
+    "openInNewWindow": "Open in new window",
     "reply": "Reply (r)",
     "replyAll": "Reply All (a)",
     "replySwitched": "Reply (a)",
@@ -2112,6 +2129,7 @@
     "noResults": "No commands found"
   },
   "contextMenu": {
+    "openInNewWindow": "Open in new window",
     "reply": "Reply",
     "replyAll": "Reply All",
     "forward": "Forward",

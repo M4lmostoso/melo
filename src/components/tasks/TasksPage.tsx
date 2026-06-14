@@ -33,6 +33,7 @@ import { handleRecurringTaskCompletion } from "@/services/tasks/taskManager";
 import { TaskGroup } from "./TaskGroup";
 import { TaskQuickAdd } from "./TaskQuickAdd";
 import { TasksDayPanel } from "./TasksDayPanel";
+import { LinkEmailDialog } from "./LinkEmailDialog";
 import { playSound } from "@/services/soundService";
 
 
@@ -118,6 +119,7 @@ export function TasksPage() {
   const [deletedTasks, setDeletedTasks] = useState<DbTaskWithSubject[]>([]);
   const [subtaskMap, setSubtaskMap] = useState<Record<string, DbTask[]>>({});
   const [archiveHours, setArchiveHours] = useState<number>(0);
+  const [linkTaskId, setLinkTaskId] = useState<string | null>(null);
 
   const colorMap = useMemo(
     () => Object.fromEntries(accounts.map((a) => [a.id, a.color ?? "#3182CE"])),
@@ -251,6 +253,18 @@ export function TasksPage() {
     await loadTasks();
     await useTaskStore.getState().refreshTaskBadges();
   }, [loadTasks]);
+
+  const handleLinkEmail = useCallback((taskId: string) => {
+    setLinkTaskId(taskId);
+  }, []);
+
+  const handleSelectThreadForLink = useCallback(async (threadId: string, threadAccountId: string) => {
+    if (!linkTaskId) return;
+    await updateTask(linkTaskId, { threadId, threadAccountId });
+    setLinkTaskId(null);
+    await loadTasks();
+    await useTaskStore.getState().refreshTaskBadges();
+  }, [linkTaskId, loadTasks]);
 
   const handleCompleteAll = useCallback(async (taskIds: string[]) => {
     for (const id of taskIds) await completeTask(id);
@@ -493,6 +507,7 @@ export function TasksPage() {
               onDelete={handleDelete}
               onDueDateChange={handleDueDateChange}
               onEdit={handleEdit}
+              onLinkEmail={handleLinkEmail}
               onCompleteAll={handleCompleteAll}
               selectedTaskId={selectedTaskId}
               highlightedTaskId={highlightedTaskId}
@@ -502,6 +517,13 @@ export function TasksPage() {
         )}
         </div>
       </div>
+
+      <LinkEmailDialog
+        isOpen={linkTaskId !== null}
+        onClose={() => setLinkTaskId(null)}
+        accountId={allTasks.find((t) => t.id === linkTaskId)?.account_id ?? accountId}
+        onSelect={handleSelectThreadForLink}
+      />
     </div>
   );
 }

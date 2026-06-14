@@ -55,7 +55,7 @@ async function handlePopOut(thread: Thread) {
     const win = new WebviewWindow(windowLabel, {
       url,
       title: thread.subject ?? "Thread",
-      width: 800,
+      width: 1040,
       height: 700,
       center: true,
       dragDropEnabled: false,

@@ -16,6 +16,7 @@ interface TaskGroupProps {
   onDelete: (id: string) => void;
   onDueDateChange: (id: string, dueDate: number | null) => void;
   onEdit?: (id: string, updates: { title?: string; direction?: import("@/services/db/tasks").TaskDirection; dueDate?: number | null }) => void;
+  onLinkEmail?: (id: string) => void;
   onCompleteAll?: (taskIds: string[]) => void;
   selectedTaskId?: string | null;
   highlightedTaskId?: string | null;
@@ -37,6 +38,7 @@ export function TaskGroup({
   onDelete,
   onDueDateChange,
   onEdit,
+  onLinkEmail,
   onCompleteAll,
   selectedTaskId,
   highlightedTaskId,
@@ -52,6 +54,9 @@ export function TaskGroup({
   const setActiveAccount = useAccountStore((s) => s.setActiveAccount);
 
   const isGeneral = threadId === null;
+  // Linked to a thread that no longer resolves to a subject — the thread row is gone
+  // (orphaned link, e.g. after a resync). Surface the re-link affordance on its tasks.
+  const isOrphanedLink = !isGeneral && !threadSubject?.trim();
   const overdueAlert = !isGeneral && hasOverdue(tasks);
   const incompleteTasks = tasks.filter((t) => !t.is_completed);
 
@@ -152,6 +157,8 @@ export function TaskGroup({
               onDelete={onDelete}
               onDueDateChange={onDueDateChange}
               onEdit={onEdit}
+              onLinkEmail={onLinkEmail}
+              isOrphanedLink={isOrphanedLink}
               isSelected={selectedTaskId === task.id}
               isHighlighted={highlightedTaskId === task.id}
               accountColor={accountColor}

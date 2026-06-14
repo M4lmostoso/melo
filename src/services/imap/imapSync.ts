@@ -1080,8 +1080,17 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
         const savedState = syncStateMap.get(folder.raw_path)!;
         try {
           const currentStatus = await imapGetFolderStatus(config, folder.raw_path);
+          // Only treat UIDVALIDITY as changed when the server reports a *valid*
+          // new value. DavMail/Exchange and flaky connections occasionally return
+          // 0/null/NaN after an error or reconnect; trusting that here would flag a
+          // bogus change and trigger a full-folder purge (this is what wiped
+          // thousands of messages). A non-positive value is never a real
+          // UIDVALIDITY, so ignore it and keep the stored mail.
           const uidvalidityChanged =
             savedState.uidvalidity !== null &&
+            typeof currentStatus.uidvalidity === "number" &&
+            Number.isFinite(currentStatus.uidvalidity) &&
+            currentStatus.uidvalidity > 0 &&
             currentStatus.uidvalidity !== savedState.uidvalidity;
           if (uidvalidityChanged) {
             deltaResultMap.set(folder.raw_path, {
@@ -1118,22 +1127,47 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
 
       try {
         if (deltaResult.uidvalidity_changed) {
+          // A UIDVALIDITY change purges the whole folder before resyncing, so this
+          // path is the single most destructive operation in sync. Before deleting
+          // anything we (1) search the server and (2) confirm the result is sane.
+          // We NEVER purge a non-empty local folder when the server search came
+          // back empty or failed — that combination means a flaky/failed response,
+          // not a genuinely emptied mailbox, and blindly deleting there is exactly
+          // what caused mass data loss before.
+          let uidvalidityUids: number[];
+          let uidvalidityVal: number;
+          try {
+            if (daysBack > 0) {
+              const sinceDate = computeSinceDate(daysBack);
+              const searchResult = await imapSearchFolder(config, folder.raw_path, sinceDate);
+              uidvalidityUids = searchResult.uids;
+              uidvalidityVal = searchResult.folder_status.uidvalidity;
+            } else {
+              const folderStatus = await imapGetFolderStatus(config, folder.raw_path);
+              uidvalidityUids = await imapSearchAllUids(config, folder.raw_path);
+              uidvalidityVal = folderStatus.uidvalidity;
+            }
+          } catch (searchErr) {
+            console.warn(
+              `[imapSync] UIDVALIDITY resync search failed for ${folder.path} — skipping purge to avoid data loss:`,
+              searchErr,
+            );
+            continue;
+          }
+
+          const { getStoredImapUidsForFolder } = await import("../db/messages");
+          const storedCount = (await getStoredImapUidsForFolder(accountId, folder.raw_path)).length;
+          if (storedCount > 0 && uidvalidityUids.length === 0) {
+            console.warn(
+              `[imapSync] UIDVALIDITY change for ${folder.path}: server search returned 0 UIDs but ${storedCount} message(s) are stored locally — skipping purge (treating as a failed/empty search, not a real reset).`,
+            );
+            continue;
+          }
+
           console.warn(`UIDVALIDITY changed for ${folder.path} — purging and resyncing`);
           await deleteMessagesForFolder(accountId, folder.raw_path);
           await clearDeletedImapUidsForFolder(accountId, folder.raw_path).catch(() => {});
 
-          let uidvalidityUids: number[];
-          let uidvalidityVal: number;
-          if (daysBack > 0) {
-            const sinceDate = computeSinceDate(daysBack);
-            const searchResult = await imapSearchFolder(config, folder.raw_path, sinceDate);
-            uidvalidityUids = searchResult.uids;
-            uidvalidityVal = searchResult.folder_status.uidvalidity;
-          } else {
-            const folderStatus = await imapGetFolderStatus(config, folder.raw_path);
-            uidvalidityUids = await imapSearchAllUids(config, folder.raw_path);
-            uidvalidityVal = folderStatus.uidvalidity;
-          }
           if (uidvalidityUids.length > 0) {
             const cutoffDate = daysBack > 0 ? Math.floor(Date.now() / 1000) - daysBack * 86400 : 0;
             const { headers, lastUid } = await fetchAllInBatches(

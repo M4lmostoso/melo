@@ -485,16 +485,26 @@ export async function recalculateThreadStats(
         );
       }
     } else {
-      // IMAP account: derive labels from imap_folder_path mapping
+      // IMAP account: derive labels from imap_folder_path mapping.
+      // Only NON-trashed messages contribute their folder's label; trashed messages
+      // contribute ONLY the TRASH label. Without this split, a message trashed in-place
+      // (e.g. no Trash folder mapped, or before sync moves it) keeps its thread in
+      // INBOX/SENT while being excluded from the sender computation (which filters
+      // is_trashed=0) — leaving a ghost thread that renders as "unknown sender".
       const imapLabelRows = await db.select<{ id: string }[]>(
         `SELECT DISTINCT l.id
          FROM messages m
          JOIN labels l ON l.account_id = m.account_id AND l.imap_folder_path = m.imap_folder
-         WHERE m.account_id = $1 AND m.thread_id = $2`,
+         WHERE m.account_id = $1 AND m.thread_id = $2 AND m.is_trashed = 0`,
         [accountId, threadId],
       );
-      if (imapLabelRows.length > 0) {
-        const labels = new Set(imapLabelRows.map((r) => r.id));
+      const trashedRows = await db.select<{ n: number }[]>(
+        "SELECT COUNT(*) AS n FROM messages WHERE account_id = $1 AND thread_id = $2 AND is_trashed = 1",
+        [accountId, threadId],
+      );
+      const labels = new Set(imapLabelRows.map((r) => r.id));
+      if ((trashedRows[0]?.n ?? 0) > 0) labels.add("TRASH");
+      if (labels.size > 0) {
         const thread = await db.select<{ is_read: number; is_starred: number }[]>(
           "SELECT is_read, is_starred FROM threads WHERE account_id = $1 AND id = $2",
           [accountId, threadId],
@@ -665,6 +675,48 @@ export async function getThreadById(
     [accountId, threadId],
   );
   return rows[0];
+}
+
+export interface ThreadSearchResult {
+  id: string;
+  account_id: string;
+  subject: string | null;
+  from_name: string | null;
+  from_address: string | null;
+  last_message_at: number | null;
+}
+
+/**
+ * Search threads by subject/snippet for manual linking (e.g. attaching a task
+ * to an email). Scoped to one account, or all accounts when accountId is null
+ * (unified mode). Sender is taken from the most recent non-trashed message.
+ */
+export async function searchThreadsBySubject(
+  accountId: string | null,
+  query: string,
+  limit = 30,
+): Promise<ThreadSearchResult[]> {
+  const db = await getDb();
+  const like = `%${query.trim()}%`;
+  const senderCols = `
+       (SELECT from_name FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND is_trashed = 0 ORDER BY date DESC LIMIT 1) as from_name,
+       (SELECT from_address FROM messages WHERE account_id = t.account_id AND thread_id = t.id AND is_trashed = 0 ORDER BY date DESC LIMIT 1) as from_address`;
+  if (accountId === null) {
+    return db.select<ThreadSearchResult[]>(
+      `SELECT t.id, t.account_id, t.subject, t.last_message_at,${senderCols}
+       FROM threads t
+       WHERE (t.subject LIKE $1 OR t.snippet LIKE $1)
+       ORDER BY t.last_message_at DESC LIMIT $2`,
+      [like, limit],
+    );
+  }
+  return db.select<ThreadSearchResult[]>(
+    `SELECT t.id, t.account_id, t.subject, t.last_message_at,${senderCols}
+     FROM threads t
+     WHERE t.account_id = $1 AND (t.subject LIKE $2 OR t.snippet LIKE $2)
+     ORDER BY t.last_message_at DESC LIMIT $3`,
+    [accountId, like, limit],
+  );
 }
 
 export async function getThreadCountForAccount(

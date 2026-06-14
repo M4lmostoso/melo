@@ -15,6 +15,8 @@ import { getThemeById, COLOR_THEMES } from "./constants/themes";
 import type { ColorThemeId } from "./constants/themes";
 import type { Thread } from "./stores/threadStore";
 
+const isMac = navigator.userAgent.includes("Macintosh");
+
 export default function ThreadWindow() {
   const { setTheme, setFontScale, setColorTheme } = useUIStore();
   const { setAccounts } = useAccountStore();
@@ -206,6 +208,10 @@ export default function ThreadWindow() {
 
   return (
     <div className="flex flex-col h-screen bg-bg-primary text-text-primary">
+      {/* macOS: reserve a draggable strip for the native traffic-light buttons,
+          which the Overlay title bar draws over the top-left of the webview.
+          Without it they sit on top of ThreadView's header buttons. */}
+      {isMac && <div className="h-7 shrink-0" data-tauri-drag-region />}
       <TitleBar />
       <ThreadView thread={thread} />
       {composerOpen && <Composer />}

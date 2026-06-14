@@ -13,6 +13,7 @@ import {
   Pencil,
   Check,
   X,
+  Link2,
 } from "lucide-react";
 import { t } from "@/i18n";
 import type { DbTask, TaskPriority, TaskDirection } from "@/services/db/tasks";
@@ -63,6 +64,9 @@ interface TaskItemProps {
   onDelete?: (id: string) => void;
   onDueDateChange?: (id: string, dueDate: number | null) => void;
   onEdit?: (id: string, updates: Partial<TaskEditData>) => void;
+  onLinkEmail?: (id: string) => void;
+  /** Task is linked to a thread that no longer exists — allow re-linking even though thread_id is set. */
+  isOrphanedLink?: boolean;
   isSelected?: boolean;
   isHighlighted?: boolean;
   compact?: boolean;
@@ -77,6 +81,8 @@ export function TaskItem({
   onDelete,
   onDueDateChange,
   onEdit,
+  onLinkEmail,
+  isOrphanedLink,
   isSelected,
   isHighlighted,
   compact,
@@ -381,6 +387,15 @@ export function TaskItem({
               className="p-0.5 text-text-tertiary hover:text-text-primary"
             >
               {expanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            </button>
+          )}
+          {onLinkEmail && (!task.thread_id || isOrphanedLink) && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onLinkEmail(task.id); }}
+              title={isOrphanedLink ? t("tasks.item.relinkEmail") : t("tasks.item.linkEmail")}
+              className={`p-0.5 transition-colors ${isOrphanedLink ? "text-amber-500 hover:text-amber-400" : "text-text-tertiary hover:text-accent"}`}
+            >
+              <Link2 size={13} />
             </button>
           )}
           {onEdit && (

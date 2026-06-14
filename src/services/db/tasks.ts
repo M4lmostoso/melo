@@ -205,6 +205,8 @@ export async function updateTask(
     recurrenceRule?: string | null;
     nextRecurrenceAt?: number | null;
     tagsJson?: string;
+    threadId?: string | null;
+    threadAccountId?: string | null;
   },
 ): Promise<void> {
   const db = await getDb();
@@ -247,6 +249,14 @@ export async function updateTask(
   if (updates.tagsJson !== undefined) {
     sets.push(`tags_json = $${idx++}`);
     params.push(updates.tagsJson);
+  }
+  if (updates.threadId !== undefined) {
+    sets.push(`thread_id = $${idx++}`);
+    params.push(updates.threadId);
+  }
+  if (updates.threadAccountId !== undefined) {
+    sets.push(`thread_account_id = $${idx++}`);
+    params.push(updates.threadAccountId);
   }
 
   params.push(id);

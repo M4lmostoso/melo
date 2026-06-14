@@ -112,6 +112,18 @@ describe("tasks DB service", () => {
         expect.arrayContaining(["Updated", "high", "t1"]),
       );
     });
+
+    it("links a task to a thread (thread_id + thread_account_id)", async () => {
+      await updateTask("t1", { threadId: "imap-thread-abc", threadAccountId: "acc-1" });
+      expect(mockDb.execute).toHaveBeenCalledWith(
+        expect.stringContaining("thread_id ="),
+        expect.arrayContaining(["imap-thread-abc", "acc-1", "t1"]),
+      );
+      expect(mockDb.execute).toHaveBeenCalledWith(
+        expect.stringContaining("thread_account_id ="),
+        expect.anything(),
+      );
+    });
   });
 
   describe("deleteTask", () => {

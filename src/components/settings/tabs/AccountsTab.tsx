@@ -23,6 +23,7 @@ import { syncGoogleContacts } from "@/services/contacts/googleContacts";
 import { RefreshCw, Mail, GripVertical } from "lucide-react";
 import { Section, SettingRow } from "./shared";
 import { Button } from "@/components/ui/Button";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { t } from "@/i18n";
 import { EditImapAccount } from "@/components/accounts/EditImapAccount";
 import { ImapIdleFoldersEditor } from "@/components/settings/ImapIdleFoldersEditor";
@@ -240,6 +241,9 @@ export function AccountsTab() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncPeriodDays, setSyncPeriodDays] = useState("365");
   const [resyncStatus, setResyncStatus] = useState<Record<string, "idle" | "syncing" | "done" | "error">>({});
+  // Account id pending resync confirmation — resync is destructive (wipes all local
+  // data for the account before re-downloading), so it must require an explicit confirm.
+  const [resyncConfirmId, setResyncConfirmId] = useState<string | null>(null);
   const [contactsProgress, setContactsProgress] = useState<{ current: number; total: number | undefined } | null>(null);
   const [editingImapAccountId, setEditingImapAccountId] = useState<string | null>(null);
   const [editingGmailAccount, setEditingGmailAccount] = useState<{
@@ -415,7 +419,7 @@ export function AccountsTab() {
                               </button>
                             )}
                             <button
-                              onClick={() => handleResyncAccount(account.id)}
+                              onClick={() => setResyncConfirmId(account.id)}
                               disabled={resyncStatus[account.id] === "syncing"}
                               className="text-xs text-accent hover:text-accent-hover transition-colors disabled:opacity-50"
                             >
@@ -537,6 +541,19 @@ export function AccountsTab() {
           onClose={() => setEditingGmailAccount(null)}
         />
       )}
+      <ConfirmDialog
+        isOpen={resyncConfirmId !== null}
+        onClose={() => setResyncConfirmId(null)}
+        onConfirm={() => {
+          const id = resyncConfirmId;
+          setResyncConfirmId(null);
+          if (id) handleResyncAccount(id);
+        }}
+        title={t("settings.accounts.resyncConfirmTitle")}
+        message={t("settings.accounts.resyncConfirmMessage")}
+        confirmLabel={t("settings.accounts.resyncConfirmButton")}
+        variant="danger"
+      />
     </>
   );
 }

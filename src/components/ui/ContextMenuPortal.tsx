@@ -435,7 +435,7 @@ function ThreadMenu({
       const win = new WebviewWindow(windowLabel, {
         url,
         title: thread.subject ?? "Thread",
-        width: 800,
+        width: 1040,
         height: 700,
         center: true,
         dragDropEnabled: false,
@@ -648,7 +648,7 @@ function ThreadMenu({
       : []),
     {
       id: "pop-out",
-      label: "Open in New Window",
+      label: t("contextMenu.openInNewWindow"),
       icon: ExternalLink,
       disabled: isMulti,
       action: handlePopOut,

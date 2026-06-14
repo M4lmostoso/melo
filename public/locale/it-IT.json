@@ -1,4 +1,8 @@
 {
+  "date": {
+    "today": "Oggi",
+    "yesterday": "Ieri"
+  },
   "common": {
     "cancel": "Annulla",
     "save": "Salva",
@@ -525,8 +529,17 @@
       "inDays": "tra {n}gg",
       "editTask": "Modifica attività",
       "deleteTask": "Elimina attività",
+      "linkEmail": "Collega a una mail",
+      "relinkEmail": "Mail collegata mancante — ricollega a una mail",
       "clearDueDate": "Rimuovi scadenza",
       "priorityLabel": "Priorità"
+    },
+    "linkEmail": {
+      "title": "Collega l'attività a una mail",
+      "searchPlaceholder": "Cerca mail per oggetto…",
+      "searching": "Ricerca…",
+      "noResults": "Nessuna mail corrispondente",
+      "hint": "Digita almeno 2 caratteri per cercare"
     },
     "dayPanel": {
       "noTasks": "Nessuna attività",
@@ -1172,6 +1185,9 @@
       "resyncing": "Risincronizzazione…",
       "resyncDone": "Fatto",
       "resyncFailed": "Errore",
+      "resyncConfirmTitle": "Risincronizzare questo account?",
+      "resyncConfirmMessage": "Questa operazione elimina TUTTI i messaggi, le conversazioni e lo stato di sincronizzazione salvati localmente per questo account, poi li riscarica dal server. I dati presenti solo in locale (bozze offline, collegamenti attività ↔ email) potrebbero andare persi. Verranno ripristinati solo i messaggi ancora presenti sul server entro la finestra di sincronizzazione. Continuare?",
+      "resyncConfirmButton": "Elimina e risincronizza",
       "syncContacts": "Sincronizza contatti",
       "syncingContacts": "Sincronizzazione…",
       "syncingContactsProgress": "Sincronizzazione ({count})…",
@@ -1886,6 +1902,7 @@
     "save": "Salva"
   },
   "actionBar": {
+    "openInNewWindow": "Apri in una nuova finestra",
     "reply": "Rispondi (r)",
     "replyAll": "Rispondi a tutti (a)",
     "replySwitched": "Rispondi (a)",
@@ -2112,6 +2129,7 @@
     "noResults": "Nessun comando trovato"
   },
   "contextMenu": {
+    "openInNewWindow": "Apri in una nuova finestra",
     "reply": "Rispondi",
     "replyAll": "Rispondi a tutti",
     "forward": "Inoltra",

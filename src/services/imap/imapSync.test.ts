@@ -43,6 +43,14 @@ vi.mock("./folderMapper", () => ({
 vi.mock("../db/messages", () => ({
   upsertMessage: vi.fn(),
   updateMessageThreadIds: vi.fn(),
+  deleteMessagesForFolder: vi.fn(),
+  purgeImapDuplicates: vi.fn(async () => 0),
+  purgeOrphanPlaceholderThreads: vi.fn(async () => 0),
+  getStoredImapUidsForFolder: vi.fn(async () => []),
+}));
+vi.mock("../db/deletedImapUids", () => ({
+  clearDeletedImapUidsForFolder: vi.fn(async () => {}),
+  pruneDeletedImapUids: vi.fn(async () => {}),
 }));
 vi.mock("../db/threads", () => ({
   upsertThread: vi.fn(),
@@ -79,15 +87,25 @@ vi.mock("@/services/ai/urgencyPipeline", () => ({
   processThreadUrgency: vi.fn(async () => {}),
 }));
 
-import { imapInitialSync, formatImapDate, computeSinceDate, isConnectionError } from "./imapSync";
+import { imapInitialSync, imapDeltaSync, formatImapDate, computeSinceDate, isConnectionError } from "./imapSync";
 import {
   createMockImapAccount,
   createMockImapFolder,
   createMockImapFolderStatus,
 } from "@/test/mocks";
 import type { ImapSyncHeader } from "./tauriCommands";
-import { imapListFolders, imapSearchFolder, imapFetchAndStore, imapStoreThreads } from "./tauriCommands";
+import {
+  imapListFolders,
+  imapSearchFolder,
+  imapFetchAndStore,
+  imapStoreThreads,
+  imapDeltaCheck,
+  imapGetFolderStatus,
+  imapSearchAllUids,
+} from "./tauriCommands";
 import { getAccount } from "../db/accounts";
+import { getAllFolderSyncStates } from "../db/folderSyncState";
+import { deleteMessagesForFolder, getStoredImapUidsForFolder } from "../db/messages";
 
 describe("imapInitialSync", () => {
   const mockGetAccount = vi.mocked(getAccount);
@@ -432,5 +450,80 @@ describe("imapInitialSync — all-folders-fail propagation", () => {
 
     expect(caughtError).not.toBeNull();
     expect(caughtError!.message).toContain("All folders failed to sync");
+  });
+});
+
+describe("imapDeltaSync — UIDVALIDITY purge safety", () => {
+  const mockGetAccount = vi.mocked(getAccount);
+  const mockImapListFolders = vi.mocked(imapListFolders);
+  const mockGetAllFolderSyncStates = vi.mocked(getAllFolderSyncStates);
+  const mockImapDeltaCheck = vi.mocked(imapDeltaCheck);
+  const mockImapSearchFolder = vi.mocked(imapSearchFolder);
+  const mockImapGetFolderStatus = vi.mocked(imapGetFolderStatus);
+  const mockImapSearchAllUids = vi.mocked(imapSearchAllUids);
+  const mockDeleteMessagesForFolder = vi.mocked(deleteMessagesForFolder);
+  const mockGetStoredImapUidsForFolder = vi.mocked(getStoredImapUidsForFolder);
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetAccount.mockResolvedValue(createMockImapAccount({ id: "acc-1" }));
+    mockImapListFolders.mockResolvedValue([
+      createMockImapFolder({ path: "INBOX", raw_path: "INBOX" }),
+    ]);
+    // One existing folder, previously synced with a valid UIDVALIDITY.
+    mockGetAllFolderSyncStates.mockResolvedValue([
+      {
+        account_id: "acc-1",
+        folder_path: "INBOX",
+        uidvalidity: 100,
+        last_uid: 50,
+        modseq: null,
+        last_sync_at: Math.floor(Date.now() / 1000),
+      },
+    ]);
+    // Server reports UIDVALIDITY changed → folder would be purged & resynced.
+    mockImapDeltaCheck.mockResolvedValue([
+      { folder: "INBOX", uidvalidity: 999, new_uids: [], uidvalidity_changed: true },
+    ]);
+    // We still hold messages locally for this folder.
+    mockGetStoredImapUidsForFolder.mockResolvedValue([
+      { id: "imap-acc-1-INBOX-1", uid: 1 },
+      { id: "imap-acc-1-INBOX-2", uid: 2 },
+    ]);
+  });
+
+  it("does NOT purge the folder when the server search returns 0 UIDs (flaky/failed search)", async () => {
+    // daysBack default (>0) → purge branch uses imapSearchFolder; simulate empty result.
+    mockImapSearchFolder.mockResolvedValue({
+      uids: [],
+      folder_status: createMockImapFolderStatus({ uidvalidity: 999 }),
+    });
+
+    await imapDeltaSync("acc-1");
+
+    expect(mockDeleteMessagesForFolder).not.toHaveBeenCalled();
+  });
+
+  it("does NOT purge the folder when the resync search itself throws", async () => {
+    mockImapSearchFolder.mockRejectedValue(new Error("connection reset"));
+
+    await imapDeltaSync("acc-1");
+
+    expect(mockDeleteMessagesForFolder).not.toHaveBeenCalled();
+  });
+
+  it("DOES purge when the server genuinely returns UIDs for the changed folder", async () => {
+    mockImapSearchFolder.mockResolvedValue({
+      uids: [10, 11, 12],
+      folder_status: createMockImapFolderStatus({ uidvalidity: 999 }),
+    });
+    mockImapGetFolderStatus.mockResolvedValue(createMockImapFolderStatus({ uidvalidity: 999 }));
+    mockImapSearchAllUids.mockResolvedValue([10, 11, 12]);
+    vi.mocked(imapFetchAndStore).mockResolvedValue([]);
+    vi.mocked(imapStoreThreads).mockResolvedValue(0);
+
+    await imapDeltaSync("acc-1");
+
+    expect(mockDeleteMessagesForFolder).toHaveBeenCalledWith("acc-1", "INBOX");
   });
 });
