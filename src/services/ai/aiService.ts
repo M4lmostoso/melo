@@ -396,6 +396,8 @@ export async function judgePhishingRisk(context: string): Promise<PhishingJudgem
 
 export interface UrgencyResult {
   score: number;
+  /** A brief AI rationale for the assigned score, in the configured AI language. */
+  reason?: string;
   labelId?: string;
   confidence?: number;
 }
@@ -418,10 +420,11 @@ export async function scoreUrgencyWithAi(
   const cached = await getAiCache(accountId, threadId, "urgency");
   if (cached !== null) {
     try {
-      const parsed = JSON.parse(cached) as { score: number; label?: { id: string; confidence: number } };
+      const parsed = JSON.parse(cached) as { score: number; reason?: string; label?: { id: string; confidence: number } };
       if (typeof parsed.score !== "number") return null;
       return {
         score: Math.min(1, Math.max(0, parsed.score)),
+        reason: typeof parsed.reason === "string" ? parsed.reason : undefined,
         labelId: parsed.label?.id,
         confidence: parsed.label?.confidence,
       };
@@ -451,6 +454,19 @@ export async function scoreUrgencyWithAi(
     systemPrompt = URGENCY_SCORE_PROMPT;
   }
 
+  // The "reason" field follows the configured AI output language (same as thread
+  // summaries), not the email's language. The score/label remain language-agnostic.
+  // callAi runs with skipLanguage:true (these prompts aren't in its text list), so
+  // the instruction is applied here explicitly.
+  try {
+    const lang = await getSetting("ai_language");
+    if (lang && lang !== "English") {
+      systemPrompt += `\n\nIMPORTANT: Write the "reason" field in ${lang}.`;
+    }
+  } catch {
+    // Continue without language setting — reason defaults to the model's behavior.
+  }
+
   const result = await callAi(
     systemPrompt,
     `<email_content>${content}</email_content>`,
@@ -464,21 +480,24 @@ export async function scoreUrgencyWithAi(
     if (useUnified) {
       const parsed = JSON.parse(jsonMatch[0]) as {
         score: number;
+        reason?: string;
         label: { id: string; confidence: number } | null;
       };
       if (typeof parsed.score !== "number") return null;
       const score = Math.min(1, Math.max(0, parsed.score));
+      const reason = typeof parsed.reason === "string" ? parsed.reason.trim().slice(0, 240) : undefined;
       const label = parsed.label && typeof parsed.label.id === "string" && typeof parsed.label.confidence === "number"
         ? { id: parsed.label.id, confidence: parsed.label.confidence }
         : null;
-      await setAiCache(accountId, threadId, "urgency", JSON.stringify({ score, label }));
-      return { score, labelId: label?.id, confidence: label?.confidence };
+      await setAiCache(accountId, threadId, "urgency", JSON.stringify({ score, reason, label }));
+      return { score, reason, labelId: label?.id, confidence: label?.confidence };
     } else {
-      const parsed = JSON.parse(jsonMatch[0]) as { score: number };
+      const parsed = JSON.parse(jsonMatch[0]) as { score: number; reason?: string };
       if (typeof parsed.score !== "number") return null;
       const score = Math.min(1, Math.max(0, parsed.score));
-      await setAiCache(accountId, threadId, "urgency", JSON.stringify({ score }));
-      return { score };
+      const reason = typeof parsed.reason === "string" ? parsed.reason.trim().slice(0, 240) : undefined;
+      await setAiCache(accountId, threadId, "urgency", JSON.stringify({ score, reason }));
+      return { score, reason };
     }
   } catch {
     return null;

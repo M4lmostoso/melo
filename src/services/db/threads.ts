@@ -24,6 +24,8 @@ export interface DbThread {
   sentiment_score: number | null;
   manual_urgency_override: number | null;
   is_heat_extinguished: number | null;
+  urgency_reason: string | null;
+  urgency_reply_decayed: number | null;
   /**
    * Only set by the draft-message queries (getDraftMessagesForAccount /
    * getUnifiedDraftMessages), where each row is an individual draft MESSAGE and `id`
@@ -931,6 +933,32 @@ export async function setThreadUrgency(
   );
 }
 
+/** Persist the AI rationale for a thread's urgency score (null clears it). */
+export async function setThreadUrgencyReason(
+  accountId: string,
+  threadId: string,
+  reason: string | null,
+): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    "UPDATE threads SET urgency_reason = $1 WHERE account_id = $2 AND id = $3",
+    [reason, accountId, threadId],
+  );
+}
+
+/** Flag whether a thread's urgency was lowered by a partial (non-closing) reply. */
+export async function setUrgencyReplyDecayed(
+  accountId: string,
+  threadId: string,
+  decayed: boolean,
+): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    "UPDATE threads SET urgency_reply_decayed = $1 WHERE account_id = $2 AND id = $3",
+    [decayed ? 1 : 0, accountId, threadId],
+  );
+}
+
 export async function setHeatExtinguished(
   accountId: string,
   threadId: string,
@@ -1080,7 +1108,9 @@ const DRAFT_MESSAGE_COLUMNS = `
   NULL                  AS urgency_score,
   NULL                  AS sentiment_score,
   NULL                  AS manual_urgency_override,
-  NULL                  AS is_heat_extinguished`;
+  NULL                  AS is_heat_extinguished,
+  NULL                  AS urgency_reason,
+  NULL                  AS urgency_reply_decayed`;
 
 const DRAFT_MESSAGE_WHERE = `
   m.is_draft = 1

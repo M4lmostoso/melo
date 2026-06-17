@@ -21,6 +21,10 @@ export interface Thread {
   urgencyScore?: number;
   sentimentScore?: number;
   isHeatExtinguished?: boolean;
+  /** Brief AI rationale for the urgency score (in the configured AI language), if available. */
+  urgencyReason?: string | null;
+  /** True when the score was lowered by a partial (non-closing) reply. */
+  urgencyReplyDecayed?: boolean;
   /**
    * For Drafts-view rows, `id` is the draft MESSAGE id and this carries the parent
    * thread id (for resuming/deleting the draft). For all other rows it equals `id`.

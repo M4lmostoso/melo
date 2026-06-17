@@ -1950,6 +1950,11 @@
     "hasAttachments": "Has attachments",
     "starred": "Starred"
   },
+  "urgency": {
+    "score": "Score",
+    "reason": "Reason",
+    "replyDecayed": "Lowered after a partial reply"
+  },
   "threadView": {
     "noSubject": "(No subject)",
     "muted": "Muted",
@@ -1968,7 +1973,8 @@
     "unsubscribe": "Unsubscribe",
     "unsubscribing": "Unsubscribing...",
     "unsubscribed": "Unsubscribed",
-    "unsubscribeFailed": "Unsubscribe failed — click to retry"
+    "unsubscribeFailed": "Unsubscribe failed — click to retry",
+    "viewContact": "View contact"
   },
   "emailList": {
     "noEmails": "No emails found",

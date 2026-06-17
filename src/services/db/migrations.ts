@@ -1232,6 +1232,15 @@ const MIGRATIONS = [
       );
     `,
   },
+  {
+    version: 63,
+    description:
+      "Add urgency_reason (AI rationale for the urgency score) and urgency_reply_decayed (score lowered by a partial, non-closing reply) to threads.",
+    sql: `
+      ALTER TABLE threads ADD COLUMN urgency_reason TEXT;
+      ALTER TABLE threads ADD COLUMN urgency_reply_decayed INTEGER DEFAULT 0;
+    `,
+  },
 ];
 
 // ---------------------------------------------------------------------------

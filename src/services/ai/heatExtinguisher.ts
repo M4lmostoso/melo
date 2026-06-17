@@ -1,5 +1,5 @@
 import { getSetting } from "@/services/db/settings";
-import { setHeatExtinguished, setManualUrgencyOverride, setThreadUrgency, getThreadById } from "@/services/db/threads";
+import { setHeatExtinguished, setManualUrgencyOverride, setThreadUrgency, setUrgencyReplyDecayed, getThreadById } from "@/services/db/threads";
 import { useThreadStore } from "@/stores/threadStore";
 import { logInteraction } from "./reputationEngine";
 import { getMessagesForThread } from "@/services/db/messages";
@@ -105,13 +105,15 @@ export async function autoExtinguishOnReply(
   if (resolved) {
     // The reply closed the topic → bring urgency to zero and mark the thread resolved.
     await setThreadUrgency(accountId, threadId, 0);
+    await setUrgencyReplyDecayed(accountId, threadId, false);
     await extinguishThread(accountId, threadId);
-    useThreadStore.getState().updateThread(threadId, { urgencyScore: 0 });
+    useThreadStore.getState().updateThread(threadId, { urgencyScore: 0, urgencyReplyDecayed: false });
   } else {
-    // Topic still open → reduce urgency by 30%.
+    // Topic still open → reduce urgency by 30% and flag the partial-reply decay.
     const decayedScore = currentScore * REPLY_URGENCY_DECAY;
     await setThreadUrgency(accountId, threadId, decayedScore);
-    useThreadStore.getState().updateThread(threadId, { urgencyScore: decayedScore });
+    await setUrgencyReplyDecayed(accountId, threadId, true);
+    useThreadStore.getState().updateThread(threadId, { urgencyScore: decayedScore, urgencyReplyDecayed: true });
   }
 
   // Always log the reply interaction (contributes to reputation)

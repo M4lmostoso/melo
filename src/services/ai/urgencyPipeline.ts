@@ -1,5 +1,5 @@
 import { getSetting } from "@/services/db/settings";
-import { setThreadUrgency, setHeatExtinguished } from "@/services/db/threads";
+import { setThreadUrgency, setHeatExtinguished, setThreadUrgencyReason, setUrgencyReplyDecayed } from "@/services/db/threads";
 import { getDb } from "@/services/db/connection";
 import {
   scoreUrgencyFromText,
@@ -113,6 +113,7 @@ export async function processThreadUrgency(params: ThreadUrgencyParams): Promise
     const fromName = params.fromName ?? "";
 
     let rawScore: number;
+    let reason: string | null = null;
 
     // Resolve labels (with few-shot examples) for the unified AI call
     let autoLabelLabels: { id: string; name: string; examples: { subject: string; fromAddress: string }[] }[] | undefined;
@@ -151,6 +152,7 @@ export async function processThreadUrgency(params: ThreadUrgencyParams): Promise
       );
       if (aiResult !== null) {
         rawScore = aiResult.score;
+        reason = aiResult.reason ?? null;
         // Apply auto-label if suggestion meets the confidence threshold
         if (
           autoLabelLabels &&
@@ -217,6 +219,10 @@ export async function processThreadUrgency(params: ThreadUrgencyParams): Promise
     }
 
     await setThreadUrgency(params.accountId, params.threadId, adjustedScore);
+    // Fresh inbound scoring: persist the AI rationale and clear any prior
+    // "lowered by partial reply" flag (this score reflects new activity).
+    await setThreadUrgencyReason(params.accountId, params.threadId, reason);
+    await setUrgencyReplyDecayed(params.accountId, params.threadId, false);
 
     // Re-ignite a previously-resolved thread only when genuinely new INBOUND activity
     // arrives. If the latest message is the user's own reply, leave it extinguished —
@@ -388,10 +394,12 @@ export async function runExtinguishBackfill(): Promise<void> {
         // Reply closed the topic → urgency to zero + mark resolved.
         await setThreadUrgency(row.account_id, row.thread_id, 0);
         await setHeatExtinguished(row.account_id, row.thread_id, true);
+        await setUrgencyReplyDecayed(row.account_id, row.thread_id, false);
       } else {
-        // Topic still open → reduce urgency by 30%.
+        // Topic still open → reduce urgency by 30% and flag the partial-reply decay.
         const decayed = row.urgency_score * 0.7;
         await setThreadUrgency(row.account_id, row.thread_id, decayed);
+        await setUrgencyReplyDecayed(row.account_id, row.thread_id, true);
       }
 
       if (row.from_address) {

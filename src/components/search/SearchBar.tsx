@@ -168,6 +168,8 @@ export function SearchBar() {
       urgencyScore: t.urgency_score ?? undefined,
       sentimentScore: t.sentiment_score ?? undefined,
       isHeatExtinguished: t.is_heat_extinguished === 1,
+      urgencyReason: t.urgency_reason ?? null,
+      urgencyReplyDecayed: t.urgency_reply_decayed === 1,
     }));
 
     mapped.sort((a, b) => {

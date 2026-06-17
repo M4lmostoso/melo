@@ -7,7 +7,8 @@ import { useAccountStore } from "@/stores/accountStore";
 import { useActiveLabel } from "@/hooks/useRouteNavigation";
 import { formatRelativeDate } from "@/utils/date";
 import { decodeHtml } from "@/utils/sanitize";
-import { Paperclip, Star, Check, Pin, BellRing, VolumeX, Zap, Wind } from "lucide-react";
+import { Paperclip, Star, Check, Pin, BellRing } from "lucide-react";
+import { UrgencyIndicator } from "./UrgencyIndicator";
 import type { DragData } from "@/components/dnd/DndProvider";
 import { t } from "@/i18n";
 import { useContactsStore } from "@/stores/contactsStore";
@@ -211,26 +212,13 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
                 <BellRing size={12} />
               </span>
             )}
-            {!thread.isMuted && !thread.isHeatExtinguished && (thread.urgencyScore ?? 0) >= 0.6 && (
-              <span className="shrink-0 text-danger" title={t("threadCard.highUrgency")}>
-                <Zap size={12} className="fill-current" />
-              </span>
-            )}
-            {!thread.isMuted && !thread.isHeatExtinguished && (thread.urgencyScore ?? 0) >= 0.3 && (thread.urgencyScore ?? 0) < 0.6 && (
-              <span className="shrink-0 text-warning" title={t("threadCard.moderateUrgency")}>
-                <Zap size={12} />
-              </span>
-            )}
-            {!thread.isMuted && thread.isHeatExtinguished && (thread.urgencyScore ?? 0) === 0 && (
-              <span className="shrink-0 text-success" title={t("threadCard.urgencyResolved")}>
-                <Wind size={12} />
-              </span>
-            )}
-            {thread.isMuted && (
-              <span className="shrink-0 text-text-tertiary" title={t("threadCard.mutedUrgency")}>
-                <VolumeX size={12} />
-              </span>
-            )}
+            <UrgencyIndicator
+              urgencyScore={thread.urgencyScore}
+              isMuted={thread.isMuted}
+              isHeatExtinguished={thread.isHeatExtinguished}
+              urgencyReason={thread.urgencyReason}
+              urgencyReplyDecayed={thread.urgencyReplyDecayed}
+            />
             {thread.isPinned && (
               <span className="shrink-0 text-accent" title={t("threadCard.pinned")}>
                 <Pin size={12} className="fill-current" />

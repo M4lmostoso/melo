@@ -45,6 +45,10 @@ interface UIState {
   theme: Theme;
   sidebarCollapsed: boolean;
   contactSidebarVisible: boolean;
+  /** When set, the contact sidebar shows this specific contact instead of the
+   *  thread's primary sender. Cleared when the sidebar is toggled via the action
+   *  bar or when the open thread changes. */
+  contactSidebarTarget: { email: string; name: string | null } | null;
   readingPanePosition: ReadingPanePosition;
   readFilter: ReadFilter;
   emailListWidth: number;
@@ -69,6 +73,10 @@ interface UIState {
   setSidebarCollapsed: (collapsed: boolean) => void;
   toggleContactSidebar: () => void;
   setContactSidebarVisible: (visible: boolean) => void;
+  /** Open the contact sidebar focused on a specific contact (e.g. clicked in a
+   *  message header). */
+  openContactSidebar: (email: string, name: string | null) => void;
+  setContactSidebarTarget: (target: { email: string; name: string | null } | null) => void;
   setReadingPanePosition: (position: ReadingPanePosition) => void;
   setReadFilter: (filter: ReadFilter) => void;
   setEmailListWidth: (width: number) => void;
@@ -98,6 +106,7 @@ export const useUIStore = create<UIState>((set) => ({
   theme: "system",
   sidebarCollapsed: false,
   contactSidebarVisible: true,
+  contactSidebarTarget: null,
   readingPanePosition: "right",
   readFilter: "all",
   emailListWidth: 320,
@@ -131,10 +140,17 @@ export const useUIStore = create<UIState>((set) => ({
     set((state) => {
       const visible = !state.contactSidebarVisible;
       setSetting("contact_sidebar_visible", String(visible)).catch(() => {});
-      return { contactSidebarVisible: visible };
+      // Toggling via the action bar always shows the thread's primary sender.
+      return { contactSidebarVisible: visible, contactSidebarTarget: null };
     }),
   setContactSidebarVisible: (contactSidebarVisible) =>
     set({ contactSidebarVisible }),
+  openContactSidebar: (email, name) =>
+    set(() => {
+      setSetting("contact_sidebar_visible", "true").catch(() => {});
+      return { contactSidebarVisible: true, contactSidebarTarget: { email, name } };
+    }),
+  setContactSidebarTarget: (contactSidebarTarget) => set({ contactSidebarTarget }),
   setReadingPanePosition: (readingPanePosition) => {
     setSetting("reading_pane_position", readingPanePosition).catch(() => {});
     set({ readingPanePosition });

@@ -14,7 +14,32 @@ import { useAccountStore } from "@/stores/accountStore";
 import { useContactsStore } from "@/stores/contactsStore";
 import { parseAddressList, resolveRecipientLabel } from "@/utils/emailUtils";
 import { useUIStore } from "@/stores/uiStore";
+import { ContactChip } from "./ContactChip";
 import { t } from "@/i18n";
+
+/** Renders an address-list header (To/Cc/Bcc) as comma-separated, hoverable
+ *  contact chips. */
+function RecipientChips({
+  header,
+  contactsMap,
+}: {
+  header: string | null | undefined;
+  contactsMap: Record<string, string>;
+}) {
+  const addrs = parseAddressList(header);
+  return (
+    <>
+      {addrs.map((addr, i) => (
+        <span key={`${addr.email}-${i}`}>
+          {i > 0 && ", "}
+          <ContactChip email={addr.email} name={contactsMap[addr.email.toLowerCase()] || addr.name}>
+            {resolveRecipientLabel(addr, contactsMap)}
+          </ContactChip>
+        </span>
+      ))}
+    </>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Module-level semaphore — caps concurrent Gmail CID fetches.
@@ -343,21 +368,11 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
   }, [message.body_html]);
 
   const contactsMap = useContactsStore((s) => s.contactsMap);
-  const fromDisplay =
+  const fromContactName =
     (message.from_address && contactsMap[message.from_address.toLowerCase()]) ||
     message.from_name ||
-    message.from_address ||
-    t("messageItem.unknown");
-
-  // Render a To/Cc/Bcc header with each recipient labelled by the priority:
-  // stored contact name → name on the address → raw email.
-  const formatRecipients = useCallback(
-    (header: string | null | undefined): string =>
-      parseAddressList(header)
-        .map((addr) => resolveRecipientLabel(addr, contactsMap))
-        .join(", "),
-    [contactsMap],
-  );
+    null;
+  const fromDisplay = fromContactName || message.from_address || t("messageItem.unknown");
 
   const showUnread = wasUnreadRef.current && !expanded;
 
@@ -387,7 +402,13 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
               <div className="min-w-0">
                 <span className={`text-sm truncate flex items-center gap-1 transition-all
                   ${showUnread ? "font-semibold text-text-primary" : "font-medium text-text-primary"}`}>
-                  {fromDisplay}
+                  {message.from_address ? (
+                    <ContactChip email={message.from_address} name={fromContactName}>
+                      {fromDisplay}
+                    </ContactChip>
+                  ) : (
+                    fromDisplay
+                  )}
                   <AuthBadge authResults={message.auth_results} />
                 </span>
                 {!expanded && (
@@ -411,13 +432,13 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
         {expanded && (
           <div className="mt-1 text-xs text-text-tertiary space-y-0.5">
             {message.to_addresses && (
-              <div><span className="text-text-secondary">{t("messageItem.to")}</span> {formatRecipients(message.to_addresses)}</div>
+              <div><span className="text-text-secondary">{t("messageItem.to")}</span> <RecipientChips header={message.to_addresses} contactsMap={contactsMap} /></div>
             )}
             {message.cc_addresses && (
-              <div><span className="text-text-secondary">{t("messageItem.cc")}</span> {formatRecipients(message.cc_addresses)}</div>
+              <div><span className="text-text-secondary">{t("messageItem.cc")}</span> <RecipientChips header={message.cc_addresses} contactsMap={contactsMap} /></div>
             )}
             {message.bcc_addresses && message.from_address?.toLowerCase() === account?.email.toLowerCase() && (
-              <div><span className="text-text-secondary">{t("messageItem.bcc")}</span> {formatRecipients(message.bcc_addresses)}</div>
+              <div><span className="text-text-secondary">{t("messageItem.bcc")}</span> <RecipientChips header={message.bcc_addresses} contactsMap={contactsMap} /></div>
             )}
           </div>
         )}

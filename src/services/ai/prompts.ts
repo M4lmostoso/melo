@@ -173,7 +173,9 @@ Rules:
 - Work in any language (Italian, English, French, Spanish, German, and others)
 - When in doubt, score conservatively (lower is better than false urgency)
 
-Respond with ONLY a JSON object, nothing else: {"score": 0.65}`;
+Also provide a brief "reason" (a single concise sentence, max 15 words) explaining WHY you assigned this score.
+
+Respond with ONLY a JSON object, nothing else: {"score": 0.65, "reason": "..."}`;
 
 /**
  * Unified urgency + auto-label prompt template.
@@ -200,6 +202,7 @@ Urgency rules:
 - Routine automated emails (receipts, shipping notifications, password resets) are 0.0–0.1
 - Work in any language (Italian, English, French, Spanish, German, and others)
 - When in doubt, score conservatively (lower is better than false urgency)
+- Provide a brief "reason" (a single concise sentence, max 15 words) explaining WHY you assigned this urgency score
 
 LABEL CLASSIFICATION — analyze in cascade order, stop when you reach high confidence:
 1. Past examples (if provided) — strongest signal: if sender or subject closely matches an example, prefer that label
@@ -218,9 +221,9 @@ Label rules:
 - If no label fits, set "label" to null
 
 Respond with ONLY a valid JSON object, nothing else:
-{"score": 0.65, "label": {"id": "label_id_here", "confidence": 78}}
+{"score": 0.65, "reason": "...", "label": {"id": "label_id_here", "confidence": 78}}
 Or if no label matches:
-{"score": 0.65, "label": null}`;
+{"score": 0.65, "reason": "...", "label": null}`;
 
 export const HEAT_EXTINGUISH_JUDGE_PROMPT = `You are evaluating whether an email urgency has been resolved after the user replied.
 You will receive the original urgent email between <original_email> tags, and optionally the user's reply between <user_reply> tags.

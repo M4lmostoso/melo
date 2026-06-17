@@ -340,6 +340,8 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
           urgencyScore,
           sentimentScore: t.sentiment_score ?? undefined,
           isHeatExtinguished: t.is_heat_extinguished === 1,
+          urgencyReason: t.urgency_reason ?? null,
+          urgencyReplyDecayed: t.urgency_reply_decayed === 1,
           threadIdReal: t.thread_id_real ?? t.id,
         };
       }),
@@ -381,6 +383,8 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
             urgencyScore,
             sentimentScore: dbThread.sentiment_score ?? undefined,
             isHeatExtinguished: dbThread.is_heat_extinguished === 1,
+            urgencyReason: dbThread.urgency_reason ?? null,
+            urgencyReplyDecayed: dbThread.urgency_reply_decayed === 1,
           };
           addThreads([mapped]);
         }
@@ -434,6 +438,8 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
         urgencyScore: t.urgency_score ?? undefined,
         sentimentScore: t.sentiment_score ?? undefined,
         isHeatExtinguished: t.is_heat_extinguished === 1,
+        urgencyReason: t.urgency_reason ?? null,
+        urgencyReplyDecayed: t.urgency_reply_decayed === 1,
       }));
       mergeSemanticResults(threads);
     } catch (err) {

@@ -84,6 +84,7 @@ export function ThreadView({ thread }: ThreadViewProps) {
   const allAccountLabels = useLabelStore((s) => s.allAccountLabels);
   const singleAccountLabels = useLabelStore((s) => s.labels);
   const contactSidebarVisible = useUIStore((s) => s.contactSidebarVisible);
+  const contactSidebarTarget = useUIStore((s) => s.contactSidebarTarget);
   const toggleContactSidebar = useUIStore((s) => s.toggleContactSidebar);
   const taskSidebarVisible = useUIStore((s) => s.taskSidebarVisible);
   const [showTaskExtract, setShowTaskExtract] = useState(false);
@@ -411,6 +412,8 @@ const handlePrint = useCallback(async () => {
   useEffect(() => {
     setFocusedMsgIdx(-1);
     setSelectedMessageId(null);
+    // Reset any pinned contact so the sidebar reverts to this thread's sender.
+    useUIStore.getState().setContactSidebarTarget(null);
   }, [thread.id]);
 
   // Scroll focused message into view
@@ -634,8 +637,12 @@ const handlePrint = useCallback(async () => {
   // Detect no-reply senders — disable reply buttons but still allow forward
   const noReply = isNoReplyAddress(lastMessage?.reply_to ?? lastMessage?.from_address);
 
+  // The sidebar shows the contact clicked in a message header (target), falling
+  // back to the thread's primary sender when opened via the action-bar toggle.
   const primarySender = selectedMessage?.from_address ?? null;
   const primarySenderName = selectedMessage?.from_name ?? null;
+  const sidebarEmail = contactSidebarTarget?.email ?? primarySender;
+  const sidebarName = contactSidebarTarget ? contactSidebarTarget.name : primarySenderName;
 
   return (
     <div className="flex h-full @container relative select-none">
@@ -771,7 +778,7 @@ const handlePrint = useCallback(async () => {
       </div>
 
       {/* Contact sidebar — overlay at narrow widths, inline at wide */}
-      {contactSidebarVisible && primarySender && (
+      {contactSidebarVisible && sidebarEmail && (
         <>
           {/* Backdrop for overlay mode (narrow widths) */}
           <div
@@ -780,8 +787,8 @@ const handlePrint = useCallback(async () => {
           />
           <div className="absolute right-0 top-0 bottom-0 z-20 shadow-xl @[640px]:relative @[640px]:z-auto @[640px]:shadow-none">
             <ContactSidebar
-              email={primarySender}
-              name={primarySenderName}
+              email={sidebarEmail}
+              name={sidebarName}
               accountId={threadAccountId}
               onClose={toggleContactSidebar}
             />

@@ -1950,6 +1950,11 @@
     "hasAttachments": "Ha allegati",
     "starred": "Con stella"
   },
+  "urgency": {
+    "score": "Punteggio",
+    "reason": "Motivazione",
+    "replyDecayed": "Abbassata dopo una risposta parziale"
+  },
   "threadView": {
     "noSubject": "(Nessun oggetto)",
     "muted": "Silenziato",
@@ -1968,7 +1973,8 @@
     "unsubscribed": "Iscrizione cancellata",
     "unsubscribeFailed": "Cancellazione iscrizione fallita — clicca per riprovare",
     "bcc": "Ccn:",
-    "cc": "Cc:"
+    "cc": "Cc:",
+    "viewContact": "Visualizza contatto"
   },
   "emailList": {
     "noEmails": "Nessuna email trovata",

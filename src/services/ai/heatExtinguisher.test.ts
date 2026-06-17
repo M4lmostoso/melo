@@ -6,6 +6,7 @@ vi.mock("@/services/db/threads", () => ({
   setHeatExtinguished: vi.fn(() => Promise.resolve()),
   setManualUrgencyOverride: vi.fn(() => Promise.resolve()),
   setThreadUrgency: vi.fn(() => Promise.resolve()),
+  setUrgencyReplyDecayed: vi.fn(() => Promise.resolve()),
 }));
 vi.mock("@/services/db/messages", () => ({
   getMessagesForThread: vi.fn(() => Promise.resolve([])),
@@ -21,7 +22,7 @@ vi.mock("@/stores/threadStore", () => ({
 
 import { autoExtinguishOnReply } from "./heatExtinguisher";
 import { getSetting } from "@/services/db/settings";
-import { getThreadById, setHeatExtinguished, setThreadUrgency } from "@/services/db/threads";
+import { getThreadById, setHeatExtinguished, setThreadUrgency, setUrgencyReplyDecayed } from "@/services/db/threads";
 import { getMessagesForThread } from "@/services/db/messages";
 import { judgeUrgencyResolved } from "./aiService";
 import { isAiAvailable } from "./providerManager";
@@ -55,6 +56,7 @@ describe("autoExtinguishOnReply", () => {
 
     expect(setThreadUrgency).toHaveBeenCalledWith("acct-1", "t1", 0);
     expect(setHeatExtinguished).toHaveBeenCalledWith("acct-1", "t1", true);
+    expect(setUrgencyReplyDecayed).toHaveBeenCalledWith("acct-1", "t1", false);
   });
 
   it("reduces urgency by 30% when the AI judges the topic still open (PENDING)", async () => {
@@ -65,6 +67,7 @@ describe("autoExtinguishOnReply", () => {
 
     expect(setThreadUrgency).toHaveBeenCalledWith("acct-1", "t1", expect.closeTo(0.56, 5));
     expect(setHeatExtinguished).not.toHaveBeenCalled();
+    expect(setUrgencyReplyDecayed).toHaveBeenCalledWith("acct-1", "t1", true);
   });
 
   it("only reduces 30% (never zeroes) when AI is unavailable — no auto-resolve without evaluation", async () => {
