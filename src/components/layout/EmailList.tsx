@@ -23,6 +23,7 @@ import { useSmartFolderStore } from "@/stores/smartFolderStore";
 import { DEFAULT_SMART_FOLDER_I18N_KEYS } from "@/services/db/smartFolders";
 import { useContextMenuStore } from "@/stores/contextMenuStore";
 import { useComposerStore } from "@/stores/composerStore";
+import { useContactsStore } from "@/stores/contactsStore";
 import { getMessagesByIds, getMessageBody } from "@/services/db/messages";
 import { getSmartFolderSearchQuery, mapSmartFolderRows, type SmartFolderRow } from "@/services/search/smartFolderQuery";
 import { applyTemporalDecay } from "@/services/ai/reputationEngine";
@@ -466,6 +467,15 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     // load was in flight, discard results rather than overwriting newer data.
     const isStale = () => loadedLabelRef.current !== currentLabel;
 
+    // "outgoing" and "scheduled" render dedicated views (OutgoingQueueView /
+    // ScheduledEmailListView) that own their data. They have no Gmail label, so a generic
+    // load would pull in unfiltered threads and show a bogus conversation count in the
+    // header. Skip loading entirely and leave the thread list empty.
+    if (activeLabel === "outgoing" || activeLabel === "scheduled") {
+      if (!isStale()) { setThreads([]); setHasMore(false); setLoading(false); }
+      return;
+    }
+
     // Smart folder: always handled first, regardless of account mode.
     // In global view pass all included account IDs; in single-account view pass the active ID.
     // If isSmartFolder but activeSmartFolder is null the store hasn't loaded yet — stay in
@@ -864,7 +874,12 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     let timer: ReturnType<typeof setTimeout> | null = null;
     const handler = () => {
       if (timer) clearTimeout(timer);
-      timer = setTimeout(() => loadThreads(), 500);
+      timer = setTimeout(() => {
+        loadThreads();
+        // Refresh the contact name cache so names learned from newly synced
+        // message headers resolve without requiring an app restart.
+        useContactsStore.getState().loadContacts().catch(console.error);
+      }, 500);
     };
     window.addEventListener("melo-sync-done", handler);
     return () => {
@@ -978,6 +993,8 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
                   </span>
                 );
               })()
+            : activeLabel === "outgoing"
+            ? null /* OutgoingQueueView shows its own count */
             : (
               <span className="text-xs text-text-tertiary">
                 {filteredThreads.length !== 1

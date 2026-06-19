@@ -63,10 +63,18 @@ export interface ParsedAddress {
  * Parse an RFC 2822 address-list header (To/Cc/Bcc) into individual addresses.
  * Splits on commas while respecting quoted display names and angle-bracketed addresses,
  * so `"Doe, John" <j@x.com>, plain@y.com` yields two entries, not three.
+ *
+ * Also tolerates *unquoted* commas inside a display name (e.g. `Doe, John <j@x.com>`,
+ * which many clients send despite RFC requiring quoting): a comma-separated fragment
+ * that carries no address of its own is treated as a dangling name fragment and merged
+ * into the *next angle-bracketed* segment (`<email>`), which is exactly the
+ * "Lastname, Firstname <email>" shape. A bare email (no angle brackets) is always a
+ * distinct recipient, so it never absorbs a preceding fragment — this prevents gluing
+ * a name onto a standalone address and producing an unusable "Name, addr" email.
  */
 export function parseAddressList(header: string | null | undefined): ParsedAddress[] {
   if (!header) return [];
-  const parts: string[] = [];
+  const rawParts: string[] = [];
   let current = "";
   let inQuote = false;
   let angleDepth = 0;
@@ -75,13 +83,36 @@ export function parseAddressList(header: string | null | undefined): ParsedAddre
     else if (ch === "<") angleDepth++;
     else if (ch === ">") angleDepth = Math.max(0, angleDepth - 1);
     if (ch === "," && !inQuote && angleDepth === 0) {
-      parts.push(current);
+      rawParts.push(current);
       current = "";
     } else {
       current += ch;
     }
   }
-  if (current.trim()) parts.push(current);
+  if (current.trim()) rawParts.push(current);
+
+  // Re-merge dangling name fragments (created by unquoted commas inside a display name)
+  // with the next angle-bracketed segment. Only `<...>` segments absorb a pending
+  // fragment; a bare email is a separate recipient and flushes any pending fragment first.
+  const parts: string[] = [];
+  let pending = "";
+  for (const raw of rawParts) {
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    const hasAngle = /<[^>]+>/.test(trimmed);
+    const isBareEmail = !hasAngle && trimmed.includes("@");
+    if (hasAngle) {
+      parts.push(pending ? `${pending}, ${trimmed}` : trimmed);
+      pending = "";
+    } else if (isBareEmail) {
+      if (pending) { parts.push(pending); pending = ""; }
+      parts.push(trimmed);
+    } else {
+      // Name-only fragment — hold it and attach the next angle-bracketed address.
+      pending = pending ? `${pending}, ${trimmed}` : trimmed;
+    }
+  }
+  if (pending) parts.push(pending);
 
   const result: ParsedAddress[] = [];
   for (const raw of parts) {

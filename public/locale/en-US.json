@@ -757,8 +757,7 @@
     },
     "inlineAttachment": {
       "loading": "Loading...",
-      "image": "Image",
-      "defaultPdf": "Document.pdf"
+      "image": "Image"
     },
     "renderer": {
       "iframeTitle": "Email content",

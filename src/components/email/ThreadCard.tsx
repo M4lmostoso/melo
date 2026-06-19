@@ -7,6 +7,7 @@ import { useAccountStore } from "@/stores/accountStore";
 import { useActiveLabel } from "@/hooks/useRouteNavigation";
 import { formatRelativeDate } from "@/utils/date";
 import { decodeHtml } from "@/utils/sanitize";
+import { parseAddressList } from "@/utils/emailUtils";
 import { Paperclip, Star, Check, Pin, BellRing } from "lucide-react";
 import { UrgencyIndicator } from "./UrgencyIndicator";
 import type { DragData } from "@/components/dnd/DndProvider";
@@ -53,15 +54,16 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
   const senderDisplay = useMemo(() => {
     const accountEmail = account?.email.toLowerCase() ?? "";
 
+    // parseAddressList keeps display names that contain unquoted commas (e.g.
+    // "Rossi, Mario <m@x.com>") attached to their address, so such senders are never
+    // shown as an email-less fragment.
     if (isSent) {
       const raw = thread.allRecipients ?? thread.fromAddress ?? "";
       if (!raw) return t("threadCard.unknown");
-      const names = raw.split(/,\s*/).flatMap((entry) => {
-        const match = entry.trim().match(/^(.*?)\s*<([^>]+)>$/);
-        const email = (match ? match[2]! : entry).trim().toLowerCase();
+      const names = parseAddressList(raw).flatMap((addr) => {
+        const email = addr.email.toLowerCase();
         if (email === accountEmail) return [];
-        const name = match ? match[1]!.trim().replace(/^["']|["']$/g, "") : entry.trim();
-        return [contactsMap[email] || name || email];
+        return [contactsMap[email] || addr.name || addr.email];
       });
       return names.join(", ") || t("threadCard.unknown");
     }
@@ -71,11 +73,9 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
     // Do NOT use thread.fromAddress for contact lookup here: fromAddress comes from
     // the latest message, which may be the account's own reply, not the external sender.
     if (thread.allSenders) {
-      const names = thread.allSenders.split(/,\s*/).map((entry) => {
-        const match = entry.trim().match(/^(.*?)\s*<([^>]+)>$/);
-        const email = (match ? match[2]! : entry).trim().toLowerCase();
-        const fallbackName = match ? match[1]!.trim() : entry.trim();
-        return contactsMap[email] || fallbackName || email;
+      const names = parseAddressList(thread.allSenders).map((addr) => {
+        const email = addr.email.toLowerCase();
+        return contactsMap[email] || addr.name || addr.email;
       });
       return names.join(", ") || t("threadCard.unknown");
     }
@@ -86,12 +86,10 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
     if (!thread.fromAddress || thread.fromAddress.toLowerCase() === accountEmail) {
       const raw = thread.allRecipients ?? "";
       if (raw) {
-        const names = raw.split(/,\s*/).flatMap((entry) => {
-          const match = entry.trim().match(/^(.*?)\s*<([^>]+)>$/);
-          const email = (match ? match[2]! : entry).trim().toLowerCase();
+        const names = parseAddressList(raw).flatMap((addr) => {
+          const email = addr.email.toLowerCase();
           if (email === accountEmail) return [];
-          const name = match ? match[1]!.trim().replace(/^["']|["']$/g, "") : entry.trim();
-          return [contactsMap[email] || name || email];
+          return [contactsMap[email] || addr.name || addr.email];
         });
         const nameStr = names.join(", ");
         if (nameStr) return nameStr;

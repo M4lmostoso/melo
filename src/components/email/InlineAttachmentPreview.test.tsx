@@ -110,8 +110,8 @@ describe("InlineAttachmentPreview", () => {
     expect(screen.getByTitle("photo.png")).toBeInTheDocument();
   });
 
-  it("renders PDF cards for PDF attachments", () => {
-    render(
+  it("does not render PDF attachments (handled by AttachmentList)", () => {
+    const { container } = render(
       <InlineAttachmentPreview
         accountId="acc-1"
         messageId="msg-1"
@@ -123,7 +123,8 @@ describe("InlineAttachmentPreview", () => {
       />,
     );
 
-    expect(screen.getByText("report.pdf")).toBeInTheDocument();
+    expect(screen.queryByText("report.pdf")).not.toBeInTheDocument();
+    expect(container).toBeEmptyDOMElement();
   });
 
   it("uses getEmailProvider for thumbnail loading", async () => {
@@ -197,23 +198,4 @@ describe("InlineAttachmentPreview", () => {
     expect(onAttachmentClick).toHaveBeenCalledWith(att);
   });
 
-  it("calls onAttachmentClick when PDF card is clicked", () => {
-    const att = makeAttachment({
-      mime_type: "application/pdf",
-      filename: "report.pdf",
-    });
-
-    render(
-      <InlineAttachmentPreview
-        accountId="acc-1"
-        messageId="msg-1"
-        attachments={[att]}
-        onAttachmentClick={onAttachmentClick}
-      />,
-    );
-
-    screen.getByText("report.pdf").click();
-
-    expect(onAttachmentClick).toHaveBeenCalledWith(att);
-  });
 });

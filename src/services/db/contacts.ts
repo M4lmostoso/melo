@@ -67,6 +67,40 @@ export async function searchContacts(
 }
 
 /**
+ * Build an email → display-name map learned from message headers.
+ * For each sender address, picks the most recent non-empty `from_name` seen.
+ *
+ * This lets the UI resolve a friendly name for an address even when a *specific*
+ * message has an empty `from_name` (common for self-sent / IMAP messages) and the
+ * address isn't a stored contact — the name is borrowed from any other message
+ * where that same address did carry a name.
+ */
+export async function getLearnedNamesFromMessages(): Promise<Record<string, string>> {
+  const db = await getDb();
+  // Join each address to its most recent message that carries a non-empty name.
+  // Avoids window functions for maximum SQLite-build compatibility; the JS map
+  // dedupes the rare case of two messages sharing the same max date.
+  const rows = await db.select<{ email: string; name: string }[]>(
+    `SELECT m.from_address as email, m.from_name as name
+       FROM messages m
+       JOIN (
+         SELECT LOWER(from_address) AS addr, MAX(date) AS maxdate
+         FROM messages
+         WHERE from_address IS NOT NULL AND from_address != ''
+           AND from_name IS NOT NULL AND from_name != ''
+         GROUP BY LOWER(from_address)
+       ) latest
+         ON LOWER(m.from_address) = latest.addr AND m.date = latest.maxdate
+      WHERE m.from_name IS NOT NULL AND m.from_name != ''`,
+  );
+  const map: Record<string, string> = {};
+  for (const r of rows) {
+    if (r.email && r.name) map[r.email.toLowerCase()] = r.name;
+  }
+  return map;
+}
+
+/**
  * Get all contacts, ordered by frequency descending.
  */
 export async function getAllContacts(
