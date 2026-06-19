@@ -90,6 +90,7 @@
     "os:default",
     "log:default",
     "log:allow-log",
-    "core:webview:allow-print"
+    "core:webview:allow-print",
+    "drag:default"
   ]
 }

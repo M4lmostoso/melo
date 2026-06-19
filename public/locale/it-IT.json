@@ -583,7 +583,8 @@
       "actionDownloading": "Download in corso...",
       "actionDownloadError": "Download fallito. Riprova.",
       "actionJumpToEmail": "Vai all'email",
-      "actionPreparing": "Preparazione…"
+      "actionPreparing": "Preparazione…",
+      "itemHint": "Clic per selezionare · Spazio per l'anteprima · doppio clic per aprire · trascina in una cartella"
     },
     "title": "Allegati",
     "searchPlaceholder": "Cerca allegati...",
@@ -721,7 +722,8 @@
       "loadingPreview": "Caricamento anteprima...",
       "previewNotAvailable": "Anteprima non disponibile per questo tipo di file",
       "unknownType": "Tipo sconosciuto",
-      "attachment": "Allegato"
+      "attachment": "Allegato",
+      "itemHint": "Clic per selezionare · Spazio per l'anteprima · doppio clic per aprire · trascina in una cartella"
     },
     "authWarning": {
       "failedAuthentication": "Autenticazione fallita",

@@ -2,6 +2,7 @@ import { Download, Eye, ExternalLink } from "lucide-react";
 import { t } from "@/i18n";
 import { formatFileSize, getFileIcon, canPreview } from "@/utils/fileTypeHelpers";
 import type { AttachmentWithContext } from "@/services/db/attachments";
+import type { ClickModifiers } from "@/hooks/useMultiSelect";
 
 interface AttachmentListItemProps {
   attachment: AttachmentWithContext;
@@ -11,6 +12,11 @@ interface AttachmentListItemProps {
   downloadProgress?: number;
   /** set when last download failed */
   downloadError?: string;
+  selected?: boolean;
+  onSelect?: (e: ClickModifiers) => void;
+  onOpenWithApp?: () => void;
+  onItemMouseDown?: (e: React.MouseEvent) => void;
+  onItemDragStart?: (e: React.DragEvent) => void;
   onPreview: () => void;
   onDownload: () => void;
   onJumpToEmail: () => void;
@@ -26,6 +32,7 @@ function formatShortDate(timestamp: number | null): string {
 export function AttachmentListItem({
   attachment, accountLabel, accountColor,
   downloadProgress, downloadError,
+  selected, onSelect, onOpenWithApp, onItemMouseDown, onItemDragStart,
   onPreview, onDownload, onJumpToEmail,
 }: AttachmentListItemProps) {
   const previewable = canPreview(attachment.mime_type, attachment.filename);
@@ -34,8 +41,27 @@ export function AttachmentListItem({
   const hasError = !!downloadError;
   const pct = downloadProgress ?? 0;
 
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === " ") { e.preventDefault(); onPreview(); }
+    else if (e.key === "Enter") { e.preventDefault(); onOpenWithApp?.(); }
+  };
+
   return (
-    <div className="group relative flex items-center gap-3 px-3 py-2 hover:bg-bg-hover rounded-md transition-colors">
+    <div
+      role="button"
+      tabIndex={0}
+      draggable
+      aria-selected={selected}
+      title={t("attachments.library.itemHint")}
+      onMouseDown={(e) => onItemMouseDown?.(e)}
+      onDragStart={(e) => onItemDragStart?.(e)}
+      onClick={(e) => onSelect?.(e)}
+      onDoubleClick={() => onOpenWithApp?.()}
+      onKeyDown={handleKeyDown}
+      className={`group relative flex items-center gap-3 px-3 py-2 rounded-md transition-colors cursor-pointer select-none focus:outline-none focus:ring-1 focus:ring-accent ${
+        selected ? "bg-accent/10" : "hover:bg-bg-hover"
+      }`}
+    >
         <span className="text-lg shrink-0 w-7 text-center">{getFileIcon(attachment.mime_type, attachment.filename)}</span>
 
         <span className="text-sm text-text-primary truncate min-w-0 flex-1" title={attachment.filename ?? undefined}>
@@ -61,21 +87,26 @@ export function AttachmentListItem({
           {attachment.size != null ? formatFileSize(attachment.size) : ""}
         </span>
 
-        <div className="flex gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div
+          className="flex gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+          onDoubleClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+          draggable={false}
+        >
           {previewable && (
-            <button onClick={onPreview} className="p-1.5 rounded-md text-text-secondary hover:text-text-primary hover:bg-bg-secondary transition-colors" title={t("attachments.library.actionPreview")}>
+            <button onClick={(e) => { e.stopPropagation(); onPreview(); }} className="p-1.5 rounded-md text-text-secondary hover:text-text-primary hover:bg-bg-secondary transition-colors" title={t("attachments.library.actionPreview")}>
               <Eye size={14} />
             </button>
           )}
           <button
-            onClick={onDownload}
+            onClick={(e) => { e.stopPropagation(); onDownload(); }}
             disabled={isDownloading}
             className="p-1.5 rounded-md text-text-secondary hover:text-text-primary hover:bg-bg-secondary transition-colors disabled:opacity-40"
             title={t("attachments.library.actionDownload")}
           >
             <Download size={14} />
           </button>
-          <button onClick={onJumpToEmail} className="p-1.5 rounded-md text-text-secondary hover:text-text-primary hover:bg-bg-secondary transition-colors" title={t("attachments.library.actionJumpToEmail")}>
+          <button onClick={(e) => { e.stopPropagation(); onJumpToEmail(); }} className="p-1.5 rounded-md text-text-secondary hover:text-text-primary hover:bg-bg-secondary transition-colors" title={t("attachments.library.actionJumpToEmail")}>
             <ExternalLink size={14} />
           </button>
         </div>

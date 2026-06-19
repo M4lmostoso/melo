@@ -120,7 +120,26 @@ describe("AttachmentList", () => {
     expect(screen.getByText("2.0 KB")).toBeInTheDocument();
   });
 
-  it("opens preview modal when clicking an attachment", async () => {
+  it("selects an attachment on single click (does not open preview)", () => {
+    render(
+      <AttachmentList
+        accountId="acc-1"
+        messageId="msg-1"
+        attachments={[makeAttachment()]}
+      />,
+    );
+
+    const item = screen.getByText("photo.png").closest('[role="button"]')!;
+    expect(item).toHaveAttribute("aria-selected", "false");
+
+    fireEvent.click(item);
+
+    expect(item).toHaveAttribute("aria-selected", "true");
+    // Single click must NOT fetch/preview
+    expect(mockFetchAttachment).not.toHaveBeenCalled();
+  });
+
+  it("opens preview modal when pressing space on an attachment", async () => {
     // Return a small base64-encoded PNG (1x1 pixel)
     mockFetchAttachment.mockResolvedValue({
       data: btoa("fake-image-data"),
@@ -135,7 +154,7 @@ describe("AttachmentList", () => {
       />,
     );
 
-    fireEvent.click(screen.getByText("photo.png"));
+    fireEvent.keyDown(screen.getByText("photo.png"), { key: " " });
 
     await waitFor(() => {
       expect(getEmailProvider).toHaveBeenCalledWith("acc-1");
@@ -161,7 +180,7 @@ describe("AttachmentList", () => {
       />,
     );
 
-    fireEvent.click(screen.getByText("photo.png"));
+    fireEvent.keyDown(screen.getByText("photo.png"), { key: " " });
 
     await waitFor(() => {
       expect(getEmailProvider).toHaveBeenCalledWith("imap-acc");
@@ -185,8 +204,8 @@ describe("AttachmentList", () => {
       />,
     );
 
-    // Open the preview modal first
-    fireEvent.click(screen.getByText("photo.png"));
+    // Open the preview modal first (Space = Quick Look preview)
+    fireEvent.keyDown(screen.getByText("photo.png"), { key: " " });
 
     // Wait for preview to load, then click download
     await waitFor(() => {
@@ -290,7 +309,7 @@ describe("AttachmentList", () => {
       />,
     );
 
-    fireEvent.click(screen.getByText("photo.png"));
+    fireEvent.keyDown(screen.getByText("photo.png"), { key: " " });
 
     await waitFor(() => {
       expect(screen.getByText("Failed to load preview")).toBeInTheDocument();
@@ -316,7 +335,7 @@ describe("AttachmentList", () => {
       />,
     );
 
-    fireEvent.click(screen.getByText("photo.png"));
+    fireEvent.keyDown(screen.getByText("photo.png"), { key: " " });
 
     // Should not throw — the component normalizes - to + and _ to /
     await waitFor(() => {

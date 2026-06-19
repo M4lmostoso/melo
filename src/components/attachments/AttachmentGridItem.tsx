@@ -2,6 +2,7 @@ import { Download, Eye, ExternalLink } from "lucide-react";
 import { t } from "@/i18n";
 import { formatFileSize, getFileIcon, canPreview } from "@/utils/fileTypeHelpers";
 import type { AttachmentWithContext } from "@/services/db/attachments";
+import type { ClickModifiers } from "@/hooks/useMultiSelect";
 
 interface AttachmentGridItemProps {
   attachment: AttachmentWithContext;
@@ -11,6 +12,11 @@ interface AttachmentGridItemProps {
   downloadProgress?: number;
   /** set when last download failed */
   downloadError?: string;
+  selected?: boolean;
+  onSelect?: (e: ClickModifiers) => void;
+  onOpenWithApp?: () => void;
+  onItemMouseDown?: (e: React.MouseEvent) => void;
+  onItemDragStart?: (e: React.DragEvent) => void;
   onPreview: () => void;
   onDownload: () => void;
   onJumpToEmail: () => void;
@@ -33,6 +39,7 @@ function formatRelativeDate(timestamp: number | null): string {
 export function AttachmentGridItem({
   attachment, accountLabel, accountColor,
   downloadProgress, downloadError,
+  selected, onSelect, onOpenWithApp, onItemMouseDown, onItemDragStart,
   onPreview, onDownload, onJumpToEmail,
 }: AttachmentGridItemProps) {
   const previewable = canPreview(attachment.mime_type, attachment.filename);
@@ -41,15 +48,33 @@ export function AttachmentGridItem({
   const hasError = !!downloadError;
   const pct = downloadProgress ?? 0;
 
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === " ") { e.preventDefault(); onPreview(); }
+    else if (e.key === "Enter") { e.preventDefault(); onOpenWithApp?.(); }
+  };
+
   return (
-    <div className="group relative flex flex-col border border-border-primary rounded-lg hover:border-border-secondary hover:bg-bg-hover transition-colors overflow-hidden">
-      {/* Icon area */}
-      <button
-        onClick={previewable ? onPreview : onDownload}
-        className="flex items-center justify-center h-24 bg-bg-secondary text-3xl"
-      >
+    <div
+      role="button"
+      tabIndex={0}
+      draggable
+      aria-selected={selected}
+      title={t("attachments.library.itemHint")}
+      onMouseDown={(e) => onItemMouseDown?.(e)}
+      onDragStart={(e) => onItemDragStart?.(e)}
+      onClick={(e) => onSelect?.(e)}
+      onDoubleClick={() => onOpenWithApp?.()}
+      onKeyDown={handleKeyDown}
+      className={`group relative flex flex-col border rounded-lg transition-colors overflow-hidden cursor-pointer select-none focus:outline-none focus:ring-1 focus:ring-accent ${
+        selected
+          ? "border-accent bg-accent/10"
+          : "border-border-primary hover:border-border-secondary hover:bg-bg-hover"
+      }`}
+    >
+      {/* Icon area (click selects via the container) */}
+      <div className="flex items-center justify-center h-24 bg-bg-secondary text-3xl">
         {getFileIcon(attachment.mime_type, attachment.filename)}
-      </button>
+      </div>
 
       {/* Info */}
       <div className="px-3 py-2 flex flex-col gap-0.5 min-w-0">
@@ -90,11 +115,16 @@ export function AttachmentGridItem({
         </div>
       )}
 
-      {/* Hover actions */}
-      <div className="absolute top-1.5 right-1.5 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+      {/* Hover actions — stop propagation so they don't trigger select/open */}
+      <div
+        className="absolute top-1.5 right-1.5 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
+        onDoubleClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
+        draggable={false}
+      >
         {previewable && (
           <button
-            onClick={onPreview}
+            onClick={(e) => { e.stopPropagation(); onPreview(); }}
             className="p-1.5 rounded-md bg-bg-primary/90 border border-border-primary text-text-secondary hover:text-text-primary transition-colors"
             title={t("attachments.library.actionPreview")}
           >
@@ -102,7 +132,7 @@ export function AttachmentGridItem({
           </button>
         )}
         <button
-          onClick={onDownload}
+          onClick={(e) => { e.stopPropagation(); onDownload(); }}
           disabled={isDownloading}
           className="p-1.5 rounded-md bg-bg-primary/90 border border-border-primary text-text-secondary hover:text-text-primary transition-colors disabled:opacity-40"
           title={t("attachments.library.actionDownload")}
@@ -110,7 +140,7 @@ export function AttachmentGridItem({
           <Download size={13} />
         </button>
         <button
-          onClick={onJumpToEmail}
+          onClick={(e) => { e.stopPropagation(); onJumpToEmail(); }}
           className="p-1.5 rounded-md bg-bg-primary/90 border border-border-primary text-text-secondary hover:text-text-primary transition-colors"
           title={t("attachments.library.actionJumpToEmail")}
         >

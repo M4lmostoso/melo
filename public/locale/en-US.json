@@ -583,7 +583,8 @@
       "actionDownloading": "Downloading...",
       "actionDownloadError": "Download failed. Please try again.",
       "actionJumpToEmail": "Jump to email",
-      "actionPreparing": "Preparing…"
+      "actionPreparing": "Preparing…",
+      "itemHint": "Click to select · Space to preview · double-click to open · drag to a folder"
     },
     "title": "Attachments",
     "searchPlaceholder": "Search attachments...",
@@ -721,7 +722,8 @@
       "loadingPreview": "Loading preview...",
       "previewNotAvailable": "Preview not available for this file type",
       "unknownType": "Unknown type",
-      "attachment": "Attachment"
+      "attachment": "Attachment",
+      "itemHint": "Click to select · Space to preview · double-click to open · drag to a folder"
     },
     "authWarning": {
       "failedAuthentication": "Authentication failed",

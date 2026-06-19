@@ -19,6 +19,9 @@ import { AttachmentListItem } from "./AttachmentListItem";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { isImage, isPdf, isDocument, isSpreadsheet, isArchive } from "@/utils/fileTypeHelpers";
 import { navigateToLabel } from "@/router/navigate";
+import { useMultiSelect } from "@/hooks/useMultiSelect";
+import { useDragOut } from "@/hooks/useDragOut";
+import { toAttachmentRef, openAttachmentWithDefaultApp } from "@/services/attachments/attachmentActions";
 
 type TypeFilter = "all" | "images" | "pdfs" | "documents" | "spreadsheets" | "archives" | "other";
 type DateFilter = "all" | "today" | "week" | "month" | "year";
@@ -200,6 +203,21 @@ export function AttachmentLibrary() {
       return true;
     });
   }, [attachments, searchQuery, typeFilter, senderFilter, accountFilter, dateFilter, sizeFilter]);
+
+  const sel = useMultiSelect(filtered.map((a) => a.id));
+
+  // Drag set: the whole selection if the pressed item is part of it, else itself.
+  const drag = useDragOut((id) => {
+    if (sel.isSelected(id)) {
+      return filtered.filter((a) => sel.selectedIds.has(a.id)).map(toAttachmentRef);
+    }
+    const att = filtered.find((a) => a.id === id);
+    return att ? [toAttachmentRef(att)] : [];
+  });
+
+  const handleOpenWithApp = useCallback((att: AttachmentWithContext) => {
+    openAttachmentWithDefaultApp(toAttachmentRef(att)).catch((err) => console.error("Open attachment failed:", err));
+  }, []);
 
   const handleDownload = useCallback(async (att: AttachmentWithContext) => {
     const attachmentId = att.gmail_attachment_id ?? att.imap_part_id;
@@ -391,6 +409,11 @@ export function AttachmentLibrary() {
                 accountColor={isUnified ? accountMeta.get(att.account_id)?.color ?? undefined : undefined}
                 downloadProgress={downloadProgress.get(att.id)}
                 downloadError={downloadErrors.get(att.id)}
+                selected={sel.isSelected(att.id)}
+                onSelect={(e) => { if (drag.didDrag()) return; sel.onItemClick(att.id, e); }}
+                onOpenWithApp={() => handleOpenWithApp(att)}
+                onItemMouseDown={(e) => drag.onItemMouseDown(att.id, e)}
+                onItemDragStart={(e) => drag.onItemDragStart(att.id, e)}
                 onPreview={() => setPreviewAttachment(att)}
                 onDownload={() => handleDownload(att)}
                 onJumpToEmail={() => handleJumpToEmail(att)}
@@ -407,6 +430,11 @@ export function AttachmentLibrary() {
                 accountColor={isUnified ? accountMeta.get(att.account_id)?.color ?? undefined : undefined}
                 downloadProgress={downloadProgress.get(att.id)}
                 downloadError={downloadErrors.get(att.id)}
+                selected={sel.isSelected(att.id)}
+                onSelect={(e) => { if (drag.didDrag()) return; sel.onItemClick(att.id, e); }}
+                onOpenWithApp={() => handleOpenWithApp(att)}
+                onItemMouseDown={(e) => drag.onItemMouseDown(att.id, e)}
+                onItemDragStart={(e) => drag.onItemDragStart(att.id, e)}
                 onPreview={() => setPreviewAttachment(att)}
                 onDownload={() => handleDownload(att)}
                 onJumpToEmail={() => handleJumpToEmail(att)}

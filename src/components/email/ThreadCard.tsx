@@ -12,6 +12,7 @@ import { UrgencyIndicator } from "./UrgencyIndicator";
 import type { DragData } from "@/components/dnd/DndProvider";
 import { t } from "@/i18n";
 import { useContactsStore } from "@/stores/contactsStore";
+import { useContextMenuStore } from "@/stores/contextMenuStore";
 
 const CATEGORY_COLORS: Record<string, string> = {
   Updates: "bg-yellow-500/15 text-yellow-600 dark:text-yellow-400",
@@ -33,6 +34,11 @@ interface ThreadCardProps {
 export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick, onContextMenu, category, showCategoryBadge, hasFollowUp }: ThreadCardProps) {
   const isMultiSelected = useThreadStore((s) => s.selectedThreadIds.has(thread.id));
   const hasMultiSelect = useThreadStore((s) => s.selectedThreadIds.size > 0);
+  // Highlight the thread whose context menu is currently open, so it's clear which
+  // thread the right-click action targets. Narrow selector → only the active card re-renders.
+  const isContextActive = useContextMenuStore(
+    (s) => s.menuType === "thread" && s.data.threadId === thread.id,
+  );
   const toggleThreadSelection = useThreadStore((s) => s.toggleThreadSelection);
   const selectThreadRange = useThreadStore((s) => s.selectThreadRange);
   const activeLabel = useActiveLabel();
@@ -147,7 +153,7 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
           ? "opacity-50"
           : isMultiSelected
             ? "bg-accent/10"
-            : isSelected
+            : isSelected || isContextActive
               ? "bg-bg-selected"
               : "hover:bg-bg-hover"
       } ${isSpam ? "bg-red-500/8 dark:bg-red-500/10" : ""}`}

@@ -507,6 +507,10 @@ export default function App() {
             console.error("[App] purgeGhostDrafts failed:", err),
           ),
         );
+        // Clear leftover files materialized for attachment drag-out/open in a prior session.
+        import("./services/attachments/attachmentActions").then(({ cleanupDragTemp }) =>
+          cleanupDragTemp().catch(() => {}),
+        );
 
         const ui = useUIStore.getState();
 

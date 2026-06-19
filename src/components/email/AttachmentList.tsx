@@ -8,6 +8,9 @@ import { Download, Eye } from "lucide-react";
 import { t } from "@/i18n";
 import { formatFileSize, isImage, isPdf, isText, isOfficeDoc, isOfficeSpreadsheet, canPreview, getFileIcon } from "@/utils/fileTypeHelpers";
 import { OfficeDocPreview } from "@/components/ui/OfficeDocPreview";
+import { useMultiSelect } from "@/hooks/useMultiSelect";
+import { useDragOut } from "@/hooks/useDragOut";
+import { toAttachmentRef, openAttachmentWithDefaultApp } from "@/services/attachments/attachmentActions";
 
 /** Dedup attachments by filename+size (content-based) */
 function dedup(attachments: DbAttachment[]): DbAttachment[] {
@@ -39,7 +42,26 @@ export function AttachmentList({ accountId, messageId, attachments, referencedCi
     return true;
   }));
 
+  const sel = useMultiSelect(fileAttachments.map((a) => a.id));
+  const drag = useDragOut((id) => {
+    if (sel.isSelected(id)) {
+      return fileAttachments.filter((a) => sel.selectedIds.has(a.id)).map(toAttachmentRef);
+    }
+    const att = fileAttachments.find((a) => a.id === id);
+    return att ? [toAttachmentRef(att)] : [];
+  });
+
   if (fileAttachments.length === 0) return null;
+
+  const handleKeyDown = (e: React.KeyboardEvent, att: DbAttachment) => {
+    if (e.key === " ") {
+      e.preventDefault();
+      setPreview(att);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      openAttachmentWithDefaultApp(toAttachmentRef(att)).catch((err) => console.error("Open attachment failed:", err));
+    }
+  };
 
   return (
     <>
@@ -51,10 +73,23 @@ export function AttachmentList({ accountId, messageId, attachments, referencedCi
         </div>
         <div className="flex flex-wrap gap-2">
           {fileAttachments.map((att) => (
-            <button
+            <div
               key={att.id}
-              onClick={() => setPreview(att)}
-              className="flex items-center gap-2 px-3 py-1.5 text-xs rounded-md border border-border-primary hover:bg-bg-hover transition-colors"
+              role="button"
+              tabIndex={0}
+              draggable
+              aria-selected={sel.isSelected(att.id)}
+              title={t("email.attachmentList.itemHint")}
+              onMouseDown={(e) => drag.onItemMouseDown(att.id, e)}
+              onDragStart={(e) => drag.onItemDragStart(att.id, e)}
+              onClick={(e) => { if (drag.didDrag()) return; sel.onItemClick(att.id, e); }}
+              onDoubleClick={() => openAttachmentWithDefaultApp(toAttachmentRef(att)).catch((err) => console.error("Open attachment failed:", err))}
+              onKeyDown={(e) => handleKeyDown(e, att)}
+              className={`flex items-center gap-2 px-3 py-1.5 text-xs rounded-md border transition-colors cursor-pointer select-none focus:outline-none focus:ring-1 focus:ring-accent ${
+                sel.isSelected(att.id)
+                  ? "border-accent bg-accent/10"
+                  : "border-border-primary hover:bg-bg-hover"
+              }`}
             >
               <span className="text-text-tertiary">{getFileIcon(att.mime_type, att.filename)}</span>
               <span className="text-text-secondary truncate max-w-[200px]">
@@ -65,7 +100,7 @@ export function AttachmentList({ accountId, messageId, attachments, referencedCi
                   {formatFileSize(att.size)}
                 </span>
               )}
-            </button>
+            </div>
           ))}
         </div>
       </div>
