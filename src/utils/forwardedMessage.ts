@@ -63,7 +63,7 @@ export const FW_CSS = `
 .fw-val{color:var(--fw-text);word-break:break-word}
 .fw-blk:not(.fw-open)>.fw-meta,.fw-blk:not(.fw-open)>.fw-body{display:none}
 .fw-body{padding:12px 16px 14px;border-top:1px solid var(--fw-line);color:var(--fw-text);overflow-x:auto;background:color-mix(in srgb,var(--fw-bg) 30%,transparent)}
-.fw-body blockquote,.fw-body .gmail_quote{border-left:0 !important;margin-left:0 !important;padding-left:0 !important}
+.fw-body blockquote,.fw-body .gmail_quote,.fw-body [style*="border-left"],.q-quote blockquote,.q-quote .gmail_quote,.q-quote [style*="border-left"]{border-left:0 !important;margin-left:0 !important;padding-left:0 !important}
 `;
 
 export const FW_DARK_CSS = ``;
