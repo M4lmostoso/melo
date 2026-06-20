@@ -1846,6 +1846,7 @@
     "help": "Guida",
     "expandSidebar": "Espandi barra laterale",
     "collapseSidebar": "Comprimi barra laterale",
+    "checkMail": "Controlla nuove mail",
     "defaultSmartFolders": {
       "sfUnread": "Non lette",
       "sfAttachments": "Con Allegati",

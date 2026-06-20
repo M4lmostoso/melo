@@ -1846,6 +1846,7 @@
     "help": "Help",
     "expandSidebar": "Expand sidebar",
     "collapseSidebar": "Collapse sidebar",
+    "checkMail": "Check for new mail",
     "defaultSmartFolders": {
       "sfUnread": "Unread",
       "sfAttachments": "Has Attachments",

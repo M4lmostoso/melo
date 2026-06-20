@@ -48,6 +48,7 @@ import {
   FolderSearch,
   Loader2,
   Rocket,
+  RefreshCw,
   type LucideIcon,
 } from "lucide-react";
 
@@ -58,6 +59,7 @@ function smartFolderName(id: string, fallback: string): string {
   return key ? t(key) : fallback;
 }
 import { useTaskStore } from "@/stores/taskStore";
+import { triggerSync } from "@/services/gmail/syncManager";
 import { LabelBreadcrumb } from "../labels/LabelBreadcrumb";
 
 function TagOff({ size = 14, className }: { size?: number; className?: string }) {
@@ -471,11 +473,18 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
   const setActiveAccount = useAccountStore((s) => s.setActiveAccount);
   const accounts = useAccountStore((s) => s.accounts);
+  const accountSyncStatuses = useUIStore((s) => s.accountSyncStatuses);
   // In unified view activeAccountId is null; viewingAccountId tracks the account
   // of the currently open thread for display purposes (set by EmailList on thread click).
   const viewingAccountId = useAccountStore((s) => s.viewingAccountId);
   const selectedThreadAccountId = activeAccountId ? null : viewingAccountId;
   const [isScrolling, setIsScrolling] = useState(false);
+
+  const isSyncing = Object.values(accountSyncStatuses).some((s) => s.phase === "syncing");
+  const handleCheckMail = useCallback(() => {
+    const ids = accounts.map((a) => a.id);
+    if (ids.length > 0) triggerSync(ids);
+  }, [accounts]);
   const toggleGlobalItem = useCallback(
     (id: string) => setExpandedGlobalItems((prev) => ({ ...prev, [id]: !prev[id] })),
     [],
@@ -967,7 +976,18 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
       className={`sidebar no-select flex flex-col bg-sidebar-bg text-sidebar-text border-r border-border-primary transition-all duration-200 glass-panel ${collapsed ? "w-20" : "w-90"
         }`}
     >
-      {isMac && <div className="h-7 shrink-0" data-tauri-drag-region />}
+      {isMac && (
+        <div className="h-7 shrink-0 flex items-center justify-end pr-1.5" data-tauri-drag-region>
+          <button
+            onClick={handleCheckMail}
+            disabled={isSyncing}
+            className="w-5 h-5 flex items-center justify-center rounded text-sidebar-text/40 hover:text-sidebar-text/80 hover:bg-sidebar-hover transition-colors disabled:cursor-default"
+            title={t("sidebar.checkMail")}
+          >
+            <RefreshCw size={11} className={isSyncing ? "animate-spin" : ""} />
+          </button>
+        </div>
+      )}
       <AccountSwitcher collapsed={collapsed} onAddAccount={onAddAccount} />
 
       <nav className={`flex-1 overflow-y-auto py-2 ${isScrolling ? 'scrollbar-visible' : 'scrollbar-hidden'}`}>
