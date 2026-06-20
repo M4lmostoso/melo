@@ -22,7 +22,7 @@ export function ReadingPane() {
 
   if (!selectedThread) {
     return (
-      <div className="flex-1 flex flex-col bg-bg-primary/50 glass-panel">
+      <div data-tauri-drag-region className="flex-1 flex flex-col bg-bg-primary/50 glass-panel">
         <EmptyState illustration={ReadingPaneIllustration} title={t("layout.titleBar.appName")} subtitle={t("layout.readingPane.selectEmail")} />
       </div>
     );

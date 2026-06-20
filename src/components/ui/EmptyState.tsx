@@ -11,7 +11,7 @@ type EmptyStateProps = {
 
 export function EmptyState({ title, subtitle, ...rest }: EmptyStateProps) {
   return (
-    <div className="flex flex-col items-center justify-center h-full text-text-tertiary px-4">
+    <div data-tauri-drag-region className="flex flex-col items-center justify-center h-full text-text-tertiary px-4 select-none">
       {"illustration" in rest && rest.illustration ? (
         <rest.illustration size={140} className="mb-4 opacity-80" />
       ) : "icon" in rest && rest.icon ? (
