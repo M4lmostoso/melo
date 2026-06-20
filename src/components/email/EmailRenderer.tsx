@@ -206,7 +206,7 @@ export function EmailRenderer({
     ${isDark ? FW_DARK_CSS : ""}
     ${isDark ? QUOTE_DARK_CSS : ""}
     ${buildAccentOverride(accentColor, isDark, accentLight)}
-    ${htmlDark ? `.fw-hd,.fw-meta,.q-tgl{filter:invert(1) hue-rotate(180deg)}.fw-body{background:transparent}` : ""}
+    ${htmlDark ? `.fw-hd,.fw-meta,.q-tgl{filter:invert(1) hue-rotate(180deg)}.fw-body{background:transparent;color:#1a1612}` : ""}
   </style>
   <script>(function() {
     var NONCE = '${nonce}';

@@ -1241,6 +1241,18 @@ const MIGRATIONS = [
       ALTER TABLE threads ADD COLUMN urgency_reply_decayed INTEGER DEFAULT 0;
     `,
   },
+  {
+    version: 64,
+    description:
+      "Repair over-trashing from v62: that migration set is_trashed=1 on EVERY non-draft message of any thread carrying the TRASH label, but for Gmail a thread's labels are the UNION of its messages' labels, so a single trashed message (e.g. a discarded draft) made the whole thread carry TRASH — wrongly trashing its still-live INBOX/SENT messages and leaving the thread to render empty. Un-trash any Gmail message whose own labels do NOT include TRASH (gmail_label_ids is the source of truth). IMAP messages (gmail_label_ids IS NULL) are governed by their folder mapping and left untouched. Idempotent.",
+    sql: `
+      UPDATE messages SET is_trashed = 0
+      WHERE is_trashed = 1
+        AND is_draft = 0
+        AND gmail_label_ids IS NOT NULL
+        AND gmail_label_ids NOT LIKE '%"TRASH"%';
+    `,
+  },
 ];
 
 // ---------------------------------------------------------------------------
