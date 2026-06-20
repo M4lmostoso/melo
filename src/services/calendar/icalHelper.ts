@@ -517,37 +517,78 @@ export function extractMeetingUrl(icalData: string): string | null {
 }
 
 export interface RsvpReplyParams {
+  /** The original invitation's full iCalendar text — properties are echoed from it. */
+  originalIcs: string;
   uid: string;
   summary: string;
-  dtstart: string;
-  dtend: string;
   organizerEmail: string;
   attendeeEmail: string;
   attendeeName?: string;
   partstat: "ACCEPTED" | "DECLINED" | "TENTATIVE";
 }
 
-/** Generate a METHOD:REPLY iCalendar string for responding to an invite */
+/** Pick a full property line (name + params + value) from the VEVENT, verbatim. */
+function pickVEventLine(eventLines: string[], propName: string): string | null {
+  const upper = propName.toUpperCase();
+  for (const line of eventLines) {
+    const head = line.split(":")[0]!.split(";")[0]!.toUpperCase();
+    if (head === upper) return line;
+  }
+  return null;
+}
+
+/** Quote an iCalendar parameter value if it contains characters that require it. */
+function quoteParamValue(value: string): string {
+  return /[,;:]/.test(value) ? `"${value.replace(/"/g, "")}"` : value;
+}
+
+/**
+ * Generate a METHOD:REPLY iCalendar string for responding to an invite.
+ *
+ * iTIP/iMIP (RFC 5546) requires the REPLY to echo the original REQUEST's
+ * identifying properties so the organizer's server (notably Microsoft
+ * Exchange / Teams) can match the reply to the meeting. We copy UID, SEQUENCE,
+ * DTSTART/DTEND/DURATION (with their TZID params), RECURRENCE-ID and ORGANIZER
+ * verbatim from the invitation, and only set our own ATTENDEE + PARTSTAT.
+ * Emitting an empty DTEND or stripping TZID makes Exchange silently drop the
+ * reply, which is why we never synthesise those values.
+ */
 export function generateRsvpReply(params: RsvpReplyParams): string {
-  const { uid, summary, dtstart, dtend, organizerEmail, attendeeEmail, attendeeName, partstat } = params;
-  const now = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "") + "Z";
-  const cn = attendeeName ? `CN=${attendeeName};` : "";
+  const { originalIcs, uid, summary, organizerEmail, attendeeEmail, attendeeName, partstat } = params;
+  const now = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+
+  const eventLines = veventLines(originalIcs);
+  const uidLine = pickVEventLine(eventLines, "UID") ?? `UID:${uid}`;
+  const dtstartLine = pickVEventLine(eventLines, "DTSTART");
+  const dtendLine = pickVEventLine(eventLines, "DTEND");
+  const durationLine = pickVEventLine(eventLines, "DURATION");
+  const recurrenceLine = pickVEventLine(eventLines, "RECURRENCE-ID");
+  const sequenceLine = pickVEventLine(eventLines, "SEQUENCE");
+  const organizerLine = pickVEventLine(eventLines, "ORGANIZER") ?? `ORGANIZER:mailto:${organizerEmail}`;
+  const sequence = sequenceLine ? sequenceLine.split(":").slice(1).join(":").trim() : "0";
+
+  const cn = attendeeName ? `;CN=${quoteParamValue(attendeeName)}` : "";
+
   const lines = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
     "PRODID:-//Melo Mail//Calendar//EN",
     "METHOD:REPLY",
     "BEGIN:VEVENT",
-    `UID:${uid}`,
-    `DTSTAMP:${now}`,
-    `DTSTART:${dtstart}`,
-    `DTEND:${dtend}`,
-    `SUMMARY:${escapeICalText(summary)}`,
-    `ORGANIZER:mailto:${organizerEmail}`,
-    `ATTENDEE;${cn}PARTSTAT=${partstat};RSVP=FALSE:mailto:${attendeeEmail}`,
-    "END:VEVENT",
-    "END:VCALENDAR",
+    uidLine,
+    `DTSTAMP:${now}Z`,
+    organizerLine,
+    `ATTENDEE${cn};PARTSTAT=${partstat}:mailto:${attendeeEmail}`,
   ];
+  if (dtstartLine) lines.push(dtstartLine);
+  // Prefer the organizer's DTEND; fall back to DURATION. Never emit an empty line.
+  if (dtendLine) lines.push(dtendLine);
+  else if (durationLine) lines.push(durationLine);
+  if (recurrenceLine) lines.push(recurrenceLine);
+  lines.push(`SEQUENCE:${sequence}`);
+  lines.push(`SUMMARY:${escapeICalText(summary)}`);
+  lines.push("END:VEVENT");
+  lines.push("END:VCALENDAR");
   return lines.join("\r\n");
 }
 

@@ -156,12 +156,6 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
               : "hover:bg-bg-hover"
       } ${isSpam ? "bg-red-500/8 dark:bg-red-500/10" : ""}`}
     >
-      {accountColor && (
-        <span
-          className="absolute left-0 top-0 -bottom-px w-0.5"
-          style={{ backgroundColor: accountColor }}
-        />
-      )}
       <div className="flex items-start gap-3">
         {/* Avatar */}
         <div
@@ -178,14 +172,22 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
         <div className="flex-1 min-w-0">
           {/* First row: sender + date */}
           <div className="flex items-center justify-between gap-2">
-            <span
-              className={`text-sm truncate ${
-                thread.isRead
-                  ? "text-text-secondary"
-                  : "font-semibold text-text-primary"
-              }`}
-            >
-              {senderDisplay}
+            <span className="flex items-center gap-1.5 min-w-0">
+              {accountColor && (
+                <span
+                  className="w-1.5 h-1.5 rounded-full shrink-0"
+                  style={{ backgroundColor: accountColor }}
+                />
+              )}
+              <span
+                className={`text-sm truncate ${
+                  thread.isRead
+                    ? "text-text-secondary"
+                    : "font-semibold text-text-primary"
+                }`}
+              >
+                {senderDisplay}
+              </span>
             </span>
             <span className="text-xs text-text-tertiary whitespace-nowrap shrink-0">
               {formatRelativeDate(thread.lastMessageAt)}

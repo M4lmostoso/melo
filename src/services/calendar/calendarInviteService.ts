@@ -67,29 +67,31 @@ export async function respondToInvite(params: {
   // 1. Send RSVP reply email FIRST — only proceed if this succeeds
   if (organizerEmail) {
     const replyIcs = generateRsvpReply({
+      originalIcs: icsText,
       uid: event.uid ?? messageId,
       summary: event.summary ?? "",
-      dtstart: extractRawProperty(icsText, "DTSTART"),
-      dtend: extractRawProperty(icsText, "DTEND"),
       organizerEmail,
       attendeeEmail: account.email,
       attendeeName: account.displayName ?? undefined,
       partstat,
     });
 
+    // Outlook/Teams key the human-readable status off the subject prefix.
+    const subjectPrefix = { ACCEPTED: "Accepted", DECLINED: "Declined", TENTATIVE: "Tentative" }[partstat];
     const statusLabel = { ACCEPTED: "accepted", DECLINED: "declined", TENTATIVE: "tentatively accepted" }[partstat];
     const rawEmail = buildRawEmail({
       from: account.email,
       to: [organizerEmail],
-      subject: `Re: ${event.summary ?? "Meeting Invitation"}`,
+      subject: `${subjectPrefix}: ${event.summary ?? "Meeting Invitation"}`,
       htmlBody: `<p>I have ${statusLabel} your invitation.</p>`,
       inReplyTo: messageId,
       threadId,
       attachments: [
         {
           filename: "invite.ics",
-          mimeType: "text/calendar; method=REPLY",
-          content: btoa(replyIcs),
+          // charset + method are required for Exchange/Teams to auto-process the REPLY.
+          mimeType: "text/calendar; charset=UTF-8; method=REPLY",
+          content: encodeIcsBase64(replyIcs),
         },
       ],
     });
@@ -148,14 +150,10 @@ export async function updateRsvp(messageId: string, partstat: RsvpPartstat): Pro
   await updateCalendarEventRsvp(messageId, partstat.toLowerCase());
 }
 
-function extractRawProperty(icalData: string, propName: string): string {
-  const lines = icalData.replace(/\r\n[ \t]/g, "").split(/\r?\n/);
-  for (const line of lines) {
-    const upper = line.toUpperCase();
-    if (upper === propName || upper.startsWith(propName + ":") || upper.startsWith(propName + ";")) {
-      const colonIdx = line.indexOf(":");
-      return colonIdx >= 0 ? line.substring(colonIdx + 1) : "";
-    }
-  }
-  return "";
+/** UTF-8-safe base64 — plain btoa() throws on accented chars in summary/CN. */
+function encodeIcsBase64(text: string): string {
+  const bytes = new TextEncoder().encode(text);
+  let binary = "";
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary);
 }

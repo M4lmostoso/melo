@@ -1,4 +1,4 @@
-import { generateVEvent, parseVEvent } from "./icalHelper";
+import { generateVEvent, parseVEvent, generateRsvpReply } from "./icalHelper";
 import type { CreateEventInput } from "./types";
 
 beforeEach(() => {
@@ -528,5 +528,115 @@ describe("round-trip: generateVEvent -> parseVEvent", () => {
     expect(parsed.summary).toBe("Review; Q2, Results\\Final");
     expect(parsed.description).toBe("Line one\nLine two\nLine three");
     expect(parsed.location).toBe("Building A; Room 3, Floor 2");
+  });
+});
+
+describe("generateRsvpReply", () => {
+  const TEAMS_INVITE = [
+    "BEGIN:VCALENDAR",
+    "METHOD:REQUEST",
+    "VERSION:2.0",
+    "PRODID:Microsoft Exchange Server 2010",
+    "BEGIN:VTIMEZONE",
+    "TZID:W. Europe Standard Time",
+    "BEGIN:STANDARD",
+    "DTSTART:16010101T030000",
+    "END:STANDARD",
+    "END:VTIMEZONE",
+    "BEGIN:VEVENT",
+    "UID:040000008200E00074C5B7101A82E0080000000",
+    "SUMMARY:Sync settimanale",
+    "DTSTART;TZID=W. Europe Standard Time:20260622T100000",
+    "DTEND;TZID=W. Europe Standard Time:20260622T103000",
+    "SEQUENCE:3",
+    'ORGANIZER;CN="Mario Rossi":mailto:mario@contoso.com',
+    'ATTENDEE;CN="Mirko";RSVP=TRUE:mailto:mirko@example.com',
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ].join("\r\n");
+
+  it("echoes UID, SEQUENCE, ORGANIZER and DTSTART/DTEND (with TZID) verbatim", () => {
+    const reply = generateRsvpReply({
+      originalIcs: TEAMS_INVITE,
+      uid: "040000008200E00074C5B7101A82E0080000000",
+      summary: "Sync settimanale",
+      organizerEmail: "mario@contoso.com",
+      attendeeEmail: "mirko@example.com",
+      attendeeName: "Mirko",
+      partstat: "ACCEPTED",
+    });
+
+    expect(reply).toContain("METHOD:REPLY");
+    expect(reply).toContain("UID:040000008200E00074C5B7101A82E0080000000");
+    expect(reply).toContain("SEQUENCE:3");
+    expect(reply).toContain('ORGANIZER;CN="Mario Rossi":mailto:mario@contoso.com');
+    expect(reply).toContain("DTSTART;TZID=W. Europe Standard Time:20260622T100000");
+    expect(reply).toContain("DTEND;TZID=W. Europe Standard Time:20260622T103000");
+    expect(reply).toContain("ATTENDEE;CN=Mirko;PARTSTAT=ACCEPTED:mailto:mirko@example.com");
+  });
+
+  it("does not pull DTSTART from the VTIMEZONE block", () => {
+    const reply = generateRsvpReply({
+      originalIcs: TEAMS_INVITE,
+      uid: "x",
+      summary: "x",
+      organizerEmail: "mario@contoso.com",
+      attendeeEmail: "mirko@example.com",
+      partstat: "DECLINED",
+    });
+    expect(reply).not.toContain("DTSTART:16010101T030000");
+  });
+
+  it("falls back to DURATION and never emits an empty DTEND line", () => {
+    const inviteWithDuration = [
+      "BEGIN:VCALENDAR",
+      "METHOD:REQUEST",
+      "BEGIN:VEVENT",
+      "UID:abc",
+      "DTSTART:20260622T100000Z",
+      "DURATION:PT30M",
+      "ORGANIZER:mailto:org@contoso.com",
+      "END:VEVENT",
+      "END:VCALENDAR",
+    ].join("\r\n");
+
+    const reply = generateRsvpReply({
+      originalIcs: inviteWithDuration,
+      uid: "abc",
+      summary: "No DTEND",
+      organizerEmail: "org@contoso.com",
+      attendeeEmail: "mirko@example.com",
+      partstat: "TENTATIVE",
+    });
+
+    expect(reply).toContain("DURATION:PT30M");
+    expect(reply).not.toMatch(/^DTEND:\s*$/m);
+    expect(reply).toContain("SEQUENCE:0");
+  });
+
+  it("echoes RECURRENCE-ID for a single instance of a recurring meeting", () => {
+    const instanceInvite = [
+      "BEGIN:VCALENDAR",
+      "METHOD:REQUEST",
+      "BEGIN:VEVENT",
+      "UID:series-1",
+      "RECURRENCE-ID;TZID=W. Europe Standard Time:20260622T100000",
+      "DTSTART;TZID=W. Europe Standard Time:20260622T100000",
+      "DTEND;TZID=W. Europe Standard Time:20260622T103000",
+      "ORGANIZER:mailto:org@contoso.com",
+      "END:VEVENT",
+      "END:VCALENDAR",
+    ].join("\r\n");
+
+    const reply = generateRsvpReply({
+      originalIcs: instanceInvite,
+      uid: "series-1",
+      summary: "Instance",
+      organizerEmail: "org@contoso.com",
+      attendeeEmail: "mirko@example.com",
+      partstat: "ACCEPTED",
+    });
+
+    expect(reply).toContain("RECURRENCE-ID;TZID=W. Europe Standard Time:20260622T100000");
   });
 });
