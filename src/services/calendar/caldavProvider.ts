@@ -10,7 +10,9 @@ import type {
 } from "./types";
 import { generateVEvent, parseVEvent, expandVEvents } from "./icalHelper";
 import { getAccount } from "@/services/db/accounts";
-import { listCalDavCalendars, fetchCalDavEvents } from "./caldavHttp";
+import { getCalendarByRemoteId } from "@/services/db/calendars";
+import { getCalendarEventsInRangeForCalendars } from "@/services/db/calendarEvents";
+import { listCalDavCalendars, fetchCalDavEvents, fetchCalDavCtag } from "./caldavHttp";
 
 export class CalDAVProvider implements CalendarProvider {
   readonly type: CalendarProviderType = "caldav";
@@ -167,6 +169,16 @@ export class CalDAVProvider implements CalendarProvider {
     if (!account?.caldav_url || !account.caldav_password) throw new Error("CalDAV credentials not configured");
     const username = account.caldav_username ?? account.email;
 
+    // CTag-based change detection: the collection tag changes whenever any event
+    // is added/modified/removed. If it's unchanged since the last sync, nothing
+    // changed and we can skip the full re-fetch (and, crucially, the deletion
+    // reconciliation — returning empty deletedRemoteIds so nothing is removed).
+    const storedCal = await getCalendarByRemoteId(this.accountId, calendarRemoteId);
+    const freshCtag = await fetchCalDavCtag(calendarRemoteId, username, account.caldav_password).catch(() => null);
+    if (freshCtag && storedCal?.ctag && freshCtag === storedCal.ctag) {
+      return { created: [], updated: [], deletedRemoteIds: [], newSyncToken: null, newCtag: freshCtag };
+    }
+
     const now = new Date();
     const timeMin = new Date(now);
     timeMin.setDate(timeMin.getDate() - 90);
@@ -192,7 +204,29 @@ export class CalDAVProvider implements CalendarProvider {
       }
     }
 
-    return { created, updated: [], deletedRemoteIds: [], newSyncToken: null, newCtag: null };
+    // Deletion reconciliation: any event stored locally for this calendar within
+    // the synced window that the server no longer returns has been deleted
+    // remotely and must be removed. Scope strictly to the same window so past
+    // events that merely aged out of the window are not wrongly deleted.
+    // (getCalendarEventsInRangeForCalendars only returns rows with calendar_id in
+    // the list, so email-invite rows — which have a null calendar_id — are never
+    // touched here.)
+    const deletedRemoteIds: string[] = [];
+    if (storedCal) {
+      const serverIds = new Set(created.map((e) => e.remoteEventId));
+      const localEvents = await getCalendarEventsInRangeForCalendars(
+        [storedCal.id],
+        rangeStartTs,
+        rangeEndTs,
+      );
+      for (const row of localEvents) {
+        if (row.remote_event_id && !serverIds.has(row.remote_event_id)) {
+          deletedRemoteIds.push(row.remote_event_id);
+        }
+      }
+    }
+
+    return { created, updated: [], deletedRemoteIds, newSyncToken: null, newCtag: freshCtag ?? null };
   }
 
   async testConnection(): Promise<{ success: boolean; message: string }> {

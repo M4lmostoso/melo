@@ -7,6 +7,7 @@ import { deleteAllMessagesForAccount } from "../db/messages";
 import { imapInitialSync, imapDeltaSync } from "../imap/imapSync";
 import { clearAllFolderSyncStates } from "../db/folderSyncState";
 import { pruneDeletedImapUids } from "../db/deletedImapUids";
+import { pruneAiCache } from "../db/aiCache";
 import { ensureFreshToken } from "../oauth/oauthTokenManager";
 import { hasCalendarSupport, getCalendarProvider } from "../calendar/providerFactory";
 import { getVisibleCalendars, upsertCalendar, updateCalendarSyncToken } from "../db/calendars";
@@ -290,6 +291,9 @@ async function runSync(accountIds: string[]): Promise<void> {
       for (const id of accountIds) {
         await syncAccountInternal(id);
       }
+      // Once-per-cycle housekeeping: drop AI cache rows for threads that no
+      // longer exist (deleted/expunged), keeping the table bounded.
+      pruneAiCache().catch(() => {});
     } finally {
       syncPromise = null;
     }

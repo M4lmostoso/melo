@@ -1,6 +1,7 @@
 const DAV_NS = "DAV:";
 const CALDAV_NS = "urn:ietf:params:xml:ns:caldav";
 const APPLE_CAL_NS = "http://apple.com/ns/ical/";
+const CALSERVER_NS = "http://calendarserver.org/ns/";
 
 async function tauriFetch(...args: Parameters<typeof fetch>): ReturnType<typeof fetch> {
   const { fetch: f } = await import("@tauri-apps/plugin-http");
@@ -98,6 +99,34 @@ export async function listCalDavCalendars(
   }
 
   return calendars;
+}
+
+/**
+ * Fetch the collection CTag (calendarserver.org `getctag`) for a calendar via
+ * PROPFIND Depth 0. The CTag changes whenever any event in the collection is
+ * added, modified, or removed — letting a sync skip a full re-fetch when nothing
+ * changed. Returns null if the server doesn't expose a CTag or the request fails.
+ */
+export async function fetchCalDavCtag(
+  calendarUrl: string,
+  username: string,
+  password: string,
+): Promise<string | null> {
+  const response = await tauriFetch(calendarUrl, {
+    method: "PROPFIND",
+    headers: {
+      Authorization: `Basic ${b64(username, password)}`,
+      Depth: "0",
+      "Content-Type": "application/xml; charset=utf-8",
+    },
+    body: `<?xml version="1.0" encoding="utf-8"?><D:propfind xmlns:D="DAV:" xmlns:CS="http://calendarserver.org/ns/"><D:prop><CS:getctag/></D:prop></D:propfind>`,
+  });
+
+  if (response.status !== 207 && !response.ok) return null;
+
+  const doc = new DOMParser().parseFromString(await response.text(), "application/xml");
+  const ctag = doc.getElementsByTagNameNS(CALSERVER_NS, "getctag")[0]?.textContent?.trim();
+  return ctag || null;
 }
 
 // CalDAV time-range format: 20240101T000000Z

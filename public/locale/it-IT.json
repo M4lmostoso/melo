@@ -848,7 +848,8 @@
     "noTemplates": "Nessun modello",
     "attachFileSizeWarning": "Dimensione allegato superata (24MB)",
     "addressPlaceholder": "Aggiungi destinatari...",
-    "aiAssistActive": "Assistente AI (attivo)"
+    "aiAssistActive": "Assistente AI (attivo)",
+    "removeColor": "Rimuovi colore"
   },
   "search": {
     "commandPalette": {

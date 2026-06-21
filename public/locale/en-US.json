@@ -848,7 +848,8 @@
     "noTemplates": "No templates",
     "attachFileSizeWarning": "Attachment size limit exceeded (24MB)",
     "addressPlaceholder": "Add recipients...",
-    "aiAssistActive": "AI Assist (active)"
+    "aiAssistActive": "AI Assist (active)",
+    "removeColor": "Remove color"
   },
   "search": {
     "commandPalette": {

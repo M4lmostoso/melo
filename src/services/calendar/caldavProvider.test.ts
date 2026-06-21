@@ -39,9 +39,23 @@ vi.mock("@/services/db/accounts", () => ({
 // REPORT bypassing WebKit CORS), not tsdav. Mock those network calls directly.
 const mockListCalDavCalendars = vi.fn();
 const mockFetchCalDavEvents = vi.fn();
+const mockFetchCalDavCtag = vi.fn();
 vi.mock("./caldavHttp", () => ({
   listCalDavCalendars: (...args: unknown[]) => mockListCalDavCalendars(...args),
   fetchCalDavEvents: (...args: unknown[]) => mockFetchCalDavEvents(...args),
+  fetchCalDavCtag: (...args: unknown[]) => mockFetchCalDavCtag(...args),
+}));
+
+// syncEvents reads the locally stored calendar (for its CTag and id) and the
+// locally stored events (for deletion reconciliation). Mock both DB layers.
+const mockGetCalendarByRemoteId = vi.fn();
+vi.mock("@/services/db/calendars", () => ({
+  getCalendarByRemoteId: (...args: unknown[]) => mockGetCalendarByRemoteId(...args),
+}));
+
+const mockGetEventsInRange = vi.fn();
+vi.mock("@/services/db/calendarEvents", () => ({
+  getCalendarEventsInRangeForCalendars: (...args: unknown[]) => mockGetEventsInRange(...args),
 }));
 
 describe("CalDAVProvider", () => {
@@ -49,6 +63,11 @@ describe("CalDAVProvider", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // Defaults: no stored calendar/ctag and no local events → full fetch, no skip,
+    // no reconciliation. Individual tests override as needed.
+    mockFetchCalDavCtag.mockResolvedValue(null);
+    mockGetCalendarByRemoteId.mockResolvedValue(null);
+    mockGetEventsInRange.mockResolvedValue([]);
     provider = new CalDAVProvider("acc-1");
   });
 
@@ -230,6 +249,52 @@ describe("CalDAVProvider", () => {
       expect(result.deletedRemoteIds).toEqual([]);
       expect(result.newSyncToken).toBeNull();
       expect(result.newCtag).toBeNull();
+    });
+
+    it("skips the full fetch when the CTag is unchanged", async () => {
+      mockGetCalendarByRemoteId.mockResolvedValue({ id: "cal-local", ctag: "ctag-1" });
+      mockFetchCalDavCtag.mockResolvedValue("ctag-1");
+
+      const result = await provider.syncEvents("/cal/personal/");
+
+      expect(mockFetchCalDavEvents).not.toHaveBeenCalled();
+      expect(result.created).toEqual([]);
+      expect(result.deletedRemoteIds).toEqual([]);
+      expect(result.newCtag).toBe("ctag-1");
+    });
+
+    it("re-fetches and returns the new CTag when the CTag changed", async () => {
+      mockGetCalendarByRemoteId.mockResolvedValue({ id: "cal-local", ctag: "old-ctag" });
+      mockFetchCalDavCtag.mockResolvedValue("new-ctag");
+      mockFetchCalDavEvents.mockResolvedValue([
+        { icalData: MOCK_ICAL_DATA, url: "/cal/personal/test-uid.ics", etag: '"e"' },
+      ]);
+
+      const result = await provider.syncEvents("/cal/personal/");
+
+      expect(mockFetchCalDavEvents).toHaveBeenCalled();
+      expect(result.created).toHaveLength(1);
+      expect(result.newCtag).toBe("new-ctag");
+    });
+
+    it("reports server-deleted events in deletedRemoteIds", async () => {
+      mockGetCalendarByRemoteId.mockResolvedValue({ id: "cal-local", ctag: null });
+      mockFetchCalDavCtag.mockResolvedValue(null);
+      // Server returns only one event...
+      mockFetchCalDavEvents.mockResolvedValue([
+        { icalData: MOCK_ICAL_DATA, url: "/cal/personal/test-uid.ics", etag: '"e"' },
+      ]);
+      // ...but the DB still has that one plus a stale one no longer on the server.
+      mockGetEventsInRange.mockResolvedValue([
+        { remote_event_id: "/cal/personal/test-uid.ics" },
+        { remote_event_id: "/cal/personal/gone.ics" },
+      ]);
+
+      const result = await provider.syncEvents("/cal/personal/");
+
+      expect(mockGetEventsInRange).toHaveBeenCalledWith(["cal-local"], expect.any(Number), expect.any(Number));
+      expect(result.created).toHaveLength(1);
+      expect(result.deletedRemoteIds).toEqual(["/cal/personal/gone.ics"]);
     });
   });
 

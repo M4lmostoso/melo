@@ -109,3 +109,13 @@ export async function getCalendarById(calendarId: string): Promise<DbCalendar | 
     [calendarId],
   );
 }
+
+export async function getCalendarByRemoteId(
+  accountId: string,
+  remoteId: string,
+): Promise<DbCalendar | null> {
+  return selectFirstBy<DbCalendar>(
+    "SELECT * FROM calendars WHERE account_id = $1 AND remote_id = $2",
+    [accountId, remoteId],
+  );
+}

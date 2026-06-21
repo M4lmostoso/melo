@@ -184,8 +184,7 @@ export function EditorToolbar({ editor, onToggleAiAssist, aiAssistOpen, classNam
               }}
               className="w-full text-[11px] text-text-tertiary hover:text-text-primary text-center py-0.5 border-t border-border-secondary pt-1.5"
             >
-              {/* TODO: add i18n key */}
-              Rimuovi colore
+              {t("composer.removeColor")}
             </button>
           </div>
         )}

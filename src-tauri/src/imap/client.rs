@@ -276,6 +276,33 @@ pub async fn delete_folder(session: &mut ImapSession, folder_path: &str) -> Resu
         .map_err(|e| format!("DELETE \"{folder_path}\" failed: {e}"))
 }
 
+/// Build an `ImapFolderStatus` from a SELECT/STATUS response, warning when the
+/// server omits the RFC 3501-mandatory UIDVALIDITY/UIDNEXT. The 0 fallback is
+/// kept (so a quirky server stays non-fatal) but logged, since a 0 UIDVALIDITY
+/// can invalidate the cached UID state and a 0 UIDNEXT breaks delta tracking.
+fn folder_status_from_mailbox(
+    folder: &str,
+    uid_validity: Option<u32>,
+    uid_next: Option<u32>,
+    exists: u32,
+    unseen: Option<u32>,
+    highest_modseq: Option<u64>,
+) -> ImapFolderStatus {
+    if uid_validity.is_none() {
+        log::warn!("IMAP {folder}: server omitted UIDVALIDITY — defaulting to 0 (UID cache may be invalidated)");
+    }
+    if uid_next.is_none() {
+        log::warn!("IMAP {folder}: server omitted UIDNEXT — defaulting to 0 (delta sync may be impaired)");
+    }
+    ImapFolderStatus {
+        uidvalidity: uid_validity.unwrap_or(0),
+        uidnext: uid_next.unwrap_or(0),
+        exists,
+        unseen: unseen.unwrap_or(0),
+        highest_modseq,
+    }
+}
+
 /// Fetch messages from a folder by UID range (e.g. "1:100" or "500:*").
 pub async fn fetch_messages(
     session: &mut ImapSession,
@@ -287,13 +314,14 @@ pub async fn fetch_messages(
         .map_err(|_| format!("SELECT {folder} timed out after {}s — check your server settings or network connection", IMAP_CMD_TIMEOUT.as_secs()))?
         .map_err(|e| format!("SELECT {folder} failed: {e}"))?;
 
-    let folder_status = ImapFolderStatus {
-        uidvalidity: mailbox.uid_validity.unwrap_or(0),
-        uidnext: mailbox.uid_next.unwrap_or(0),
-        exists: mailbox.exists,
-        unseen: mailbox.unseen.unwrap_or(0),
-        highest_modseq: mailbox.highest_modseq,
-    };
+    let folder_status = folder_status_from_mailbox(
+        folder,
+        mailbox.uid_validity,
+        mailbox.uid_next,
+        mailbox.exists,
+        mailbox.unseen,
+        mailbox.highest_modseq,
+    );
 
     log::info!(
         "IMAP SELECT {folder}: exists={}, uidvalidity={}, uidnext={}, fetching UIDs: {uid_range}",
@@ -749,13 +777,14 @@ pub async fn get_folder_status(
     .map_err(|_| format!("STATUS timed out after {}s — check your server settings or network connection", IMAP_CMD_TIMEOUT.as_secs()))?
     .map_err(|e| format!("STATUS failed: {e}"))?;
 
-    Ok(ImapFolderStatus {
-        uidvalidity: mailbox.uid_validity.unwrap_or(0),
-        uidnext: mailbox.uid_next.unwrap_or(0),
-        exists: mailbox.exists,
-        unseen: mailbox.unseen.unwrap_or(0),
-        highest_modseq: mailbox.highest_modseq,
-    })
+    Ok(folder_status_from_mailbox(
+        folder,
+        mailbox.uid_validity,
+        mailbox.uid_next,
+        mailbox.exists,
+        mailbox.unseen,
+        mailbox.highest_modseq,
+    ))
 }
 
 /// Fetch a specific MIME part (attachment) by UID and part ID.
@@ -1327,13 +1356,14 @@ pub async fn search_folder(
         .map_err(|_| format!("SELECT {folder} timed out after {}s — check your server settings or network connection", IMAP_CMD_TIMEOUT.as_secs()))?
         .map_err(|e| format!("SELECT {folder} failed: {e}"))?;
 
-    let folder_status = ImapFolderStatus {
-        uidvalidity: mailbox.uid_validity.unwrap_or(0),
-        uidnext: mailbox.uid_next.unwrap_or(0),
-        exists: mailbox.exists,
-        unseen: mailbox.unseen.unwrap_or(0),
-        highest_modseq: mailbox.highest_modseq,
-    };
+    let folder_status = folder_status_from_mailbox(
+        folder,
+        mailbox.uid_validity,
+        mailbox.uid_next,
+        mailbox.exists,
+        mailbox.unseen,
+        mailbox.highest_modseq,
+    );
 
     // UID SEARCH with optional SINCE date filter (RFC 3501 §6.4.4).
     // NOT DELETED excludes messages marked for deletion but not yet expunged,
@@ -1382,13 +1412,14 @@ pub async fn sync_folder(
         .map_err(|_| format!("SELECT {folder} timed out after {}s — check your server settings or network connection", IMAP_CMD_TIMEOUT.as_secs()))?
         .map_err(|e| format!("SELECT {folder} failed: {e}"))?;
 
-    let folder_status = ImapFolderStatus {
-        uidvalidity: mailbox.uid_validity.unwrap_or(0),
-        uidnext: mailbox.uid_next.unwrap_or(0),
-        exists: mailbox.exists,
-        unseen: mailbox.unseen.unwrap_or(0),
-        highest_modseq: mailbox.highest_modseq,
-    };
+    let folder_status = folder_status_from_mailbox(
+        folder,
+        mailbox.uid_validity,
+        mailbox.uid_next,
+        mailbox.exists,
+        mailbox.unseen,
+        mailbox.highest_modseq,
+    );
 
     // UID SEARCH with optional SINCE date filter (RFC 3501 §6.4.4).
     // NOT DELETED excludes messages marked for deletion but not yet expunged.
