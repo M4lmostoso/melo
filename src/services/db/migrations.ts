@@ -1253,6 +1253,24 @@ const MIGRATIONS = [
         AND gmail_label_ids NOT LIKE '%"TRASH"%';
     `,
   },
+  {
+    version: 65,
+    description:
+      "Second-pass repair for v62 over-trashing: v64 only fixed Gmail messages that already had gmail_label_ids populated (column added in v60). Messages synced before v60 — or never re-synced after v62 ran — kept gmail_label_ids=NULL and therefore is_trashed=1 even though they belong to threads still carrying the INBOX label. Fix: for Gmail accounts, un-trash any message whose thread has INBOX in thread_labels but whose own gmail_label_ids is NULL (IMAP governs by folder, not thread_labels, so only touch Gmail accounts). Idempotent.",
+    sql: `
+      UPDATE messages SET is_trashed = 0
+      WHERE is_trashed = 1
+        AND is_draft = 0
+        AND account_id IN (SELECT id FROM accounts WHERE provider = 'gmail_api')
+        AND gmail_label_ids IS NULL
+        AND EXISTS (
+          SELECT 1 FROM thread_labels tl
+          WHERE tl.account_id = messages.account_id
+            AND tl.thread_id = messages.thread_id
+            AND tl.label_id = 'INBOX'
+        );
+    `,
+  },
 ];
 
 // ---------------------------------------------------------------------------

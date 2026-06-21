@@ -125,10 +125,19 @@ export function ThreadView({ thread }: ThreadViewProps) {
   useEffect(() => {
     setLoading(true);
     getMessagesForThread(threadAccountId, thread.id, false, trashedOnly)
-      .then((msgs) => {
+      .then(async (msgs) => {
         setMessages(msgs);
         if (storeSelectedMessageId && msgs.some((m) => m.id === storeSelectedMessageId)) {
           setLocalSelectedMessageId(storeSelectedMessageId);
+        }
+        // If we got 0 messages in a non-trash view this thread's messages are likely
+        // stuck with is_trashed=1 from a past migration bug. Trigger a re-sync so
+        // the server labels are re-applied and the messages surface on next load.
+        if (msgs.length === 0 && !trashedOnly) {
+          try {
+            const { triggerSync } = await import("@/services/gmail/syncManager");
+            triggerSync([threadAccountId]);
+          } catch { /* IMAP accounts — no-op */ }
         }
       })
       .catch(console.error)
