@@ -835,6 +835,13 @@
       "delete": "Delete",
       "cancel": "Cancel"
     },
+    "preSend": {
+      "title": "Before you send",
+      "subject": "This message has no subject.",
+      "attachment": "Your message mentions an attachment, but nothing is attached.",
+      "sendAnyway": "Send anyway",
+      "goBack": "Go back"
+    },
     "send": "Send",
     "sending": "Sending...",
     "schedule": "Schedule",

@@ -835,6 +835,13 @@
       "delete": "Elimina",
       "cancel": "Annulla"
     },
+    "preSend": {
+      "title": "Prima di inviare",
+      "subject": "Questo messaggio non ha oggetto.",
+      "attachment": "Il messaggio cita un allegato, ma non hai allegato nulla.",
+      "sendAnyway": "Invia comunque",
+      "goBack": "Torna indietro"
+    },
     "send": "Invia",
     "sending": "Invio...",
     "schedule": "Programma",

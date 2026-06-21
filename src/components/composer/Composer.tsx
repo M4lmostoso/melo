@@ -11,6 +11,8 @@ import { Clock, X } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
+import { getPreSendWarnings, type PreSendWarning } from "@/services/composer/preSendCheck";
 import { AddressInput, type AddressInputHandle } from "./AddressInput";
 import { EditorToolbar } from "./EditorToolbar";
 import { AiAssistPanel } from "./AiAssistPanel";
@@ -164,6 +166,8 @@ export function Composer() {
   const subjectInputRef = useRef<HTMLInputElement>(null);
   const [showSchedule, setShowSchedule] = useState(false);
   const [showCloseDialog, setShowCloseDialog] = useState(false);
+  const [preSendWarnings, setPreSendWarnings] = useState<PreSendWarning[]>([]);
+  const pendingSendRef = useRef<(() => void) | null>(null);
   const [pendingScheduledAt, setPendingScheduledAt] = useState<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [aliases, setAliases] = useState<SendAsAlias[]>([]);
@@ -660,6 +664,41 @@ const getFullHtml = useCallback(() => {
     setShowSchedule(false);
   }, []);
 
+  // Gate a send behind a confirmation when the message looks incomplete
+  // (no subject, or "attachment" mentioned in the body but nothing attached).
+  // Only the user-typed body is inspected — quoted replies are excluded — so an
+  // old "attached" quote never triggers a false warning. If nothing's amiss the
+  // action runs immediately.
+  const guardedSend = useCallback(
+    (action: () => void) => {
+      const state = useComposerStore.getState();
+      const warnings = getPreSendWarnings({
+        subject: state.subject,
+        attachmentCount: state.attachments.length,
+        bodyText: editor?.getText() ?? "",
+      });
+      if (warnings.length > 0) {
+        pendingSendRef.current = action;
+        setPreSendWarnings(warnings);
+        return;
+      }
+      action();
+    },
+    [editor],
+  );
+
+  const dismissPreSendWarning = useCallback(() => {
+    pendingSendRef.current = null;
+    setPreSendWarnings([]);
+  }, []);
+
+  const confirmPreSendWarning = useCallback(() => {
+    const action = pendingSendRef.current;
+    pendingSendRef.current = null;
+    setPreSendWarnings([]);
+    action?.();
+  }, []);
+
   const handleConfirmSchedule = useCallback(async () => {
     if (!effectiveAccountId || !activeAccount || !pendingScheduledAt) return;
     const state = useComposerStore.getState();
@@ -1076,7 +1115,7 @@ const getFullHtml = useCallback(() => {
           <div className="flex flex-col items-end gap-1">
             <div className="flex items-center">
               <button
-                onClick={pendingScheduledAt ? handleConfirmSchedule : handleSend}
+                onClick={() => guardedSend(pendingScheduledAt ? handleConfirmSchedule : handleSend)}
                 disabled={to.length === 0 || isSending}
                 className="px-4 py-1.5 text-xs font-medium text-white bg-accent hover:bg-accent-hover rounded-l-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
@@ -1101,6 +1140,22 @@ const getFullHtml = useCallback(() => {
           onClose={() => setShowSchedule(false)}
         />
       )}
+
+      <ConfirmDialog
+        isOpen={preSendWarnings.length > 0}
+        onClose={dismissPreSendWarning}
+        onConfirm={confirmPreSendWarning}
+        title={t("composer.preSend.title")}
+        message={
+          <ul className="list-disc pl-4 space-y-1">
+            {preSendWarnings.map((w) => (
+              <li key={w}>{t(`composer.preSend.${w}`)}</li>
+            ))}
+          </ul>
+        }
+        confirmLabel={t("composer.preSend.sendAnyway")}
+        cancelLabel={t("composer.preSend.goBack")}
+      />
 
       <Modal
         isOpen={showCloseDialog}
