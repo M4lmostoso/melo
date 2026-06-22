@@ -21,12 +21,17 @@ const injectAppVersion = {
   },
 };
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [react(), tailwindcss(), injectAppVersion],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
     },
+  },
+  // Strip operational debug logs from production builds so release binaries stay
+  // quiet. console.warn/console.error are kept for crash/error diagnostics.
+  esbuild: {
+    pure: mode === "production" ? ["console.log", "console.debug"] : [],
   },
   build: {
     rollupOptions: {
@@ -52,4 +57,4 @@ export default defineConfig({
       ignored: ["**/src-tauri/**"],
     },
   },
-});
+}));
