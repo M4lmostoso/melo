@@ -26,6 +26,7 @@ import {
   type FolderSyncState,
 } from "../db/folderSyncState";
 import { clearDeletedImapUidsForFolder, pruneDeletedImapUids } from "../db/deletedImapUids";
+import { reconcilePecReceipts } from "../pec/pecManager";
 import {
   buildThreads,
   normalizeSubject,
@@ -943,6 +944,11 @@ export async function imapInitialSync(
     console.warn(`[imapSync] Stored 0 messages — NOT marking sync complete so it will be retried`);
   }
 
+  // PEC accounts: keep certified-mail receipts out of the inbox and always read.
+  await reconcilePecReceipts(accountId).catch((err) =>
+    console.error(`[imapSync] reconcilePecReceipts error:`, err),
+  );
+
   onProgress?.({ phase: "done", current: storedCount, total: storedCount });
   return { messages: [] };
 }
@@ -1346,6 +1352,11 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
   }
 
   await updateAccountSyncState(accountId, `imap-synced-${Date.now()}`);
+
+  // PEC accounts: keep certified-mail receipts out of the inbox and always read.
+  await reconcilePecReceipts(accountId).catch((err) =>
+    console.error(`[imapSync] reconcilePecReceipts error:`, err),
+  );
 
   return { messages: storedHeaders as unknown as ParsedMessage[], storedCount: storedHeaders.length, flagChangedCount };
 }

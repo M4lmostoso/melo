@@ -13,6 +13,8 @@ export interface Account {
   includeInGlobal: boolean;
   sortOrder: number;
   label: string | null;
+  /** True when PEC mode is enabled (only ever set for IMAP certified-email accounts). */
+  pecEnabled?: boolean;
 }
 
 interface AccountState {

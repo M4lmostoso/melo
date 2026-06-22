@@ -8,6 +8,18 @@ export const DEFAULT_SMART_FOLDER_I18N_KEYS: Record<string, string> = {
   "sf-calendar": "sidebar.defaultSmartFolders.sfCalendar",
 };
 
+/**
+ * Resolve the i18n key for a default smart folder's name, or undefined for
+ * user-created folders. Handles the per-account PEC "Ricevute" folder whose id
+ * is `sf-ricevute-<accountId>`.
+ */
+export function getDefaultSmartFolderNameKey(id: string): string | undefined {
+  if (id.startsWith("sf-ricevute")) {
+    return "sidebar.defaultSmartFolders.sfRicevute";
+  }
+  return DEFAULT_SMART_FOLDER_I18N_KEYS[id];
+}
+
 export interface DbSmartFolder {
   id: string;
   account_id: string | null;

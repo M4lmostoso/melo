@@ -20,7 +20,7 @@ import { trashThread, permanentDeleteThread, archiveThread, spamThread, emptyTra
 import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { useLabelStore } from "@/stores/labelStore";
 import { useSmartFolderStore } from "@/stores/smartFolderStore";
-import { DEFAULT_SMART_FOLDER_I18N_KEYS } from "@/services/db/smartFolders";
+import { getDefaultSmartFolderNameKey } from "@/services/db/smartFolders";
 import { useContextMenuStore } from "@/stores/contextMenuStore";
 import { useComposerStore } from "@/stores/composerStore";
 import { useContactsStore } from "@/stores/contactsStore";
@@ -955,7 +955,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
             {isSmartFolder
               ? (() => {
                   if (!activeSmartFolder) return t("layout.emailList.smartFolder");
-                  const key = DEFAULT_SMART_FOLDER_I18N_KEYS[activeSmartFolder.id];
+                  const key = getDefaultSmartFolderNameKey(activeSmartFolder.id);
                   return key ? t(key) : activeSmartFolder.name;
                 })()
               : activeLabel === "unified-inbox"

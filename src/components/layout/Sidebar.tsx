@@ -9,7 +9,8 @@ import { useAccountStore } from "@/stores/accountStore";
 import { useLabelStore, type Label } from "@/stores/labelStore";
 import { useContextMenuStore } from "@/stores/contextMenuStore";
 import { useSmartFolderStore } from "@/stores/smartFolderStore";
-import { DEFAULT_SMART_FOLDER_I18N_KEYS } from "@/services/db/smartFolders";
+import { getDefaultSmartFolderNameKey } from "@/services/db/smartFolders";
+import { RICEVUTE_FOLDER_ID } from "@/services/pec/pecManager";
 import { useActiveLabel, useActiveCategory } from "@/hooks/useRouteNavigation";
 import { navigateToLabel } from "@/router/navigate";
 import { XACC_PREFIX } from "@/components/dnd/DndProvider";
@@ -28,6 +29,7 @@ import {
   Calendar,
   CalendarDays,
   CalendarSearch,
+  ReceiptText,
   Settings,
   Plus,
   Tag,
@@ -54,7 +56,7 @@ import {
 const isMac = navigator.userAgent.includes("Macintosh");
 
 function smartFolderName(id: string, fallback: string): string {
-  const key = DEFAULT_SMART_FOLDER_I18N_KEYS[id];
+  const key = getDefaultSmartFolderNameKey(id);
   return key ? t(key) : fallback;
 }
 import { useTaskStore } from "@/stores/taskStore";
@@ -126,6 +128,7 @@ const SMART_FOLDER_ICON_MAP: Record<string, LucideIcon> = {
   Tag,
   CalendarDays,
   CalendarSearch,
+  ReceiptText,
 };
 
 /** True when activeLabel matches the label exactly or is a prefix filter covering this label. */
@@ -635,6 +638,18 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   );
   const hasGlobal = globalAccounts.length >= 2;
 
+  // The global "Ricevute" folder is shown only where a PEC account is in context:
+  // in the unified view (any global account is PEC) and under a PEC single account.
+  const anyGlobalPec = globalAccounts.some((a) => a.pecEnabled);
+  const activeIsPec = !!accounts.find((a) => a.id === activeAccountId)?.pecEnabled;
+  const visibleSmartFolders = useMemo(
+    () =>
+      smartFolders.filter(
+        (f) => f.id !== RICEVUTE_FOLDER_ID || (hasGlobal ? anyGlobalPec : activeIsPec),
+      ),
+    [smartFolders, hasGlobal, anyGlobalPec, activeIsPec],
+  );
+
   const outgoingMemByAccount = useMemo(() => {
     const result: Record<string, number> = {};
     for (const e of outgoingEmails) result[e.accountId] = (result[e.accountId] ?? 0) + 1;
@@ -951,14 +966,14 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
               );
             })}
             {/* ─── Smart folders in Global section ─── */}
-            {showSmartFolders && smartFolders.length > 0 && !collapsed && (
+            {showSmartFolders && visibleSmartFolders.length > 0 && !collapsed && (
               <div className="mx-3 mt-2 mb-1 flex items-center gap-2">
                 <div className="flex-1 border-t border-border-primary/50" />
                 <span className="text-[0.65rem] font-medium text-sidebar-text/40 uppercase tracking-wider">{t("sidebar.smartFolders")}</span>
                 <div className="flex-1 border-t border-border-primary/50" />
               </div>
             )}
-            {showSmartFolders && smartFolders.map((folder) => {
+            {showSmartFolders && visibleSmartFolders.map((folder) => {
               const GIcon = getSmartFolderIcon(folder.icon);
               const count = globalAccounts.reduce(
                 (sum, a) => sum + (smartFolderPerAccountCounts[`${folder.id}:${a.id}`] ?? 0),
@@ -1204,7 +1219,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
         })}
 
         {/* Smart Folders — only when not already shown in Global section */}
-        {showSmartFolders && !hasGlobal && (smartFolders.length > 0 || !collapsed) && (
+        {showSmartFolders && !hasGlobal && (visibleSmartFolders.length > 0 || !collapsed) && (
           <>
             {!collapsed && (
               <div className="flex items-center justify-between px-3 pt-4 pb-1">
@@ -1220,7 +1235,7 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
                 </button>
               </div>
             )}
-            {smartFolders.map((folder) => {
+            {visibleSmartFolders.map((folder) => {
               const Icon = getSmartFolderIcon(folder.icon);
               const isActive = activeLabel === `smart-folder:${folder.id}`;
               const count = smartFolderCounts[folder.id] ?? 0;

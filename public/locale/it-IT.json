@@ -216,6 +216,8 @@
     "accountColor": "Colore account",
     "clearColor": "Rimuovi",
     "includeInUnified": "Includi nella posta unificata",
+    "pecMode": "Modalità PEC (posta certificata)",
+    "pecModeDesc": "Aggiunge una cartella \"Ricevute\" che raccoglie le ricevute di accettazione e consegna. Le ricevute non compaiono in Posta in arrivo (restano in Tutta la posta) e sono sempre considerate lette.",
     "authorization": "Autorizzazione",
     "reauthorizeDesc": "Ri-autorizza se riscontri errori di autenticazione.",
     "reauthorize": "Ri-autorizza",
@@ -723,7 +725,9 @@
       "previewNotAvailable": "Anteprima non disponibile per questo tipo di file",
       "unknownType": "Tipo sconosciuto",
       "attachment": "Allegato",
-      "itemHint": "Clic per selezionare · Spazio per l'anteprima · doppio clic per aprire · trascina in una cartella"
+      "itemHint": "Clic per selezionare · Spazio per l'anteprima · doppio clic per aprire · trascina in una cartella",
+      "preparing": "Preparazione per il trascinamento…",
+      "readyToDrag": "Pronto — trascina in una cartella"
     },
     "authWarning": {
       "failedAuthentication": "Autenticazione fallita",
@@ -1859,7 +1863,8 @@
       "sfUnread": "Non lette",
       "sfAttachments": "Con Allegati",
       "sfStarredRecent": "Importanti - questa settimana",
-      "sfCalendar": "Inviti al Calendario"
+      "sfCalendar": "Inviti al Calendario",
+      "sfRicevute": "Ricevute"
     },
     "addSmartFolder": "Aggiungi cartella smart",
     "addLabel": "Aggiungi etichetta",

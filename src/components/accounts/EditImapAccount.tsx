@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { CheckCircle2, XCircle, Loader2, Check, AlertTriangle } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
@@ -6,6 +6,9 @@ import { getAccount, updateImapAccount, updateAccountMeta, getAllAccounts } from
 import { getDefaultImapPort, getDefaultSmtpPort, type SecurityType } from "@/services/imap/autoDiscovery";
 import { ACCOUNT_COLOR_PRESETS } from "@/constants/accountColors";
 import { useAccountStore } from "@/stores/accountStore";
+import { useSmartFolderStore } from "@/stores/smartFolderStore";
+import { isPecCandidateEmail } from "@/services/pec/pecReceipts";
+import { enablePec, disablePec } from "@/services/pec/pecManager";
 import { t } from "@/i18n";
 
 interface EditImapAccountProps {
@@ -30,6 +33,7 @@ interface FormState {
   acceptInvalidCerts: boolean;
   color: string | null;
   includeInGlobal: boolean;
+  pecEnabled: boolean;
 }
 
 type TestStatus = { state: "idle" | "testing" | "success" | "error"; message?: string };
@@ -65,11 +69,13 @@ export function EditImapAccount({ accountId, onClose, onSaved }: EditImapAccount
     acceptInvalidCerts: false,
     color: null,
     includeInGlobal: true,
+    pecEnabled: false,
   });
   const [imapTest, setImapTest] = useState<TestStatus>({ state: "idle" });
   const [smtpTest, setSmtpTest] = useState<TestStatus>({ state: "idle" });
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const initialPecEnabled = useRef(false);
 
   useEffect(() => {
     getAccount(accountId).then((account) => {
@@ -92,7 +98,9 @@ export function EditImapAccount({ accountId, onClose, onSaved }: EditImapAccount
         acceptInvalidCerts: account.accept_invalid_certs === 1,
         color: account.color ?? null,
         includeInGlobal: account.include_in_global !== 0,
+        pecEnabled: account.pec_enabled === 1,
       });
+      initialPecEnabled.current = account.pec_enabled === 1;
       setLoading(false);
     });
   }, [accountId]);
@@ -173,6 +181,16 @@ export function EditImapAccount({ accountId, onClose, onSaved }: EditImapAccount
         includeInGlobal: form.includeInGlobal,
         label: form.label.trim() || null,
       });
+      // PEC mode: create/remove the "Ricevute" folder + reconcile receipts on change.
+      if (form.pecEnabled !== initialPecEnabled.current) {
+        if (form.pecEnabled) {
+          await enablePec(accountId);
+        } else {
+          await disablePec(accountId);
+        }
+        initialPecEnabled.current = form.pecEnabled;
+        await useSmartFolderStore.getState().loadFolders(accountId);
+      }
       // Refresh account store so color/includeInGlobal propagate immediately
       const dbAccounts = await getAllAccounts();
       useAccountStore.getState().setAccounts(
@@ -187,6 +205,7 @@ export function EditImapAccount({ accountId, onClose, onSaved }: EditImapAccount
           includeInGlobal: a.include_in_global !== 0,
           sortOrder: a.sort_order ?? 0,
           label: a.label ?? null,
+          pecEnabled: a.pec_enabled === 1,
         })),
         useAccountStore.getState().activeAccountId ?? undefined,
       );
@@ -294,6 +313,28 @@ export function EditImapAccount({ accountId, onClose, onSaved }: EditImapAccount
               {t("accounts.includeInUnified")}
             </label>
           </div>
+          {/* PEC mode — only for certified-email addresses (pec/legalmail/legal) */}
+          {isPecCandidateEmail(email) && (
+            <div>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={form.pecEnabled}
+                  onClick={() => update("pecEnabled", !form.pecEnabled)}
+                  className={`relative w-9 h-5 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-1 ${form.pecEnabled ? "bg-accent" : "bg-border-primary"}`}
+                >
+                  <span
+                    className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${form.pecEnabled ? "translate-x-4" : "translate-x-0"}`}
+                  />
+                </button>
+                <label className="text-sm text-text-secondary cursor-pointer select-none" onClick={() => update("pecEnabled", !form.pecEnabled)}>
+                  {t("accounts.pecMode")}
+                </label>
+              </div>
+              <p className="text-xs text-text-tertiary mt-1">{t("accounts.pecModeDesc")}</p>
+            </div>
+          )}
           {!isOAuth && (
             <>
               <div>

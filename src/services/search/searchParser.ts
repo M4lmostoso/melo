@@ -14,6 +14,8 @@ export interface ParsedSearchQuery {
   isUnread?: boolean;
   isRead?: boolean;
   isStarred?: boolean;
+  /** is:ricevuta — PEC receipts (accettazione/consegna), flagged is_pec_receipt. */
+  isPecReceipt?: boolean;
   before?: number; // unix timestamp (milliseconds)
   after?: number;  // unix timestamp (milliseconds)
   label?: string;
@@ -83,6 +85,10 @@ export function parseSearchQuery(input: string): ParsedSearchQuery {
             break;
           case "starred":
             result.isStarred = true;
+            break;
+          case "ricevuta":
+          case "ricevute":
+            result.isPecReceipt = true;
             break;
         }
         break;

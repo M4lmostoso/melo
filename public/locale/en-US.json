@@ -216,6 +216,8 @@
     "accountColor": "Account Color",
     "clearColor": "Clear",
     "includeInUnified": "Include in unified inbox",
+    "pecMode": "PEC mode (certified email)",
+    "pecModeDesc": "Adds a \"Receipts\" folder collecting acceptance and delivery receipts. Receipts are kept out of the Inbox (still in All Mail) and always marked as read.",
     "authorization": "Authorization",
     "reauthorizeDesc": "Re-authorize if you're experiencing authentication errors.",
     "reauthorize": "Re-authorize",
@@ -723,7 +725,9 @@
       "previewNotAvailable": "Preview not available for this file type",
       "unknownType": "Unknown type",
       "attachment": "Attachment",
-      "itemHint": "Click to select · Space to preview · double-click to open · drag to a folder"
+      "itemHint": "Click to select · Space to preview · double-click to open · drag to a folder",
+      "preparing": "Preparing for drag…",
+      "readyToDrag": "Ready — drag to a folder"
     },
     "authWarning": {
       "failedAuthentication": "Authentication failed",
@@ -1859,7 +1863,8 @@
       "sfUnread": "Unread",
       "sfAttachments": "Has Attachments",
       "sfStarredRecent": "Starred This Week",
-      "sfCalendar": "Calendar Invites"
+      "sfCalendar": "Calendar Invites",
+      "sfRicevute": "Receipts"
     },
     "addSmartFolder": "Add smart folder",
     "addLabel": "Add label",

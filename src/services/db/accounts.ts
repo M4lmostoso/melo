@@ -37,6 +37,7 @@ export interface DbAccount {
   calendar_provider: string | null;
   accept_invalid_certs: number;
   rag_enabled: number;
+  pec_enabled: number;
   color: string | null;
   include_in_global: number;
   sort_order: number;
@@ -495,6 +496,24 @@ export async function setAccountRagEnabled(accountId: string, enabled: boolean):
   const db = await getDb();
   await db.execute(
     "UPDATE accounts SET rag_enabled = $1 WHERE id = $2",
+    [enabled ? 1 : 0, accountId],
+  );
+}
+
+export async function getAccountPecEnabled(accountId: string): Promise<boolean> {
+  const db = await getDb();
+  type Row = { pec_enabled: number };
+  const [row] = await db.select<Row[]>(
+    "SELECT pec_enabled FROM accounts WHERE id = $1",
+    [accountId],
+  );
+  return (row?.pec_enabled ?? 0) === 1;
+}
+
+export async function setAccountPecEnabled(accountId: string, enabled: boolean): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    "UPDATE accounts SET pec_enabled = $1 WHERE id = $2",
     [enabled ? 1 : 0, accountId],
   );
 }

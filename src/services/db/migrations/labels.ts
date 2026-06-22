@@ -234,4 +234,13 @@ export const MIGRATIONS_LABELS = [
         );
     `,
   },
+  {
+    version: 66,
+    description:
+      "PEC (Posta Elettronica Certificata) support: pec_enabled flag on accounts (toggles PEC mode + the 'Ricevute' smart folder) and is_pec_receipt flag on messages (marks accettazione/consegna receipts so they are kept out of Inbox, always read, and surfaced only in the Ricevute folder / All Mail).",
+    sql: `
+      ALTER TABLE accounts ADD COLUMN pec_enabled INTEGER DEFAULT 0;
+      ALTER TABLE messages ADD COLUMN is_pec_receipt INTEGER DEFAULT 0;
+    `,
+  },
 ];

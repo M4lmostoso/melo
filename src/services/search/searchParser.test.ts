@@ -44,6 +44,11 @@ describe("parseSearchQuery", () => {
     expect(result.isStarred).toBe(true);
   });
 
+  it("parses is:ricevuta (and is:ricevute)", () => {
+    expect(parseSearchQuery("is:ricevuta").isPecReceipt).toBe(true);
+    expect(parseSearchQuery("is:ricevute").isPecReceipt).toBe(true);
+  });
+
   it("parses before: date", () => {
     const result = parseSearchQuery("before:2024/01/15");
     expect(result.before).toBeDefined();

@@ -17,6 +17,7 @@ interface AttachmentGridItemProps {
   onOpenWithApp?: () => void;
   onItemMouseDown?: (e: React.MouseEvent) => void;
   onItemDragStart?: (e: React.DragEvent) => void;
+  onItemPointerEnter?: () => void;
   onPreview: () => void;
   onDownload: () => void;
   onJumpToEmail: () => void;
@@ -39,7 +40,7 @@ function formatRelativeDate(timestamp: number | null): string {
 export function AttachmentGridItem({
   attachment, accountLabel, accountColor,
   downloadProgress, downloadError,
-  selected, onSelect, onOpenWithApp, onItemMouseDown, onItemDragStart,
+  selected, onSelect, onOpenWithApp, onItemMouseDown, onItemDragStart, onItemPointerEnter,
   onPreview, onDownload, onJumpToEmail,
 }: AttachmentGridItemProps) {
   const previewable = canPreview(attachment.mime_type, attachment.filename);
@@ -60,6 +61,7 @@ export function AttachmentGridItem({
       draggable
       aria-selected={selected}
       title={t("attachments.library.itemHint")}
+      onPointerEnter={() => onItemPointerEnter?.()}
       onMouseDown={(e) => onItemMouseDown?.(e)}
       onDragStart={(e) => onItemDragStart?.(e)}
       onClick={(e) => onSelect?.(e)}

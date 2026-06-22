@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getAttachmentsForMessage, type DbAttachment } from "@/services/db/attachments";
 import { getEmailProvider } from "@/services/email/providerFactory";
 import { Modal } from "@/components/ui/Modal";
-import { Download, Eye } from "lucide-react";
+import { Download, Eye, Loader2, GripVertical } from "lucide-react";
 import { t } from "@/i18n";
 import { formatFileSize, isImage, isPdf, isText, isOfficeDoc, isOfficeSpreadsheet, canPreview, getFileIcon } from "@/utils/fileTypeHelpers";
 import { OfficeDocPreview } from "@/components/ui/OfficeDocPreview";
@@ -72,36 +72,62 @@ export function AttachmentList({ accountId, messageId, attachments, referencedCi
             : t("email.attachmentList.count", { count: fileAttachments.length })}
         </div>
         <div className="flex flex-wrap gap-2">
-          {fileAttachments.map((att) => (
+          {fileAttachments.map((att) => {
+            const prep = drag.prepState[att.id];
+            const pct = drag.progress[att.id];
+            const isPreparing = prep === "preparing";
+            const isReady = prep === "ready";
+            const dragTitle = isPreparing
+              ? t("email.attachmentList.preparing")
+              : isReady
+                ? t("email.attachmentList.readyToDrag")
+                : t("email.attachmentList.itemHint");
+            return (
             <div
               key={att.id}
               role="button"
               tabIndex={0}
               draggable
               aria-selected={sel.isSelected(att.id)}
-              title={t("email.attachmentList.itemHint")}
+              aria-busy={isPreparing}
+              title={dragTitle}
+              onPointerEnter={() => drag.onItemPointerEnter(att.id)}
               onMouseDown={(e) => drag.onItemMouseDown(att.id, e)}
               onDragStart={(e) => drag.onItemDragStart(att.id, e)}
               onClick={(e) => { if (drag.didDrag()) return; sel.onItemClick(att.id, e); }}
               onDoubleClick={() => openAttachmentWithDefaultApp(toAttachmentRef(att)).catch((err) => console.error("Open attachment failed:", err))}
               onKeyDown={(e) => handleKeyDown(e, att)}
-              className={`flex items-center gap-2 px-3 py-1.5 text-xs rounded-md border transition-colors cursor-pointer select-none focus:outline-none focus:ring-1 focus:ring-accent ${
+              className={`flex items-center gap-2 px-3 py-1.5 text-xs rounded-md border transition-colors select-none focus:outline-none focus:ring-1 focus:ring-accent ${
+                isPreparing ? "cursor-progress" : isReady ? "cursor-grab" : "cursor-pointer"
+              } ${
                 sel.isSelected(att.id)
                   ? "border-accent bg-accent/10"
-                  : "border-border-primary hover:bg-bg-hover"
+                  : isReady
+                    ? "border-accent/60 bg-bg-hover"
+                    : "border-border-primary hover:bg-bg-hover"
               }`}
             >
               <span className="text-text-tertiary">{getFileIcon(att.mime_type, att.filename)}</span>
               <span className="text-text-secondary truncate max-w-[200px]">
                 {att.filename ?? t("email.attachmentList.unnamed")}
               </span>
-              {att.size != null && (
-                <span className="text-text-tertiary whitespace-nowrap">
-                  {formatFileSize(att.size)}
+              {isPreparing ? (
+                <span className="flex items-center gap-1 text-text-tertiary whitespace-nowrap tabular-nums">
+                  <Loader2 size={12} className="animate-spin" />
+                  {pct != null && pct >= 0 ? `${pct}%` : null}
                 </span>
+              ) : isReady ? (
+                <GripVertical size={12} className="text-accent shrink-0" aria-label={t("email.attachmentList.readyToDrag")} />
+              ) : (
+                att.size != null && (
+                  <span className="text-text-tertiary whitespace-nowrap">
+                    {formatFileSize(att.size)}
+                  </span>
+                )
               )}
             </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 

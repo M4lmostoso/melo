@@ -1,8 +1,12 @@
-import { useRef, useCallback } from "react";
+import { useRef, useCallback, useState, useEffect } from "react";
+import { listen } from "@tauri-apps/api/event";
 import type { AttachmentRef } from "@/services/attachments/attachmentActions";
 import { materializeMany, dragPaths, DRAG_ICON } from "@/services/attachments/attachmentActions";
 
 type StartDragFn = (opts: { item: string[]; icon: string }) => Promise<void>;
+
+/** Per-attachment drag-readiness, keyed by the attachment db id. */
+export type DragPrepState = "preparing" | "ready" | "error";
 
 /**
  * Native file drag-out for attachments.
@@ -20,17 +24,52 @@ type StartDragFn = (opts: { item: string[]; icon: string }) => Promise<void>;
 export function useDragOut(resolveRefs: (id: string) => AttachmentRef[]) {
   const pathsRef = useRef<string[] | null>(null);
   const pathsPromiseRef = useRef<Promise<string[]> | null>(null);
+  const warmedIdRef = useRef<string | null>(null);
   const startDragRef = useRef<StartDragFn | null>(null);
   const draggedRef = useRef(false);
   const resolveR = useRef(resolveRefs);
   resolveR.current = resolveRefs;
 
+  // Drag-readiness per attachment db id (drives the UI indicator) and live
+  // download percentage (0–100) sourced from the Rust progress event.
+  const [prepState, setPrepState] = useState<Record<string, DragPrepState>>({});
+  const [progress, setProgress] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    type ProgressPayload = { attachmentId: string; downloaded: number; total: number };
+    const unlisten = listen<ProgressPayload>("attachment-download-progress", (e) => {
+      const { attachmentId, downloaded, total } = e.payload;
+      const pct = total > 0 ? Math.min(100, Math.round((downloaded / total) * 100)) : 0;
+      setProgress((prev) => ({ ...prev, [attachmentId]: pct }));
+    });
+    return () => { unlisten.then((f) => f()); };
+  }, []);
+
+  // Materialize the attachment(s) for `id` to disk so their paths are ready by
+  // the time `dragstart` fires (the native drag must start synchronously there).
+  // Idempotent per id: re-hovering or pressing the same item won't restart an
+  // in-flight download — important for slow IMAP fetches that must finish before
+  // the drag begins.
   const warmUp = useCallback((id: string) => {
+    if (warmedIdRef.current === id && pathsPromiseRef.current) return;
+    warmedIdRef.current = id;
     const refs = resolveR.current(id).filter((r) => r.attachmentId);
     pathsRef.current = null;
+    const dbIds = refs.map((r) => r.dbId);
+    const setAll = (s: DragPrepState) =>
+      setPrepState((prev) => {
+        const next = { ...prev };
+        for (const d of dbIds) next[d] = s;
+        return next;
+      });
+    setAll("preparing");
     const p = materializeMany(refs)
-      .then((paths) => { pathsRef.current = paths; return paths; })
-      .catch(() => [] as string[]);
+      .then((paths) => {
+        if (warmedIdRef.current === id) pathsRef.current = paths;
+        setAll("ready");
+        return paths;
+      })
+      .catch(() => { setAll("error"); return [] as string[]; });
     pathsPromiseRef.current = p;
     if (!startDragRef.current) {
       import("@crabnebula/tauri-plugin-drag")
@@ -38,6 +77,12 @@ export function useDragOut(resolveRefs: (id: string) => AttachmentRef[]) {
         .catch(() => {});
     }
   }, []);
+
+  // Begin materializing as soon as the pointer enters the item — gives slow IMAP
+  // downloads a head start so the file is on disk before the drag is initiated.
+  const onItemPointerEnter = useCallback((id: string) => {
+    warmUp(id);
+  }, [warmUp]);
 
   const fire = useCallback((paths: string[]) => {
     if (!paths.length) return;
@@ -77,5 +122,5 @@ export function useDragOut(resolveRefs: (id: string) => AttachmentRef[]) {
   /** True when the last gesture became a drag — use to suppress the click. */
   const didDrag = useCallback(() => draggedRef.current, []);
 
-  return { onItemMouseDown, onItemDragStart, didDrag };
+  return { onItemPointerEnter, onItemMouseDown, onItemDragStart, didDrag, prepState, progress };
 }

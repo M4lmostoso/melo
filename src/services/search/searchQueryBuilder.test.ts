@@ -57,6 +57,12 @@ describe("buildSearchQuery", () => {
     expect(sql).toContain("m.is_starred = 1");
   });
 
+  it("builds is:ricevuta (PEC receipt) filter", () => {
+    const parsed: ParsedSearchQuery = { freeText: "", isPecReceipt: true };
+    const { sql } = buildSearchQuery(parsed);
+    expect(sql).toContain("m.is_pec_receipt = 1");
+  });
+
   it("builds before: date filter", () => {
     const ts = Math.floor(new Date(2024, 0, 15).getTime() / 1000);
     const parsed: ParsedSearchQuery = { freeText: "", before: ts };

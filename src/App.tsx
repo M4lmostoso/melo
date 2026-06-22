@@ -706,6 +706,7 @@ export default function App() {
           includeInGlobal: a.include_in_global !== 0,
           sortOrder: a.sort_order ?? 0,
           label: a.label ?? null,
+          pecEnabled: a.pec_enabled === 1,
         }));
         const savedAccountId = await getSetting("active_account_id");
         useAccountStore.getState().setAccounts(mapped, savedAccountId);
@@ -1005,6 +1006,7 @@ export default function App() {
       includeInGlobal: a.include_in_global !== 0,
       sortOrder: a.sort_order ?? 0,
       label: a.label ?? null,
+      pecEnabled: a.pec_enabled === 1,
     }));
     useAccountStore.getState().setAccounts(mapped);
 

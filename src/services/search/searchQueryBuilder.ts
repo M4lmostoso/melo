@@ -102,6 +102,11 @@ export function buildSearchQuery(
     whereClauses.push(`m.is_starred = 1`);
   }
 
+  // is:ricevuta — PEC receipts
+  if (parsed.isPecReceipt) {
+    whereClauses.push(`m.is_pec_receipt = 1`);
+  }
+
   // before: date
   if (parsed.before !== undefined) {
     whereClauses.push(`m.date < $${paramIdx}`);

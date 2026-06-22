@@ -414,6 +414,7 @@ export function AttachmentLibrary() {
                 onOpenWithApp={() => handleOpenWithApp(att)}
                 onItemMouseDown={(e) => drag.onItemMouseDown(att.id, e)}
                 onItemDragStart={(e) => drag.onItemDragStart(att.id, e)}
+                onItemPointerEnter={() => drag.onItemPointerEnter(att.id)}
                 onPreview={() => setPreviewAttachment(att)}
                 onDownload={() => handleDownload(att)}
                 onJumpToEmail={() => handleJumpToEmail(att)}
@@ -435,6 +436,7 @@ export function AttachmentLibrary() {
                 onOpenWithApp={() => handleOpenWithApp(att)}
                 onItemMouseDown={(e) => drag.onItemMouseDown(att.id, e)}
                 onItemDragStart={(e) => drag.onItemDragStart(att.id, e)}
+                onItemPointerEnter={() => drag.onItemPointerEnter(att.id)}
                 onPreview={() => setPreviewAttachment(att)}
                 onDownload={() => handleDownload(att)}
                 onJumpToEmail={() => handleJumpToEmail(att)}
