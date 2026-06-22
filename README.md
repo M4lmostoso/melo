@@ -8,6 +8,12 @@
   <em><strong>Another email client. Yes, really. No, we're not sorry.</strong></em>
 </p>
 
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-GPLv3-blue.svg" alt="License: GPL v3" /></a>
+  <a href="https://github.com/M4lmostoso/melo/actions/workflows/ci.yml"><img src="https://github.com/M4lmostoso/melo/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="CLA.md"><img src="https://img.shields.io/badge/PRs-CLA%20required-orange.svg" alt="CLA required" /></a>
+</p>
+
 ---
 
 Melo is a **desktop email client** built with Tauri v2, React 19, and Rust — because apparently SQLite, a Rust binary, five AI providers, a task manager, a calendar, semantic search, phishing detection, RFC 8058 one-click unsubscribe, and an urgency scoring engine with temporal decay weren't enough reasons to just use Thunderbird.
