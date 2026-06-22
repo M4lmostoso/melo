@@ -6,14 +6,14 @@ Thank you for your interest in contributing to Melo! This guide will help you ge
 
 ### Prerequisites
 
-- [Node.js](https://nodejs.org/) v18+
+- [Node.js](https://nodejs.org/) v20+
 - [Rust](https://www.rust-lang.org/tools/install)
 - [Tauri v2 prerequisites](https://v2.tauri.app/start/prerequisites/)
 
 ### Setup
 
 ```bash
-git clone https://github.com/avihaymenahem/melo.git
+git clone https://github.com/M4lmostoso/melo.git
 cd melo
 npm install
 npm run tauri dev
@@ -93,7 +93,7 @@ chore: bump tauri to v2.10
 
 ## Reporting Bugs
 
-Use the [bug report template](https://github.com/avihaymenahem/melo/issues/new?template=bug_report.yml) on GitHub Issues. Include:
+Use the [bug report template](https://github.com/M4lmostoso/melo/issues/new?template=bug_report.yml) on GitHub Issues. Include:
 
 - Steps to reproduce
 - Expected vs. actual behavior
@@ -102,7 +102,7 @@ Use the [bug report template](https://github.com/avihaymenahem/melo/issues/new?t
 
 ## Feature Requests
 
-Use the [feature request template](https://github.com/avihaymenahem/melo/issues/new?template=feature_request.yml) on GitHub Issues.
+Use the [feature request template](https://github.com/M4lmostoso/melo/issues/new?template=feature_request.yml) on GitHub Issues.
 
 ## License
 
@@ -110,7 +110,7 @@ By contributing, you agree that your contributions will be licensed under the [A
 
 ## Packaging
 
-This project uses GitHub Actions to build Flatpak and RPM packages for Linux distributions. To test these builds locally, follow the instructions below.
+Melo can be packaged as Flatpak and RPM for Linux distributions. To build these packages locally, follow the instructions below.
 
 ### Testing the Flatpak Build
 
