@@ -15,11 +15,13 @@ All work described in this section took place in the Melo fork, spread across 23
 - New app and tray icons, including native dark/light mode on macOS via template icon
 - Redesigned splash screen with updated palette and skeleton loading animation
 - Removed all upstream CI/CD release workflows; version reset to 0.1.0
+- **Minimal CI** — GitHub Actions workflow runs type-check + the full test suite on every pull request
 
 ---
 
 ### Email & IMAP Sync
 
+- **PEC (Certified Email) support** — detection of Italian PEC accounts with a dedicated certified-receipt (Ricevute) folder, automatic receipt reconciliation during IMAP sync, and receipt filtering
 - **iCloud Mail support** with dedicated connection rate-limiting and app-specific password warnings
 - **IMAP IDLE** — real-time background sync without polling; UI management tabs
 - **IMAP session pool** — connection pool with frontend concurrency limits to optimize attachment fetching and database performance
@@ -40,6 +42,7 @@ All work described in this section took place in the Melo fork, spread across 23
 
 ### Composer
 
+- **Pre-send validation** — warns about a missing subject or a forgotten attachment (e.g. "see attached" with no file) before the message goes out
 - **Font toolbar** — font family, size, and color picker directly in the composer toolbar
 - **AI Sidebar in composer** — integrated AI chat interface for writing assistance
 - **Account switcher** — switch accounts in the modal composer without reopening the window
@@ -64,10 +67,12 @@ All work described in this section took place in the Melo fork, spread across 23
 - **Automatic backfill** of urgency scores for existing threads
 - **AI Answer Panel (Ask My Inbox)** — answer panel with citations and navigation to cited threads; textarea in SearchBar
 - **Hybrid FTS + vector RAG** — search with Reciprocal Rank Fusion in Rust; manual re-indexing from settings; aggregated progress indicator; automatic backfill resume after sync
+- **AI phishing arbitration** — AI-assisted adjudication layered on top of the heuristic phishing rules to reduce false positives
 - **AI Smart Labels** — automatic content-based labeling for threads
 - **AI Urgency Decay** — sender reputation and configurable "heat extinction"
 - **SOUL.md** — configurable AI personality via Markdown file with settings UI and file monitoring
 - **Semantic result merging** — semantic unification of results with citations in threads
+- Urgency scoring prompts now return rationales explaining each score
 - Thread context and past user replies injected into the AI prompt for personalization
 - Task extraction from emails with multi-task support and target language injection into the prompt
 
@@ -75,6 +80,7 @@ All work described in this section took place in the Melo fork, spread across 23
 
 ### Task Manager
 
+- **Email–task linking** — link an email to a task from a dedicated UI; the active account follows the linked thread on navigation
 - **Task panel** integrated in the sidebar with tags and deadline tracking
 - **TasksDayPanel** — weekly scheduling view for daily tasks
 - **AI task extraction** — automatic task extraction from emails with sidebar grouping
@@ -89,6 +95,7 @@ All work described in this section took place in the Melo fork, spread across 23
 
 ### Calendar
 
+- **Sync reconciliation** — local calendar state reconciled against the server so events deleted or moved remotely are dropped locally
 - **CalDAV synchronization** — calendar metadata, colors, events, and invite responses
 - **Unified view** — aggregation of events and calendars across all accounts
 - **Client-side RRULE expansion** — recurring event expansion on the client for CalDAV providers that lack native support
@@ -145,6 +152,9 @@ All work described in this section took place in the Melo fork, spread across 23
 - **Local file preview modal** — modal for previewing local files
 - **Empty state illustrations** — illustrations for empty views
 - **Floating sync pill** — sync status bar converted to a floating pill in the bottom-right corner
+- **ContactChip hover cards** — contact preview cards on hover, with navigation to a focused contact sidebar
+- **Manual mail sync button** in the macOS sidebar for on-demand sync
+- **Multi-select attachments** — multi-select with drag-and-drop and native app integration
 - **Native macOS traffic lights** — semaphore buttons in the sidebar for native window control
 - **Window dragging** — `data-tauri-drag-region` on the main layout and fullpage composer
 - **Print email** — printing with threading, signatures, dedicated CSS print styles, and dynamic document title
@@ -169,6 +179,7 @@ All work described in this section took place in the Melo fork, spread across 23
 
 - **Outgoing view** — sidebar section with persistent and in-memory tracking of outgoing emails
 - **Failed send queue** — dedicated view for failed messages with retry support
+- **Edit queued emails** — modify outgoing messages before they send; in-flight items shown in the queue view
 
 ---
 
@@ -183,6 +194,7 @@ All work described in this section took place in the Melo fork, spread across 23
 
 ### Security & Privacy
 
+- **Production log stripping** — `console.log`/`console.debug` removed from release builds (warnings/errors kept) to avoid console noise and incidental data exposure
 - **Nonce-based message verification** — iframe message verification with nonce to resolve WKWebView issues
 - **iframe srcdoc** — migration from `blob:` URLs to `srcdoc` in EmailRenderer for improved security
 - **postMessage link handling** — secure iframe link handling via postMessage with sandbox restriction
@@ -197,6 +209,7 @@ All work described in this section took place in the Melo fork, spread across 23
 - **Lazy body fetching** — lazy message body retrieval with backpressure via semaphores
 - **Body caching** — local cache of email bodies to reduce server requests
 - **Attachment disk caching** — on-disk attachment cache with optimized memory management
+- **Raw TCP attachment fetching** — bypasses IMAP parser hangs with a fallback discovery path for legacy messages
 - **Batched IMAP CID resolution** — batch CID image resolution on the Rust side to reduce memory footprint
 - **Batched DB queries** — batch database queries for search and thread loading
 - ResizeObserver for frame height calculation (avoids layout thrashing)
@@ -216,6 +229,7 @@ All work described in this section took place in the Melo fork, spread across 23
 - Prevent skeleton flash in the Outgoing view
 - Proper iframe height handling on WKWebView
 - Fix unread count calculation for smart folders in global mode
+- Resolve over-trashing of Gmail threads — migration for orphaned messages plus an automatic re-sync when a thread fails to load
 
 ---
 
