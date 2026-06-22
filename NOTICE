@@ -1,15 +1,21 @@
 Melo
 Copyright 2026 Melo contributors
 
-This product is a fork of Velo, an open-source desktop email client.
+Melo as a whole is licensed under the GNU General Public License, version 3
+or (at your option) any later version. The full text is in the LICENSE file.
+
+----------------------------------------------------------------------
+
+Melo is a fork of Velo, an open-source desktop email client:
 
   Velo
   Copyright 2025 Velo Mail (Avihay Menahem and contributors)
   https://github.com/avihaymenahem/velo
 
 Velo is licensed under the Apache License, Version 2.0. Portions of this
-software derive from Velo and remain under that license. The original
-Apache License is preserved in the LICENSE file.
+software are derived from Velo and remain subject to that license; the
+Apache License text is preserved in the LICENSE-APACHE file.
 
-Melo's own additions are likewise distributed under the Apache License,
-Version 2.0, unless stated otherwise.
+The Apache License, Version 2.0 is compatible with GPLv3, which is why the
+combined work may be distributed under GPLv3 while the Velo-derived portions
+retain their original Apache 2.0 notices and attribution.

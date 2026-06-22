@@ -104,9 +104,17 @@ Use the [bug report template](https://github.com/M4lmostoso/melo/issues/new?temp
 
 Use the [feature request template](https://github.com/M4lmostoso/melo/issues/new?template=feature_request.yml) on GitHub Issues.
 
-## License
+## License & CLA
 
-By contributing, you agree that your contributions will be licensed under the [Apache-2.0 License](LICENSE).
+Melo is licensed under the [GNU GPL v3.0 or later](LICENSE). Code derived from the
+upstream Velo project remains under Apache-2.0 (see [LICENSE-APACHE](LICENSE-APACHE)
+and [NOTICE](NOTICE)).
+
+**Code contributions require agreeing to the [Contributor License Agreement](CLA.md).**
+The CLA grants the project the right to relicense contributed code (including under
+a future commercial edition), keeping Melo's licensing under unified control.
+Pull requests cannot be merged until the CLA is accepted — a CLA bot may prompt you
+to confirm on your first PR.
 
 ## Packaging
 

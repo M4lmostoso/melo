@@ -1459,9 +1459,9 @@
       "website": "Website",
       "githubRepo": "GitHub Repository",
       "contact": "Contact",
-      "apacheLicense": "Apache License 2.0",
-      "licenseText": "Licensed under the Apache License, Version 2.0. You may obtain a copy of the License at",
-      "licenseText2": "Copyright 2025 Melo Mail. You may use, distribute, and modify this software under the terms of the Apache 2.0 license. This software is distributed on an \"AS IS\" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND."
+      "apacheLicense": "GNU General Public License v3.0",
+      "licenseText": "Licensed under the GNU General Public License, version 3 or later. You may obtain a copy of the License at",
+      "licenseText2": "Copyright 2026 Melo contributors. You may use, distribute, and modify this software under the terms of the GPLv3 (or later). Melo is a fork of Velo (Apache 2.0); portions remain under that license. This software is distributed on an \"AS IS\" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND."
     },
     "general": {
       "sections": {

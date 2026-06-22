@@ -238,10 +238,10 @@ export function AboutTab() {
           <p className="text-xs text-text-secondary leading-relaxed mb-3">
             {t("settings.about.licenseText")}{" "}
             <button
-              onClick={() => openExternal("https://www.apache.org/licenses/LICENSE-2.0")}
+              onClick={() => openExternal("https://www.gnu.org/licenses/gpl-3.0.html")}
               className="text-accent hover:text-accent-hover transition-colors"
             >
-              apache.org/licenses/LICENSE-2.0
+              gnu.org/licenses/gpl-3.0
             </button>
           </p>
           <p className="text-xs text-text-tertiary leading-relaxed">

@@ -1,8 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { Sparkles, ChevronDown, ChevronUp, RefreshCw } from "lucide-react";
 import { t } from "@/i18n";
-import { isAiAvailable } from "@/services/ai/providerManager";
-import { summarizeThread } from "@/services/ai/aiService";
+import { isAiAvailable, summarizeThread } from "@/services/ai/aiService";
 import { deleteAiCache } from "@/services/db/aiCache";
 import type { DbMessage } from "@/services/db/messages";
 

@@ -218,9 +218,30 @@ It will not make you enjoy email. Nothing will. But it will make it faster, quie
 
 ---
 
+## 🤝 Contributing
+
+Melo is open source, but it is **not an open-contribution free-for-all.**
+
+We welcome issues, bug reports, and feature requests. However, **code
+contributions are accepted only from contributors who have agreed to our
+[Contributor License Agreement (CLA)](CLA.md).** The CLA grants the project the
+right to relicense contributed code — including under a future commercial
+edition — which keeps Melo's licensing under unified control. Pull requests from
+contributors who have not agreed to the CLA cannot be merged.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow.
+
 ## 📄 License
 
-TBD. Like your inbox.
+Melo is licensed under the **[GNU General Public License v3.0 or later](LICENSE)**
+(GPL-3.0-or-later). In short: you are free to use, study, share, and modify Melo,
+but any distributed derivative work must also be released under the GPL.
+
+Melo is a fork of [Velo](https://github.com/avihaymenahem/velo), which is licensed
+under the Apache License 2.0. Portions derived from Velo remain under that license
+— see [LICENSE-APACHE](LICENSE-APACHE) and [NOTICE](NOTICE) for details. Apache 2.0
+is GPL-compatible, so the combined work is distributed under GPLv3 while preserving
+Velo's original attribution.
 
 ---
 

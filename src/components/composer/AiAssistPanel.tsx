@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import type { Editor } from "@tiptap/react";
 import { Wand2, Sparkles, ArrowDown, Briefcase, Send, User, Bot } from "lucide-react";
 import { t } from "@/i18n";
-import { isAiAvailable } from "@/services/ai/providerManager";
+import { isAiAvailable } from "@/services/ai/aiService";
 import {
   composeFromPrompt,
   generateReply,

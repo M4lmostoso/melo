@@ -1459,9 +1459,9 @@
       "website": "Sito web",
       "githubRepo": "Repository GitHub",
       "contact": "Contatto",
-      "apacheLicense": "Licenza Apache 2.0",
-      "licenseText": "Concesso in licenza ai sensi della Licenza Apache, Versione 2.0. Puoi ottenere una copia della Licenza su",
-      "licenseText2": "Copyright 2025 Melo Mail. Puoi usare, distribuire e modificare questo software ai sensi della licenza Apache 2.0. Questo software è distribuito \"COSÌ COM'È\", SENZA GARANZIE O CONDIZIONI DI ALCUN TIPO."
+      "apacheLicense": "Licenza Pubblica Generica GNU v3.0",
+      "licenseText": "Concesso in licenza ai sensi della GNU General Public License, versione 3 o successiva. Puoi ottenere una copia della Licenza su",
+      "licenseText2": "Copyright 2026 Melo contributors. Puoi usare, distribuire e modificare questo software ai sensi della licenza GPLv3 (o successiva). Melo è un fork di Velo (Apache 2.0); alcune parti restano sotto tale licenza. Questo software è distribuito \"COSÌ COM'È\", SENZA GARANZIE O CONDIZIONI DI ALCUN TIPO."
     },
     "general": {
       "sections": {

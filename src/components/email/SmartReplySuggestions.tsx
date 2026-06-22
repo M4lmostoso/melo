@@ -1,8 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { Sparkles, RefreshCw } from "lucide-react";
 import { t } from "@/i18n";
-import { isAiAvailable } from "@/services/ai/providerManager";
-import { generateSmartReplies } from "@/services/ai/aiService";
+import { isAiAvailable, generateSmartReplies } from "@/services/ai/aiService";
 import { deleteAiCache } from "@/services/db/aiCache";
 import { useComposerStore } from "@/stores/composerStore";
 import type { DbMessage } from "@/services/db/messages";

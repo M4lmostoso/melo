@@ -2,9 +2,9 @@
 name = "melo"
 version = "0.1.0" # x-release-please-version
 description = "Email at the speed of thought"
-authors = ["Avihay"]
-license = "Apache-2.0"
-repository = ""
+authors = ["Melo contributors"]
+license = "GPL-3.0-or-later"
+repository = "https://github.com/M4lmostoso/melo"
 edition = "2021"
 rust-version = "1.77.2"
 

@@ -20,3 +20,7 @@
 
 ## Screenshots
 <!-- If applicable, add screenshots -->
+
+## Contributor License Agreement
+
+- [ ] I have read and agree to the [Contributor License Agreement](../CLA.md). I understand my contribution may be relicensed (including under a future commercial edition).

@@ -25,6 +25,10 @@ import {
 } from "./prompts";
 import { getSoul } from "./soulService";
 
+// Public re-export: components should check AI availability through the facade,
+// not by reaching into providerManager directly (see eslint no-restricted-imports).
+export { isAiAvailable } from "./providerManager";
+
 async function callAi(systemPrompt: string, userContent: string, options?: { skipLanguage?: boolean; skipSoul?: boolean; conversationHistory?: ConversationMessage[] }): Promise<string> {
   let finalSystemPrompt = systemPrompt;
 

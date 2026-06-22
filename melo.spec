@@ -9,7 +9,7 @@ Version: %{app_version}
 Release: %{app_release}%{?dist}
 Summary: Fast, beautiful desktop email client
 
-License: Apache-2.0
+License: GPL-3.0-or-later
 URL:     https://github.com/M4lmostoso/melo
 Source0: %{url}/archive/v%{version}/%{name}-%{version}.tar.gz
 
