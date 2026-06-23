@@ -6,25 +6,6 @@ const MOCK_ICAL_DATA =
 const MOCK_ICAL_DATA_2 =
   "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:test-uid-2\r\nSUMMARY:Second Event\r\nDTSTART:20240102T140000Z\r\nDTEND:20240102T150000Z\r\nEND:VEVENT\r\nEND:VCALENDAR";
 
-const mockLogin = vi.fn().mockResolvedValue(undefined);
-const mockFetchCalendars = vi.fn();
-const mockFetchCalendarObjects = vi.fn();
-const mockCreateCalendarObject = vi.fn().mockResolvedValue(undefined);
-const mockUpdateCalendarObject = vi.fn().mockResolvedValue(undefined);
-const mockDeleteCalendarObject = vi.fn().mockResolvedValue(undefined);
-
-vi.mock("tsdav", () => {
-  const MockDAVClient = vi.fn(function (this: Record<string, unknown>) {
-    this.login = mockLogin;
-    this.fetchCalendars = mockFetchCalendars;
-    this.fetchCalendarObjects = mockFetchCalendarObjects;
-    this.createCalendarObject = mockCreateCalendarObject;
-    this.updateCalendarObject = mockUpdateCalendarObject;
-    this.deleteCalendarObject = mockDeleteCalendarObject;
-  });
-  return { DAVClient: MockDAVClient };
-});
-
 vi.mock("@/services/db/accounts", () => ({
   getAccount: vi.fn().mockResolvedValue({
     id: "acc-1",
@@ -35,15 +16,24 @@ vi.mock("@/services/db/accounts", () => ({
   }),
 }));
 
-// listCalendars/fetchEvents/syncEvents go through the Tauri-http CalDAV client (PROPFIND/
-// REPORT bypassing WebKit CORS), not tsdav. Mock those network calls directly.
+// All network I/O goes through the Tauri-http CalDAV helpers (reads via PROPFIND/
+// REPORT, writes via PUT/GET/DELETE) — never tsdav, which WebKit CORS blocks
+// against servers like DavMail. Mock those helpers directly.
 const mockListCalDavCalendars = vi.fn();
 const mockFetchCalDavEvents = vi.fn();
 const mockFetchCalDavCtag = vi.fn();
+const mockPutCalDavObject = vi.fn();
+const mockGetCalDavObject = vi.fn();
+const mockDeleteCalDavObject = vi.fn();
 vi.mock("./caldavHttp", () => ({
   listCalDavCalendars: (...args: unknown[]) => mockListCalDavCalendars(...args),
   fetchCalDavEvents: (...args: unknown[]) => mockFetchCalDavEvents(...args),
   fetchCalDavCtag: (...args: unknown[]) => mockFetchCalDavCtag(...args),
+  putCalDavObject: (...args: unknown[]) => mockPutCalDavObject(...args),
+  getCalDavObject: (...args: unknown[]) => mockGetCalDavObject(...args),
+  deleteCalDavObject: (...args: unknown[]) => mockDeleteCalDavObject(...args),
+  resolveCalDavUrl: (href: string, base: string) =>
+    href.startsWith("http") ? href : new URL(href, base).href,
 }));
 
 // syncEvents reads the locally stored calendar (for its CTag and id) and the
@@ -68,6 +58,9 @@ describe("CalDAVProvider", () => {
     mockFetchCalDavCtag.mockResolvedValue(null);
     mockGetCalendarByRemoteId.mockResolvedValue(null);
     mockGetEventsInRange.mockResolvedValue([]);
+    mockPutCalDavObject.mockResolvedValue({ etag: null });
+    mockGetCalDavObject.mockResolvedValue(null);
+    mockDeleteCalDavObject.mockResolvedValue(undefined);
     provider = new CalDAVProvider("acc-1");
   });
 
@@ -138,8 +131,9 @@ describe("CalDAVProvider", () => {
   });
 
   describe("createEvent", () => {
-    it("generates iCalendar and calls createCalendarObject", async () => {
+    it("generates iCalendar and PUTs a new object with If-None-Match", async () => {
       vi.spyOn(crypto, "randomUUID").mockReturnValue("generated-uuid" as `${string}-${string}-${string}-${string}-${string}`);
+      mockPutCalDavObject.mockResolvedValue({ etag: '"new-etag"' });
 
       const event = await provider.createEvent("/cal/personal/", {
         summary: "New Meeting",
@@ -147,22 +141,24 @@ describe("CalDAVProvider", () => {
         endTime: "2024-03-15T10:00:00Z",
       });
 
-      expect(mockCreateCalendarObject).toHaveBeenCalledWith({
-        calendar: { url: "/cal/personal/" },
-        filename: "generated-uuid.ics",
-        iCalString: expect.stringContaining("SUMMARY:New Meeting"),
-      });
+      expect(mockPutCalDavObject).toHaveBeenCalledWith(
+        "/cal/personal/generated-uuid.ics",
+        "user@example.com",
+        "secret",
+        expect.stringContaining("SUMMARY:New Meeting"),
+        { ifNoneMatch: true },
+      );
 
       expect(event.summary).toBe("New Meeting");
       expect(event.remoteEventId).toBe("/cal/personal/generated-uuid.ics");
+      expect(event.etag).toBe('"new-etag"');
     });
   });
 
   describe("updateEvent", () => {
-    it("fetches existing, merges updates, and calls updateCalendarObject", async () => {
-      mockFetchCalendarObjects.mockResolvedValue([
-        { data: MOCK_ICAL_DATA, url: "/cal/personal/test-uid.ics", etag: '"old-etag"' },
-      ]);
+    it("fetches existing, merges updates, and PUTs with If-Match", async () => {
+      mockGetCalDavObject.mockResolvedValue({ icalData: MOCK_ICAL_DATA, etag: '"old-etag"' });
+      mockPutCalDavObject.mockResolvedValue({ etag: '"updated-etag"' });
 
       const event = await provider.updateEvent(
         "/cal/personal/",
@@ -171,26 +167,28 @@ describe("CalDAVProvider", () => {
         '"old-etag"',
       );
 
-      expect(mockFetchCalendarObjects).toHaveBeenCalledWith({
-        calendar: { url: "/cal/personal/" },
-        objectUrls: ["/cal/personal/test-uid.ics"],
-      });
+      // The object URL is resolved to absolute against the account base URL.
+      expect(mockGetCalDavObject).toHaveBeenCalledWith(
+        "https://caldav.example.com/cal/personal/test-uid.ics",
+        "user@example.com",
+        "secret",
+      );
 
-      expect(mockUpdateCalendarObject).toHaveBeenCalledWith({
-        calendarObject: {
-          url: "/cal/personal/test-uid.ics",
-          data: expect.stringContaining("SUMMARY:Updated Event"),
-          etag: '"old-etag"',
-        },
-        headers: { "If-Match": '"old-etag"' },
-      });
+      expect(mockPutCalDavObject).toHaveBeenCalledWith(
+        "https://caldav.example.com/cal/personal/test-uid.ics",
+        "user@example.com",
+        "secret",
+        expect.stringContaining("SUMMARY:Updated Event"),
+        { ifMatch: '"old-etag"' },
+      );
 
       expect(event.summary).toBe("Updated Event");
       expect(event.remoteEventId).toBe("/cal/personal/test-uid.ics");
+      expect(event.etag).toBe('"updated-etag"');
     });
 
     it("throws when the existing event is not found", async () => {
-      mockFetchCalendarObjects.mockResolvedValue([]);
+      mockGetCalDavObject.mockResolvedValue(null);
 
       await expect(
         provider.updateEvent("/cal/personal/", "/cal/personal/missing.ics", { summary: "Nope" }),
@@ -199,28 +197,26 @@ describe("CalDAVProvider", () => {
   });
 
   describe("deleteEvent", () => {
-    it("calls deleteCalendarObject with etag", async () => {
+    it("deletes the resolved object URL with etag", async () => {
       await provider.deleteEvent("/cal/personal/", "/cal/personal/test-uid.ics", '"delete-etag"');
 
-      expect(mockDeleteCalendarObject).toHaveBeenCalledWith({
-        calendarObject: {
-          url: "/cal/personal/test-uid.ics",
-          etag: '"delete-etag"',
-        },
-        headers: { "If-Match": '"delete-etag"' },
-      });
+      expect(mockDeleteCalDavObject).toHaveBeenCalledWith(
+        "https://caldav.example.com/cal/personal/test-uid.ics",
+        "user@example.com",
+        "secret",
+        '"delete-etag"',
+      );
     });
 
-    it("calls deleteCalendarObject without etag when not provided", async () => {
+    it("deletes without etag when not provided", async () => {
       await provider.deleteEvent("/cal/personal/", "/cal/personal/test-uid.ics");
 
-      expect(mockDeleteCalendarObject).toHaveBeenCalledWith({
-        calendarObject: {
-          url: "/cal/personal/test-uid.ics",
-          etag: undefined,
-        },
-        headers: {},
-      });
+      expect(mockDeleteCalDavObject).toHaveBeenCalledWith(
+        "https://caldav.example.com/cal/personal/test-uid.ics",
+        "user@example.com",
+        "secret",
+        undefined,
+      );
     });
   });
 
@@ -300,9 +296,9 @@ describe("CalDAVProvider", () => {
 
   describe("testConnection", () => {
     it("returns success with calendar count on successful connection", async () => {
-      mockFetchCalendars.mockResolvedValue([
-        { url: "/cal/personal/", displayName: "Personal" },
-        { url: "/cal/work/", displayName: "Work" },
+      mockListCalDavCalendars.mockResolvedValue([
+        { remoteId: "/cal/personal/", displayName: "Personal", color: null, isPrimary: true },
+        { remoteId: "/cal/work/", displayName: "Work", color: null, isPrimary: false },
       ]);
 
       const result = await provider.testConnection();
@@ -314,8 +310,8 @@ describe("CalDAVProvider", () => {
     });
 
     it("returns singular form for one calendar", async () => {
-      mockFetchCalendars.mockResolvedValue([
-        { url: "/cal/personal/", displayName: "Personal" },
+      mockListCalDavCalendars.mockResolvedValue([
+        { remoteId: "/cal/personal/", displayName: "Personal", color: null, isPrimary: true },
       ]);
 
       const result = await provider.testConnection();
@@ -323,31 +319,21 @@ describe("CalDAVProvider", () => {
       expect(result.message).toBe("Connected — found 1 calendar");
     });
 
-    it("resets client and returns error message on failure", async () => {
-      mockLogin.mockRejectedValueOnce(new Error("Authentication failed"));
-      // Need a fresh provider so getClient() will attempt login again
-      const freshProvider = new CalDAVProvider("acc-1");
+    it("returns error message on failure", async () => {
+      mockListCalDavCalendars.mockRejectedValueOnce(new Error("Authentication failed"));
 
-      const result = await freshProvider.testConnection();
+      const result = await provider.testConnection();
 
       expect(result).toEqual({
         success: false,
         message: "Authentication failed",
       });
-
-      // Verify client was reset by confirming a second call attempts login again
-      mockLogin.mockResolvedValueOnce(undefined);
-      mockFetchCalendars.mockResolvedValue([]);
-      const retryResult = await freshProvider.testConnection();
-      expect(retryResult.success).toBe(true);
-      expect(mockLogin).toHaveBeenCalledTimes(2); // initial fail + retry after client reset
     });
 
     it("handles non-Error thrown values gracefully", async () => {
-      mockLogin.mockRejectedValueOnce("some string error");
-      const freshProvider = new CalDAVProvider("acc-1");
+      mockListCalDavCalendars.mockRejectedValueOnce("some string error");
 
-      const result = await freshProvider.testConnection();
+      const result = await provider.testConnection();
 
       expect(result).toEqual({
         success: false,

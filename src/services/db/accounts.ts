@@ -453,6 +453,10 @@ export async function updateImapAccount(
   if (fields.newPassword != null) {
     params.push(encPassword);
     passwordClauses += `, imap_password = $${params.length}`;
+    // DavMail-style accounts reuse the IMAP login for CalDAV. Keep the CalDAV
+    // password mirrored so changing the IMAP password doesn't silently break
+    // calendar read/write (the server returns 401 on the now-stale CalDAV pw).
+    passwordClauses += `, caldav_password = CASE WHEN calendar_provider = 'caldav' THEN $${params.length} ELSE caldav_password END`;
   }
   if (fields.smtpSameAsImap) {
     passwordClauses += ", smtp_password = NULL";
@@ -474,7 +478,8 @@ export async function updateImapAccount(
        smtp_port = $6,
        smtp_security = $7,
        imap_username = $8,
-       accept_invalid_certs = $9
+       accept_invalid_certs = $9,
+       caldav_username = CASE WHEN calendar_provider = 'caldav' THEN $8 ELSE caldav_username END
        ${passwordClauses},
        updated_at = unixepoch()
      WHERE id = ${idParam}`,

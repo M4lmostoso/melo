@@ -243,6 +243,26 @@ export async function upsertEmailInviteEvent(event: {
   );
 }
 
+/**
+ * Persist (or clear, with nulls) the CalDAV server coordinates of an email-invite
+ * row after it has been pushed to / removed from the calendar server, so a later
+ * decline can delete the right object.
+ */
+export async function setEmailInviteServerEvent(
+  sourceMessageId: string,
+  calendarId: string | null,
+  remoteEventId: string | null,
+  etag: string | null,
+): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    `UPDATE calendar_events
+       SET calendar_id = $1, remote_event_id = $2, etag = $3, updated_at = unixepoch()
+     WHERE source_message_id = $4`,
+    [calendarId, remoteEventId, etag, sourceMessageId],
+  );
+}
+
 export async function updateCalendarEventRsvp(
   sourceMessageId: string,
   rsvpStatus: string,

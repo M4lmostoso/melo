@@ -174,3 +174,69 @@ export async function fetchCalDavEvents(
 
   return events;
 }
+
+/** Resolve a possibly-relative CalDAV object href against the account's base URL. */
+export function resolveCalDavUrl(href: string, baseUrl: string): string {
+  return resolveHref(href, baseUrl);
+}
+
+/**
+ * Create or replace a calendar object (RFC 4791 §5.3.2) via Tauri plugin-http.
+ *
+ * IMPORTANT: like the read helpers above, this deliberately goes through Rust
+ * (plugin-http) rather than the WebKit `fetch`. A cross-origin PUT against
+ * servers that send no `Access-Control-Allow-Origin` header (e.g. DavMail) is
+ * blocked by the browser CORS preflight, so the tsdav `DAVClient` path silently
+ * fails. Pass `ifNoneMatch` for creates, or `ifMatch` (ETag) for updates.
+ */
+export async function putCalDavObject(
+  objectUrl: string,
+  username: string,
+  password: string,
+  icalData: string,
+  opts: { ifMatch?: string; ifNoneMatch?: boolean } = {},
+): Promise<{ etag: string | null }> {
+  const headers: Record<string, string> = {
+    Authorization: `Basic ${b64(username, password)}`,
+    "Content-Type": "text/calendar; charset=utf-8",
+  };
+  if (opts.ifNoneMatch) headers["If-None-Match"] = "*";
+  if (opts.ifMatch) headers["If-Match"] = opts.ifMatch;
+
+  const response = await tauriFetch(objectUrl, { method: "PUT", headers, body: icalData });
+  if (!response.ok) throw new Error(`CalDAV PUT failed: ${response.status}`);
+  return { etag: response.headers.get("etag") };
+}
+
+/** Fetch a single calendar object's iCal data + ETag. Returns null on 404. */
+export async function getCalDavObject(
+  objectUrl: string,
+  username: string,
+  password: string,
+): Promise<{ icalData: string; etag: string | null } | null> {
+  const response = await tauriFetch(objectUrl, {
+    method: "GET",
+    headers: { Authorization: `Basic ${b64(username, password)}` },
+  });
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error(`CalDAV GET failed: ${response.status}`);
+  return { icalData: await response.text(), etag: response.headers.get("etag") };
+}
+
+/** Delete a calendar object (RFC 4791). A 404 is treated as success (already gone). */
+export async function deleteCalDavObject(
+  objectUrl: string,
+  username: string,
+  password: string,
+  etag?: string,
+): Promise<void> {
+  const headers: Record<string, string> = {
+    Authorization: `Basic ${b64(username, password)}`,
+  };
+  if (etag) headers["If-Match"] = etag;
+
+  const response = await tauriFetch(objectUrl, { method: "DELETE", headers });
+  if (!response.ok && response.status !== 404) {
+    throw new Error(`CalDAV DELETE failed: ${response.status}`);
+  }
+}

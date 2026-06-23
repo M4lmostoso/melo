@@ -1,4 +1,3 @@
-import { DAVClient, type DAVCalendar, type DAVObject } from "tsdav";
 import type {
   CalendarProvider,
   CalendarProviderType,
@@ -12,37 +11,32 @@ import { generateVEvent, parseVEvent, expandVEvents } from "./icalHelper";
 import { getAccount } from "@/services/db/accounts";
 import { getCalendarByRemoteId } from "@/services/db/calendars";
 import { getCalendarEventsInRangeForCalendars } from "@/services/db/calendarEvents";
-import { listCalDavCalendars, fetchCalDavEvents, fetchCalDavCtag } from "./caldavHttp";
+import {
+  listCalDavCalendars,
+  fetchCalDavEvents,
+  fetchCalDavCtag,
+  putCalDavObject,
+  getCalDavObject,
+  deleteCalDavObject,
+  resolveCalDavUrl,
+} from "./caldavHttp";
 
 export class CalDAVProvider implements CalendarProvider {
   readonly type: CalendarProviderType = "caldav";
-  private client: DAVClient | null = null;
 
   constructor(readonly accountId: string) {}
 
-  private async getClient(): Promise<DAVClient> {
-    if (this.client) return this.client;
-
+  /** Resolve CalDAV credentials + base URL, or throw if not configured. */
+  private async getCreds(): Promise<{ username: string; password: string; baseUrl: string }> {
     const account = await getAccount(this.accountId);
-    if (!account) throw new Error("Account not found");
-
-    const serverUrl = account.caldav_url;
-    const username = account.caldav_username ?? account.email;
-    const password = account.caldav_password;
-
-    if (!serverUrl || !password) {
+    if (!account?.caldav_url || !account.caldav_password) {
       throw new Error("CalDAV credentials not configured");
     }
-
-    this.client = new DAVClient({
-      serverUrl,
-      credentials: { username, password },
-      authMethod: "Basic",
-      defaultAccountType: "caldav",
-    });
-
-    await this.client.login();
-    return this.client;
+    return {
+      username: account.caldav_username ?? account.email,
+      password: account.caldav_password,
+      baseUrl: account.caldav_url,
+    };
   }
 
   async listCalendars(): Promise<CalendarInfo[]> {
@@ -88,40 +82,32 @@ export class CalDAVProvider implements CalendarProvider {
   }
 
   async createEvent(calendarRemoteId: string, event: CreateEventInput): Promise<CalendarEventData> {
-    const client = await this.getClient();
+    const { username, password } = await this.getCreds();
     const uid = crypto.randomUUID();
     const icalData = generateVEvent(event, uid);
-    const filename = `${uid}.ics`;
+    const objectUrl = `${calendarRemoteId}${uid}.ics`;
 
-    await client.createCalendarObject({
-      calendar: { url: calendarRemoteId } as DAVCalendar,
-      filename,
-      iCalString: icalData,
-    });
+    const { etag } = await putCalDavObject(objectUrl, username, password, icalData, { ifNoneMatch: true });
 
-    const parsed = parseVEvent(icalData, `${calendarRemoteId}${filename}`);
+    const parsed = parseVEvent(icalData, objectUrl);
+    parsed.etag = etag ?? parsed.etag;
     return parsed;
   }
 
   async updateEvent(
-    calendarRemoteId: string,
+    _calendarRemoteId: string,
     remoteEventId: string,
     event: UpdateEventInput,
     etag?: string,
   ): Promise<CalendarEventData> {
-    const client = await this.getClient();
+    const { username, password, baseUrl } = await this.getCreds();
+    const objectUrl = resolveCalDavUrl(remoteEventId, baseUrl);
 
-    // Fetch the existing object to get its current data
-    const objects = await client.fetchCalendarObjects({
-      calendar: { url: calendarRemoteId } as DAVCalendar,
-      objectUrls: [remoteEventId],
-    });
+    // Fetch the existing object to merge updates onto its current data
+    const existing = await getCalDavObject(objectUrl, username, password);
+    if (!existing) throw new Error("Event not found on server");
 
-    const existing = objects[0];
-    if (!existing?.data) throw new Error("Event not found on server");
-
-    // Parse existing, merge updates, regenerate
-    const parsed = parseVEvent(existing.data, remoteEventId);
+    const parsed = parseVEvent(existing.icalData, remoteEventId);
     const merged: CreateEventInput = {
       summary: event.summary ?? parsed.summary ?? "",
       description: event.description ?? parsed.description ?? undefined,
@@ -132,36 +118,19 @@ export class CalDAVProvider implements CalendarProvider {
     };
 
     const icalData = generateVEvent(merged, parsed.uid ?? undefined);
-
-    const headers: Record<string, string> = {};
-    if (etag) headers["If-Match"] = etag;
-
-    await client.updateCalendarObject({
-      calendarObject: {
-        url: remoteEventId,
-        data: icalData,
-        etag: etag ?? existing.etag ?? undefined,
-      } as DAVObject,
-      headers,
+    const { etag: newEtag } = await putCalDavObject(objectUrl, username, password, icalData, {
+      ifMatch: etag ?? existing.etag ?? undefined,
     });
 
     const result = parseVEvent(icalData, remoteEventId);
+    result.etag = newEtag ?? result.etag;
     return result;
   }
 
   async deleteEvent(_calendarRemoteId: string, remoteEventId: string, etag?: string): Promise<void> {
-    const client = await this.getClient();
-
-    const headers: Record<string, string> = {};
-    if (etag) headers["If-Match"] = etag;
-
-    await client.deleteCalendarObject({
-      calendarObject: {
-        url: remoteEventId,
-        etag: etag ?? undefined,
-      } as DAVObject,
-      headers,
-    });
+    const { username, password, baseUrl } = await this.getCreds();
+    const objectUrl = resolveCalDavUrl(remoteEventId, baseUrl);
+    await deleteCalDavObject(objectUrl, username, password, etag);
   }
 
   async syncEvents(calendarRemoteId: string, _syncToken?: string): Promise<CalendarSyncResult> {
@@ -231,15 +200,12 @@ export class CalDAVProvider implements CalendarProvider {
 
   async testConnection(): Promise<{ success: boolean; message: string }> {
     try {
-      const client = await this.getClient();
-      const calendars = await client.fetchCalendars();
+      const calendars = await this.listCalendars();
       return {
         success: true,
         message: `Connected — found ${calendars.length} calendar${calendars.length !== 1 ? "s" : ""}`,
       };
     } catch (err) {
-      // Reset client on failure so next attempt can retry
-      this.client = null;
       return { success: false, message: err instanceof Error ? err.message : "Connection failed" };
     }
   }

@@ -6,7 +6,9 @@ import {
   getCalendarEventByMessageId,
   upsertEmailInviteEvent,
   updateCalendarEventRsvp,
+  setEmailInviteServerEvent,
 } from "../db/calendarEvents";
+import { getCalendarById, getCalendarByRemoteId } from "../db/calendars";
 import { getEmailProvider } from "../email/providerFactory";
 import { hasCalendarSupport, getCalendarProvider } from "./providerFactory";
 import { buildRawEmail } from "@/utils/emailBuilder";
@@ -35,6 +37,33 @@ export async function fetchIcsContent(attachment: DbAttachment): Promise<string>
   return new TextDecoder("utf-8").decode(bytes);
 }
 
+/** Build the row payload for upsertEmailInviteEvent from a parsed event. */
+function buildInviteRow(
+  event: CalendarEventData,
+  icsText: string,
+  accountId: string,
+  messageId: string,
+  rsvpStatus: string | null,
+) {
+  return {
+    accountId,
+    sourceMessageId: messageId,
+    uid: event.uid ?? messageId,
+    recurrenceId: event.recurrenceId ?? null,
+    summary: event.summary,
+    description: event.description,
+    location: event.location,
+    startTime: event.startTime,
+    endTime: event.endTime,
+    isAllDay: event.isAllDay,
+    status: event.status,
+    organizerEmail: event.organizerEmail,
+    attendeesJson: event.attendeesJson,
+    icalData: icsText,
+    rsvpStatus,
+  };
+}
+
 /** Parse ICS text, load existing RSVP state from DB, return everything needed by the widget. */
 export async function loadInvite(
   attachment: DbAttachment,
@@ -45,6 +74,20 @@ export async function loadInvite(
   const method = extractIcsMethod(icsText);
   const meetingUrl = extractMeetingUrl(icsText);
   const stored = await getCalendarEventByMessageId(messageId);
+
+  // Auto-register a received invite on the local calendar so it shows up without
+  // requiring an RSVP. Idempotent: only inserts when there's no row yet, so an
+  // existing 'declined' tombstone (or a prior response) is never resurrected.
+  if (method === "REQUEST" && !stored && event.startTime && event.endTime) {
+    try {
+      await upsertEmailInviteEvent(
+        buildInviteRow(event, icsText, attachment.account_id, messageId, null),
+      );
+    } catch (err) {
+      console.warn("[calendarInvite] auto-add on receive failed:", err);
+    }
+  }
+
   return { event, method, meetingUrl, rsvpStatus: stored?.rsvp_status ?? null, icsText };
 }
 
@@ -101,47 +144,55 @@ export async function respondToInvite(params: {
     if (!result.success) throw new Error(result.error ?? "Failed to send RSVP email");
   }
 
-  // 2. Persist to DB (email was sent, or no organizer to notify)
-  await upsertEmailInviteEvent({
-    accountId: account.id,
-    sourceMessageId: messageId,
-    uid: event.uid ?? messageId,
-    recurrenceId: event.recurrenceId ?? null,
-    summary: event.summary,
-    description: event.description,
-    location: event.location,
-    startTime: event.startTime,
-    endTime: event.endTime,
-    isAllDay: event.isAllDay,
-    status: event.status,
-    organizerEmail: event.organizerEmail,
-    attendeesJson: event.attendeesJson,
-    icalData: icsText,
-    rsvpStatus: partstat.toLowerCase(),
-  });
-
-  // 3. Add to calendar (best-effort — DB already updated)
-  if (partstat !== "DECLINED") {
-    try {
-      const supported = await hasCalendarSupport(account.id);
-      if (supported && event.startTime && event.endTime) {
-        const calProvider = await getCalendarProvider(account.id);
-        const calendars = await calProvider.listCalendars();
-        const primaryCalendar = calendars[0];
-        if (primaryCalendar) {
-          await calProvider.createEvent(primaryCalendar.remoteId, {
-            summary: event.summary ?? "Meeting",
-            description: event.description ?? undefined,
-            location: event.location ?? undefined,
-            startTime: new Date(event.startTime * 1000).toISOString(),
-            endTime: new Date(event.endTime * 1000).toISOString(),
-            isAllDay: event.isAllDay,
-          });
+  // 2. On DECLINE: remove from the calendar. Delete the server object if we ever
+  //    pushed one, then keep a local 'declined' tombstone (hidden from the calendar
+  //    view by the rsvp_status filter, and preventing loadInvite from re-adding it).
+  if (partstat === "DECLINED") {
+    const existing = await getCalendarEventByMessageId(messageId);
+    if (existing?.remote_event_id && existing.calendar_id) {
+      try {
+        if (await hasCalendarSupport(account.id)) {
+          const cal = await getCalendarById(existing.calendar_id);
+          if (cal) {
+            const calProvider = await getCalendarProvider(account.id);
+            await calProvider.deleteEvent(cal.remote_id, existing.remote_event_id, existing.etag ?? undefined);
+          }
         }
+      } catch (err) {
+        console.warn("[calendarInvite] failed to delete declined event from server:", err);
       }
-    } catch {
-      // Calendar sync failure is non-fatal — RSVP email and DB are already done
     }
+    await upsertEmailInviteEvent(buildInviteRow(event, icsText, account.id, messageId, "declined"));
+    await setEmailInviteServerEvent(messageId, null, null, null); // clear server coords
+    return;
+  }
+
+  // 3. On ACCEPT/TENTATIVE: persist locally, then push to the calendar server,
+  //    recording the server coordinates so a later decline can delete it.
+  await upsertEmailInviteEvent(buildInviteRow(event, icsText, account.id, messageId, partstat.toLowerCase()));
+
+  try {
+    const supported = await hasCalendarSupport(account.id);
+    if (supported && event.startTime && event.endTime) {
+      const calProvider = await getCalendarProvider(account.id);
+      const calendars = await calProvider.listCalendars();
+      const primaryCalendar = calendars[0];
+      if (primaryCalendar) {
+        const created = await calProvider.createEvent(primaryCalendar.remoteId, {
+          summary: event.summary ?? "Meeting",
+          description: event.description ?? undefined,
+          location: event.location ?? undefined,
+          startTime: new Date(event.startTime * 1000).toISOString(),
+          endTime: new Date(event.endTime * 1000).toISOString(),
+          isAllDay: event.isAllDay,
+        });
+        const cal = await getCalendarByRemoteId(account.id, primaryCalendar.remoteId);
+        await setEmailInviteServerEvent(messageId, cal?.id ?? null, created.remoteEventId, created.etag);
+      }
+    }
+  } catch (err) {
+    // Non-fatal — the RSVP email and local DB row are already done.
+    console.warn("[calendarInvite] failed to push accepted event to calendar server:", err);
   }
 }
 

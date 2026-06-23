@@ -7,6 +7,7 @@ import {
   deleteAccount,
   updateAccountTokens,
   updateAccountSyncState,
+  updateImapAccount,
 } from "./accounts";
 import { createMockGmailAccount, createMockImapAccount } from "@/test/mocks";
 
@@ -290,6 +291,48 @@ describe("accounts", () => {
       const [sql, params] = mockExecute.mock.calls[0] as [string, unknown[]];
       expect(sql).toContain("UPDATE accounts SET history_id");
       expect(params).toEqual(["history-999", "acc-1"]);
+    });
+  });
+
+  describe("updateImapAccount", () => {
+    const baseFields = {
+      displayName: "Test",
+      imapHost: "localhost",
+      imapPort: 1143,
+      imapSecurity: "none",
+      smtpHost: "localhost",
+      smtpPort: 1025,
+      smtpSecurity: "none",
+      imapUsername: "landenna",
+      newPassword: null as string | null,
+      newSmtpPassword: null as string | null,
+      smtpSameAsImap: true,
+      acceptInvalidCerts: false,
+    };
+
+    it("mirrors a new IMAP password into caldav_password for CalDAV accounts", async () => {
+      mockExecute.mockResolvedValue(undefined);
+
+      await updateImapAccount("acc-1", { ...baseFields, newPassword: "new-secret" });
+
+      const [sql, params] = mockExecute.mock.calls[0] as [string, unknown[]];
+      // Same encrypted value used for both imap_password and caldav_password.
+      expect(sql).toContain("imap_password = $");
+      expect(sql).toContain("caldav_password = CASE WHEN calendar_provider = 'caldav' THEN $");
+      expect(params).toContain("enc:new-secret");
+      // The caldav_username is kept aligned with the IMAP username (only when CalDAV configured).
+      expect(sql).toContain("caldav_username = CASE WHEN calendar_provider = 'caldav' THEN $8 ELSE caldav_username END");
+    });
+
+    it("does not touch caldav_password when the password is unchanged", async () => {
+      mockExecute.mockResolvedValue(undefined);
+
+      await updateImapAccount("acc-1", { ...baseFields, newPassword: null });
+
+      const [sql] = mockExecute.mock.calls[0] as [string, unknown[]];
+      expect(sql).not.toContain("caldav_password");
+      // Username alignment still applies on any save.
+      expect(sql).toContain("caldav_username = CASE WHEN calendar_provider = 'caldav'");
     });
   });
 });
