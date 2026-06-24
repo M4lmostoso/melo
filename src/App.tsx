@@ -82,6 +82,7 @@ import { LocalFilePreview } from "./components/ui/LocalFilePreview";
 import { MoveToFolderDialog } from "./components/email/MoveToFolderDialog";
 import { OfflineBanner } from "./components/ui/OfflineBanner";
 import { UpdateToast } from "./components/ui/UpdateToast";
+import { CalendarReminderToast } from "./components/calendar/CalendarReminderToast";
 import { ErrorBoundary } from "./components/ui/ErrorBoundary";
 import { formatSyncError } from "./utils/networkErrors";
 import {
@@ -1097,6 +1098,7 @@ export default function App() {
 
       <UndoSendToast />
       <UpdateToast />
+      <CalendarReminderToast />
       <ErrorBoundary name="CommandPalette">
         <CommandPalette
           isOpen={showCommandPalette}

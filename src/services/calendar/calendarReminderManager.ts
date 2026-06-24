@@ -1,8 +1,10 @@
 import { createBackgroundChecker } from "../backgroundCheckers";
-import { getUpcomingEventsToNotify, markCalendarEventNotified } from "../db/calendarEvents";
+import { getUpcomingEventsToNotify, markCalendarEventNotifiedByIdentity } from "../db/calendarEvents";
 import { notifyUpcomingCalendarEvent } from "../notifications/notificationManager";
+import { emitCalendarReminder } from "./calendarReminderToast";
 import { extractMeetingUrl } from "./icalHelper";
 import { getCurrentUnixTimestamp } from "@/utils/timestamp";
+import { t } from "@/i18n";
 
 // Notify for events starting in [now + 4min, now + 6min].
 // With a 60s checker interval this guarantees a single notification close to 5 min before start.
@@ -38,8 +40,14 @@ async function checkUpcomingEvents(): Promise<void> {
         extractMeetingUrlFromText(event.description);
     }
 
-    notifyUpcomingCalendarEvent(event.summary ?? "Event", meetingUrl);
-    await markCalendarEventNotified(event.id, now);
+    const summary = event.summary ?? t("calendar.reminder.eventFallback");
+    // OS notification (background signal) + in-app toast (guaranteed: stays until
+    // dismissed, always shows a Join button — neither is reliable via a macOS banner).
+    notifyUpcomingCalendarEvent(summary, meetingUrl);
+    emitCalendarReminder({ id: event.id, summary, meetingUrl });
+    // Mark all rows for this meeting (CalDAV + email-invite duplicates), not just the
+    // single deduped row, so a twin doesn't trigger a second notification next pass.
+    await markCalendarEventNotifiedByIdentity(event, now);
   }
 }
 

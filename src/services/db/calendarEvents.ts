@@ -64,21 +64,65 @@ export async function upsertCalendarEvent(event: {
       event.icalData ?? null, event.uid ?? null,
     ],
   );
-  // Remove any orphan row that was created from an email invite with the same uid
-  // (upsertEmailInviteEvent uses uid as google_event_id, so a different google_event_id
-  // but identical uid means a stale duplicate from a prior RSVP flow).
-  // IMPORTANT: scope to email-invite rows (source_message_id IS NOT NULL).
-  // Recurring CalDAV instances all share the master's uid but have distinct
-  // google_event_id values (`uid_<startTs>`), so an unscoped DELETE here would
-  // wipe every sibling instance and leave only the last-upserted occurrence.
-  if (event.uid) {
-    await db.execute(
-      `DELETE FROM calendar_events
-       WHERE account_id = $1 AND uid = $2 AND google_event_id != $3
-         AND source_message_id IS NOT NULL`,
-      [event.accountId, event.uid, event.googleEventId],
-    );
+  // Remove any orphan row that was created from an email invite for the same event
+  // (upsertEmailInviteEvent stores it as a separate row with source_message_id set).
+  // The CalDAV-synced row is canonical, so the redundant invite row is dropped.
+  //
+  // Matching is by uid OR by event identity (same account + exact start/end + summary +
+  // all-day flag). The identity fallback is required because some servers (Outlook/
+  // Exchange via DavMail) hand out a different uid representation per source — the
+  // CalDAV GlobalObjectId vs the email invite's CleanGlobalObjectId — so a uid-only
+  // match leaves a visible duplicate.
+  //
+  // IMPORTANT: scope to email-invite rows (source_message_id IS NOT NULL). Recurring
+  // CalDAV instances share the master's uid but have distinct google_event_id values
+  // (`uid_<startTs>`) and distinct start/end times, so neither branch can wipe sibling
+  // occurrences.
+  await db.execute(
+    `DELETE FROM calendar_events
+     WHERE account_id = $1
+       AND source_message_id IS NOT NULL
+       AND (
+         ($2 IS NOT NULL AND uid = $2)
+         OR (start_time = $3 AND end_time = $4 AND is_all_day = $5 AND summary IS $6)
+       )`,
+    [
+      event.accountId, event.uid ?? null,
+      event.startTime, event.endTime, event.isAllDay ? 1 : 0, event.summary,
+    ],
+  );
+}
+
+/**
+ * Collapse rows that describe the same meeting from different sources (CalDAV sync
+ * vs an email invite) so the same event is never shown twice. The canonical
+ * CalDAV-synced row (no source_message_id) wins over the email-invite row.
+ *
+ * Identity is account + exact start/end + summary + all-day flag — NOT uid. uid is
+ * deliberately avoided because Outlook/Exchange (via DavMail) hands out a different
+ * uid representation per source (CalDAV GlobalObjectId vs the invite's
+ * CleanGlobalObjectId), so a uid key would fail to collapse the duplicate. Distinct
+ * recurring occurrences have distinct start times, so they remain separate.
+ */
+export function dedupeCalendarEvents(events: DbCalendarEvent[]): DbCalendarEvent[] {
+  const identityKey = (e: DbCalendarEvent) =>
+    `${e.account_id}:${e.start_time}:${e.end_time}:${e.is_all_day}:${e.summary ?? ""}`;
+
+  const byKey = new Map<string, DbCalendarEvent>();
+  for (const e of events) {
+    const key = identityKey(e);
+    const existing = byKey.get(key);
+    if (!existing) {
+      byKey.set(key, e);
+      continue;
+    }
+    // Prefer the canonical CalDAV-synced row (source_message_id IS NULL) over an invite row.
+    if (existing.source_message_id != null && e.source_message_id == null) {
+      byKey.set(key, e);
+    }
   }
+  // Preserve the original (start_time ASC) ordering.
+  return events.filter((e) => byKey.get(identityKey(e)) === e);
 }
 
 export async function getCalendarEventsInRange(
@@ -87,13 +131,14 @@ export async function getCalendarEventsInRange(
   endTime: number,
 ): Promise<DbCalendarEvent[]> {
   const db = await getDb();
-  return db.select<DbCalendarEvent[]>(
+  const rows = await db.select<DbCalendarEvent[]>(
     `SELECT * FROM calendar_events
      WHERE account_id = $1 AND start_time < $3 AND end_time > $2
        AND (rsvp_status IS NULL OR rsvp_status != 'declined')
      ORDER BY start_time ASC`,
     [accountId, startTime, endTime],
   );
+  return dedupeCalendarEvents(rows);
 }
 
 export async function getCalendarEventsInRangeMulti(
@@ -107,7 +152,7 @@ export async function getCalendarEventsInRangeMulti(
   }
   const db = await getDb();
   const placeholders = calendarIds.map((_, i) => `$${i + 4}`).join(", ");
-  return db.select<DbCalendarEvent[]>(
+  const rows = await db.select<DbCalendarEvent[]>(
     `SELECT * FROM calendar_events
      WHERE account_id = $1 AND start_time < $3 AND end_time > $2
        AND (calendar_id IN (${placeholders}) OR calendar_id IS NULL)
@@ -115,6 +160,7 @@ export async function getCalendarEventsInRangeMulti(
      ORDER BY start_time ASC`,
     [accountId, startTime, endTime, ...calendarIds],
   );
+  return dedupeCalendarEvents(rows);
 }
 
 export async function getCalendarEventsInRangeForCalendars(
@@ -125,7 +171,7 @@ export async function getCalendarEventsInRangeForCalendars(
   if (calendarIds.length === 0) return [];
   const db = await getDb();
   const placeholders = calendarIds.map((_, i) => `$${i + 3}`).join(", ");
-  return db.select<DbCalendarEvent[]>(
+  const rows = await db.select<DbCalendarEvent[]>(
     `SELECT * FROM calendar_events
      WHERE start_time < $2 AND end_time > $1
        AND calendar_id IN (${placeholders})
@@ -133,6 +179,7 @@ export async function getCalendarEventsInRangeForCalendars(
      ORDER BY start_time ASC`,
     [startTime, endTime, ...calendarIds],
   );
+  return dedupeCalendarEvents(rows);
 }
 
 export async function deleteEventsForCalendar(calendarId: string): Promise<void> {
@@ -283,7 +330,7 @@ export async function getUpcomingEventsToNotify(
   windowEndSec: number,
 ): Promise<DbCalendarEvent[]> {
   const db = await getDb();
-  return db.select<DbCalendarEvent[]>(
+  const rows = await db.select<DbCalendarEvent[]>(
     `SELECT * FROM calendar_events
      WHERE is_all_day = 0
        AND status != 'cancelled'
@@ -292,6 +339,7 @@ export async function getUpcomingEventsToNotify(
        AND last_notified_at IS NULL`,
     [windowStartSec, windowEndSec],
   );
+  return dedupeCalendarEvents(rows);
 }
 
 export async function markCalendarEventNotified(eventId: string, notifiedAt: number): Promise<void> {
@@ -299,5 +347,24 @@ export async function markCalendarEventNotified(eventId: string, notifiedAt: num
   await db.execute(
     "UPDATE calendar_events SET last_notified_at = $1 WHERE id = $2",
     [notifiedAt, eventId],
+  );
+}
+
+/**
+ * Mark every row that describes the given meeting (same identity, across CalDAV and
+ * email-invite sources) as notified. Marking only the single deduped row would leave
+ * its duplicate twin with last_notified_at NULL, so the very next checker pass would
+ * fire a second notification for the same event.
+ */
+export async function markCalendarEventNotifiedByIdentity(
+  event: DbCalendarEvent,
+  notifiedAt: number,
+): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    `UPDATE calendar_events SET last_notified_at = $1
+     WHERE account_id = $2 AND start_time = $3 AND end_time = $4
+       AND is_all_day = $5 AND summary IS $6`,
+    [notifiedAt, event.account_id, event.start_time, event.end_time, event.is_all_day, event.summary],
   );
 }

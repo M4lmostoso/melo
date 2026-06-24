@@ -412,7 +412,13 @@
       "allDayShort": "Day",
       "weekSubtitle": "Week {n} of {year}"
     },
-    "joinButton": "Join"
+    "joinButton": "Join",
+    "reminder": {
+      "startingSoon": "Starting in 5 minutes",
+      "eventFallback": "Upcoming event",
+      "join": "Join",
+      "dismiss": "Dismiss"
+    }
   },
   "tasks": {
     "title": "Tasks",

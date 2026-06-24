@@ -12,6 +12,7 @@ import { useComposerStore } from "../../stores/composerStore";
 import { navigateToLabel } from "../../router/navigate";
 import { normalizeEmail } from "@/utils/emailUtils";
 import { playSound } from "../soundService";
+import { t } from "@/i18n";
 
 let initialized = false;
 let notificationsEnabled = true;
@@ -242,9 +243,19 @@ export function notifyUpcomingCalendarEvent(
   if (!notificationsEnabled) return;
   const ctx: NotificationContext = { subject: summary, meetingUrl: meetingUrl ?? undefined };
   lastNotificationContext = ctx;
+  // Fall back to "default" when custom action types failed to register (e.g. macOS
+  // with "Banners" style instead of "Alerts"). Sending a notification with an
+  // unregistered actionTypeId is silently dropped on macOS, so without this the
+  // reminder would never show. We lose the "Join" button in that case, but the
+  // banner still appears.
+  const actionTypeId = actionTypesRegistered
+    ? meetingUrl
+      ? "calendar"
+      : "calendar-no-join"
+    : "default";
   sendNotification({
-    title: summary || "Upcoming event",
-    body: meetingUrl ? "Starting in 5 minutes — tap Join to connect." : "Starting in 5 minutes.",
-    actionTypeId: meetingUrl ? "calendar" : "calendar-no-join",
+    title: summary || t("calendar.reminder.eventFallback"),
+    body: t("calendar.reminder.startingSoon"),
+    actionTypeId,
   });
 }

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { DbCalendarEvent } from "../db/calendarEvents";
+import { t } from "@/i18n";
 
 // --- Mocks ---
 const mockGetUpcoming = vi.fn();
@@ -8,7 +9,7 @@ const mockNotify = vi.fn();
 
 vi.mock("../db/calendarEvents", () => ({
   getUpcomingEventsToNotify: (...args: unknown[]) => mockGetUpcoming(...args),
-  markCalendarEventNotified: (...args: unknown[]) => mockMarkNotified(...args),
+  markCalendarEventNotifiedByIdentity: (...args: unknown[]) => mockMarkNotified(...args),
 }));
 
 vi.mock("../notifications/notificationManager", () => ({
@@ -73,7 +74,7 @@ describe("calendarReminderManager — conference call reminder", () => {
     ]);
     await runCheck();
     expect(mockNotify).toHaveBeenCalledWith("Sprint sync", url);
-    expect(mockMarkNotified).toHaveBeenCalledWith("evt-1", NOW);
+    expect(mockMarkNotified).toHaveBeenCalledWith(expect.objectContaining({ id: "evt-1" }), NOW);
   });
 
   it("extracts a Google Meet URL from the description when location has none", async () => {
@@ -106,10 +107,10 @@ describe("calendarReminderManager — conference call reminder", () => {
     expect(mockNotify).toHaveBeenCalledWith("Lunch", null);
   });
 
-  it("falls back to a default summary when the event has none", async () => {
+  it("falls back to a translated default summary when the event has none", async () => {
     mockGetUpcoming.mockResolvedValue([makeEvent({ summary: null })]);
     await runCheck();
-    expect(mockNotify).toHaveBeenCalledWith("Event", null);
+    expect(mockNotify).toHaveBeenCalledWith(t("calendar.reminder.eventFallback"), null);
   });
 
   it("marks each event notified so it is not notified twice", async () => {
@@ -118,8 +119,8 @@ describe("calendarReminderManager — conference call reminder", () => {
       makeEvent({ id: "b", summary: "B" }),
     ]);
     await runCheck();
-    expect(mockMarkNotified).toHaveBeenCalledWith("a", NOW);
-    expect(mockMarkNotified).toHaveBeenCalledWith("b", NOW);
+    expect(mockMarkNotified).toHaveBeenCalledWith(expect.objectContaining({ id: "a" }), NOW);
+    expect(mockMarkNotified).toHaveBeenCalledWith(expect.objectContaining({ id: "b" }), NOW);
     expect(mockNotify).toHaveBeenCalledTimes(2);
   });
 });

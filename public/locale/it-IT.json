@@ -412,7 +412,13 @@
       "weekSubtitle": "Settimana {n} del {year}"
     },
     "joinButton": "Partecipa",
-    "eventOrganizer": "organizzatore"
+    "eventOrganizer": "organizzatore",
+    "reminder": {
+      "startingSoon": "Inizia tra 5 minuti",
+      "eventFallback": "Evento imminente",
+      "join": "Partecipa",
+      "dismiss": "Chiudi"
+    }
   },
   "tasks": {
     "title": "Attività",

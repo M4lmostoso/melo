@@ -18,6 +18,7 @@ import {
   getEventByRemoteId,
   deleteEventByRemoteId,
   deleteCalendarEvent,
+  dedupeCalendarEvents,
   type DbCalendarEvent,
 } from "./calendarEvents";
 import { createMockDb } from "@/test/mocks";
@@ -208,7 +209,8 @@ describe("calendarEvents service", () => {
     it("filters by calendar IDs and includes null calendar_id events", async () => {
       const events = [
         makeEvent({ calendar_id: "cal-1" }),
-        makeEvent({ id: "evt-2", calendar_id: null }),
+        // Distinct start_time so it isn't treated as the same meeting (dedup is by identity).
+        makeEvent({ id: "evt-2", calendar_id: null, start_time: 1500 }),
       ];
       mockDb.select.mockResolvedValueOnce(events);
 
@@ -235,6 +237,63 @@ describe("calendarEvents service", () => {
       expect(sql).not.toContain("calendar_id IN");
       expect(sql).toContain("WHERE account_id = $1 AND start_time < $3 AND end_time > $2");
       expect(params).toEqual(["acc-1", 500, 2500]);
+    });
+  });
+
+  describe("dedupeCalendarEvents", () => {
+    it("collapses a CalDAV row and an email-invite row for the same meeting (different uids)", () => {
+      // Outlook/Exchange hands out a different uid per source, so dedup is by identity.
+      const calDav = makeEvent({ id: "caldav", uid: "GLOBAL-OBJ-ID", calendar_id: "cal-1", source_message_id: null });
+      const invite = makeEvent({ id: "invite", uid: "CLEAN-GLOBAL-OBJ-ID", source_message_id: "imap-msg-1" });
+
+      const result = dedupeCalendarEvents([calDav, invite]);
+
+      expect(result).toHaveLength(1);
+      // The canonical CalDAV row wins over the invite row.
+      expect(result[0]!.id).toBe("caldav");
+    });
+
+    it("prefers the CalDAV row even when the invite row appears first", () => {
+      const invite = makeEvent({ id: "invite", source_message_id: "imap-msg-1" });
+      const calDav = makeEvent({ id: "caldav", calendar_id: "cal-1", source_message_id: null });
+
+      const result = dedupeCalendarEvents([invite, calDav]);
+
+      expect(result).toHaveLength(1);
+      expect(result[0]!.id).toBe("caldav");
+    });
+
+    it("keeps distinct occurrences (different start times) separate", () => {
+      const a = makeEvent({ id: "a", start_time: 1000 });
+      const b = makeEvent({ id: "b", start_time: 1500 });
+
+      expect(dedupeCalendarEvents([a, b])).toHaveLength(2);
+    });
+  });
+
+  describe("upsertCalendarEvent identity cleanup", () => {
+    it("deletes the email-invite twin by identity even when uids differ", async () => {
+      await upsertCalendarEvent({
+        accountId: "acc-1",
+        googleEventId: "gev-1",
+        summary: "Sync",
+        description: null,
+        location: null,
+        startTime: 1000,
+        endTime: 2000,
+        isAllDay: false,
+        status: "confirmed",
+        organizerEmail: null,
+        attendeesJson: null,
+        htmlLink: null,
+        uid: "GLOBAL-OBJ-ID",
+      });
+
+      const [sql, params] = mockDb.execute.mock.calls[1] as [string, unknown[]];
+      expect(sql).toContain("DELETE FROM calendar_events");
+      expect(sql).toContain("source_message_id IS NOT NULL");
+      expect(sql).toContain("start_time = $3 AND end_time = $4 AND is_all_day = $5 AND summary IS $6");
+      expect(params).toEqual(["acc-1", "GLOBAL-OBJ-ID", 1000, 2000, 0, "Sync"]);
     });
   });
 
