@@ -61,10 +61,10 @@ describe("calendarReminderManager — conference call reminder", () => {
     mockNotify.mockReset();
   });
 
-  it("queries the [now+4min, now+6min] window", async () => {
+  it("queries the [now-2min, now+6min] window", async () => {
     mockGetUpcoming.mockResolvedValue([]);
     await runCheck();
-    expect(mockGetUpcoming).toHaveBeenCalledWith(NOW + 4 * 60, NOW + 6 * 60);
+    expect(mockGetUpcoming).toHaveBeenCalledWith(NOW - 2 * 60, NOW + 6 * 60);
   });
 
   it("notifies with a meeting URL extracted from a Zoom link in the location", async () => {

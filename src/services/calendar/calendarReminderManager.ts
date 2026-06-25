@@ -6,9 +6,14 @@ import { extractMeetingUrl } from "./icalHelper";
 import { getCurrentUnixTimestamp } from "@/utils/timestamp";
 import { t } from "@/i18n";
 
-// Notify for events starting in [now + 4min, now + 6min].
-// With a 60s checker interval this guarantees a single notification close to 5 min before start.
-const WINDOW_START_OFFSET = 4 * 60;
+// Notify for any not-yet-notified event whose start lies in [now - 2min, now + 6min].
+//
+// The lead is ~6 min so a reminder lands close to "5 minutes before". The window
+// deliberately extends down to (and just past) `now` rather than being a narrow
+// [+4,+6] band: an invite synced late (e.g. received 3 min before the meeting) or a
+// pass missed while the machine slept would otherwise fall under +4min and never
+// notify at all. last_notified_at (per identity) still guarantees a single reminder.
+const WINDOW_START_OFFSET = -2 * 60;
 const WINDOW_END_OFFSET = 6 * 60;
 
 /** Patterns to detect a conference URL directly in a plain-text location/description field. */

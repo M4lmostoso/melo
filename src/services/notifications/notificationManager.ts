@@ -130,6 +130,23 @@ export async function initNotifications(): Promise<void> {
 }
 
 /**
+ * Send a desktop notification, attaching `actionTypeId` only when custom action
+ * types actually registered. On macOS, sending a notification with an
+ * UNREGISTERED actionTypeId silently drops it (it never reaches Notification
+ * Center). registerActionTypes can fail (e.g. permission/style quirks), leaving
+ * actionTypesRegistered=false — in that case we must send a plain notification
+ * with no actionTypeId so it still appears, just without action buttons.
+ */
+function notify(opts: { title: string; body: string; actionTypeId?: string }): void {
+  const { actionTypeId, ...rest } = opts;
+  if (actionTypesRegistered && actionTypeId) {
+    sendNotification({ ...rest, actionTypeId });
+  } else {
+    sendNotification(rest);
+  }
+}
+
+/**
  * Show a notification for new emails.
  * Batches notifications to avoid spam during sync.
  */
@@ -159,7 +176,6 @@ export function queueNewEmailNotification(
   // Debounce: wait 2s before showing, to batch during sync
   if (notifyTimer) clearTimeout(notifyTimer);
   notifyTimer = setTimeout(() => {
-    const emailActionTypeId = actionTypesRegistered ? "email" : "default";
     if (pendingCount === 1) {
       // Title = sender name (shown bold on macOS, appears first); body = subject + snippet
       const bodyParts: string[] = [subject || "(No subject)"];
@@ -167,16 +183,16 @@ export function queueNewEmailNotification(
         const preview = snippet.trim().slice(0, 200);
         bodyParts.push(preview);
       }
-      sendNotification({
+      notify({
         title: from,
         body: bodyParts.join("\n"),
-        actionTypeId: emailActionTypeId,
+        actionTypeId: "email",
       });
     } else if (pendingCount > 1) {
-      sendNotification({
+      notify({
         title: "Melo",
         body: `${pendingCount} new emails`,
-        actionTypeId: emailActionTypeId,
+        actionTypeId: "email",
       });
     }
     pendingCount = 0;
@@ -213,7 +229,7 @@ export function notifyFollowUpDue(
   const ctx = { threadId, accountId, subject };
   lastNotificationContext = ctx;
   if (threadId) recentContexts.set(threadId, ctx);
-  sendNotification({
+  notify({
     title: "Follow up needed",
     body: subject || "(No subject)",
     actionTypeId: "email",
@@ -225,10 +241,9 @@ export function notifyFollowUpDue(
  */
 export function notifySnoozeReturn(subject: string): void {
   if (!notificationsEnabled) return;
-  sendNotification({
+  notify({
     title: "Snoozed email returned",
     body: subject || "(No subject)",
-    actionTypeId: "default",
   });
 }
 
@@ -243,19 +258,11 @@ export function notifyUpcomingCalendarEvent(
   if (!notificationsEnabled) return;
   const ctx: NotificationContext = { subject: summary, meetingUrl: meetingUrl ?? undefined };
   lastNotificationContext = ctx;
-  // Fall back to "default" when custom action types failed to register (e.g. macOS
-  // with "Banners" style instead of "Alerts"). Sending a notification with an
-  // unregistered actionTypeId is silently dropped on macOS, so without this the
-  // reminder would never show. We lose the "Join" button in that case, but the
-  // banner still appears.
-  const actionTypeId = actionTypesRegistered
-    ? meetingUrl
-      ? "calendar"
-      : "calendar-no-join"
-    : "default";
-  sendNotification({
+  // The Join button only exists when action types registered; otherwise notify()
+  // sends a plain (button-less) notification that still appears.
+  notify({
     title: summary || t("calendar.reminder.eventFallback"),
     body: t("calendar.reminder.startingSoon"),
-    actionTypeId,
+    actionTypeId: meetingUrl ? "calendar" : "calendar-no-join",
   });
 }

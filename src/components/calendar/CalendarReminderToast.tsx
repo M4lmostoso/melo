@@ -3,7 +3,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { CalendarClock, Video, X } from "lucide-react";
 import { t } from "@/i18n";
 import {
-  setCalendarReminderCallback,
+  CALENDAR_REMINDER_EVENT,
   type CalendarReminder,
 } from "@/services/calendar/calendarReminderToast";
 
@@ -16,12 +16,14 @@ export function CalendarReminderToast() {
   const [reminders, setReminders] = useState<CalendarReminder[]>([]);
 
   useEffect(() => {
-    setCalendarReminderCallback((reminder) => {
+    const handler = (e: Event) => {
+      const reminder = (e as CustomEvent<CalendarReminder>).detail;
       setReminders((prev) =>
         prev.some((r) => r.id === reminder.id) ? prev : [...prev, reminder],
       );
-    });
-    return () => setCalendarReminderCallback(null);
+    };
+    window.addEventListener(CALENDAR_REMINDER_EVENT, handler);
+    return () => window.removeEventListener(CALENDAR_REMINDER_EVENT, handler);
   }, []);
 
   const dismiss = useCallback((id: string) => {

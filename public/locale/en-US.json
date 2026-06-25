@@ -414,7 +414,7 @@
     },
     "joinButton": "Join",
     "reminder": {
-      "startingSoon": "Starting in 5 minutes",
+      "startingSoon": "Starting soon",
       "eventFallback": "Upcoming event",
       "join": "Join",
       "dismiss": "Dismiss"

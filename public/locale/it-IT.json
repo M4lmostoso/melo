@@ -414,7 +414,7 @@
     "joinButton": "Partecipa",
     "eventOrganizer": "organizzatore",
     "reminder": {
-      "startingSoon": "Inizia tra 5 minuti",
+      "startingSoon": "Inizia a breve",
       "eventFallback": "Evento imminente",
       "join": "Partecipa",
       "dismiss": "Chiudi"
