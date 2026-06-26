@@ -727,6 +727,8 @@
       "countPlural": "{count} attachments",
       "unnamed": "Unnamed",
       "download": "Download",
+      "downloadAll": "Download all ({count})",
+      "downloadSelected": "Download selected ({count})",
       "saving": "Saving...",
       "downloading": "Downloading...",
       "downloadFailed": "Download failed. Please try again.",

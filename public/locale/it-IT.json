@@ -727,6 +727,8 @@
       "countPlural": "{count} allegati",
       "unnamed": "Senza nome",
       "download": "Scarica",
+      "downloadAll": "Scarica tutti ({count})",
+      "downloadSelected": "Scarica selezionati ({count})",
       "saving": "Salvataggio...",
       "downloading": "Download in corso...",
       "downloadFailed": "Download fallito. Riprova.",

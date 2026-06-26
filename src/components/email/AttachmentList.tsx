@@ -10,7 +10,8 @@ import { formatFileSize, isImage, isPdf, isText, isOfficeDoc, isOfficeSpreadshee
 import { OfficeDocPreview } from "@/components/ui/OfficeDocPreview";
 import { useMultiSelect } from "@/hooks/useMultiSelect";
 import { useDragOut } from "@/hooks/useDragOut";
-import { toAttachmentRef, openAttachmentWithDefaultApp } from "@/services/attachments/attachmentActions";
+import { toAttachmentRef, openAttachmentWithDefaultApp, downloadAttachmentsToFolder } from "@/services/attachments/attachmentActions";
+import { ContextMenu, type ContextMenuItem } from "@/components/ui/ContextMenu";
 
 /** Dedup attachments by filename+size (content-based) */
 function dedup(attachments: DbAttachment[]): DbAttachment[] {
@@ -50,6 +51,9 @@ export function AttachmentList({ accountId, messageId, attachments, referencedCi
     const att = fileAttachments.find((a) => a.id === id);
     return att ? [toAttachmentRef(att)] : [];
   });
+  const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
+  // null = idle; otherwise overall download progress 0–100 for the folder download.
+  const [downloadPct, setDownloadPct] = useState<number | null>(null);
 
   if (fileAttachments.length === 0) return null;
 
@@ -63,6 +67,77 @@ export function AttachmentList({ accountId, messageId, attachments, referencedCi
     }
   };
 
+  // Right-click an item: select it (Finder-style) if not already in the selection,
+  // then open the menu. Right-clicking empty space keeps the current selection.
+  const openMenuForItem = (e: React.MouseEvent, att: DbAttachment) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!sel.isSelected(att.id)) sel.selectOnly(att.id);
+    setMenuPos({ x: e.clientX, y: e.clientY });
+  };
+  const openMenuForArea = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setMenuPos({ x: e.clientX, y: e.clientY });
+  };
+
+  const downloadToFolder = async (items: DbAttachment[]) => {
+    setMenuPos(null);
+    if (items.length === 0 || downloadPct !== null) return;
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    const dir = await open({ directory: true });
+    if (typeof dir !== "string" || !dir) return;
+    setDownloadPct(0);
+
+    // Blend file-level progress (one step per file) with byte-level progress of the
+    // in-flight file, streamed from Rust via the shared download-progress event.
+    const cur = { dbId: "", index: 0, total: items.length };
+    const unlisten = await listen<{ attachmentId: string; downloaded: number; total: number }>(
+      "attachment-download-progress",
+      (e) => {
+        if (e.payload.attachmentId !== cur.dbId) return;
+        const frac = e.payload.total > 0 ? Math.min(1, e.payload.downloaded / e.payload.total) : 0;
+        setDownloadPct(Math.min(99, Math.round(((cur.index + frac) / cur.total) * 100)));
+      },
+    );
+
+    try {
+      const { firstPath } = await downloadAttachmentsToFolder(
+        items.map(toAttachmentRef),
+        dir,
+        ({ index, total, dbId }) => {
+          cur.dbId = dbId;
+          cur.index = index;
+          cur.total = total;
+          setDownloadPct(Math.round((index / total) * 100));
+        },
+      );
+      setDownloadPct(100);
+      const { revealItemInDir } = await import("@tauri-apps/plugin-opener");
+      await revealItemInDir(firstPath ?? dir).catch(() => {});
+    } finally {
+      unlisten();
+      setTimeout(() => setDownloadPct(null), 1200);
+    }
+  };
+
+  const selectedAttachments = fileAttachments.filter((a) => sel.isSelected(a.id));
+  const menuItems: ContextMenuItem[] = [
+    ...(selectedAttachments.length > 0
+      ? [{
+          id: "download-selected",
+          label: t("email.attachmentList.downloadSelected", { count: selectedAttachments.length }),
+          icon: Download,
+          action: () => void downloadToFolder(selectedAttachments),
+        } satisfies ContextMenuItem]
+      : []),
+    {
+      id: "download-all",
+      label: t("email.attachmentList.downloadAll", { count: fileAttachments.length }),
+      icon: Download,
+      action: () => void downloadToFolder(fileAttachments),
+    },
+  ];
+
   return (
     <>
       <div className="mt-3 pt-3 border-t border-border-secondary">
@@ -71,7 +146,25 @@ export function AttachmentList({ accountId, messageId, attachments, referencedCi
             ? t("email.attachmentList.countPlural", { count: fileAttachments.length })
             : t("email.attachmentList.count", { count: fileAttachments.length })}
         </div>
-        <div className="flex flex-wrap gap-2">
+
+        {downloadPct !== null && (
+          <div className="mb-2.5" role="progressbar" aria-valuenow={downloadPct} aria-valuemin={0} aria-valuemax={100}>
+            <div className="flex items-center justify-between text-[11px] mb-1">
+              <span className="flex items-center gap-1 text-accent">
+                <Loader2 size={11} className="animate-spin" />
+                {t("email.attachmentList.downloading")}
+              </span>
+              <span className="text-text-tertiary tabular-nums">{downloadPct}%</span>
+            </div>
+            <div className="h-1.5 rounded-full bg-bg-tertiary overflow-hidden">
+              <div
+                className="h-full bg-accent rounded-full transition-[width] duration-200 ease-out"
+                style={{ width: `${downloadPct}%` }}
+              />
+            </div>
+          </div>
+        )}
+        <div className="flex flex-wrap gap-2" onContextMenu={openMenuForArea}>
           {fileAttachments.map((att) => {
             const prep = drag.prepState[att.id];
             const pct = drag.progress[att.id];
@@ -95,6 +188,7 @@ export function AttachmentList({ accountId, messageId, attachments, referencedCi
               onMouseDown={(e) => drag.onItemMouseDown(att.id, e)}
               onDragStart={(e) => drag.onItemDragStart(att.id, e)}
               onClick={(e) => { if (drag.didDrag()) return; sel.onItemClick(att.id, e); }}
+              onContextMenu={(e) => openMenuForItem(e, att)}
               onDoubleClick={() => openAttachmentWithDefaultApp(toAttachmentRef(att)).catch((err) => console.error("Open attachment failed:", err))}
               onKeyDown={(e) => handleKeyDown(e, att)}
               className={`flex items-center gap-2 px-3 py-1.5 text-xs rounded-md border transition-colors select-none focus:outline-none focus:ring-1 focus:ring-accent ${
@@ -130,6 +224,14 @@ export function AttachmentList({ accountId, messageId, attachments, referencedCi
           })}
         </div>
       </div>
+
+      {menuPos && (
+        <ContextMenu
+          items={menuItems}
+          position={menuPos}
+          onClose={() => setMenuPos(null)}
+        />
+      )}
 
       {preview && (
         <AttachmentPreview
