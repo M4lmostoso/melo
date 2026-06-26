@@ -64,10 +64,12 @@ export async function initNotifications(): Promise<void> {
     return;
   }
 
-  // Register action types and handlers (not available on all platforms).
-  // On macOS, action buttons (Reply/Archive) only appear with "Alerts" notification
-  // style. If registration succeeds we use actionTypeId "email"; otherwise we fall
-  // back to "default" so the notification still shows as a banner.
+  // Register action types and handlers. NOTE: in tauri-plugin-notification these
+  // commands (register_action_types / register_listener) exist only on mobile —
+  // on desktop they throw "Command ... not found", so actionTypesRegistered stays
+  // false and notify() sends plain (button-less) notifications. Action buttons such
+  // as the calendar "Join" are therefore delivered via the in-app toast
+  // (CalendarReminderToast), not the OS notification, on desktop.
   try {
     await registerActionTypes([
       {
@@ -125,7 +127,8 @@ export async function initNotifications(): Promise<void> {
       }
     });
   } catch {
-    // registerActionTypes/onAction not available on this platform (e.g. Windows)
+    // Expected on desktop: register_action_types / register_listener are mobile-only,
+    // so notifications are sent without action buttons (see note above).
   }
 }
 

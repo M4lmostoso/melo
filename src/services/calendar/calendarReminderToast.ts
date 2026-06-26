@@ -19,6 +19,8 @@ export interface CalendarReminder {
   id: string;
   summary: string;
   meetingUrl: string | null;
+  /** Event start, unix seconds — drives the time chip and live countdown. */
+  startTime: number;
 }
 
 export const CALENDAR_REMINDER_EVENT = "melo-calendar-reminder";

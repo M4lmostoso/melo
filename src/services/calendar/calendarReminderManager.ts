@@ -49,7 +49,7 @@ async function checkUpcomingEvents(): Promise<void> {
     // OS notification (background signal) + in-app toast (guaranteed: stays until
     // dismissed, always shows a Join button — neither is reliable via a macOS banner).
     notifyUpcomingCalendarEvent(summary, meetingUrl);
-    emitCalendarReminder({ id: event.id, summary, meetingUrl });
+    emitCalendarReminder({ id: event.id, summary, meetingUrl, startTime: event.start_time });
     // Mark all rows for this meeting (CalDAV + email-invite duplicates), not just the
     // single deduped row, so a twin doesn't trigger a second notification next pass.
     await markCalendarEventNotifiedByIdentity(event, now);

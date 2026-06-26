@@ -414,7 +414,10 @@
     },
     "joinButton": "Join",
     "reminder": {
+      "label": "Meeting reminder",
       "startingSoon": "Starting soon",
+      "startingNow": "Starting now",
+      "inMinutes": "in {count} min",
       "eventFallback": "Upcoming event",
       "join": "Join",
       "dismiss": "Dismiss"

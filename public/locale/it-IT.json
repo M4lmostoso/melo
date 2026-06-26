@@ -414,7 +414,10 @@
     "joinButton": "Partecipa",
     "eventOrganizer": "organizzatore",
     "reminder": {
+      "label": "Promemoria riunione",
       "startingSoon": "Inizia a breve",
+      "startingNow": "Inizia ora",
+      "inMinutes": "tra {count} min",
       "eventFallback": "Evento imminente",
       "join": "Partecipa",
       "dismiss": "Chiudi"
