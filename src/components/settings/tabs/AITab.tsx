@@ -145,10 +145,10 @@ export function AITab() {
   const [geminiApiKey, setGeminiApiKey] = useState("");
   const [copilotApiKey, setCopilotApiKey] = useState("");
   const [ollamaServerUrl, setOllamaServerUrl] = useState("http://localhost:11434");
-  const [ollamaModel, setOllamaModel] = useState("llama3.2");
+  const [ollamaModel, setOllamaModel] = useState("llama3.3");
   const [claudeModel, setClaudeModel] = useState("claude-haiku-4-5-20251001");
-  const [openaiModel, setOpenaiModel] = useState("gpt-4o-mini");
-  const [geminiModel, setGeminiModel] = useState("gemini-2.5-flash-preview-05-20");
+  const [openaiModel, setOpenaiModel] = useState("gpt-5-mini");
+  const [geminiModel, setGeminiModel] = useState("gemini-3-flash");
   const [copilotModel, setCopilotModel] = useState("openai/gpt-4o-mini");
   const [aiEnabled, setAiEnabled] = useState(true);
   const [aiAutoCategorize, setAiAutoCategorize] = useState(true);
@@ -303,7 +303,7 @@ export function AITab() {
               size="md"
               value={ollamaModel}
               onChange={(e) => setOllamaModel(e.target.value)}
-              placeholder="llama3.2"
+              placeholder="llama3.3"
             />
             <div className="flex items-center gap-2">
               <Button

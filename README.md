@@ -99,13 +99,13 @@ Because email clients now come with task managers. This is the world we live in.
 
 ### 🤖 AI — 5 Providers, 0 Excuses
 
-| Provider           | Models                       |
-| ------------------ | ---------------------------- |
-| Claude (Anthropic) | Haiku 4.5, Sonnet 4, Opus 4  |
-| OpenAI             | GPT-4o Mini, GPT-4o, GPT-4.1 |
-| Google Gemini      | 2.5 Flash, 2.5 Pro           |
-| Ollama (local)     | llama3.2 (configurable)      |
-| GitHub Copilot     | OpenAI enterprise API        |
+| Provider           | Models                                   |
+| ------------------ | ---------------------------------------- |
+| Claude (Anthropic) | Haiku 4.5, Sonnet 4.6, Opus 4.8, Fable 5 |
+| OpenAI             | GPT-5 Mini, GPT-5                        |
+| Google Gemini      | Gemini 3 Flash, Gemini 3 Pro             |
+| Ollama (local)     | llama3.3, gemma4:12b (configurable)      |
+| GitHub Copilot     | OpenAI enterprise API                    |
 
 **What the AI actually does:**
 

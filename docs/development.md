@@ -137,10 +137,10 @@ All user-visible strings are stored in `public/locale/en-US.json` and accessed v
 
 To enable AI features, add your API key for one or more providers in Settings:
 
-- **Anthropic Claude** -- [Get API key](https://console.anthropic.com/) -- Haiku 4.5 (default), Sonnet 4, Opus 4
-- **OpenAI** -- [Get API key](https://platform.openai.com/) -- GPT-4o Mini (default), GPT-4o, GPT-4.1 series
-- **Google Gemini** -- [Get API key](https://aistudio.google.com/) -- 2.5 Flash (default), 2.5 Pro
-- **Ollama** (local) -- Install [Ollama](https://ollama.com/), set server URL (default `http://localhost:11434`) and model (default `llama3.2`) in Settings > AI. No API key required.
+- **Anthropic Claude** -- [Get API key](https://console.anthropic.com/) -- Haiku 4.5 (default), Sonnet 4.6, Opus 4.8, Fable 5
+- **OpenAI** -- [Get API key](https://platform.openai.com/) -- GPT-5 Mini (default), GPT-5
+- **Google Gemini** -- [Get API key](https://aistudio.google.com/) -- Gemini 3 Flash (default), Gemini 3 Pro
+- **Ollama** (local) -- Install [Ollama](https://ollama.com/), set server URL (default `http://localhost:11434`) and model (default `llama3.3`, e.g. `gemma4:12b`) in Settings > AI. No API key required.
 - **GitHub Copilot** -- Requires a Copilot subscription. Set your API key in Settings > AI.
 
 After configuring a provider, select which model to use per feature in Settings > AI.

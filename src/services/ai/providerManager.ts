@@ -28,7 +28,7 @@ export async function getActiveProvider(): Promise<AiProviderClient> {
 
   if (providerName === "ollama") {
     const serverUrl = (await getSetting("ollama_server_url")) ?? "http://localhost:11434";
-    const model = (await getSetting("ollama_model")) ?? "llama3.2";
+    const model = (await getSetting("ollama_model")) ?? "llama3.3";
     const cacheKey = `${serverUrl}|${model}`;
 
     if (cachedProvider && cachedProvider.name === "ollama" && cachedProvider.key === cacheKey) {
