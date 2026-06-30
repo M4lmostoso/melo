@@ -53,6 +53,7 @@ import {
   spamThread,
   moveThread,
   executeEmailAction,
+  executeQueuedAction,
   emptyTrash,
   trashAllSpam,
   markAllSpamRead,
@@ -114,6 +115,36 @@ describe("emailActions", () => {
       expect(result.success).toBe(true);
       expect(mockRemoveThread).toHaveBeenCalledWith("t1");
       expect(mockProvider.spam).toHaveBeenCalledWith("t1", ["m1"], true);
+    });
+  });
+
+  describe("queued sendMessage retry cleans up the leftover draft", () => {
+    it("purges the local draft row after a successful retry", async () => {
+      mockDb.select.mockResolvedValue([{ thread_id: "t1" }]);
+
+      await executeQueuedAction("acct-1", "sendMessage", {
+        rawBase64Url: "RAW",
+        threadId: "t1",
+        cleanupLocalDraftId: "local-draft-1",
+      });
+
+      expect(mockProvider.sendMessage).toHaveBeenCalledWith("RAW", "t1");
+      // purgeDraftFromDb deletes the stranded draft message row by id.
+      expect(mockDb.execute).toHaveBeenCalledWith(
+        "DELETE FROM messages WHERE account_id = $1 AND id = $2",
+        ["acct-1", "local-draft-1"],
+      );
+    });
+
+    it("does not touch any draft when no cleanup hints are present", async () => {
+      await executeQueuedAction("acct-1", "sendMessage", {
+        rawBase64Url: "RAW",
+        threadId: "t1",
+      });
+
+      expect(mockProvider.sendMessage).toHaveBeenCalledWith("RAW", "t1");
+      expect(mockProvider.deleteDraft).not.toHaveBeenCalled();
+      expect(mockDb.execute).not.toHaveBeenCalled();
     });
   });
 

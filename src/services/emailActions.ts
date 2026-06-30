@@ -46,6 +46,13 @@ export type EmailAction =
       type: "sendMessage";
       rawBase64Url: string;
       threadId?: string;
+      // Draft-cleanup hints carried only by sends that were queued after a failed
+      // attempt. When the retry finally succeeds, the queue path uses these to delete
+      // the draft that the failed-send handler intentionally left behind (otherwise
+      // the draft + its phantom "unread in inbox" lingers forever). Absent on normal
+      // online sends, which clean the draft up directly in the send handler.
+      cleanupDraftId?: string;
+      cleanupLocalDraftId?: string;
     }
   | {
       type: "createDraft";
@@ -448,8 +455,24 @@ async function executeViaProvider(
       return provider.addLabel(action.threadId, action.labelId);
     case "removeLabel":
       return provider.removeLabel(action.threadId, action.labelId);
-    case "sendMessage":
-      return provider.sendMessage(action.rawBase64Url, action.threadId);
+    case "sendMessage": {
+      const result = await provider.sendMessage(action.rawBase64Url, action.threadId);
+      // A retry that originated from a failed send carries cleanup hints: now that the
+      // send finally went through, remove the draft left behind. Mirrors the success
+      // path in App.tsx's melo-execute-send handler.
+      if (action.cleanupDraftId) {
+        const { deleteDraft } = await import("./draftActions");
+        await deleteDraft(accountId, action.cleanupDraftId, action.threadId).catch(() => {});
+      } else if (action.cleanupLocalDraftId) {
+        await purgeDraftFromDb(
+          accountId,
+          null,
+          action.threadId ?? null,
+          action.cleanupLocalDraftId,
+        ).catch(() => {});
+      }
+      return result;
+    }
     case "createDraft":
       return provider.createDraft(action.rawBase64Url, action.threadId);
     case "updateDraft":

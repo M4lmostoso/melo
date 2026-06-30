@@ -362,7 +362,14 @@ export default function App() {
                 p.accountId,
                 "sendMessage",
                 p.threadId ?? crypto.randomUUID(),
-                { rawBase64Url: p.raw, threadId: p.threadId ?? undefined },
+                {
+                  rawBase64Url: p.raw,
+                  threadId: p.threadId ?? undefined,
+                  // Carry the draft references so a successful retry cleans up the draft
+                  // (and its phantom "unread in inbox") instead of leaving it stranded.
+                  cleanupDraftId: p.currentDraftId ?? p.preTombstonedDraftId ?? undefined,
+                  cleanupLocalDraftId: p.localDraftId ?? undefined,
+                },
               );
               await updateOperationStatus(opId, "failed", sendResult.error ?? undefined);
             } catch (e) {
