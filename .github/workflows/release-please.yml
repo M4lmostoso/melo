@@ -23,6 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: googleapis/release-please-action@v4
+        id: release
         with:
           # A PAT (not the default GITHUB_TOKEN) so that opening/updating the release PR
           # triggers other workflows — notably ci.yml — on that PR. Events raised by the
@@ -32,3 +33,35 @@ jobs:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+      # release-please bumps Cargo.toml but has no updater for Cargo.lock, so the lock's
+      # `melo` entry drifts to the old version and shows up as a dangling local change
+      # after every release. Patch just that one version line (everything else stays
+      # byte-for-byte) directly on the release PR branch, so the merge already carries a
+      # consistent lockfile. Runs only while a release PR is open.
+      - name: Sync Cargo.lock in the release PR
+        if: ${{ steps.release.outputs.pr }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          PR_JSON: ${{ steps.release.outputs.pr }}
+        run: |
+          set -euo pipefail
+          BRANCH=$(printf '%s' "$PR_JSON" | jq -r .headBranchName)
+          git clone --branch "$BRANCH" --depth 1 \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" repo
+          cd repo
+          VERSION=$(jq -r .version package.json)
+          # Rewrite only the `version = "..."` line of the [[package]] block named "melo".
+          awk -v ver="$VERSION" '
+            /^name = "melo"$/ { inmelo = 1 }
+            inmelo && /^version = / { sub(/"[^"]*"/, "\"" ver "\""); inmelo = 0 }
+            { print }
+          ' src-tauri/Cargo.lock > Cargo.lock.tmp && mv Cargo.lock.tmp src-tauri/Cargo.lock
+          if git diff --quiet; then
+            echo "Cargo.lock already at ${VERSION} — nothing to do."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "chore: sync Cargo.lock to ${VERSION}"
+          git push origin "$BRANCH"
