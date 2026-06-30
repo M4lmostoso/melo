@@ -27,7 +27,10 @@ jobs:
         with:
           path-to-signatures: signatures/version1/cla.json
           path-to-document: https://github.com/M4lmostoso/melo/blob/main/CLA.md
-          branch: main
+          # Signatures live on a dedicated UNPROTECTED branch. The bot commits the
+          # signatures file here; if it pointed at main, main's required status checks
+          # would reject the bot's direct commit and the CLA check would fail.
+          branch: cla-signatures
           # Maintainers and bots that don't need to sign.
           allowlist: M4lmostoso,dependabot[bot],renovate[bot]
           custom-notsigned-prcomment: 'Thank you for your contribution! Before it can be merged, please read our [Contributor License Agreement](https://github.com/M4lmostoso/melo/blob/main/CLA.md) and sign it by posting the following comment on this PR:'
