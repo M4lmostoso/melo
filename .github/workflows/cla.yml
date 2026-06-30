@@ -20,7 +20,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: CLA Assistant
-        if: (github.event.comment.body == 'recheck' || github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA') || github.event_name == 'pull_request_target'
+        # Skip the maintainer's own PRs (including release-please release PRs): they
+        # don't need to sign. The action's `allowlist` is supposed to cover this but
+        # doesn't reliably exclude the repo owner, so gate it here too. Comment events
+        # (external contributors signing/recheck) still run — pull_request is null then,
+        # so the owner check is vacuously true.
+        if: >
+          github.event.pull_request.user.login != 'M4lmostoso' &&
+          (github.event_name == 'pull_request_target' ||
+           github.event.comment.body == 'recheck' ||
+           github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA')
         uses: contributor-assistant/github-action@v2.6.1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
