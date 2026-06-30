@@ -1826,6 +1826,35 @@ fn extract_bracket_number(line: &str, keyword: &str) -> Option<u32> {
     None
 }
 
+/// Read exactly `size` bytes from the reader, aborting if no data arrives for
+/// `idle`. Unlike a plain `read_exact`, this caps *stalls* (DavMail/Exchange
+/// sometimes starts streaming a message body then hangs indefinitely, which
+/// would otherwise freeze the whole folder sync) without penalising large
+/// bodies that arrive slowly but steadily — the idle window resets on every
+/// chunk actually received.
+async fn read_literal_with_idle_timeout(
+    reader: &mut tokio::io::BufReader<ImapStream>,
+    size: usize,
+    idle: std::time::Duration,
+) -> Result<Vec<u8>, String> {
+    let mut buf = vec![0u8; size];
+    let mut filled = 0;
+    while filled < size {
+        let n = tokio::time::timeout(idle, reader.read(&mut buf[filled..]))
+            .await
+            .map_err(|_| format!(
+                "literal stalled: no data for {}s ({}/{} bytes)",
+                idle.as_secs(), filled, size
+            ))?
+            .map_err(|e| format!("literal read: {e}"))?;
+        if n == 0 {
+            return Err(format!("connection closed mid-literal ({filled}/{size} bytes)"));
+        }
+        filled += n;
+    }
+    Ok(buf)
+}
+
 /// Parse IMAP FETCH responses with literal support ({size}\r\n...data...).
 ///
 /// IMAP FETCH response format:
@@ -1871,8 +1900,8 @@ async fn raw_parse_fetch_responses(
                     log::warn!("RAW FETCH: could not parse UID from: {}", line.trim());
                     // Still need to consume any literal
                     if let Some(literal_size) = extract_literal_size(&line) {
-                        let mut discard = vec![0u8; literal_size];
-                        reader.read_exact(&mut discard).await
+                        read_literal_with_idle_timeout(reader, literal_size, IMAP_CMD_TIMEOUT)
+                            .await
                             .map_err(|e| format!("discard literal: {e}"))?;
                     }
                     continue;
@@ -1889,9 +1918,10 @@ async fn raw_parse_fetch_responses(
 
                 // Check for literal: {size}
                 if let Some(literal_size) = extract_literal_size(&line) {
-                    // Read exactly `literal_size` bytes
-                    let mut body = vec![0u8; literal_size];
-                    reader.read_exact(&mut body).await
+                    // Read exactly `literal_size` bytes, but abort if the stream
+                    // stalls (DavMail hang) instead of blocking the folder forever.
+                    let body = read_literal_with_idle_timeout(reader, literal_size, IMAP_CMD_TIMEOUT)
+                        .await
                         .map_err(|e| format!("read literal for UID {uid}: {e}"))?;
 
                     // Read the closing ")\r\n" after the literal

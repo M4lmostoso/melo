@@ -87,7 +87,7 @@ vi.mock("@/services/ai/urgencyPipeline", () => ({
   processThreadUrgency: vi.fn(async () => {}),
 }));
 
-import { imapInitialSync, imapDeltaSync, formatImapDate, computeSinceDate, isConnectionError } from "./imapSync";
+import { imapInitialSync, imapDeltaSync, formatImapDate, computeSinceDate, isConnectionError, isUnfetchableMessageError } from "./imapSync";
 import {
   createMockImapAccount,
   createMockImapFolder,
@@ -280,6 +280,35 @@ describe("imapInitialSync", () => {
     expect(mockImapStoreThreads).toHaveBeenCalledTimes(1);
   });
 
+  it("isolates and skips a single unfetchable (poison) UID, keeping its neighbours", async () => {
+    const POISON = 2;
+    const mockFolder = createMockImapFolder({ path: "INBOX", raw_path: "INBOX", exists: 3 });
+    mockImapListFolders.mockResolvedValue([mockFolder]);
+    mockImapSearchFolder.mockResolvedValue({
+      uids: [1, 2, 3],
+      folder_status: createMockImapFolderStatus({ exists: 3 }),
+    });
+    // The server can never serve UID 2's body (DavMail-style stall). The whole
+    // batch fails until the poison UID is isolated to a singleton, which is then
+    // skipped — UIDs 1 and 3 must still be stored.
+    mockImapFetchAndStore.mockImplementation(
+      async (_config, _accountId, _folder, _labelId, uids: number[]) => {
+        if (uids.includes(POISON)) {
+          throw new Error(`read literal for UID ${POISON}: literal stalled: no data for 30s`);
+        }
+        return uids.map((u) => makeHeader(u));
+      },
+    );
+
+    await runSync();
+
+    expect(mockImapStoreThreads).toHaveBeenCalledTimes(1);
+    const allLocalIds = mockImapStoreThreads.mock.calls[0]![2];
+    expect(allLocalIds).toContain("imap-acc-1-INBOX-1");
+    expect(allLocalIds).toContain("imap-acc-1-INBOX-3");
+    expect(allLocalIds).not.toContain("imap-acc-1-INBOX-2");
+  });
+
   it("circuit breaker skips remaining folders after 5 consecutive connection failures", async () => {
     const folders = Array.from({ length: 8 }, (_, i) =>
       createMockImapFolder({ path: `folder-${i}`, raw_path: `folder-${i}`, exists: 10 }),
@@ -413,6 +442,24 @@ describe("isConnectionError", () => {
   it("returns false for non-connection errors", () => {
     expect(isConnectionError("PARSE failed: invalid response")).toBe(false);
     expect(isConnectionError("authentication failed")).toBe(false);
+  });
+});
+
+describe("isUnfetchableMessageError", () => {
+  it("detects a DavMail body stall", () => {
+    expect(
+      isUnfetchableMessageError("read literal for UID 11853: literal stalled: no data for 30s (12/45678 bytes)"),
+    ).toBe(true);
+  });
+
+  it("detects a connection closed mid-literal", () => {
+    expect(isUnfetchableMessageError("read literal for UID 7: connection closed mid-literal (3/9000 bytes)")).toBe(true);
+  });
+
+  it("does NOT treat transient connection errors as unfetchable", () => {
+    expect(isUnfetchableMessageError("TCP connect timed out (os error 60)")).toBe(false);
+    expect(isUnfetchableMessageError("connection reset by peer")).toBe(false);
+    expect(isUnfetchableMessageError("socket hang up")).toBe(false);
   });
 });
 
