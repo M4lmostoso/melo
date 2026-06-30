@@ -86,6 +86,23 @@ export function isConnectionError(err: unknown): boolean {
   );
 }
 
+/**
+ * True when an error means the server cannot serve THIS specific message
+ * (as opposed to a transient connection problem affecting the whole batch).
+ * The prime example is DavMail/Exchange streaming a message body then hanging:
+ * the Rust fetch now caps that with an idle-timeout and surfaces "literal
+ * stalled". Such a UID must be skipped so it does not block the rest of the
+ * folder forever — unlike a connection error, retrying it never helps.
+ */
+export function isUnfetchableMessageError(err: unknown): boolean {
+  const msg = String(err).toLowerCase();
+  return (
+    msg.includes("literal stalled") ||
+    msg.includes("mid-literal") ||
+    msg.includes("read literal")
+  );
+}
+
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -683,27 +700,44 @@ async function fetchAndStoreWithRetry(
   try {
     return await imapFetchAndStore(config, accountId, folder, labelId, uids, cutoffDate);
   } catch (err) {
-    if (!isConnectionError(err) || uids.length <= 1) throw err;
+    // Single UID failed: decide whether it's a poison message to skip or a
+    // transient error to retry later.
+    if (uids.length <= 1) {
+      if (isUnfetchableMessageError(err)) {
+        // The server cannot serve this message's body (DavMail hang etc.).
+        // Skip it so it never blocks the rest of the folder. Returning [] lets
+        // lastUid advance past it — it will not be retried every cycle.
+        console.warn(`[imapSync] Skipping unfetchable UID ${uids[0]} in ${folder}: ${String(err)}`);
+        return [];
+      }
+      // Transient (connection) error — rethrow so the folder cursor does not
+      // advance and the UID is retried on the next sync.
+      throw err;
+    }
 
+    // Multiple UIDs: a single poison message would otherwise take the whole
+    // batch down, losing its healthy neighbours. Split and recurse to isolate
+    // the offending UID(s); only the truly-unfetchable ones are dropped.
     const half = Math.ceil(uids.length / 2);
-    console.warn(`[imapSync] FETCH failed for ${uids.length} UIDs in ${folder} — retrying as ${half}+${uids.length - half}`);
-    await delay(2_000);
+    console.warn(`[imapSync] FETCH failed for ${uids.length} UIDs in ${folder} — isolating as ${half}+${uids.length - half}`);
+    await delay(500);
 
     const headers: ImapSyncHeader[] = [];
+    let transientErr: unknown;
     for (const sub of [uids.slice(0, half), uids.slice(half)]) {
       try {
-        const r = await imapFetchAndStore(config, accountId, folder, labelId, sub, cutoffDate);
-        headers.push(...r);
+        headers.push(...(await fetchAndStoreWithRetry(config, accountId, folder, labelId, sub, cutoffDate)));
       } catch (subErr) {
-        // Sub-batch failed. We return only the successful headers; lastUid in
-        // fetchAllInBatches is computed from response UIDs, so it won't advance
-        // past the failed UIDs — they will be retried on the next delta sync.
+        // A connection error bubbled up from a sub-batch. Remember it so we
+        // don't advance the cursor past UIDs we never actually fetched.
+        transientErr = transientErr ?? subErr;
         console.warn(
           `[imapSync] Sub-batch FETCH failed for UIDs ${sub[0]}–${sub[sub.length - 1]} in ${folder} — will be retried next delta sync`,
           subErr,
         );
       }
     }
+    if (transientErr) throw transientErr;
     return headers;
   }
 }
