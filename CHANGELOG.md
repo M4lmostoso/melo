@@ -4,6 +4,25 @@
 
 ---
 
+## [0.1.1](https://github.com/M4lmostoso/melo/compare/v0.1.0...v0.1.1) (2026-06-30)
+
+
+### Features
+
+* add release-please workflow for automated versioning and changelog management ([acf1c0d](https://github.com/M4lmostoso/melo/commit/acf1c0df3e0a9f9b33835485af8587b09faecaf6))
+* implement automated draft cleanup for successful retried sendMessage operations ([2d6a2e3](https://github.com/M4lmostoso/melo/commit/2d6a2e34b1fbf099c3bda39bd1fa3496e554b1b6))
+* implement batch attachment downloads with de-duplication and progress tracking ([007d900](https://github.com/M4lmostoso/melo/commit/007d900005c1715fc0bf2d48a2af1c6ebbe63d2d))
+* implement CalDAV PUT/update logic, sync IMAP/CalDAV credentials, and add calendar reminder background checks. ([8a6ff5d](https://github.com/M4lmostoso/melo/commit/8a6ff5de4c41d46558b2c047a735341943407e17))
+
+
+### Bug Fixes
+
+* drop component prefix from release-please tags so v0.1.0 is detected ([074c739](https://github.com/M4lmostoso/melo/commit/074c739f743fc4bd531ec7a3be679427a6b2d561))
+* improve calendar deduplication, add in-app reminder toasts, and hash long attachment paths ([094f060](https://github.com/M4lmostoso/melo/commit/094f060f141c7a24ef6e2fa39fe3bb3532ad3512))
+* skip CLA check on maintainer's own PRs ([430eaff](https://github.com/M4lmostoso/melo/commit/430eaff87369e558b460ab8d6941a9628b6589a5))
+* store CLA signatures on dedicated unprotected branch ([6bac3a7](https://github.com/M4lmostoso/melo/commit/6bac3a77ffcab7c14561cbaee1333662fbfcc3d3))
+* update calendar reminder window to handle missed events, replace callback with window events, and improve notification resilience ([b2d2d0f](https://github.com/M4lmostoso/melo/commit/b2d2d0f1f8b995a9c89bd631620399224f556524))
+
 ## [Melo 0.1.0] — In development
 
 All work described in this section took place in the Melo fork, spread across 230+ commits on top of the Velo 0.4.21 base.
