@@ -18,6 +18,12 @@ const IMAP_CMD_TIMEOUT: Duration = Duration::from_secs(30);
 const IMAP_FETCH_TIMEOUT: Duration = Duration::from_secs(120);
 const IMAP_SEARCH_TIMEOUT: Duration = Duration::from_secs(60);
 const OVERALL_CONNECT_TIMEOUT: Duration = Duration::from_secs(60);
+/// Hard wall-clock budget for a single raw-TCP fetch of a UID batch. DavMail can
+/// hang mid-fetch on messages it cannot serve, in ways the per-read timeouts do
+/// not catch (e.g. before the literal is even reached). This total cap guarantees
+/// a batch can never freeze the sync: on expiry we return a "literal stalled"
+/// error, which the TS layer treats as unfetchable and isolates via recursion.
+const RAW_FETCH_TOTAL_TIMEOUT: Duration = Duration::from_secs(90);
 
 /// Configure TCP keepalive and nodelay on a connected socket.
 fn configure_tcp_socket(stream: &TcpStream) {
@@ -1547,6 +1553,39 @@ pub async fn test_connection(config: &ImapConfig) -> Result<String, String> {
 /// This is a fallback for servers where async-imap fails to parse responses
 /// (e.g. Mailo with non-standard flags like `Sent` without backslash).
 pub async fn raw_fetch_messages(
+    config: &ImapConfig,
+    folder: &str,
+    uid_range: &str,
+) -> Result<ImapFetchResult, String> {
+    // Wrap the whole operation in a hard wall-clock budget. Any hang — connect,
+    // TLS handshake, login, SELECT or a runaway body read — aborts here instead
+    // of freezing the sync. The "literal stalled" wording is recognised by the
+    // TS layer (isUnfetchableMessageError) so an offending message is isolated
+    // and skipped rather than retried forever.
+    //
+    // The budget scales with the batch size so that when the TS layer recurses
+    // down to a single poison UID, that UID is abandoned quickly (~base) instead
+    // of waiting the full large-batch budget at every recursion level.
+    let uid_count = uid_range.split(',').filter(|s| !s.trim().is_empty()).count().max(1);
+    let budget = std::cmp::min(
+        RAW_FETCH_TOTAL_TIMEOUT,
+        Duration::from_secs(20 + uid_count as u64 * 4),
+    );
+    match tokio::time::timeout(
+        budget,
+        raw_fetch_messages_inner(config, folder, uid_range),
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(_) => Err(format!(
+            "raw fetch for {folder} UIDs {uid_range}: literal stalled (exceeded {}s budget)",
+            budget.as_secs()
+        )),
+    }
+}
+
+async fn raw_fetch_messages_inner(
     config: &ImapConfig,
     folder: &str,
     uid_range: &str,
