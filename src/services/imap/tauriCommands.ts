@@ -236,6 +236,18 @@ export async function imapSearchAllUids(
   return invoke<number[]>('imap_search_all_uids', { config, folder });
 }
 
+/**
+ * Authoritative folder enumeration over a FRESH raw connection. Prefer this over
+ * imapSearchAllUids for reconciliation: the pooled async-imap UID SEARCH can
+ * silently return a truncated set on DavMail/Exchange, hiding messages forever.
+ */
+export async function imapRawSearchAllUids(
+  config: ImapConfig,
+  folder: string
+): Promise<number[]> {
+  return invoke<number[]>('imap_raw_search_uids', { config, folder });
+}
+
 export async function imapCheckSeenUids(
   config: ImapConfig,
   folder: string,
