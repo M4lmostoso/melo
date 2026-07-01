@@ -288,4 +288,20 @@ export const MIGRATIONS_IMAP = [
       ALTER TABLE calendars ADD COLUMN user_color TEXT DEFAULT NULL;
     `,
   },
+  {
+    version: 67,
+    description: "Track UIDs the server lists but repeatedly refuses to serve (unfetchable skip-list), so the self-healing reconcile stops re-grinding them after a configurable number of attempts while keeping them visible to the user",
+    sql: `
+      CREATE TABLE IF NOT EXISTS imap_unfetchable_uids (
+        account_id TEXT NOT NULL,
+        folder_path TEXT NOT NULL,
+        uid INTEGER NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 1,
+        first_seen_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        last_attempt_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        PRIMARY KEY (account_id, folder_path, uid)
+      );
+      CREATE INDEX IF NOT EXISTS idx_unfetchable_account ON imap_unfetchable_uids(account_id);
+    `,
+  },
 ];
