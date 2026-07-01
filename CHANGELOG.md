@@ -4,6 +4,23 @@
 
 ---
 
+## [0.1.2](https://github.com/M4lmostoso/melo/compare/v0.1.1...v0.1.2) (2026-07-01)
+
+
+### Features
+
+* configurable, user-visible skip-list for unfetchable IMAP messages ([a14c5f2](https://github.com/M4lmostoso/melo/commit/a14c5f26cc50c06ad7ec1680c8887de0a141c195))
+* self-healing periodic IMAP reconcile so sync can't silently drift ([2753829](https://github.com/M4lmostoso/melo/commit/275382989ee79d768be31e0f8a5967d2c994b5ea))
+* surface per-account sync health so failures aren't silent ([52f2f05](https://github.com/M4lmostoso/melo/commit/52f2f050a44a7e566c1faed7623af95f07eb2ef2))
+
+
+### Bug Fixes
+
+* add total wall-clock timeout to raw IMAP fetch ([9373e7c](https://github.com/M4lmostoso/melo/commit/9373e7cb782c1f2cb0e7a31c239b5bc2ee7a0899))
+* handle unfetchable message errors by skipping poison UIDs and adding idle timeouts to literal reads ([b49cebc](https://github.com/M4lmostoso/melo/commit/b49cebc41746a96447e65cd46be0bd38098988d7))
+* reliable raw-connection UID SEARCH for DavMail/Exchange enumeration ([8be75fc](https://github.com/M4lmostoso/melo/commit/8be75fcb0668fb3bd21d790a542b84faa313c86b))
+* sync accounts concurrently so one stuck account can't block others ([0b06d7e](https://github.com/M4lmostoso/melo/commit/0b06d7ef4ad3ed7612b3d48973ce4bf7da92bbe3))
+
 ## [0.1.1](https://github.com/M4lmostoso/melo/compare/v0.1.0...v0.1.1) (2026-06-30)
 
 
