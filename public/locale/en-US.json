@@ -1870,6 +1870,10 @@
     "expandSidebar": "Expand sidebar",
     "collapseSidebar": "Collapse sidebar",
     "checkMail": "Check for new mail",
+    "account": {
+      "unfetchableWarning": "{count} message(s) on the server couldn't be downloaded and are missing locally. The app will keep retrying.",
+      "staleWarning": "This account hasn't synced in a while — it may be stuck. Check its connection or credentials."
+    },
     "defaultSmartFolders": {
       "sfUnread": "Unread",
       "sfAttachments": "Has Attachments",

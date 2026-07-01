@@ -181,6 +181,34 @@ export default function App() {
     };
   }, []);
 
+  // Sync watchdog: flag any account that hasn't completed a successful sync for
+  // far longer than the normal cadence, so a silently-stuck account becomes
+  // visible instead of quietly falling behind (the failure mode we hardened
+  // against). Cheap: pure in-memory check every couple of minutes.
+  useEffect(() => {
+    const STALE_MS = 15 * 60 * 1000; // sync cadence is 60s; 15 min = clearly stuck
+    const check = () => {
+      const { accountSyncStatuses, setAccountSyncHealth } = useUIStore.getState();
+      const now = Date.now();
+      for (const acct of useAccountStore.getState().accounts) {
+        if (!acct.isActive) continue;
+        const st = accountSyncStatuses[acct.id];
+        if (!st || st.phase === "syncing" || st.lastSyncedAt === undefined) continue;
+        const stale = now - st.lastSyncedAt > STALE_MS;
+        if (stale !== !!st.isStale) {
+          if (stale) {
+            console.warn(
+              `[watchdog] account ${acct.id} has not synced for ${Math.round((now - st.lastSyncedAt) / 60000)} min — flagging stale`,
+            );
+          }
+          setAccountSyncHealth(acct.id, { isStale: stale });
+        }
+      }
+    };
+    const id = setInterval(check, 2 * 60 * 1000);
+    return () => clearInterval(id);
+  }, []);
+
   // Suppress default browser context menu globally (Tauri app should feel native)
   // Elements with data-native-context-menu opt out so the browser menu is available
   useEffect(() => {
@@ -848,8 +876,8 @@ export default function App() {
 
   // Listen for sync status updates
   useEffect(() => {
-    const unsub = onSyncStatus((accountId, status, progress, error, storedCount, flagChangedCount) => {
-      const { setAccountSyncPhase } = useUIStore.getState();
+    const unsub = onSyncStatus((accountId, status, progress, error, storedCount, flagChangedCount, unfetchableCount) => {
+      const { setAccountSyncPhase, setAccountSyncHealth } = useUIStore.getState();
       if (status === "syncing") {
         setAccountSyncPhase(accountId, "syncing");
         if (progress) {
@@ -869,6 +897,13 @@ export default function App() {
         }
       } else if (status === "done") {
         setAccountSyncPhase(accountId, "idle");
+        // Record sync health so the UI can show freshness and warn if the server
+        // withheld any message bodies (never silently incomplete).
+        setAccountSyncHealth(accountId, {
+          lastSyncedAt: Date.now(),
+          unfetchableCount: unfetchableCount ?? 0,
+          isStale: false,
+        });
         // Only show "Sync complete" and reload UI when something actually changed.
         // storedCount === undefined means Gmail or initial sync — always reload.
         // storedCount === 0 means idle delta sync — skip to avoid GC churn every 60s.

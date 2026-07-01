@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { t } from "@/i18n";
-import { ChevronDown, ChevronRight, Inbox, Send, FileEdit, Trash2, Ban, Loader2, AlertCircle } from "lucide-react";
+import { ChevronDown, ChevronRight, Inbox, Send, FileEdit, Trash2, Ban, Loader2, AlertCircle, AlertTriangle, Clock } from "lucide-react";
 import type { Account } from "@/stores/accountStore";
 import { useUIStore } from "@/stores/uiStore";
 import { useActiveLabel } from "@/hooks/useRouteNavigation";
@@ -39,6 +39,9 @@ export function AccountSection({
   const syncState = useUIStore((s) => s.accountSyncStatuses[account.id]);
   const isImapAccount = account.provider === "imap" || account.provider === "icloud";
 
+  const unfetchableCount = syncState?.unfetchableCount ?? 0;
+  const isStale = syncState?.isStale ?? false;
+
   if (sidebarCollapsed) {
     const inboxUnread = unreadCounts["INBOX"] ?? 0;
     const isSyncing = syncState?.phase === "syncing";
@@ -67,7 +70,10 @@ export function AccountSection({
         {isError && !isSyncing && (
           <span className="absolute bottom-1 right-1.5 w-2.5 h-2.5 rounded-full bg-red-500 border border-sidebar-bg" />
         )}
-        {inboxUnread > 0 && !isError && !isSyncing && (
+        {!isError && !isSyncing && (unfetchableCount > 0 || isStale) && (
+          <span className="absolute bottom-1 right-1.5 w-2.5 h-2.5 rounded-full bg-amber-500 border border-sidebar-bg" />
+        )}
+        {inboxUnread > 0 && !isError && !isSyncing && unfetchableCount === 0 && !isStale && (
           <span className="absolute top-1 right-2 text-[0.5rem] bg-accent text-white px-1 rounded-full leading-normal">
             {inboxUnread > 99 ? "99+" : inboxUnread}
           </span>
@@ -100,6 +106,22 @@ export function AccountSection({
         {syncState?.phase === "error" && (
           <span title={syncState.error ?? "Sync error"} className="shrink-0 flex items-center">
             <AlertCircle size={12} className="text-red-400" />
+          </span>
+        )}
+        {syncState?.phase !== "error" && unfetchableCount > 0 && (
+          <span
+            title={t("sidebar.account.unfetchableWarning", { count: unfetchableCount })}
+            className="shrink-0 flex items-center"
+          >
+            <AlertTriangle size={12} className="text-amber-500" />
+          </span>
+        )}
+        {syncState?.phase !== "error" && unfetchableCount === 0 && isStale && (
+          <span
+            title={t("sidebar.account.staleWarning")}
+            className="shrink-0 flex items-center"
+          >
+            <Clock size={12} className="text-amber-500" />
           </span>
         )}
         {expanded ? (

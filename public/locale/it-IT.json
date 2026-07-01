@@ -1870,6 +1870,10 @@
     "expandSidebar": "Espandi barra laterale",
     "collapseSidebar": "Comprimi barra laterale",
     "checkMail": "Controlla nuove mail",
+    "account": {
+      "unfetchableWarning": "{count} messaggio/i sul server non è stato possibile scaricarli e mancano in locale. L'app continuerà a riprovare.",
+      "staleWarning": "Questo account non si sincronizza da un po' — potrebbe essere bloccato. Controlla connessione o credenziali."
+    },
     "defaultSmartFolders": {
       "sfUnread": "Non lette",
       "sfAttachments": "Con Allegati",
