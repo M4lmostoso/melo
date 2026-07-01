@@ -1232,6 +1232,8 @@
       "syncLast180": "Last 180 days",
       "syncLast1Year": "Last year",
       "syncChangesNote": "Changes apply to the next full resync.",
+      "unfetchableRetries": "Retries before skipping a message",
+      "unfetchableRetriesDesc": "How many times to retry a message the server refuses to serve before skipping it (it stays counted and shown as a sync warning, and is retried again if the server later provides it).",
       "pendingOps": "Pending operations",
       "pendingOpsDesc": "Operations queued while offline, waiting to be sent.",
       "failedOps": "Failed operations",

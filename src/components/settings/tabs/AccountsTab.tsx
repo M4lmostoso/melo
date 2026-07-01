@@ -240,6 +240,7 @@ export function AccountsTab() {
 
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncPeriodDays, setSyncPeriodDays] = useState("365");
+  const [unfetchableRetries, setUnfetchableRetries] = useState("3");
   const [resyncStatus, setResyncStatus] = useState<Record<string, "idle" | "syncing" | "done" | "error">>({});
   // Account id pending resync confirmation — resync is destructive (wipes all local
   // data for the account before re-downloading), so it must require an explicit confirm.
@@ -259,6 +260,9 @@ export function AccountsTab() {
   useEffect(() => {
     getSetting("sync_period_days").then((val) => {
       if (val) setSyncPeriodDays(val);
+    });
+    getSetting("imap_unfetchable_max_retries").then((val) => {
+      if (val) setUnfetchableRetries(val);
     });
   }, []);
 
@@ -514,6 +518,21 @@ export function AccountsTab() {
           </select>
         </SettingRow>
         <p className="text-xs text-text-tertiary">{t("settings.accounts.syncChangesNote")}</p>
+        <SettingRow label={t("settings.accounts.unfetchableRetries")}>
+          <input
+            type="number"
+            min={1}
+            max={20}
+            value={unfetchableRetries}
+            onChange={async (e) => {
+              const val = String(Math.min(20, Math.max(1, parseInt(e.target.value, 10) || 3)));
+              setUnfetchableRetries(val);
+              await setSetting("imap_unfetchable_max_retries", val);
+            }}
+            className="w-24 bg-bg-tertiary text-text-primary text-sm px-3 py-1.5 rounded-md border border-border-primary focus:border-accent outline-none"
+          />
+        </SettingRow>
+        <p className="text-xs text-text-tertiary">{t("settings.accounts.unfetchableRetriesDesc")}</p>
       </Section>
 
       <SyncOfflineSection />

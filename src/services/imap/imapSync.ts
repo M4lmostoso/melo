@@ -7,6 +7,7 @@ import {
   imapFetchNewUids,
   imapSearchFolder,
   imapSearchAllUids,
+  imapRawSearchAllUids,
   imapCheckSeenUids,
   imapDeltaCheck,
 } from "./tauriCommands";
@@ -39,6 +40,21 @@ import { getPendingOpResourceIds } from "../db/pendingOperations";
 import { applyPendingLabelAssignments } from "../db/pendingLabelAssignments";
 import { processThreadUrgency, type ThreadUrgencyParams } from "@/services/ai/urgencyPipeline";
 import { getSetting } from "../db/settings";
+import {
+  getSkippedUidsForFolder,
+  recordUnfetchableAttempts,
+  clearUnfetchableUids,
+  getUnfetchableCountForAccount,
+} from "../db/unfetchableUids";
+
+/** Default retry cap before a persistently-unfetchable UID is skip-listed. */
+const DEFAULT_UNFETCHABLE_MAX_RETRIES = 3;
+
+async function getUnfetchableMaxRetries(): Promise<number> {
+  const raw = await getSetting("imap_unfetchable_max_retries");
+  const n = raw ? parseInt(raw, 10) : NaN;
+  return Number.isFinite(n) && n >= 1 ? n : DEFAULT_UNFETCHABLE_MAX_RETRIES;
+}
 import { getVipSenders } from "../db/notificationVips";
 import { getThreadCategory } from "../db/threadCategories";
 import { shouldNotifyForMessage, queueNewEmailNotification } from "../notifications/notificationManager";
@@ -528,8 +544,19 @@ async function reconcileFolderAdditions(
   accountId: string,
   folderPath: string,
   labelId: string,
+  maxRetries: number,
 ): Promise<{ headers: ImapSyncHeader[]; serverMaxUid: number; unfetchable: number } | null> {
-  const serverUids = await imapSearchAllUids(config, folderPath);
+  // Enumerate over a fresh raw connection: the pooled async-imap UID SEARCH can
+  // silently return a truncated set on DavMail/Exchange, which would hide
+  // messages from this diff forever. Fall back to the pooled search only if the
+  // raw path errors.
+  let serverUids: number[];
+  try {
+    serverUids = await imapRawSearchAllUids(config, folderPath);
+  } catch (err) {
+    console.warn(`[imapSync] raw enumeration failed for ${folderPath}, falling back to pooled search:`, err);
+    serverUids = await imapSearchAllUids(config, folderPath);
+  }
   if (serverUids.length === 0) return null;
 
   const serverMaxUid = serverUids.reduce((m, u) => (u > m ? u : m), 0);
@@ -538,8 +565,11 @@ async function reconcileFolderAdditions(
     (await getStoredImapUidsForFolder(accountId, folderPath)).map((r) => r.uid),
   );
   const tomb = await getDeletedImapUidsForFolder(accountId, folderPath);
+  // UIDs already retried past the cap: the server keeps listing them but never
+  // serves them. Skip them so we don't re-grind the same failures every cycle.
+  const skipped = await getSkippedUidsForFolder(accountId, folderPath, maxRetries);
   const missing = serverUids
-    .filter((u) => !stored.has(u) && !tomb.has(u))
+    .filter((u) => !stored.has(u) && !tomb.has(u) && !skipped.has(u))
     .sort((a, b) => a - b);
 
   let headers: ImapSyncHeader[] = [];
@@ -550,7 +580,12 @@ async function reconcileFolderAdditions(
       (await getStoredImapUidsForFolder(accountId, folderPath)).map((r) => r.uid),
     );
     const stillMissing = missing.filter((u) => !storedAfter.has(u));
+    const nowFetched = missing.filter((u) => storedAfter.has(u));
     unfetchable = stillMissing.length;
+    // Count another failed attempt for the ones still missing; clear any that
+    // finally came through so a transient failure doesn't count against them.
+    await recordUnfetchableAttempts(accountId, folderPath, stillMissing).catch(() => {});
+    await clearUnfetchableUids(accountId, folderPath, nowFetched).catch(() => {});
     if (stillMissing.length > 0) {
       console.warn(
         `[imapSync] ${folderPath}: ${stillMissing.length}/${missing.length} message(s) could NOT be fetched (server won't serve their bodies) — UIDs ${stillMissing.slice(0, 30).join(",")}${stillMissing.length > 30 ? "…" : ""}`,
@@ -573,11 +608,18 @@ async function reconcileDeletedMessages(
   const stored = await getStoredImapUidsForFolder(accountId, folderPath);
   if (stored.length === 0) return;
 
+  // Use the authoritative raw enumeration: a truncated pooled search here would
+  // wrongly flag present messages as deleted and purge them (and fight the
+  // additions reconcile, which also uses the raw search).
   let serverUids: number[];
   try {
-    serverUids = await imapSearchAllUids(config, folderPath);
+    serverUids = await imapRawSearchAllUids(config, folderPath);
   } catch {
-    return;
+    try {
+      serverUids = await imapSearchAllUids(config, folderPath);
+    } catch {
+      return;
+    }
   }
 
   // SAFETY GUARD: never mass-delete on an empty server result.
@@ -1103,6 +1145,7 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
   let consecutiveFailures = 0;
   let flagChangedCount = 0;
   let unfetchableCount = 0;
+  const unfetchableMaxRetries = await getUnfetchableMaxRetries();
   const deltaFolderErrors: string[] = [];
 
   // ---- New folders ----
@@ -1233,7 +1276,7 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
       // Inherently resumable and never silently incomplete.
       if (savedState.last_uid === 0) {
         try {
-          const res = await reconcileFolderAdditions(config, accountId, folder.raw_path, folderMapping.labelId);
+          const res = await reconcileFolderAdditions(config, accountId, folder.raw_path, folderMapping.labelId, unfetchableMaxRetries);
           if (!res) {
             // Empty/failed enumeration — never advance the cursor (retry next
             // cycle) and never purge; treated as a transient hiccup, not a folder
@@ -1402,7 +1445,7 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
         if (savedState.last_uid === 0) continue; // already fully reconciled above
         const folderMapping = mapFolderToLabel(folder);
         try {
-          const res = await reconcileFolderAdditions(config, accountId, folder.raw_path, folderMapping.labelId);
+          const res = await reconcileFolderAdditions(config, accountId, folder.raw_path, folderMapping.labelId, unfetchableMaxRetries);
           if (!res || res.headers.length === 0) {
             unfetchableCount += res?.unfetchable ?? 0;
             continue;
@@ -1428,6 +1471,11 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
   if (allHeaders.filter((h) => h.stored).length === 0 && deltaFolderErrors.length > 0) {
     throw new Error(`All folders failed to sync: ${deltaFolderErrors[0]}`);
   }
+
+  // Surface the persistent skip-list size (messages the server keeps refusing to
+  // serve) rather than just this cycle's failures, so the UI warning reflects the
+  // real ongoing incompleteness — never silent.
+  unfetchableCount = await getUnfetchableCountForAccount(accountId, unfetchableMaxRetries).catch(() => unfetchableCount);
 
   const storedHeaders = allHeaders.filter((h) => h.stored);
   if (storedHeaders.length === 0) {

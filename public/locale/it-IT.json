@@ -1232,6 +1232,8 @@
       "syncLast180": "Ultimi 180 giorni",
       "syncLast1Year": "Ultimo anno",
       "syncChangesNote": "Le modifiche si applicano alla prossima risincronizzazione completa.",
+      "unfetchableRetries": "Tentativi prima di saltare un messaggio",
+      "unfetchableRetriesDesc": "Quante volte riprovare un messaggio che il server rifiuta di servire prima di saltarlo (resta conteggiato e mostrato come avviso di sync, e viene ritentato se il server lo fornisce in seguito).",
       "pendingOps": "Operazioni in attesa",
       "pendingOpsDesc": "Operazioni in coda mentre offline, in attesa di essere inviate.",
       "failedOps": "Operazioni fallite",

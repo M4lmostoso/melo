@@ -7,6 +7,7 @@ vi.mock("./tauriCommands", () => ({
   imapFetchMessages: vi.fn(),
   imapFetchNewUids: vi.fn(),
   imapSearchAllUids: vi.fn(),
+  imapRawSearchAllUids: vi.fn(),
   imapSearchFolder: vi.fn(),
   imapDeltaCheck: vi.fn(),
   // Rust-backed fetch+store and thread finalization (the streaming sync path).
@@ -52,6 +53,12 @@ vi.mock("../db/deletedImapUids", () => ({
   clearDeletedImapUidsForFolder: vi.fn(async () => {}),
   pruneDeletedImapUids: vi.fn(async () => {}),
   getDeletedImapUidsForFolder: vi.fn(async () => new Set<number>()),
+}));
+vi.mock("../db/unfetchableUids", () => ({
+  getSkippedUidsForFolder: vi.fn(async () => new Set<number>()),
+  recordUnfetchableAttempts: vi.fn(async () => {}),
+  clearUnfetchableUids: vi.fn(async () => {}),
+  getUnfetchableCountForAccount: vi.fn(async () => 0),
 }));
 vi.mock("../db/threads", () => ({
   upsertThread: vi.fn(),
@@ -103,10 +110,12 @@ import {
   imapDeltaCheck,
   imapGetFolderStatus,
   imapSearchAllUids,
+  imapRawSearchAllUids,
 } from "./tauriCommands";
 import { getAccount } from "../db/accounts";
 import { getAllFolderSyncStates, upsertFolderSyncState } from "../db/folderSyncState";
 import { deleteMessagesForFolder, getStoredImapUidsForFolder } from "../db/messages";
+import { recordUnfetchableAttempts, getUnfetchableCountForAccount } from "../db/unfetchableUids";
 
 describe("imapInitialSync", () => {
   const mockGetAccount = vi.mocked(getAccount);
@@ -581,7 +590,7 @@ describe("imapDeltaSync — full reconcile (cursor reset to 0)", () => {
   const mockImapListFolders = vi.mocked(imapListFolders);
   const mockGetAllFolderSyncStates = vi.mocked(getAllFolderSyncStates);
   const mockImapDeltaCheck = vi.mocked(imapDeltaCheck);
-  const mockImapSearchAllUids = vi.mocked(imapSearchAllUids);
+  const mockImapRawSearchAllUids = vi.mocked(imapRawSearchAllUids);
   const mockGetStoredImapUidsForFolder = vi.mocked(getStoredImapUidsForFolder);
   const mockImapFetchAndStore = vi.mocked(imapFetchAndStore);
   const mockUpsertFolderSyncState = vi.mocked(upsertFolderSyncState);
@@ -622,7 +631,7 @@ describe("imapDeltaSync — full reconcile (cursor reset to 0)", () => {
   it("enumerates with SEARCH NOT DELETED and fetches only the UIDs missing locally", async () => {
     // Server has 5 messages; we already hold 1 and 3 (e.g. from an earlier
     // partial/truncated run). The DavMail range-search path must NOT be trusted.
-    mockImapSearchAllUids.mockResolvedValue([1, 2, 3, 4, 5]);
+    mockImapRawSearchAllUids.mockResolvedValue([1, 2, 3, 4, 5]);
     mockGetStoredImapUidsForFolder
       .mockResolvedValueOnce([
         { id: "imap-acc-1-INBOX-1", uid: 1 },
@@ -655,7 +664,7 @@ describe("imapDeltaSync — full reconcile (cursor reset to 0)", () => {
   });
 
   it("does NOT advance the cursor when enumeration returns 0 UIDs (resumable)", async () => {
-    mockImapSearchAllUids.mockResolvedValue([]);
+    mockImapRawSearchAllUids.mockResolvedValue([]);
     mockGetStoredImapUidsForFolder.mockResolvedValue([{ id: "imap-acc-1-INBOX-1", uid: 1 }]);
 
     await imapDeltaSync("acc-1");
@@ -668,7 +677,7 @@ describe("imapDeltaSync — full reconcile (cursor reset to 0)", () => {
   it("reports unfetchableCount for messages the server won't serve (DavMail body stall)", async () => {
     // Server lists 1,2,3; we fetch but UID 2's body never comes (stall) so only
     // 1 and 3 end up stored. The gap must be surfaced, not silently dropped.
-    mockImapSearchAllUids.mockResolvedValue([1, 2, 3]);
+    mockImapRawSearchAllUids.mockResolvedValue([1, 2, 3]);
     mockGetStoredImapUidsForFolder
       .mockResolvedValueOnce([]) // before fetch: nothing stored
       .mockResolvedValue([
@@ -676,9 +685,14 @@ describe("imapDeltaSync — full reconcile (cursor reset to 0)", () => {
         { id: "imap-acc-1-INBOX-3", uid: 3 },
       ]); // after fetch: 2 still missing
     mockImapFetchAndStore.mockResolvedValue([header(1), header(3)]);
+    // Simulate this UID having already reached the retry cap so it counts.
+    vi.mocked(getUnfetchableCountForAccount).mockResolvedValue(1);
 
     const result = await imapDeltaSync("acc-1");
 
+    // UID 2 stayed missing after a clean fetch → recorded as a failed attempt...
+    expect(vi.mocked(recordUnfetchableAttempts)).toHaveBeenCalledWith("acc-1", "INBOX", [2]);
+    // ...and the persistent skip-list count is surfaced for the UI.
     expect(result.unfetchableCount).toBe(1);
   });
 });
@@ -688,7 +702,7 @@ describe("imapDeltaSync — maintenance self-healing (DavMail range-miss quirk)"
   const mockImapListFolders = vi.mocked(imapListFolders);
   const mockGetAllFolderSyncStates = vi.mocked(getAllFolderSyncStates);
   const mockImapDeltaCheck = vi.mocked(imapDeltaCheck);
-  const mockImapSearchAllUids = vi.mocked(imapSearchAllUids);
+  const mockImapRawSearchAllUids = vi.mocked(imapRawSearchAllUids);
   const mockGetStoredImapUidsForFolder = vi.mocked(getStoredImapUidsForFolder);
   const mockImapFetchAndStore = vi.mocked(imapFetchAndStore);
   const mockImapStoreThreads = vi.mocked(imapStoreThreads);
@@ -721,7 +735,7 @@ describe("imapDeltaSync — maintenance self-healing (DavMail range-miss quirk)"
     mockImapDeltaCheck.mockResolvedValue([
       { folder: "INBOX", uidvalidity: 1, new_uids: [], uidvalidity_changed: false },
     ]);
-    mockImapSearchAllUids.mockResolvedValue([50, 51]);
+    mockImapRawSearchAllUids.mockResolvedValue([50, 51]);
     mockGetStoredImapUidsForFolder
       .mockResolvedValueOnce([{ id: "imap-heal-INBOX-50", uid: 50 }]) // reconcileDeletedMessages
       .mockResolvedValueOnce([{ id: "imap-heal-INBOX-50", uid: 50 }]) // additions: before fetch
