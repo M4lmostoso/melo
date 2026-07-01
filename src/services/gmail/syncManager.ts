@@ -288,9 +288,13 @@ async function runSync(accountIds: string[]): Promise<void> {
 
   syncPromise = (async () => {
     try {
-      for (const id of accountIds) {
-        await syncAccountInternal(id);
-      }
+      // Sync accounts concurrently and independently. A single slow or wedged
+      // account (e.g. a DavMail/Exchange bridge grinding through a large folder,
+      // or a server that stalls mid-fetch) must NEVER hold up the others — a
+      // serial loop here previously let one bad account block delivery for every
+      // account behind it. allSettled isolates each: syncAccountInternal already
+      // handles and reports its own errors, so a rejection can't abort the rest.
+      await Promise.allSettled(accountIds.map((id) => syncAccountInternal(id)));
       // Once-per-cycle housekeeping: drop AI cache rows for threads that no
       // longer exist (deleted/expunged), keeping the table bounded.
       pruneAiCache().catch(() => {});
