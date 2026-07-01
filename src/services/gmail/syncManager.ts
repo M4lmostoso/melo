@@ -35,6 +35,7 @@ export type SyncStatusCallback = (
   error?: string,
   storedCount?: number,
   flagChangedCount?: number,
+  unfetchableCount?: number,
 ) => void;
 
 let statusCallback: SyncStatusCallback | null = null;
@@ -92,7 +93,7 @@ async function syncGmailAccount(accountId: string): Promise<{ storedCount?: numb
  * Returns storedCount = number of new messages saved (0 = nothing new).
  * Returns undefined for initial syncs to always trigger a UI refresh.
  */
-async function syncImapAccount(accountId: string): Promise<{ storedCount?: number; flagChangedCount?: number }> {
+async function syncImapAccount(accountId: string): Promise<{ storedCount?: number; flagChangedCount?: number; unfetchableCount?: number }> {
   const account = await getAccount(accountId);
 
   if (!account) {
@@ -133,7 +134,7 @@ async function syncImapAccount(accountId: string): Promise<{ storedCount?: numbe
         return {}; // initial sync always triggers UI refresh (storedCount undefined)
       }
     }
-    return { storedCount: result.storedCount ?? result.messages.length, flagChangedCount: result.flagChangedCount };
+    return { storedCount: result.storedCount ?? result.messages.length, flagChangedCount: result.flagChangedCount, unfetchableCount: result.unfetchableCount };
   } else {
     // First time — full initial sync
     await imapInitialSync(accountId, daysBack, (progress) => {
@@ -254,8 +255,9 @@ async function syncAccountInternal(accountId: string): Promise<void> {
 
     let storedCount: number | undefined;
     let flagChangedCount: number | undefined;
+    let unfetchableCount: number | undefined;
     if (account.provider === "imap" || account.provider === "icloud") {
-      ({ storedCount, flagChangedCount } = await syncImapAccount(accountId));
+      ({ storedCount, flagChangedCount, unfetchableCount } = await syncImapAccount(accountId));
     } else {
       ({ storedCount } = await syncGmailAccount(accountId));
     }
@@ -263,8 +265,8 @@ async function syncAccountInternal(accountId: string): Promise<void> {
     // Always emit "done" when an initial sync completes (clears the bar).
     // Also emit for delta syncs that fell back to initial (recovery re-sync)
     // since those emit progress via statusCallback inside syncImapAccount.
-    console.log(`[sync] done ${accountLabel} stored=${storedCount ?? "?"} flags=${flagChangedCount ?? 0} ms=${Date.now() - _cycleStart}`);
-    statusCallback?.(accountId, "done", undefined, undefined, storedCount, flagChangedCount);
+    console.log(`[sync] done ${accountLabel} stored=${storedCount ?? "?"} flags=${flagChangedCount ?? 0} unfetchable=${unfetchableCount ?? 0} ms=${Date.now() - _cycleStart}`);
+    statusCallback?.(accountId, "done", undefined, undefined, storedCount, flagChangedCount, unfetchableCount);
 
     // Sync calendar alongside email (non-blocking — calendar errors don't affect email sync)
     syncCalendarForAccount(accountId).catch((err) => {

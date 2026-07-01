@@ -34,6 +34,19 @@ export type AccountSyncPhase = "idle" | "syncing" | "error";
 export interface AccountSyncState {
   phase: AccountSyncPhase;
   error?: string;
+  /** Epoch ms of the last sync that completed without error. */
+  lastSyncedAt?: number;
+  /**
+   * Set by the watchdog when an account hasn't completed a successful sync for
+   * far longer than the normal cadence — i.e. it looks silently stuck.
+   */
+  isStale?: boolean;
+  /**
+   * Messages the server listed but refused to serve during the last sync
+   * (e.g. DavMail body stalls). Non-zero = mailbox not fully mirrored; surfaced
+   * as a visible warning so incompleteness is never silent.
+   */
+  unfetchableCount?: number;
 }
 
 export interface SidebarNavItem {
@@ -98,6 +111,7 @@ interface UIState {
   setPendingOpsCount: (count: number) => void;
   setSyncingFolder: (folder: string | null) => void;
   setAccountSyncPhase: (accountId: string, phase: AccountSyncPhase, error?: string) => void;
+  setAccountSyncHealth: (accountId: string, health: { lastSyncedAt?: number; unfetchableCount?: number; isStale?: boolean }) => void;
   selectedScheduledEmail: DbScheduledEmail | null;
   setSelectedScheduledEmail: (email: DbScheduledEmail | null) => void;
 }
@@ -225,7 +239,19 @@ export const useUIStore = create<UIState>((set) => ({
     set((state) => ({
       accountSyncStatuses: {
         ...state.accountSyncStatuses,
-        [accountId]: { phase, error },
+        // Preserve health fields (lastSyncedAt / unfetchableCount) across phase changes.
+        [accountId]: { ...state.accountSyncStatuses[accountId], phase, error },
+      },
+    })),
+  setAccountSyncHealth: (accountId, health) =>
+    set((state) => ({
+      accountSyncStatuses: {
+        ...state.accountSyncStatuses,
+        [accountId]: {
+          phase: state.accountSyncStatuses[accountId]?.phase ?? "idle",
+          ...state.accountSyncStatuses[accountId],
+          ...health,
+        },
       },
     })),
 }));
