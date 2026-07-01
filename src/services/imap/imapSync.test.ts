@@ -51,6 +51,7 @@ vi.mock("../db/messages", () => ({
 vi.mock("../db/deletedImapUids", () => ({
   clearDeletedImapUidsForFolder: vi.fn(async () => {}),
   pruneDeletedImapUids: vi.fn(async () => {}),
+  getDeletedImapUidsForFolder: vi.fn(async () => new Set<number>()),
 }));
 vi.mock("../db/threads", () => ({
   upsertThread: vi.fn(),
@@ -104,7 +105,7 @@ import {
   imapSearchAllUids,
 } from "./tauriCommands";
 import { getAccount } from "../db/accounts";
-import { getAllFolderSyncStates } from "../db/folderSyncState";
+import { getAllFolderSyncStates, upsertFolderSyncState } from "../db/folderSyncState";
 import { deleteMessagesForFolder, getStoredImapUidsForFolder } from "../db/messages";
 
 describe("imapInitialSync", () => {
@@ -572,5 +573,95 @@ describe("imapDeltaSync — UIDVALIDITY purge safety", () => {
     await imapDeltaSync("acc-1");
 
     expect(mockDeleteMessagesForFolder).toHaveBeenCalledWith("acc-1", "INBOX");
+  });
+});
+
+describe("imapDeltaSync — full reconcile (cursor reset to 0)", () => {
+  const mockGetAccount = vi.mocked(getAccount);
+  const mockImapListFolders = vi.mocked(imapListFolders);
+  const mockGetAllFolderSyncStates = vi.mocked(getAllFolderSyncStates);
+  const mockImapDeltaCheck = vi.mocked(imapDeltaCheck);
+  const mockImapSearchAllUids = vi.mocked(imapSearchAllUids);
+  const mockGetStoredImapUidsForFolder = vi.mocked(getStoredImapUidsForFolder);
+  const mockImapFetchAndStore = vi.mocked(imapFetchAndStore);
+  const mockUpsertFolderSyncState = vi.mocked(upsertFolderSyncState);
+  const mockImapStoreThreads = vi.mocked(imapStoreThreads);
+
+  function header(uid: number): ImapSyncHeader {
+    return {
+      local_id: `imap-acc-1-INBOX-${uid}`,
+      uid,
+      message_id: `<m${uid}@t>`,
+      in_reply_to: null,
+      references: null,
+      subject: `S${uid}`,
+      date: Math.floor(Date.now() / 1000),
+      label_id: "INBOX",
+      is_read: true,
+      is_starred: false,
+      is_draft: false,
+      has_attachments: false,
+      snippet: "s",
+      from_address: "a@b.com",
+      from_name: "A",
+      stored: true,
+    };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetAccount.mockResolvedValue(createMockImapAccount({ id: "acc-1" }));
+    mockImapListFolders.mockResolvedValue([createMockImapFolder({ path: "INBOX", raw_path: "INBOX" })]);
+    // Folder previously synced but cursor reset to 0 → needs a full reconcile.
+    mockGetAllFolderSyncStates.mockResolvedValue([
+      { account_id: "acc-1", folder_path: "INBOX", uidvalidity: 1, last_uid: 0, modseq: null, last_sync_at: Math.floor(Date.now() / 1000) },
+    ]);
+    mockImapStoreThreads.mockResolvedValue(0);
+  });
+
+  it("enumerates with SEARCH NOT DELETED and fetches only the UIDs missing locally", async () => {
+    // Server has 5 messages; we already hold 1 and 3 (e.g. from an earlier
+    // partial/truncated run). The DavMail range-search path must NOT be trusted.
+    mockImapSearchAllUids.mockResolvedValue([1, 2, 3, 4, 5]);
+    mockGetStoredImapUidsForFolder
+      .mockResolvedValueOnce([
+        { id: "imap-acc-1-INBOX-1", uid: 1 },
+        { id: "imap-acc-1-INBOX-3", uid: 3 },
+      ])
+      // storedAfter (post-fetch): now everything present
+      .mockResolvedValue([
+        { id: "imap-acc-1-INBOX-1", uid: 1 },
+        { id: "imap-acc-1-INBOX-2", uid: 2 },
+        { id: "imap-acc-1-INBOX-3", uid: 3 },
+        { id: "imap-acc-1-INBOX-4", uid: 4 },
+        { id: "imap-acc-1-INBOX-5", uid: 5 },
+      ]);
+    mockImapFetchAndStore.mockResolvedValue([header(2), header(4), header(5)]);
+
+    await imapDeltaSync("acc-1");
+
+    // Only the missing UIDs [2,4,5] are fetched — never a range query.
+    expect(mockImapFetchAndStore).toHaveBeenCalledTimes(1);
+    expect(mockImapFetchAndStore).toHaveBeenCalledWith(
+      expect.anything(), "acc-1", "INBOX", "INBOX", [2, 4, 5], expect.any(Number),
+    );
+    // delta_check ranged result is ignored on a full reconcile.
+    expect(mockImapDeltaCheck).not.toHaveBeenCalled();
+    // Cursor advanced to the server max so normal delta resumes next cycle.
+    const persistedStates = mockUpsertFolderSyncState.mock.calls.map((c) => c[0]);
+    expect(persistedStates).toContainEqual(
+      expect.objectContaining({ folder_path: "INBOX", last_uid: 5 }),
+    );
+  });
+
+  it("does NOT advance the cursor when enumeration returns 0 UIDs (resumable)", async () => {
+    mockImapSearchAllUids.mockResolvedValue([]);
+    mockGetStoredImapUidsForFolder.mockResolvedValue([{ id: "imap-acc-1-INBOX-1", uid: 1 }]);
+
+    await imapDeltaSync("acc-1");
+
+    expect(mockImapFetchAndStore).not.toHaveBeenCalled();
+    // No folder state persisted → cursor stays 0 → reconcile retried next cycle.
+    expect(mockUpsertFolderSyncState).not.toHaveBeenCalled();
   });
 });

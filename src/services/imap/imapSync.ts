@@ -25,7 +25,7 @@ import {
   getAllFolderSyncStates,
   type FolderSyncState,
 } from "../db/folderSyncState";
-import { clearDeletedImapUidsForFolder, pruneDeletedImapUids } from "../db/deletedImapUids";
+import { clearDeletedImapUidsForFolder, pruneDeletedImapUids, getDeletedImapUidsForFolder } from "../db/deletedImapUids";
 import { reconcilePecReceipts } from "../pec/pecManager";
 import {
   buildThreads,
@@ -1099,20 +1099,27 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
 
   // ---- Existing folders — batch delta check ----
   if (existingFolders.length > 0) {
-    const deltaRequests: DeltaCheckRequest[] = existingFolders.map((folder) => {
-      const savedState = syncStateMap.get(folder.raw_path)!;
-      return {
-        folder: folder.raw_path,
-        last_uid: savedState.last_uid,
-        uidvalidity: savedState.uidvalidity ?? 0,
-        last_sync_at: savedState.last_sync_at ?? null,
-      };
-    });
+    // Folders whose cursor was reset to 0 take the full-reconcile path below and
+    // ignore delta_check entirely (DavMail mishandles the range query), so don't
+    // waste a round-trip enumerating them here.
+    const deltaRequests: DeltaCheckRequest[] = existingFolders
+      .filter((folder) => syncStateMap.get(folder.raw_path)!.last_uid > 0)
+      .map((folder) => {
+        const savedState = syncStateMap.get(folder.raw_path)!;
+        return {
+          folder: folder.raw_path,
+          last_uid: savedState.last_uid,
+          uidvalidity: savedState.uidvalidity ?? 0,
+          last_sync_at: savedState.last_sync_at ?? null,
+        };
+      });
 
-    let deltaResultMap: Map<string, DeltaCheckResult>;
+    let deltaResultMap: Map<string, DeltaCheckResult> = new Map();
     try {
-      const deltaResults = await imapDeltaCheck(config, deltaRequests);
-      deltaResultMap = new Map(deltaResults.map((r) => [r.folder, r]));
+      if (deltaRequests.length > 0) {
+        const deltaResults = await imapDeltaCheck(config, deltaRequests);
+        deltaResultMap = new Map(deltaResults.map((r) => [r.folder, r]));
+      }
     } catch (err) {
       console.warn(`[imapSync] Batch delta check failed, falling back to per-folder:`, err);
       deltaResultMap = new Map();
@@ -1162,6 +1169,80 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
     for (const folder of existingFolders) {
       const folderMapping = mapFolderToLabel(folder);
       const savedState = syncStateMap.get(folder.raw_path)!;
+
+      // ---- Full reconcile path (cursor reset to 0) ----
+      // A folder whose cursor is 0 needs a complete (re)sync. DavMail/Exchange
+      // mishandle open-ended `n:*` UID range searches (they return truncated or
+      // empty sets), so we never trust delta_check here. Instead we enumerate the
+      // whole folder with `UID SEARCH NOT DELETED` (which they honour) and fetch
+      // exactly the UIDs missing from the local DB. This is inherently resumable
+      // — an interrupted run simply leaves fewer missing UIDs for next time — and
+      // can never silently drop mail, because the authoritative server set is
+      // diffed against what we actually stored.
+      if (savedState.last_uid === 0) {
+        try {
+          const serverUids = await imapSearchAllUids(config, folder.raw_path);
+          if (serverUids.length === 0) {
+            // Empty/failed enumeration — never advance the cursor (so the folder
+            // is retried next cycle) and never purge. Treated as a transient
+            // hiccup, not a folder error, so it can't trip the all-folders-failed
+            // guard for accounts whose other folders synced fine.
+            console.warn(`[imapSync] Full reconcile: enumeration returned 0 UIDs for ${folder.path} — will retry next cycle`);
+            continue;
+          }
+          const serverMaxUid = serverUids.reduce((m, u) => (u > m ? u : m), 0);
+          const { getStoredImapUidsForFolder } = await import("../db/messages");
+          const stored = new Set(
+            (await getStoredImapUidsForFolder(accountId, folder.raw_path)).map((r) => r.uid),
+          );
+          const tomb = await getDeletedImapUidsForFolder(accountId, folder.raw_path);
+          const missing = serverUids
+            .filter((u) => !stored.has(u) && !tomb.has(u))
+            .sort((a, b) => a - b);
+
+          if (missing.length > 0) {
+            const { headers } = await fetchAllInBatches(
+              config, accountId, folder.raw_path, folderMapping.labelId, missing, 0,
+            );
+            _accumLabels(headers, labelsByRfcId);
+            allHeaders.push(...headers);
+
+            // Anything still absent after a clean (non-throwing) fetch is a
+            // message the server refuses to serve (e.g. DavMail body hang). Never
+            // fail silently: surface it loudly. We still advance the cursor so the
+            // folder does not loop forever on the same unservable messages.
+            const storedAfter = new Set(
+              (await getStoredImapUidsForFolder(accountId, folder.raw_path)).map((r) => r.uid),
+            );
+            const stillMissing = missing.filter((u) => !storedAfter.has(u));
+            if (stillMissing.length > 0) {
+              console.warn(
+                `[imapSync] ${folder.path}: ${stillMissing.length}/${missing.length} message(s) could NOT be fetched (server won't serve their bodies) — UIDs ${stillMissing.slice(0, 30).join(",")}${stillMissing.length > 30 ? "…" : ""}`,
+              );
+            }
+          }
+
+          pendingFolderStates.push({
+            account_id: accountId,
+            folder_path: folder.raw_path,
+            uidvalidity: savedState.uidvalidity ?? 1,
+            last_uid: serverMaxUid,
+            modseq: null,
+            last_sync_at: Math.floor(Date.now() / 1000),
+          });
+
+          const changed = await syncReadFlagsForFolder(config, accountId, folder.raw_path).catch(() => 0);
+          flagChangedCount += changed;
+        } catch (err) {
+          // Transient error mid-reconcile — leave the cursor at 0 so the next
+          // cycle resumes (fetching only what is still missing).
+          const errMsg = err instanceof Error ? err.message : String(err ?? "Unknown error");
+          console.error(`[imapSync] Full reconcile failed for ${folder.path}:`, err);
+          deltaFolderErrors.push(`${folder.path}: ${errMsg}`);
+        }
+        continue;
+      }
+
       const deltaResult = deltaResultMap.get(folder.raw_path);
       if (!deltaResult) continue;
 
