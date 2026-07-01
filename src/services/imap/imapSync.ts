@@ -507,6 +507,60 @@ function buildThreadUpdates(
 }
 
 // ---------------------------------------------------------------------------
+// Additions reconciliation (self-healing)
+// ---------------------------------------------------------------------------
+
+/**
+ * Enumerate a folder authoritatively with `UID SEARCH NOT DELETED` (which
+ * DavMail/Exchange honour, unlike the open-ended `n:*` range the delta path
+ * uses) and fetch exactly the UIDs missing from the local DB. Used both for a
+ * forced full (re)sync (cursor reset to 0) and as a periodic self-healing pass
+ * so ongoing sync can never silently drift behind the server.
+ *
+ * Returns null when the server returns an empty/failed enumeration — the caller
+ * must NOT advance the cursor in that case (it is treated as a transient hiccup,
+ * never a mass purge). Otherwise returns the fetched headers, the server's max
+ * UID, and how many messages the server refused to serve (still missing after a
+ * clean fetch — surfaced as sync-health, never silent).
+ */
+async function reconcileFolderAdditions(
+  config: ImapConfig,
+  accountId: string,
+  folderPath: string,
+  labelId: string,
+): Promise<{ headers: ImapSyncHeader[]; serverMaxUid: number; unfetchable: number } | null> {
+  const serverUids = await imapSearchAllUids(config, folderPath);
+  if (serverUids.length === 0) return null;
+
+  const serverMaxUid = serverUids.reduce((m, u) => (u > m ? u : m), 0);
+  const { getStoredImapUidsForFolder } = await import("../db/messages");
+  const stored = new Set(
+    (await getStoredImapUidsForFolder(accountId, folderPath)).map((r) => r.uid),
+  );
+  const tomb = await getDeletedImapUidsForFolder(accountId, folderPath);
+  const missing = serverUids
+    .filter((u) => !stored.has(u) && !tomb.has(u))
+    .sort((a, b) => a - b);
+
+  let headers: ImapSyncHeader[] = [];
+  let unfetchable = 0;
+  if (missing.length > 0) {
+    ({ headers } = await fetchAllInBatches(config, accountId, folderPath, labelId, missing, 0));
+    const storedAfter = new Set(
+      (await getStoredImapUidsForFolder(accountId, folderPath)).map((r) => r.uid),
+    );
+    const stillMissing = missing.filter((u) => !storedAfter.has(u));
+    unfetchable = stillMissing.length;
+    if (stillMissing.length > 0) {
+      console.warn(
+        `[imapSync] ${folderPath}: ${stillMissing.length}/${missing.length} message(s) could NOT be fetched (server won't serve their bodies) — UIDs ${stillMissing.slice(0, 30).join(",")}${stillMissing.length > 30 ? "…" : ""}`,
+      );
+    }
+  }
+  return { headers, serverMaxUid, unfetchable };
+}
+
+// ---------------------------------------------------------------------------
 // Deletion reconciliation
 // ---------------------------------------------------------------------------
 
@@ -1048,6 +1102,7 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
 
   let consecutiveFailures = 0;
   let flagChangedCount = 0;
+  let unfetchableCount = 0;
   const deltaFolderErrors: string[] = [];
 
   // ---- New folders ----
@@ -1172,61 +1227,29 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
 
       // ---- Full reconcile path (cursor reset to 0) ----
       // A folder whose cursor is 0 needs a complete (re)sync. DavMail/Exchange
-      // mishandle open-ended `n:*` UID range searches (they return truncated or
-      // empty sets), so we never trust delta_check here. Instead we enumerate the
-      // whole folder with `UID SEARCH NOT DELETED` (which they honour) and fetch
-      // exactly the UIDs missing from the local DB. This is inherently resumable
-      // — an interrupted run simply leaves fewer missing UIDs for next time — and
-      // can never silently drop mail, because the authoritative server set is
-      // diffed against what we actually stored.
+      // mishandle open-ended `n:*` UID range searches, so we never trust
+      // delta_check here — reconcileFolderAdditions enumerates authoritatively
+      // (`UID SEARCH NOT DELETED`) and fetches exactly what's missing locally.
+      // Inherently resumable and never silently incomplete.
       if (savedState.last_uid === 0) {
         try {
-          const serverUids = await imapSearchAllUids(config, folder.raw_path);
-          if (serverUids.length === 0) {
-            // Empty/failed enumeration — never advance the cursor (so the folder
-            // is retried next cycle) and never purge. Treated as a transient
-            // hiccup, not a folder error, so it can't trip the all-folders-failed
-            // guard for accounts whose other folders synced fine.
+          const res = await reconcileFolderAdditions(config, accountId, folder.raw_path, folderMapping.labelId);
+          if (!res) {
+            // Empty/failed enumeration — never advance the cursor (retry next
+            // cycle) and never purge; treated as a transient hiccup, not a folder
+            // error, so it can't trip the all-folders-failed guard.
             console.warn(`[imapSync] Full reconcile: enumeration returned 0 UIDs for ${folder.path} — will retry next cycle`);
             continue;
           }
-          const serverMaxUid = serverUids.reduce((m, u) => (u > m ? u : m), 0);
-          const { getStoredImapUidsForFolder } = await import("../db/messages");
-          const stored = new Set(
-            (await getStoredImapUidsForFolder(accountId, folder.raw_path)).map((r) => r.uid),
-          );
-          const tomb = await getDeletedImapUidsForFolder(accountId, folder.raw_path);
-          const missing = serverUids
-            .filter((u) => !stored.has(u) && !tomb.has(u))
-            .sort((a, b) => a - b);
-
-          if (missing.length > 0) {
-            const { headers } = await fetchAllInBatches(
-              config, accountId, folder.raw_path, folderMapping.labelId, missing, 0,
-            );
-            _accumLabels(headers, labelsByRfcId);
-            allHeaders.push(...headers);
-
-            // Anything still absent after a clean (non-throwing) fetch is a
-            // message the server refuses to serve (e.g. DavMail body hang). Never
-            // fail silently: surface it loudly. We still advance the cursor so the
-            // folder does not loop forever on the same unservable messages.
-            const storedAfter = new Set(
-              (await getStoredImapUidsForFolder(accountId, folder.raw_path)).map((r) => r.uid),
-            );
-            const stillMissing = missing.filter((u) => !storedAfter.has(u));
-            if (stillMissing.length > 0) {
-              console.warn(
-                `[imapSync] ${folder.path}: ${stillMissing.length}/${missing.length} message(s) could NOT be fetched (server won't serve their bodies) — UIDs ${stillMissing.slice(0, 30).join(",")}${stillMissing.length > 30 ? "…" : ""}`,
-              );
-            }
-          }
+          _accumLabels(res.headers, labelsByRfcId);
+          allHeaders.push(...res.headers);
+          unfetchableCount += res.unfetchable;
 
           pendingFolderStates.push({
             account_id: accountId,
             folder_path: folder.raw_path,
             uidvalidity: savedState.uidvalidity ?? 1,
-            last_uid: serverMaxUid,
+            last_uid: res.serverMaxUid,
             modseq: null,
             last_sync_at: Math.floor(Date.now() / 1000),
           });
@@ -1364,6 +1387,42 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
         deltaFolderErrors.push(`${folder.path}: ${errMsg}`);
       }
     }
+
+    // ---- Periodic self-healing additions reconcile (maintenance cycles) ----
+    // The delta path above handles new mail, flag changes, UIDVALIDITY and
+    // deletions — but it leans on `n:*` range searches that DavMail/Exchange can
+    // mishandle, so a message can silently fail to appear and never be retried
+    // (the cursor advances past it). Once every MAINTENANCE_EVERY_N_CYCLES we
+    // additionally diff the authoritative `UID SEARCH NOT DELETED` set against
+    // the local DB and pull anything missing. This makes ongoing sync
+    // self-correcting: drift is caught within minutes instead of forever.
+    if (isMaintenanceCycle) {
+      for (const folder of existingFolders) {
+        const savedState = syncStateMap.get(folder.raw_path)!;
+        if (savedState.last_uid === 0) continue; // already fully reconciled above
+        const folderMapping = mapFolderToLabel(folder);
+        try {
+          const res = await reconcileFolderAdditions(config, accountId, folder.raw_path, folderMapping.labelId);
+          if (!res || res.headers.length === 0) {
+            unfetchableCount += res?.unfetchable ?? 0;
+            continue;
+          }
+          _accumLabels(res.headers, labelsByRfcId);
+          allHeaders.push(...res.headers);
+          unfetchableCount += res.unfetchable;
+          pendingFolderStates.push({
+            account_id: accountId,
+            folder_path: folder.raw_path,
+            uidvalidity: savedState.uidvalidity ?? 1,
+            last_uid: Math.max(savedState.last_uid, res.serverMaxUid),
+            modseq: null,
+            last_sync_at: Math.floor(Date.now() / 1000),
+          });
+        } catch (err) {
+          console.error(`[imapSync] Maintenance additions reconcile failed for ${folder.path}:`, err);
+        }
+      }
+    }
   }
 
   if (allHeaders.filter((h) => h.stored).length === 0 && deltaFolderErrors.length > 0) {
@@ -1379,7 +1438,7 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
     await applyPendingLabelAssignments(accountId).catch((err) =>
       console.error(`[imapSync] applyPendingLabelAssignments error:`, err),
     );
-    return { messages: [], storedCount: 0, flagChangedCount };
+    return { messages: [], storedCount: 0, flagChangedCount, unfetchableCount };
   }
 
   // JWZ threading + RFC ID merge + subject-based merge with existing threads
@@ -1473,7 +1532,7 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
     console.error(`[imapSync] reconcilePecReceipts error:`, err),
   );
 
-  return { messages: storedHeaders as unknown as ParsedMessage[], storedCount: storedHeaders.length, flagChangedCount };
+  return { messages: storedHeaders as unknown as ParsedMessage[], storedCount: storedHeaders.length, flagChangedCount, unfetchableCount };
 }
 
 // ---------------------------------------------------------------------------

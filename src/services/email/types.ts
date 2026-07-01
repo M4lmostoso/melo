@@ -23,6 +23,13 @@ export interface SyncResult {
   latestSyncToken?: string;
   storedCount?: number;
   flagChangedCount?: number;
+  /**
+   * Number of messages the server acknowledged (in its UID list) but refused to
+   * serve the body for during this sync (e.g. DavMail body stalls). Non-zero
+   * means the mailbox is not fully mirrored locally — surfaced as a sync-health
+   * warning so incompleteness is never silent.
+   */
+  unfetchableCount?: number;
 }
 
 export interface EmailProvider {

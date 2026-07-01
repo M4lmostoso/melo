@@ -664,4 +664,78 @@ describe("imapDeltaSync — full reconcile (cursor reset to 0)", () => {
     // No folder state persisted → cursor stays 0 → reconcile retried next cycle.
     expect(mockUpsertFolderSyncState).not.toHaveBeenCalled();
   });
+
+  it("reports unfetchableCount for messages the server won't serve (DavMail body stall)", async () => {
+    // Server lists 1,2,3; we fetch but UID 2's body never comes (stall) so only
+    // 1 and 3 end up stored. The gap must be surfaced, not silently dropped.
+    mockImapSearchAllUids.mockResolvedValue([1, 2, 3]);
+    mockGetStoredImapUidsForFolder
+      .mockResolvedValueOnce([]) // before fetch: nothing stored
+      .mockResolvedValue([
+        { id: "imap-acc-1-INBOX-1", uid: 1 },
+        { id: "imap-acc-1-INBOX-3", uid: 3 },
+      ]); // after fetch: 2 still missing
+    mockImapFetchAndStore.mockResolvedValue([header(1), header(3)]);
+
+    const result = await imapDeltaSync("acc-1");
+
+    expect(result.unfetchableCount).toBe(1);
+  });
+});
+
+describe("imapDeltaSync — maintenance self-healing (DavMail range-miss quirk)", () => {
+  const mockGetAccount = vi.mocked(getAccount);
+  const mockImapListFolders = vi.mocked(imapListFolders);
+  const mockGetAllFolderSyncStates = vi.mocked(getAllFolderSyncStates);
+  const mockImapDeltaCheck = vi.mocked(imapDeltaCheck);
+  const mockImapSearchAllUids = vi.mocked(imapSearchAllUids);
+  const mockGetStoredImapUidsForFolder = vi.mocked(getStoredImapUidsForFolder);
+  const mockImapFetchAndStore = vi.mocked(imapFetchAndStore);
+  const mockImapStoreThreads = vi.mocked(imapStoreThreads);
+
+  function header(uid: number): ImapSyncHeader {
+    return {
+      local_id: `imap-heal-INBOX-${uid}`, uid, message_id: `<m${uid}@t>`,
+      in_reply_to: null, references: null, subject: `S${uid}`,
+      date: Math.floor(Date.now() / 1000), label_id: "INBOX",
+      is_read: true, is_starred: false, is_draft: false, has_attachments: false,
+      snippet: "s", from_address: "a@b.com", from_name: "A", stored: true,
+    };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetAccount.mockResolvedValue(createMockImapAccount({ id: "acc-heal" }));
+    mockImapListFolders.mockResolvedValue([createMockImapFolder({ path: "INBOX", raw_path: "INBOX" })]);
+    // Healthy folder with an advanced cursor (normal delta operation).
+    mockGetAllFolderSyncStates.mockResolvedValue([
+      { account_id: "acc-heal", folder_path: "INBOX", uidvalidity: 1, last_uid: 50, modseq: null, last_sync_at: Math.floor(Date.now() / 1000) },
+    ]);
+    mockImapStoreThreads.mockResolvedValue(0);
+  });
+
+  it("catches a message the delta range search missed and fetches it via NOT DELETED diff", async () => {
+    // The delta path (range search) reports nothing new — the DavMail quirk that
+    // silently drops mail. But the authoritative NOT DELETED enumeration shows
+    // UID 51 exists on the server. The maintenance self-heal must fetch it.
+    mockImapDeltaCheck.mockResolvedValue([
+      { folder: "INBOX", uidvalidity: 1, new_uids: [], uidvalidity_changed: false },
+    ]);
+    mockImapSearchAllUids.mockResolvedValue([50, 51]);
+    mockGetStoredImapUidsForFolder
+      .mockResolvedValueOnce([{ id: "imap-heal-INBOX-50", uid: 50 }]) // reconcileDeletedMessages
+      .mockResolvedValueOnce([{ id: "imap-heal-INBOX-50", uid: 50 }]) // additions: before fetch
+      .mockResolvedValue([
+        { id: "imap-heal-INBOX-50", uid: 50 },
+        { id: "imap-heal-INBOX-51", uid: 51 },
+      ]); // additions: after fetch
+    mockImapFetchAndStore.mockResolvedValue([header(51)]);
+
+    // First delta call for a fresh account id === a maintenance cycle.
+    await imapDeltaSync("acc-heal");
+
+    expect(mockImapFetchAndStore).toHaveBeenCalledWith(
+      expect.anything(), "acc-heal", "INBOX", "INBOX", [51], expect.any(Number),
+    );
+  });
 });
