@@ -1547,6 +1547,60 @@ pub async fn test_connection(config: &ImapConfig) -> Result<String, String> {
     ))
 }
 
+/// Enumerate all non-deleted UIDs in a folder over a FRESH raw connection.
+///
+/// The pooled async-imap `UID SEARCH` is unreliable on DavMail/Exchange: it can
+/// return a truncated set, silently hiding messages from the reconcile so they
+/// are never fetched. A fresh raw connection returns the authoritative list, so
+/// the self-healing reconcile enumerates through here. Bounded by the per-read
+/// timeouts in `raw_send_and_wait`, so it cannot hang the sync.
+pub async fn raw_search_uids(config: &ImapConfig, folder: &str) -> Result<Vec<u32>, String> {
+    let stream = if config.security == "starttls" {
+        raw_connect_starttls(config).await?
+    } else {
+        connect_stream(config).await?
+    };
+    let mut reader = BufReader::new(stream);
+
+    if config.security != "starttls" {
+        let mut line = String::new();
+        reader.read_line(&mut line).await.map_err(|e| format!("greeting: {e}"))?;
+    }
+
+    let login_cmd = if config.auth_method == "oauth2" {
+        let xoauth2 = format!("user={}\x01auth=Bearer {}\x01\x01", config.username, config.password);
+        let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, xoauth2.as_bytes());
+        format!("a1 AUTHENTICATE XOAUTH2 {b64}\r\n")
+    } else {
+        let esc_user = config.username.replace('\\', "\\\\").replace('"', "\\\"");
+        let esc_pass = config.password.replace('\\', "\\\\").replace('"', "\\\"");
+        format!("a1 LOGIN \"{esc_user}\" \"{esc_pass}\"\r\n")
+    };
+    raw_send_and_wait(&mut reader, login_cmd.as_bytes(), "a1").await?;
+
+    let select_cmd = format!("a2 SELECT \"{folder}\"\r\n");
+    raw_send_and_wait(&mut reader, select_cmd.as_bytes(), "a2").await?;
+
+    let search_response =
+        raw_send_and_wait(&mut reader, b"a3 UID SEARCH NOT DELETED\r\n", "a3").await?;
+    let _ = reader.get_mut().write_all(b"a4 LOGOUT\r\n").await;
+
+    // Untagged result: "* SEARCH 12 34 56 ..." (possibly across several lines).
+    let mut uids = Vec::new();
+    for line in search_response.lines() {
+        let trimmed = line.trim_start();
+        if let Some(rest) = trimmed.strip_prefix("* SEARCH") {
+            for tok in rest.split_whitespace() {
+                if let Ok(u) = tok.parse::<u32>() {
+                    uids.push(u);
+                }
+            }
+        }
+    }
+    log::info!("RAW UID SEARCH {folder}: {} uids", uids.len());
+    Ok(uids)
+}
+
 /// Raw IMAP fetch: connect via raw TCP/TLS (bypassing async-imap),
 /// authenticate, SELECT folder, UID FETCH with full body, parse responses.
 ///

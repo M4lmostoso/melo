@@ -136,6 +136,18 @@ pub async fn imap_search_all_uids(
     }
 }
 
+/// Authoritative folder enumeration over a fresh raw connection. Unlike the
+/// pooled `imap_search_all_uids`, this is reliable on DavMail/Exchange whose
+/// pooled async-imap UID SEARCH can silently return a truncated set. Used by the
+/// self-healing reconcile so no message can be permanently hidden.
+#[tauri::command]
+pub async fn imap_raw_search_uids(
+    config: ImapConfig,
+    folder: String,
+) -> Result<Vec<u32>, String> {
+    imap_client::raw_search_uids(&config, &folder).await
+}
+
 #[tauri::command]
 pub async fn imap_check_seen_uids(
     pool: tauri::State<'_, ImapSessionPool>,
