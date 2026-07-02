@@ -37,6 +37,7 @@ vi.mock("@/services/db/connection", () => ({
 
 vi.mock("@/router/navigate", () => ({
   navigateToThread: vi.fn(),
+  navigateBack: vi.fn(),
   getSelectedThreadId: vi.fn(() => null),
 }));
 
@@ -58,7 +59,7 @@ import {
   trashAllSpam,
   markAllSpamRead,
 } from "./emailActions";
-import { navigateToThread, getSelectedThreadId } from "@/router/navigate";
+import { navigateToThread, navigateBack, getSelectedThreadId } from "@/router/navigate";
 import { createMockEmailProvider, createMockUIStoreState, createMockThreadStoreState } from "@/test/mocks";
 
 const mockProvider = createMockEmailProvider();
@@ -250,7 +251,7 @@ describe("emailActions", () => {
       expect(navigateToThread).not.toHaveBeenCalled();
     });
 
-    it("does not navigate when archiving the only thread", async () => {
+    it("navigates back (deselects) when archiving the only viewed thread", async () => {
       vi.mocked(getSelectedThreadId).mockReturnValue("t1");
       vi.mocked(useThreadStore.getState).mockReturnValue(createMockThreadStoreState({
         threads: [{ id: "t1" }],
@@ -260,6 +261,22 @@ describe("emailActions", () => {
 
       await archiveThread("acct-1", "t1", ["m1"]);
       expect(navigateToThread).not.toHaveBeenCalled();
+      // No sibling to advance to → deselect so the reading pane empties and the
+      // deep-link safety net doesn't re-fetch the removed thread.
+      expect(navigateBack).toHaveBeenCalled();
+    });
+
+    it("does not navigate back when trashing a non-viewed thread", async () => {
+      vi.mocked(getSelectedThreadId).mockReturnValue("t1");
+      vi.mocked(useThreadStore.getState).mockReturnValue(createMockThreadStoreState({
+        threads,
+        updateThread: mockUpdateThread,
+        removeThread: mockRemoveThread,
+      }) as never);
+
+      await archiveThread("acct-1", "t2", ["m1"]);
+      expect(navigateToThread).not.toHaveBeenCalled();
+      expect(navigateBack).not.toHaveBeenCalled();
     });
 
     it("navigates on trash action", async () => {

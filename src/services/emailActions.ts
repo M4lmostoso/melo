@@ -4,7 +4,7 @@ import { getEmailProvider } from "@/services/email/providerFactory";
 import { enqueuePendingOperation } from "@/services/db/pendingOperations";
 import { classifyError } from "@/utils/networkErrors";
 import { getDb } from "@/services/db/connection";
-import { navigateToThread, getSelectedThreadId } from "@/router/navigate";
+import { navigateToThread, navigateBack, getSelectedThreadId } from "@/router/navigate";
 import { getAccount } from "@/services/db/accounts";
 import { updateBadgeCount } from "@/services/badgeManager";
 
@@ -105,10 +105,17 @@ function applyOptimisticUpdate(action: EmailAction): void {
     case "permanentDelete":
     case "spam":
     case "moveToFolder": {
+      // Capture whether the removed thread is the one being viewed *before* removing it —
+      // getNextThreadId only returns a sibling when the removed thread is selected.
+      const isViewing = getSelectedThreadId() === action.threadId;
       const nextId = getNextThreadId(action.threadId);
       store.removeThread(action.threadId);
       if (nextId) {
         navigateToThread(nextId);
+      } else if (isViewing) {
+        // No sibling to advance to (e.g. the last thread in a smart folder). Deselect so the
+        // reading pane empties and the deep-link safety net doesn't re-fetch the removed thread.
+        navigateBack();
       }
       break;
     }
