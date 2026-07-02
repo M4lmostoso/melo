@@ -9,6 +9,7 @@ import { useComposerStore } from "@/stores/composerStore";
 import { useUIStore } from "@/stores/uiStore";
 import { sendEmail, archiveThread } from "@/services/emailActions";
 import { buildRawEmail } from "@/utils/emailBuilder";
+import { buildReplyAllRecipients } from "@/utils/emailUtils";
 import { upsertContact } from "@/services/db/contacts";
 import { getSetting } from "@/services/db/settings";
 import { getDefaultSignature } from "@/services/db/signatures";
@@ -134,24 +135,14 @@ export function InlineReply({ thread, messages, accountId, noReply, onSent }: In
       return { to: replyTo ? [replyTo] : [], cc: [] };
     }
 
-    // replyAll
-    const allTo = new Set<string>();
-    if (replyTo) allTo.add(replyTo);
-    if (lastMessage.to_addresses) {
-      lastMessage.to_addresses.split(",").forEach((a) => allTo.add(a.trim()));
-    }
-    // Remove self from recipients
-    if (activeAccount?.email) allTo.delete(activeAccount.email);
-
-    const ccList: string[] = [];
-    if (lastMessage.cc_addresses) {
-      lastMessage.cc_addresses.split(",").forEach((a) => {
-        const trimmed = a.trim();
-        if (trimmed && trimmed !== activeAccount?.email) ccList.push(trimmed);
-      });
-    }
-
-    return { to: Array.from(allTo), cc: ccList };
+    // replyAll — parse address-list headers (not a naive split) so display
+    // names containing commas (e.g. "Lastname, Firstname <email>") stay intact.
+    return buildReplyAllRecipients({
+      replyTo,
+      toHeader: lastMessage.to_addresses,
+      ccHeader: lastMessage.cc_addresses,
+      selfEmails: activeAccount?.email ? [activeAccount.email] : [],
+    });
   }, [lastMessage, mode, activeAccount?.email]);
 
   const getSubject = useCallback((): string => {

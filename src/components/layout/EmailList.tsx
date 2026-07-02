@@ -339,47 +339,60 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
 
   const clearSearch = useThreadStore((s) => s.clearSearch);
 
+  // Fetch a single thread by id from the DB and add it to the store, so it can
+  // be shown in the reading pane even when it isn't part of the current label's
+  // loaded page (deep links from tasks, citations, notifications, etc.).
+  // Tries the given account id first, then falls back to scanning the candidate
+  // accounts (unified view) until the thread is found.
+  const fetchAndAddThread = useCallback(async (threadId: string, preferredAccountId: string | null): Promise<boolean> => {
+    const candidates = preferredAccountId
+      ? [preferredAccountId]
+      : (activeAccountId ? [activeAccountId] : globalAccountIds);
+    for (const accountId of candidates) {
+      try {
+        const dbThread = await getThreadById(accountId, threadId);
+        if (!dbThread) continue;
+        const labelIds = await getThreadLabelIds(accountId, threadId);
+        const lastMessageAt = dbThread.last_message_at ?? 0;
+        const decay = await getDecaySettings();
+        const urgencyScore = applyTemporalDecay(dbThread.urgency_score ?? 0, lastMessageAt, decay.decayStartDays, decay.decayFloorDays);
+        const mapped: Thread = {
+          id: dbThread.id,
+          accountId: dbThread.account_id,
+          subject: dbThread.subject,
+          snippet: dbThread.snippet,
+          lastMessageAt,
+          messageCount: dbThread.message_count,
+          unreadCount: dbThread.unread_count,
+          isRead: dbThread.is_read === 1,
+          isStarred: dbThread.is_starred === 1,
+          isPinned: dbThread.is_pinned === 1,
+          isMuted: dbThread.is_muted === 1,
+          hasAttachments: dbThread.has_attachments === 1,
+          labelIds,
+          fromName: dbThread.from_name,
+          fromAddress: dbThread.from_address,
+          allSenders: dbThread.all_senders ?? null,
+          allRecipients: dbThread.all_recipients ?? null,
+          urgencyScore,
+          sentimentScore: dbThread.sentiment_score ?? undefined,
+          isHeatExtinguished: dbThread.is_heat_extinguished === 1,
+          urgencyReason: dbThread.urgency_reason ?? null,
+          urgencyReplyDecayed: dbThread.urgency_reply_decayed === 1,
+        };
+        addThreads([mapped]);
+        return true;
+      } catch (err) {
+        console.error("Failed to fetch thread by id:", err);
+      }
+    }
+    return false;
+  }, [activeAccountId, globalAccountIds, addThreads]);
+
   const handleCitationClick = useCallback(async (threadId: string, messageId?: string) => {
     const existingThread = threadMap.get(threadId);
-    const accountIdForThread = activeAccountId ?? existingThread?.accountId;
-    if (!accountIdForThread) return;
     if (!existingThread) {
-      try {
-        const dbThread = await getThreadById(accountIdForThread, threadId);
-        if (dbThread) {
-          const labelIds = await getThreadLabelIds(accountIdForThread, threadId);
-          const lastMessageAt = dbThread.last_message_at ?? 0;
-          const decay = await getDecaySettings();
-          const urgencyScore = applyTemporalDecay(dbThread.urgency_score ?? 0, lastMessageAt, decay.decayStartDays, decay.decayFloorDays);
-          const mapped: Thread = {
-            id: dbThread.id,
-            accountId: dbThread.account_id,
-            subject: dbThread.subject,
-            snippet: dbThread.snippet,
-            lastMessageAt,
-            messageCount: dbThread.message_count,
-            unreadCount: dbThread.unread_count,
-            isRead: dbThread.is_read === 1,
-            isStarred: dbThread.is_starred === 1,
-            isPinned: dbThread.is_pinned === 1,
-            isMuted: dbThread.is_muted === 1,
-            hasAttachments: dbThread.has_attachments === 1,
-            labelIds,
-            fromName: dbThread.from_name,
-            fromAddress: dbThread.from_address,
-            allSenders: dbThread.all_senders ?? null,
-            allRecipients: dbThread.all_recipients ?? null,
-            urgencyScore,
-            sentimentScore: dbThread.sentiment_score ?? undefined,
-            isHeatExtinguished: dbThread.is_heat_extinguished === 1,
-            urgencyReason: dbThread.urgency_reason ?? null,
-            urgencyReplyDecayed: dbThread.urgency_reply_decayed === 1,
-          };
-          addThreads([mapped]);
-        }
-      } catch (err) {
-        console.error("Failed to fetch thread for citation click:", err);
-      }
+      await fetchAndAddThread(threadId, activeAccountId ?? null);
     }
     selectThread(threadId);
     clearMultiSelect();
@@ -387,7 +400,24 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     if (messageId) {
       setSelectedMessageId(messageId);
     }
-  }, [activeAccountId, threadMap, addThreads, selectThread, clearMultiSelect, setSelectedMessageId]);
+  }, [activeAccountId, threadMap, fetchAndAddThread, selectThread, clearMultiSelect, setSelectedMessageId]);
+
+  // Deep-link safety net: when a thread is selected (e.g. "Open thread" from the
+  // Tasks page) but it isn't in the currently loaded list — because it lives on a
+  // later page of the folder, or was re-linked to an older/different thread — the
+  // reading pane would otherwise render its empty state. Pull the thread in by id.
+  useEffect(() => {
+    if (!selectedThreadId) return;
+    if (threadMap.has(selectedThreadId)) return;
+    let cancelled = false;
+    (async () => {
+      const ok = await fetchAndAddThread(selectedThreadId, null);
+      if (!ok && !cancelled) {
+        console.warn("[EmailList] selected thread not found in DB:", selectedThreadId);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [selectedThreadId, threadMap, fetchAndAddThread]);
 
   const handleSemanticResult = useCallback(async (result: { citations: Array<{ threadId: string; messageId?: string }>; hits: Array<{ account_id: string; thread_id: string }> }) => {
     const citedThreadIds = new Set(result.citations.map((c) => c.threadId));

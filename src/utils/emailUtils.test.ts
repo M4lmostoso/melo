@@ -1,4 +1,9 @@
-import { normalizeEmail, parseAddressList, resolveRecipientLabel } from "./emailUtils";
+import {
+  buildReplyAllRecipients,
+  normalizeEmail,
+  parseAddressList,
+  resolveRecipientLabel,
+} from "./emailUtils";
 
 describe("normalizeEmail", () => {
   it("lowercases an email address", () => {
@@ -94,6 +99,45 @@ describe("parseAddressList", () => {
   it("returns [] for empty/null input", () => {
     expect(parseAddressList("")).toEqual([]);
     expect(parseAddressList(null)).toEqual([]);
+  });
+});
+
+describe("buildReplyAllRecipients", () => {
+  it("keeps 'Lastname, Firstname <email>' recipients intact (no comma split)", () => {
+    const { to, cc } = buildReplyAllRecipients({
+      replyTo: "sender@x.com",
+      toHeader:
+        "Chevalier, Francois <francois.chevalier@suez.com>, Valente, Edoardo <E.Valente@termomeccanica.com>",
+      ccHeader: null,
+      selfEmails: ["me@gmail.com"],
+    });
+    expect(to).toEqual([
+      "sender@x.com",
+      "Chevalier, Francois <francois.chevalier@suez.com>",
+      "Valente, Edoardo <E.Valente@termomeccanica.com>",
+    ]);
+    expect(cc).toEqual([]);
+  });
+
+  it("excludes the user's own addresses and de-dupes across To/Cc", () => {
+    const { to, cc } = buildReplyAllRecipients({
+      replyTo: "boss@x.com",
+      toHeader: "boss@x.com, ME@gmail.com, Ann <ann@y.com>",
+      ccHeader: "ann@y.com, carl@z.com",
+      selfEmails: ["me@gmail.com"],
+    });
+    expect(to).toEqual(["boss@x.com", "Ann <ann@y.com>"]);
+    expect(cc).toEqual(["carl@z.com"]);
+  });
+
+  it("handles a reply-to that already carries a display name", () => {
+    const { to } = buildReplyAllRecipients({
+      replyTo: "Jane Doe <jane@x.com>",
+      toHeader: null,
+      ccHeader: null,
+      selfEmails: [],
+    });
+    expect(to).toEqual(["Jane Doe <jane@x.com>"]);
   });
 });
 

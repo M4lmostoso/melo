@@ -16,7 +16,7 @@ import { markThreadRead, deleteSingleMessage } from "@/services/emailActions";
 import { useActiveLabel } from "@/hooks/useRouteNavigation";
 import { getSetting } from "@/services/db/settings";
 import { getAllowlistedSenders } from "@/services/db/imageAllowlist";
-import { normalizeEmail } from "@/utils/emailUtils";
+import { normalizeEmail, buildReplyAllRecipients } from "@/utils/emailUtils";
 import { VolumeX, LockKeyhole } from "lucide-react";
 import { escapeHtml, sanitizeHtml } from "@/utils/sanitize";
 import { restoreRemoteImages } from "@/utils/imageBlocker";
@@ -216,33 +216,14 @@ export function ThreadView({ thread }: ThreadViewProps) {
     const msg = msgOverride ?? selectedMessage;
     if (!msg || !activeAccount) return;
     const replyTo = msg.reply_to ?? msg.from_address;
-    const allRecipients = new Set<string>();
-    if (replyTo) allRecipients.add(replyTo);
-
-    const myEmails = new Set(accounts.map((a) => normalizeEmail(a.email)));
-
-    if (msg.to_addresses) {
-      msg.to_addresses.split(",").forEach((a) => {
-        const trimmed = a.trim();
-        if (trimmed && !myEmails.has(normalizeEmail(trimmed))) {
-          allRecipients.add(trimmed);
-        }
-      });
-    }
-
-    for (const email of myEmails) {
-      allRecipients.delete(email);
-    }
-
-    const ccList: string[] = [];
-    if (msg.cc_addresses) {
-      msg.cc_addresses.split(",").forEach((a) => {
-        const trimmed = a.trim();
-        if (trimmed && !myEmails.has(normalizeEmail(trimmed))) {
-          ccList.push(trimmed);
-        }
-      });
-    }
+    // Parse address-list headers (not a naive split) so display names
+    // containing commas (e.g. "Lastname, Firstname <email>") stay intact.
+    const { to: replyAllTo, cc: ccList } = buildReplyAllRecipients({
+      replyTo,
+      toHeader: msg.to_addresses,
+      ccHeader: msg.cc_addresses,
+      selfEmails: accounts.map((a) => a.email),
+    });
 
     const msgIndex = messages.findIndex(m => m.id === msg.id);
     const quotedMessages = msgIndex >= 0 ? messages.slice(0, msgIndex + 1) : messages;
@@ -253,7 +234,7 @@ export function ThreadView({ thread }: ThreadViewProps) {
 
     openComposer({
       mode: "replyAll",
-      to: Array.from(allRecipients).filter(r => !myEmails.has(normalizeEmail(r))),
+      to: replyAllTo,
       cc: ccList,
       subject: `Re: ${msg.subject ?? ""}`,
       quotedHtml: buildThreadQuote(quotedMessages),

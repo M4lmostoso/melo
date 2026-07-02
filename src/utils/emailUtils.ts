@@ -130,6 +130,52 @@ export function parseAddressList(header: string | null | undefined): ParsedAddre
 }
 
 /**
+ * Build the To/Cc recipient lists for a "reply all".
+ *
+ * Uses {@link parseAddressList} so display names containing unquoted commas
+ * (e.g. `Lastname, Firstname <email>`, common in corporate directories) are
+ * kept intact instead of being split — a raw `header.split(",")` would break
+ * `Chevalier, Francois <francois.chevalier@suez.com>` into two bogus chips.
+ *
+ * Excludes the user's own addresses and de-duplicates by email across To and
+ * Cc (an address already in To won't be repeated in Cc). Each returned entry
+ * is a single valid RFC address string (`Name <email>` when a name is present,
+ * otherwise the bare email).
+ */
+export function buildReplyAllRecipients(opts: {
+  replyTo: string | null | undefined;
+  toHeader: string | null | undefined;
+  ccHeader: string | null | undefined;
+  selfEmails: Iterable<string>;
+}): { to: string[]; cc: string[] } {
+  const self = new Set<string>();
+  for (const e of opts.selfEmails) {
+    const n = normalizeEmail(e);
+    if (n) self.add(n);
+  }
+
+  const seen = new Set<string>();
+  const format = (addr: ParsedAddress): string =>
+    addr.name ? `${addr.name} <${addr.email}>` : addr.email;
+
+  const collect = (header: string | null | undefined, out: string[]) => {
+    for (const addr of parseAddressList(header)) {
+      const key = normalizeEmail(addr.email);
+      if (!key || self.has(key) || seen.has(key)) continue;
+      seen.add(key);
+      out.push(format(addr));
+    }
+  };
+
+  const to: string[] = [];
+  const cc: string[] = [];
+  collect(opts.replyTo, to);
+  collect(opts.toHeader, to);
+  collect(opts.ccHeader, cc);
+  return { to, cc };
+}
+
+/**
  * Resolve the best display label for a recipient, using the priority:
  * 1) stored contact name (DB), 2) name associated with the email in the header,
  * 3) the raw email address.
