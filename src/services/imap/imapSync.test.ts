@@ -57,6 +57,7 @@ vi.mock("../db/deletedImapUids", () => ({
 vi.mock("../db/unfetchableUids", () => ({
   getSkippedUidsForFolder: vi.fn(async () => new Set<number>()),
   recordUnfetchableAttempts: vi.fn(async () => {}),
+  recordDuplicateUids: vi.fn(async () => {}),
   clearUnfetchableUids: vi.fn(async () => {}),
   getUnfetchableCountForAccount: vi.fn(async () => 0),
 }));
@@ -115,7 +116,7 @@ import {
 import { getAccount } from "../db/accounts";
 import { getAllFolderSyncStates, upsertFolderSyncState } from "../db/folderSyncState";
 import { deleteMessagesForFolder, getStoredImapUidsForFolder } from "../db/messages";
-import { recordUnfetchableAttempts, getUnfetchableCountForAccount } from "../db/unfetchableUids";
+import { recordUnfetchableAttempts, recordDuplicateUids, getUnfetchableCountForAccount } from "../db/unfetchableUids";
 
 describe("imapInitialSync", () => {
   const mockGetAccount = vi.mocked(getAccount);
@@ -694,6 +695,30 @@ describe("imapDeltaSync — full reconcile (cursor reset to 0)", () => {
     expect(vi.mocked(recordUnfetchableAttempts)).toHaveBeenCalledWith("acc-1", "INBOX", [2]);
     // ...and the persistent skip-list count is surfaced for the UI.
     expect(result.unfetchableCount).toBe(1);
+  });
+
+  it("classifies served-but-deduped messages as duplicates, NOT unfetchable", async () => {
+    // Server lists 1,2. Both are fetched fine, but UID 2's RFC Message-ID
+    // already exists in another folder so the store layer dedups it: its
+    // header comes back with stored=false and no row lands in this folder.
+    // That must be recorded as a duplicate (skip future re-downloads), never
+    // as a fetch failure — the server served it perfectly.
+    mockImapRawSearchAllUids.mockResolvedValue([1, 2]);
+    mockGetStoredImapUidsForFolder
+      .mockResolvedValueOnce([]) // before fetch: nothing stored
+      .mockResolvedValue([{ id: "imap-acc-1-INBOX-1", uid: 1 }]); // after: only UID 1 stored
+    mockImapFetchAndStore.mockResolvedValue([
+      header(1),
+      { ...header(2), stored: false }, // dedup'd cross-folder duplicate
+    ]);
+    // Duplicates are excluded from the persistent unfetchable count.
+    vi.mocked(getUnfetchableCountForAccount).mockResolvedValue(0);
+
+    const result = await imapDeltaSync("acc-1");
+
+    expect(vi.mocked(recordDuplicateUids)).toHaveBeenCalledWith("acc-1", "INBOX", [2]);
+    expect(vi.mocked(recordUnfetchableAttempts)).toHaveBeenCalledWith("acc-1", "INBOX", []);
+    expect(result.unfetchableCount).toBe(0);
   });
 });
 

@@ -43,6 +43,7 @@ import { getSetting } from "../db/settings";
 import {
   getSkippedUidsForFolder,
   recordUnfetchableAttempts,
+  recordDuplicateUids,
   clearUnfetchableUids,
   getUnfetchableCountForAccount,
 } from "../db/unfetchableUids";
@@ -579,16 +580,29 @@ async function reconcileFolderAdditions(
     const storedAfter = new Set(
       (await getStoredImapUidsForFolder(accountId, folderPath)).map((r) => r.uid),
     );
-    const stillMissing = missing.filter((u) => !storedAfter.has(u));
+    // A UID the server returned but the store layer didn't persist for this
+    // folder is a cross-folder duplicate (same RFC Message-ID already stored
+    // elsewhere — Filter 2 in imap_fetch_and_store). The server serves it
+    // fine, so it must never count as unfetchable; record it as a known
+    // duplicate so the next reconcile stops re-downloading its full body.
+    const returnedUids = new Set(headers.map((h) => h.uid));
+    const stillMissing = missing.filter((u) => !storedAfter.has(u) && !returnedUids.has(u));
+    const duplicates = missing.filter((u) => !storedAfter.has(u) && returnedUids.has(u));
     const nowFetched = missing.filter((u) => storedAfter.has(u));
     unfetchable = stillMissing.length;
     // Count another failed attempt for the ones still missing; clear any that
     // finally came through so a transient failure doesn't count against them.
     await recordUnfetchableAttempts(accountId, folderPath, stillMissing).catch(() => {});
     await clearUnfetchableUids(accountId, folderPath, nowFetched).catch(() => {});
+    await recordDuplicateUids(accountId, folderPath, duplicates).catch(() => {});
     if (stillMissing.length > 0) {
       console.warn(
         `[imapSync] ${folderPath}: ${stillMissing.length}/${missing.length} message(s) could NOT be fetched (server won't serve their bodies) — UIDs ${stillMissing.slice(0, 30).join(",")}${stillMissing.length > 30 ? "…" : ""}`,
+      );
+    }
+    if (duplicates.length > 0) {
+      console.log(
+        `[imapSync] ${folderPath}: ${duplicates.length} message(s) are cross-folder duplicates (already stored under another folder) — skip-listed as 'duplicate'`,
       );
     }
   }

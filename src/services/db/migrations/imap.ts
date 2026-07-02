@@ -304,4 +304,12 @@ export const MIGRATIONS_IMAP = [
       CREATE INDEX IF NOT EXISTS idx_unfetchable_account ON imap_unfetchable_uids(account_id);
     `,
   },
+  {
+    version: 68,
+    description: "Add reason column to imap_unfetchable_uids to distinguish real fetch failures from cross-folder duplicates (served by the server but deliberately not stored), and reset the table: existing rows are overwhelmingly duplicates misrecorded as failures",
+    sql: `
+      ALTER TABLE imap_unfetchable_uids ADD COLUMN reason TEXT NOT NULL DEFAULT 'error';
+      DELETE FROM imap_unfetchable_uids;
+    `,
+  },
 ];
