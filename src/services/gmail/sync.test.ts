@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { deltaSync } from "./sync";
 import { GmailClient } from "./client";
+import { gmailStoreThread } from "./tauriCommands";
 
 // Mock all DB modules
 vi.mock("../db/threads", () => ({
@@ -196,5 +197,64 @@ describe("deltaSync notifications", () => {
     await deltaSync(client, "account-1", "99");
 
     expect(mockNotify).not.toHaveBeenCalled();
+  });
+});
+
+describe("processAndStoreThread thread read-state", () => {
+  beforeEach(() => {
+    vi.mocked(gmailStoreThread).mockClear();
+  });
+
+  /** Build a client whose getThread returns a fixed set of messages for the thread. */
+  function clientWithThreadMessages(
+    threadId: string,
+    messages: { id: string; labelIds: string[] }[],
+  ): GmailClient {
+    return {
+      getHistory: vi.fn().mockResolvedValue({
+        history: [{ id: "100", messagesAdded: [{ message: { id: messages[0]!.id, threadId, labelIds: messages[0]!.labelIds } }] }],
+        historyId: "200",
+      }),
+      getThread: vi.fn().mockResolvedValue({
+        id: threadId,
+        historyId: "200",
+        messages: messages.map((m) => ({
+          id: m.id,
+          threadId,
+          labelIds: m.labelIds,
+          snippet: "test",
+          historyId: "200",
+          internalDate: "1704067200000",
+          payload: { partId: "", mimeType: "text/plain", filename: "", headers: [], body: { size: 0 } },
+          sizeEstimate: 100,
+        })),
+      }),
+    } as unknown as GmailClient;
+  }
+
+  it("keeps thread unread when an unread inbox message coexists with a trashed message", async () => {
+    // Regression: the old `|| allLabelIds.has("TRASH")` forced the whole thread read,
+    // hiding the new inbox mail while its trashed sibling still showed unread in Trash.
+    const client = clientWithThreadMessages("thread-mix", [
+      { id: "msg-inbox", labelIds: ["INBOX", "UNREAD"] },
+      { id: "msg-trashed", labelIds: ["TRASH", "UNREAD"] },
+    ]);
+
+    await deltaSync(client, "account-1", "99");
+
+    const call = vi.mocked(gmailStoreThread).mock.calls.at(-1)?.[0];
+    expect(call?.isRead).toBe(false);
+  });
+
+  it("marks a fully-trashed thread as read", async () => {
+    const client = clientWithThreadMessages("thread-trash", [
+      { id: "msg-t1", labelIds: ["TRASH", "UNREAD"] },
+      { id: "msg-t2", labelIds: ["TRASH"] },
+    ]);
+
+    await deltaSync(client, "account-1", "99");
+
+    const call = vi.mocked(gmailStoreThread).mock.calls.at(-1)?.[0];
+    expect(call?.isRead).toBe(true);
   });
 });

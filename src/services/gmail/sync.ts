@@ -51,7 +51,15 @@ async function processAndStoreThread(
   }
 
   const nonDraftMessages = parsedMessages.filter((m) => !m.labelIds.includes("DRAFT"));
-  const isRead = parsedMessages.every((m) => m.isRead) || allLabelIds.has("TRASH");
+  // Thread read-state is derived ONLY from non-trashed messages, matching
+  // recalculateThreadStats (MIN(is_read) WHERE is_trashed = 0). A thread that is
+  // entirely in the trash counts as read (nothing left in a live folder to read).
+  // Crucially, a thread with BOTH an unread inbox message and a trashed message must
+  // stay UNREAD — the old `|| allLabelIds.has("TRASH")` forced the whole thread read,
+  // hiding the new inbox mail while the trashed copy still showed unread in Trash.
+  const nonTrashedMessages = parsedMessages.filter((m) => !m.labelIds.includes("TRASH"));
+  const isRead =
+    nonTrashedMessages.length === 0 || nonTrashedMessages.every((m) => m.isRead);
   const isStarred = parsedMessages.some((m) => m.isStarred);
   const isImportant = allLabelIds.has("IMPORTANT");
   const hasAttachments = parsedMessages.some((m) => m.hasAttachments);

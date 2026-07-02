@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { useClickOutside } from "@/hooks/useClickOutside";
 import { ChevronRight, Check, Search } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -184,7 +185,11 @@ export function ContextMenu({ items, position, onClose }: ContextMenuProps) {
   const openItem = submenuOpenId ? items.find((i) => i.id === submenuOpenId) : null;
   const submenuAnchor = submenuOpenId ? itemRectsRef.current.get(submenuOpenId) : undefined;
 
-  return (
+  // Render through a portal to document.body so that `position: fixed` resolves
+  // against the viewport. Any ancestor with backdrop-filter/filter/transform (e.g.
+  // the .glass-panel reading pane) would otherwise become the containing block and
+  // shift the menu away from the click point.
+  return createPortal(
     <>
       <div
         ref={menuRef}
@@ -264,7 +269,8 @@ export function ContextMenu({ items, position, onClose }: ContextMenuProps) {
           searchable={openItem.searchable}
         />
       )}
-    </>
+    </>,
+    document.body,
   );
 }
 
