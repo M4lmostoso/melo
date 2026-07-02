@@ -46,16 +46,8 @@ import {
   recordDuplicateUids,
   clearUnfetchableUids,
   getUnfetchableCountForAccount,
+  getUnfetchableMaxRetries,
 } from "../db/unfetchableUids";
-
-/** Default retry cap before a persistently-unfetchable UID is skip-listed. */
-const DEFAULT_UNFETCHABLE_MAX_RETRIES = 3;
-
-async function getUnfetchableMaxRetries(): Promise<number> {
-  const raw = await getSetting("imap_unfetchable_max_retries");
-  const n = raw ? parseInt(raw, 10) : NaN;
-  return Number.isFinite(n) && n >= 1 ? n : DEFAULT_UNFETCHABLE_MAX_RETRIES;
-}
 import { getVipSenders } from "../db/notificationVips";
 import { getThreadCategory } from "../db/threadCategories";
 import { shouldNotifyForMessage, queueNewEmailNotification } from "../notifications/notificationManager";

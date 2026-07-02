@@ -154,7 +154,7 @@ All business logic lives in `src/services/` as plain async functions (except `Gm
 
 | Service | Description |
 |---------|-------------|
-| `db/` | SQLite queries, migrations (46 versions), FTS5 search |
+| `db/` | SQLite queries, migrations (69 versions), FTS5 search |
 | `email/` | EmailProvider abstraction, provider factory, Gmail/IMAP adapters |
 | `gmail/` | Gmail client, token management, sync engine |
 | `imap/` | IMAP sync, folder-to-label mapping, auto-discovery, Tauri command wrappers |
@@ -200,9 +200,9 @@ Ten Zustand stores manage ephemeral UI state:
 
 ## Database
 
-SQLite via Tauri SQL plugin. 46 migrations (version-tracked in `_migrations`, transactional), 39 tables total.
+SQLite via Tauri SQL plugin. 69 migrations (version-tracked in `_migrations`, transactional), 39 tables total.
 
-Key tables: `accounts` (with `provider` "gmail_api"|"imap", IMAP/SMTP fields, encrypted `imap_password`, optional `imap_username`), `messages` (FTS5 index `messages_fts`, `auth_results`, IMAP headers, `imap_uid`, `imap_folder`), `threads` (`is_pinned`, `is_muted`), `thread_labels`, `labels` (`imap_folder_path`, `imap_special_use`), `contacts`, `attachments` (`imap_part_id`, `cached_at`, `cache_size`), `filter_rules` (criteria/actions as JSON), `scheduled_emails`, `templates`, `signatures`, `image_allowlist`, `settings` (key-value), `ai_cache`, `thread_categories`, `calendar_events`, `follow_up_reminders`, `notification_vips`, `unsubscribe_actions`, `bundle_rules`, `bundled_threads`, `send_as_aliases`, `smart_folders`, `link_scan_results`, `phishing_allowlist`, `quick_steps`, `folder_sync_state` (IMAP UIDVALIDITY/last_uid/modseq tracking), `pending_operations` (offline queue with retry/backoff), `local_drafts` (schema exists, unused at code level — superseded by two-tier draft system in `messages`), `deleted_imap_uids` (tombstone — prevents re-import of deleted messages during sync), `writing_style_profiles`, `tasks` (priorities, subtasks, recurrence), `task_tags`, `smart_label_rules`, `_migrations`.
+Key tables: `accounts` (with `provider` "gmail_api"|"imap", IMAP/SMTP fields, encrypted `imap_password`, optional `imap_username`), `messages` (FTS5 index `messages_fts`, `auth_results`, IMAP headers, `imap_uid`, `imap_folder`), `threads` (`is_pinned`, `is_muted`), `thread_labels`, `labels` (`imap_folder_path`, `imap_special_use`), `contacts`, `attachments` (`imap_part_id`, `cached_at`, `cache_size`), `filter_rules` (criteria/actions as JSON), `scheduled_emails`, `templates`, `signatures`, `image_allowlist`, `settings` (key-value), `ai_cache`, `thread_categories`, `calendar_events`, `follow_up_reminders`, `notification_vips`, `unsubscribe_actions`, `bundle_rules`, `bundled_threads`, `send_as_aliases`, `smart_folders`, `link_scan_results`, `phishing_allowlist`, `quick_steps`, `folder_sync_state` (IMAP UIDVALIDITY/last_uid/modseq tracking), `pending_operations` (offline queue with retry/backoff), `local_drafts` (schema exists, unused at code level — superseded by two-tier draft system in `messages`), `deleted_imap_uids` (tombstone — prevents re-import of deleted messages during sync), `imap_unfetchable_uids` (skip-list for UIDs the server lists but won't serve — `reason` 'error'|'duplicate', `ignored` flag excludes an entry from the sidebar sync warning), `writing_style_profiles`, `tasks` (priorities, subtasks, recurrence), `task_tags`, `smart_label_rules`, `_migrations`.
 
 ## Startup Sequence
 

@@ -65,7 +65,7 @@ Tauri v2 desktop app: Rust backend + React 19 frontend communicating via Tauri I
 
 ### Database
 
-SQLite via Tauri SQL plugin. 27 migrations, 38 tables (full list in [docs/architecture.md](docs/architecture.md)). Non-obvious tables: `folder_sync_state` (IMAP UIDVALIDITY/last_uid tracking), `pending_operations` (offline queue), `local_drafts` (offline IMAP drafts), `deleted_imap_uids` (tombstone — prevents re-import of deleted IMAP messages), `messages_fts` (FTS5 full-text index on messages).
+SQLite via Tauri SQL plugin. 69 migrations, 39 tables (full list in [docs/architecture.md](docs/architecture.md)). Non-obvious tables: `folder_sync_state` (IMAP UIDVALIDITY/last_uid tracking), `pending_operations` (offline queue), `local_drafts` (offline IMAP drafts), `deleted_imap_uids` (tombstone — prevents re-import of deleted IMAP messages), `imap_unfetchable_uids` (skip-list for UIDs the server won't serve; `reason` 'error'|'duplicate', user-`ignored` entries excluded from the sync warning), `messages_fts` (FTS5 full-text index on messages).
 
 ### Styling
 
@@ -128,6 +128,7 @@ The locale is bundled at build time via a static Vite import — no async loadin
 - **IMAP security mapping**: UI shows "SSL/TLS"/"STARTTLS"/"None" but stores "ssl"/"starttls"/"none"
 - **IMAP UIDVALIDITY**: If changed, all cached UIDs invalid → full folder resync
 - **IMAP tombstone**: Deleted IMAP messages tracked in `deleted_imap_uids` table to prevent re-import during sync
+- **IMAP unfetchable skip-list**: `imap_unfetchable_uids` — `reason='error'` (server won't serve, counts toward the amber sidebar warning) vs `reason='duplicate'` (cross-folder dedup, never counted). Clicking the warning opens a detail dialog; entries can be user-ignored (excluded from count) and restored in Settings → Accounts → Skipped messages
 - **IMAP passwords**: Encrypted AES-256-GCM in SQLite. Optional `imap_username` column overrides email as login
 - **IMAP local drafts**: Two-tier system — stable UUID row in `messages` table (local, 3s debounce) + server APPEND to Drafts folder (18s debounce). The stable UUID row carries `imap_uid`/`imap_folder` coords so delete/tombstone always finds the right server message. `local_drafts` table exists in schema but is unused
 - **Provider abstraction**: All sync/send goes through `EmailProvider` — use `getEmailProvider(account)` from `providerFactory.ts`, never call Gmail/IMAP directly from components

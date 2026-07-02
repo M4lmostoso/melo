@@ -1245,7 +1245,8 @@
         "sendAsAliases": "Alias di invio",
         "sync": "Sincronizzazione",
         "syncPeriod": "Periodo di sincronizzazione",
-        "syncOffline": "Coda offline"
+        "syncOffline": "Coda offline",
+        "skippedMessages": "Messaggi saltati"
       }
     },
     "calendar": {
@@ -1873,7 +1874,7 @@
     "collapseSidebar": "Comprimi barra laterale",
     "checkMail": "Controlla nuove mail",
     "account": {
-      "unfetchableWarning": "{count} messaggio/i sul server non è stato possibile scaricarli e mancano in locale. L'app continuerà a riprovare.",
+      "unfetchableWarning": "{count} messaggio/i sul server non scaricabili e mancanti in locale. Clicca per i dettagli.",
       "staleWarning": "Questo account non si sincronizza da un po' — potrebbe essere bloccato. Controlla connessione o credenziali."
     },
     "defaultSmartFolders": {
@@ -2349,5 +2350,21 @@
     "customDate": "Data personalizzata",
     "time": "Ora",
     "confirm": "Conferma"
+  },
+  "unfetchableMessages": {
+    "title": "Messaggi non scaricati",
+    "description": "Il server elenca questi messaggi ma non è riuscito a consegnarli dopo vari tentativi, quindi mancano in locale. Melo li riproverà se il server tornerà a servirli. Aprire la casella nella webmail del provider e spostare o risalvare lì il messaggio spesso risolve il problema.",
+    "settingsDesc": "Messaggi che il server ha rifiutato di consegnare dopo vari tentativi. Ignorare una voce la rimuove dall'avviso di sincronizzazione nella sidebar; puoi ripristinarla qui in qualsiasi momento.",
+    "settingsHint": "Puoi gestire questi messaggi anche in seguito da Impostazioni → Account → Messaggi saltati.",
+    "empty": "Nessun messaggio saltato — tutto ciò che il server elenca è stato scaricato.",
+    "entryLine": "UID {uid} in {folder}",
+    "attemptsLine": "{count} tentativi di download falliti — ultimo il {date}",
+    "contextBetween": "Probabilmente tra “{prev}” ({prevDate}) e “{next}” ({nextDate})",
+    "contextAfter": "Probabilmente dopo “{prev}” ({prevDate})",
+    "contextBefore": "Probabilmente prima di “{next}” ({nextDate})",
+    "contextUnknown": "Nessun messaggio adiacente trovato in locale per stimarne la posizione",
+    "ignore": "Ignora",
+    "restore": "Ripristina",
+    "ignoredBadge": "Ignorato"
   }
 }

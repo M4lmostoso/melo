@@ -6,6 +6,7 @@ import { useUIStore } from "@/stores/uiStore";
 import { useActiveLabel } from "@/hooks/useRouteNavigation";
 import { ACCOUNT_COLOR_PRESETS } from "@/constants/accountColors";
 import { SidebarImapFolderTree } from "./SidebarImapFolderTree";
+import { UnfetchableMessagesModal } from "./UnfetchableMessagesModal";
 
 const ACCOUNT_FOLDERS: { id: string; label: string; labelId: string; icon: typeof Inbox }[] = [
   { id: "inbox", label: t("sidebar.nav.inbox"), labelId: "INBOX", icon: Inbox },
@@ -34,6 +35,7 @@ export function AccountSection({
 }: AccountSectionProps) {
   const [expanded, setExpanded] = useState(false);
   const [foldersExpanded, setFoldersExpanded] = useState(false);
+  const [showUnfetchable, setShowUnfetchable] = useState(false);
   const activeLabel = useActiveLabel();
   const color = account.color ?? DEFAULT_COLOR;
   const syncState = useUIStore((s) => s.accountSyncStatuses[account.id]);
@@ -110,8 +112,21 @@ export function AccountSection({
         )}
         {syncState?.phase !== "error" && unfetchableCount > 0 && (
           <span
+            role="button"
+            tabIndex={0}
             title={t("sidebar.account.unfetchableWarning", { count: unfetchableCount })}
-            className="shrink-0 flex items-center"
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowUnfetchable(true);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.stopPropagation();
+                e.preventDefault();
+                setShowUnfetchable(true);
+              }
+            }}
+            className="shrink-0 flex items-center cursor-pointer rounded hover:bg-sidebar-hover p-0.5 -m-0.5"
           >
             <AlertTriangle size={12} className="text-amber-500" />
           </span>
@@ -196,6 +211,12 @@ export function AccountSection({
           )}
         </div>
       </div>
+
+      <UnfetchableMessagesModal
+        accountId={account.id}
+        isOpen={showUnfetchable}
+        onClose={() => setShowUnfetchable(false)}
+      />
     </div>
   );
 }

@@ -27,6 +27,7 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { t } from "@/i18n";
 import { EditImapAccount } from "@/components/accounts/EditImapAccount";
 import { ImapIdleFoldersEditor } from "@/components/settings/ImapIdleFoldersEditor";
+import { UnfetchableMessagesList } from "@/components/settings/UnfetchableMessagesList";
 import { EditGmailAccount } from "@/components/accounts/EditGmailAccount";
 import { AddAccount } from "@/components/accounts/AddAccount";
 import {
@@ -533,6 +534,13 @@ export function AccountsTab() {
           />
         </SettingRow>
         <p className="text-xs text-text-tertiary">{t("settings.accounts.unfetchableRetriesDesc")}</p>
+      </Section>
+
+      <Section
+        title={t("settings.accounts.sections.skippedMessages")}
+        description={t("unfetchableMessages.settingsDesc")}
+      >
+        <UnfetchableMessagesList showAccount />
       </Section>
 
       <SyncOfflineSection />

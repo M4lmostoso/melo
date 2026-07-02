@@ -312,4 +312,11 @@ export const MIGRATIONS_IMAP = [
       DELETE FROM imap_unfetchable_uids;
     `,
   },
+  {
+    version: 69,
+    description: "Add ignored flag to imap_unfetchable_uids so the user can acknowledge a permanently-unfetchable message and exclude it from the sidebar sync warning (restorable from Settings)",
+    sql: `
+      ALTER TABLE imap_unfetchable_uids ADD COLUMN ignored INTEGER NOT NULL DEFAULT 0;
+    `,
+  },
 ];

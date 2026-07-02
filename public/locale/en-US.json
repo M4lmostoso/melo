@@ -1245,7 +1245,8 @@
         "sendAsAliases": "Send-As Aliases",
         "sync": "Sync",
         "syncPeriod": "Sync Period",
-        "syncOffline": "Offline Queue"
+        "syncOffline": "Offline Queue",
+        "skippedMessages": "Skipped messages"
       }
     },
     "calendar": {
@@ -1873,7 +1874,7 @@
     "collapseSidebar": "Collapse sidebar",
     "checkMail": "Check for new mail",
     "account": {
-      "unfetchableWarning": "{count} message(s) on the server couldn't be downloaded and are missing locally. The app will keep retrying.",
+      "unfetchableWarning": "{count} message(s) on the server couldn't be downloaded and are missing locally. Click for details.",
       "staleWarning": "This account hasn't synced in a while — it may be stuck. Check its connection or credentials."
     },
     "defaultSmartFolders": {
@@ -2349,5 +2350,21 @@
     "customDate": "Custom date",
     "time": "Time",
     "confirm": "Confirm"
+  },
+  "unfetchableMessages": {
+    "title": "Messages not downloaded",
+    "description": "The mail server lists these messages but repeatedly failed to deliver them, so they are missing locally. Melo will retry them if the server serves them again. Opening the mailbox in your provider's webmail and moving or re-saving the message there often fixes the problem.",
+    "settingsDesc": "Messages the server refused to deliver after several attempts. Ignoring an entry removes it from the sidebar sync warning; you can restore it here at any time.",
+    "settingsHint": "You can also manage these messages later from Settings → Accounts → Skipped messages.",
+    "empty": "No skipped messages — everything the server lists has been downloaded.",
+    "entryLine": "UID {uid} in {folder}",
+    "attemptsLine": "{count} failed download attempts — last on {date}",
+    "contextBetween": "Likely between “{prev}” ({prevDate}) and “{next}” ({nextDate})",
+    "contextAfter": "Likely after “{prev}” ({prevDate})",
+    "contextBefore": "Likely before “{next}” ({nextDate})",
+    "contextUnknown": "No neighboring messages found locally to estimate its position",
+    "ignore": "Ignore",
+    "restore": "Restore",
+    "ignoredBadge": "Ignored"
   }
 }

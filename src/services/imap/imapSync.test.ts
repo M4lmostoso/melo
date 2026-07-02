@@ -60,6 +60,7 @@ vi.mock("../db/unfetchableUids", () => ({
   recordDuplicateUids: vi.fn(async () => {}),
   clearUnfetchableUids: vi.fn(async () => {}),
   getUnfetchableCountForAccount: vi.fn(async () => 0),
+  getUnfetchableMaxRetries: vi.fn(async () => 3),
 }));
 vi.mock("../db/threads", () => ({
   upsertThread: vi.fn(),

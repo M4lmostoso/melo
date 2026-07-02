@@ -1254,6 +1254,22 @@ export const HELP_CATEGORIES: HelpCategory[] = [
         ],
       },
       {
+        id: "skipped-messages",
+        icon: AlertTriangle,
+        title: "Skipped messages warning",
+        summary: "See and manage messages the server won't deliver.",
+        description:
+          "Some IMAP servers occasionally list a message but repeatedly fail to deliver it — after a few attempts the app skips it and shows an amber warning triangle next to the account in the sidebar, so the gap is never silent. Click the triangle to see exactly which messages are missing: their folder, UID, failed attempts, and their likely position between neighboring messages so you can find them in your provider's webmail. If a message can't be fixed server-side, mark it as Ignored to remove it from the warning — it stays listed in Settings where you can restore it at any time.",
+        tips: [
+          { text: "Click the amber triangle next to an account to see the details." },
+          { text: "Ignore a message to exclude it from the warning count." },
+          { text: "Review, ignore, or restore all skipped messages in Settings > Accounts > Skipped messages." },
+          { text: "Opening the message in your provider's webmail and moving or re-saving it often fixes the problem." },
+          { text: "The retry limit before skipping is configurable in Settings > Accounts." },
+        ],
+        relatedSettingsTab: "accounts",
+      },
+      {
         id: "offline-mode",
         icon: WifiOff,
         title: "Offline mode",
