@@ -824,8 +824,11 @@ pub async fn imap_append_message(
 fn base64url_decode(input: &str) -> Result<Vec<u8>, String> {
     use base64::Engine;
     let engine = base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    // Some sources (e.g. Gmail's `raw` field) may include trailing `=` padding
+    // even though URL_SAFE_NO_PAD forbids it — strip it before decoding.
+    let trimmed = input.trim_end_matches('=');
     engine
-        .decode(input)
+        .decode(trimmed)
         .map_err(|e| format!("base64url decode failed: {e}"))
 }
 

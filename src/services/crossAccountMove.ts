@@ -5,6 +5,7 @@ import { addPendingLabelAssignments } from "./db/pendingLabelAssignments";
 import { buildImapConfig } from "./imap/imapConfigBuilder";
 import { imapFetchRawMessage, imapAppendMessage, imapDeleteMessages } from "./imap/tauriCommands";
 import { getGmailClient } from "./gmail/tokenManager";
+import { triggerSync } from "./gmail/syncManager";
 
 // Maps sidebar folder keys → Gmail label IDs to apply on insert
 const FOLDER_KEY_TO_GMAIL: Record<string, string[]> = {
@@ -85,7 +86,10 @@ async function resolveCarryOverTargetLabelIds(
  *   3. DELETE from source
  *
  * Supports IMAP→IMAP, Gmail→Gmail, and mixed combinations.
- * The local DB is cleaned up by the next background sync on both accounts.
+ * Once all messages are moved, an immediate sync is triggered for both accounts
+ * (rather than waiting for the next 60s background tick) so the moved messages
+ * land, get threaded, and settle into their final grouped state in one pass
+ * instead of flickering in as separate unread messages across sync cycles.
  */
 export async function crossAccountMoveThreads(
   sourceAccountId: string,
@@ -174,4 +178,13 @@ export async function crossAccountMoveThreads(
       [sourceAccountId, threadId],
     );
   }
+
+  // Kick off an immediate sync of both accounts in the background (not awaited,
+  // so the UI can remove the source thread right away) so the moved messages
+  // are fetched, threaded, and grouped into their final thread in one coalesced
+  // pass — instead of straddling one or more separate 60s background ticks and
+  // briefly appearing as loose unread messages before compacting.
+  triggerSync([sourceAccountId, targetAccountId]).catch((err) => {
+    console.error("Post-move sync failed:", err);
+  });
 }
