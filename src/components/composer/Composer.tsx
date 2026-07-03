@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { getPreSendWarnings, type PreSendWarning } from "@/services/composer/preSendCheck";
+import { findUnusualAccountForNewMessage, type UnusualAccountWarning } from "@/services/composer/unusualAccountCheck";
 import { AddressInput, type AddressInputHandle } from "./AddressInput";
 import { EditorToolbar } from "./EditorToolbar";
 import { AiAssistPanel } from "./AiAssistPanel";
@@ -173,6 +174,7 @@ export function Composer() {
   const [showSchedule, setShowSchedule] = useState(false);
   const [showCloseDialog, setShowCloseDialog] = useState(false);
   const [preSendWarnings, setPreSendWarnings] = useState<PreSendWarning[]>([]);
+  const [unusualAccountWarning, setUnusualAccountWarning] = useState<UnusualAccountWarning | null>(null);
   const pendingSendRef = useRef<(() => void) | null>(null);
   const [pendingScheduledAt, setPendingScheduledAt] = useState<number | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -713,37 +715,47 @@ const getFullHtml = useCallback(() => {
   }, []);
 
   // Gate a send behind a confirmation when the message looks incomplete
-  // (no subject, or "attachment" mentioned in the body but nothing attached).
-  // Only the user-typed body is inspected — quoted replies are excluded — so an
-  // old "attached" quote never triggers a false warning. If nothing's amiss the
-  // action runs immediately.
+  // (no subject, or "attachment" mentioned in the body but nothing attached),
+  // or — for brand-new messages only — when the sending account looks like a
+  // mistake (findUnusualAccountForNewMessage). Only the user-typed body is
+  // inspected for the attachment hint — quoted replies are excluded — so an
+  // old "attached" quote never triggers a false warning. If nothing's amiss
+  // the action runs immediately.
   const guardedSend = useCallback(
-    (action: () => void) => {
+    async (action: () => void) => {
       const state = useComposerStore.getState();
       const warnings = getPreSendWarnings({
         subject: state.subject,
         attachmentCount: state.attachments.length,
         bodyText: editor?.getText() ?? "",
       });
-      if (warnings.length > 0) {
+      const unusual = await findUnusualAccountForNewMessage({
+        mode: state.mode,
+        to: state.to,
+        currentAccountId: effectiveAccountId,
+      });
+      if (warnings.length > 0 || unusual) {
         pendingSendRef.current = action;
         setPreSendWarnings(warnings);
+        setUnusualAccountWarning(unusual);
         return;
       }
       action();
     },
-    [editor],
+    [editor, effectiveAccountId],
   );
 
   const dismissPreSendWarning = useCallback(() => {
     pendingSendRef.current = null;
     setPreSendWarnings([]);
+    setUnusualAccountWarning(null);
   }, []);
 
   const confirmPreSendWarning = useCallback(() => {
     const action = pendingSendRef.current;
     pendingSendRef.current = null;
     setPreSendWarnings([]);
+    setUnusualAccountWarning(null);
     action?.();
   }, []);
 
@@ -1163,7 +1175,7 @@ const getFullHtml = useCallback(() => {
           <div className="flex flex-col items-end gap-1">
             <div className="flex items-center">
               <button
-                onClick={() => guardedSend(pendingScheduledAt ? handleConfirmSchedule : handleSend)}
+                onClick={() => void guardedSend(pendingScheduledAt ? handleConfirmSchedule : handleSend)}
                 disabled={to.length === 0 || isSending}
                 className="px-4 py-1.5 text-xs font-medium text-white bg-accent hover:bg-accent-hover rounded-l-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
@@ -1190,7 +1202,7 @@ const getFullHtml = useCallback(() => {
       )}
 
       <ConfirmDialog
-        isOpen={preSendWarnings.length > 0}
+        isOpen={preSendWarnings.length > 0 || unusualAccountWarning !== null}
         onClose={dismissPreSendWarning}
         onConfirm={confirmPreSendWarning}
         title={t("composer.preSend.title")}
@@ -1199,10 +1211,23 @@ const getFullHtml = useCallback(() => {
             {preSendWarnings.map((w) => (
               <li key={w}>{t(`composer.preSend.${w}`)}</li>
             ))}
+            {unusualAccountWarning && (
+              <li key="unusualAccount">
+                {t("composer.preSend.unusualAccount", {
+                  domain: unusualAccountWarning.domain,
+                  account:
+                    accounts.find((a) => a.id === unusualAccountWarning.usualAccountId)?.label ??
+                    accounts.find((a) => a.id === unusualAccountWarning.usualAccountId)?.displayName ??
+                    accounts.find((a) => a.id === unusualAccountWarning.usualAccountId)?.email ??
+                    "",
+                })}
+              </li>
+            )}
           </ul>
         }
         confirmLabel={t("composer.preSend.sendAnyway")}
         cancelLabel={t("composer.preSend.goBack")}
+        variant={unusualAccountWarning ? "danger" : "primary"}
       />
 
       <Modal

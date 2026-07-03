@@ -855,6 +855,7 @@
       "title": "Prima di inviare",
       "subject": "Questo messaggio non ha oggetto.",
       "attachment": "Il messaggio cita un allegato, ma non hai allegato nulla.",
+      "unusualAccount": "Di solito scrivi a {domain} dall'account {account}. Vuoi comunque inviare da questo account?",
       "sendAnyway": "Invia comunque",
       "goBack": "Torna indietro"
     },

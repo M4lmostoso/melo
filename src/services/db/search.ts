@@ -140,6 +140,53 @@ export async function searchSentRecipients(
     .map(([address, { name, count }]) => ({ address, name, message_count: count }));
 }
 
+export interface DomainAccountHistory {
+  account_id: string;
+  count: number;
+}
+
+/**
+ * For each SENT message addressed to `domain` (matched as the exact domain
+ * after '@', not a substring), count how many were sent from each account.
+ * Used to detect an "unusual sender account" for brand-new compose messages —
+ * see services/composer/unusualAccountCheck.ts.
+ */
+export async function getSentAccountIdsForDomain(
+  domain: string,
+  limit = 500,
+): Promise<DomainAccountHistory[]> {
+  const db = await getDb();
+  const d = domain.toLowerCase();
+
+  const rows = await db.select<Array<{ account_id: string; to_addresses: string }>>(
+    `SELECT m.account_id, m.to_addresses
+     FROM messages m
+     JOIN thread_labels tl
+       ON tl.account_id = m.account_id
+      AND tl.thread_id  = m.thread_id
+      AND tl.label_id   = 'SENT'
+     WHERE m.to_addresses IS NOT NULL
+       AND m.to_addresses != ''
+       AND LOWER(m.to_addresses) LIKE '%' || $1 || '%'
+     ORDER BY m.date DESC
+     LIMIT $2`,
+    [d, limit],
+  );
+
+  const emailRegex = /[\w.+'-]+@([\w.-]+\.[a-z]{2,})/gi;
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    const matches = [...row.to_addresses.matchAll(emailRegex)];
+    const hasDomain = matches.some((m) => m[1]?.toLowerCase() === d);
+    if (!hasDomain) continue;
+    counts.set(row.account_id, (counts.get(row.account_id) ?? 0) + 1);
+  }
+
+  return [...counts.entries()]
+    .map(([account_id, count]) => ({ account_id, count }))
+    .sort((a, b) => b.count - a.count);
+}
+
 export interface SearchResult {
   message_id: string;
   account_id: string;

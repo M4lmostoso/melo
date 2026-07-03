@@ -855,6 +855,7 @@
       "title": "Before you send",
       "subject": "This message has no subject.",
       "attachment": "Your message mentions an attachment, but nothing is attached.",
+      "unusualAccount": "You usually email {domain} from {account}. Continue sending from this account anyway?",
       "sendAnyway": "Send anyway",
       "goBack": "Go back"
     },
