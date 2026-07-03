@@ -4,6 +4,23 @@
 
 ---
 
+## [0.1.3](https://github.com/M4lmostoso/melo/compare/v0.1.2...v0.1.3) (2026-07-03)
+
+
+### Features
+
+* add deep-link thread fetching and implement robust reply-all recipient parsing ([c6e35e6](https://github.com/M4lmostoso/melo/commit/c6e35e6bf835645006acc3724007b7cf0d067770))
+* add pre-send warning when sending to a domain from an unusual account ([472f88a](https://github.com/M4lmostoso/melo/commit/472f88a11abdda50f25a38985d670e6d9c746408))
+* implement robust SMTP timeouts, atomic DB batch operations, and OAuth re-authentication monitoring with improved error recovery. ([a0dd2fd](https://github.com/M4lmostoso/melo/commit/a0dd2fda21f2e08c06fb9d82faf973ca14536d6c))
+* implement skipped message management with sidebar warnings, configuration, and a UI for ignoring or restoring unfetchable UIDs ([b7a2329](https://github.com/M4lmostoso/melo/commit/b7a2329536d27af0d8900b0a23c2dde0ec940fd6))
+
+
+### Bug Fixes
+
+* navigate back when the last viewed thread is removed to prevent stale state ([f58c66e](https://github.com/M4lmostoso/melo/commit/f58c66e4418fa8da4d657e25b7d24eb8e9059c2e))
+* render ContextMenu via portal to fix positioning and resolve thread read-state logic to correctly handle trashed messages ([4c11166](https://github.com/M4lmostoso/melo/commit/4c11166733871ebfc53c0768d6f3b4dc652c72ab))
+* strip base64 padding in decoder and trigger immediate sync after cross-account moves ([a65b57a](https://github.com/M4lmostoso/melo/commit/a65b57ab69d6947c62158269147da181d90a6e4c))
+
 ## [0.1.2](https://github.com/M4lmostoso/melo/compare/v0.1.1...v0.1.2) (2026-07-01)
 
 
