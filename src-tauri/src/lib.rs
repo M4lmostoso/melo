@@ -448,6 +448,10 @@ pub fn run() {
             commands::gmail_store_thread,
             commands::smtp_send_email,
             commands::smtp_test_connection,
+            commands::db_execute_transaction,
+            commands::keychain_get_secret,
+            commands::keychain_set_secret,
+            commands::keychain_delete_secret,
             vector_search::store_embedding,
             vector_search::ask_inbox_rust,
         ])

@@ -7,17 +7,50 @@ import {
   incrementRetry,
   getPendingOpsCount,
   compactQueue,
+  promoteExpiredUndoOperations,
 } from "../db/pendingOperations";
 import { executeQueuedAction } from "../emailActions";
 import { classifyError } from "@/utils/networkErrors";
+import { t } from "@/i18n";
 
 const BATCH_SIZE = 50;
 
 let checker: BackgroundChecker | null = null;
 
+/**
+ * Actively notify the user that an operation will never be retried again.
+ * Without this the only trace of e.g. a permanently failed send is the passive
+ * Outgoing badge — a user who saw "will be retried automatically" would keep
+ * believing the email went out.
+ */
+function notifyOperationFailed(operationType: string, errorMessage?: string): void {
+  const isSend = operationType === "sendMessage";
+  import("@tauri-apps/plugin-notification")
+    .then(({ sendNotification }) => {
+      sendNotification({
+        title: isSend ? t("outgoing.sendFailedTitle") : t("outgoing.opFailedTitle"),
+        body: isSend
+          ? errorMessage
+            ? t("outgoing.sendFailedBodyWithError", { error: errorMessage })
+            : t("outgoing.sendFailedBody")
+          : t("outgoing.opFailedBody", { operation: operationType }),
+      });
+    })
+    .catch(() => {});
+  if (isSend) {
+    import("../soundService").then(({ playSound }) => void playSound("send_error")).catch(() => {});
+  }
+  window.dispatchEvent(new Event("melo-sync-done"));
+}
+
 async function processQueue(): Promise<void> {
   // Skip if offline
   if (!useUIStore.getState().isOnline) return;
+
+  // Promote undo-window sends whose composer died before the timer fired.
+  // Normally a no-op: the live composer claims its row (CAS) well before the
+  // deadline+grace stored in next_retry_at.
+  await promoteExpiredUndoOperations();
 
   // Compact first to eliminate redundant ops
   await compactQueue();
@@ -46,10 +79,18 @@ async function processQueue(): Promise<void> {
       if (classified.isRetryable) {
         // Increment retry with exponential backoff
         await updateOperationStatus(op.id, "pending", classified.message);
-        await incrementRetry(op.id);
+        const outcome = await incrementRetry(op.id);
+        if (outcome === "failed") notifyOperationFailed(op.operation_type, classified.message);
+        if (classified.type === "network") {
+          // "Online" but network calls fail → probe for captive portal / dead link.
+          import("../connectivityMonitor")
+            .then(({ reportNetworkFailure }) => reportNetworkFailure())
+            .catch(() => {});
+        }
       } else {
         // Permanent failure
         await updateOperationStatus(op.id, "failed", classified.message);
+        notifyOperationFailed(op.operation_type, classified.message);
       }
     }
   }

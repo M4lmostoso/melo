@@ -13,12 +13,20 @@ export function createBackgroundChecker(
   intervalMs: number = 60_000,
 ): BackgroundChecker {
   let interval: ReturnType<typeof setInterval> | null = null;
+  let running = false;
 
   const run = async () => {
+    // setInterval keeps firing while a slow checkFn is still in flight (large
+    // attachment upload, wedged network call). Overlapping runs would double-execute
+    // work — skip the tick instead; the next one picks up where this left off.
+    if (running) return;
+    running = true;
     try {
       await checkFn();
     } catch (err) {
       console.error(`[${name}] check failed:`, err);
+    } finally {
+      running = false;
     }
   };
 

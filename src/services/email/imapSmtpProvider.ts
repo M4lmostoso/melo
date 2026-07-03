@@ -822,9 +822,93 @@ export class ImapSmtpProvider implements EmailProvider {
         "[IMAP] Failed to copy sent message to Sent folder on server:",
         err,
       );
+      // The email WAS delivered via SMTP — never leave the user staring at an empty
+      // Sent folder (they'd re-send, duplicating the delivery). Save a placeholder
+      // row now and queue an appendToSent retry that reconciles it with the real
+      // server UID once the APPEND finally goes through.
+      try {
+        await this.saveSentMessageLocally(rawBase64Url, messageId, _threadId);
+      } catch (saveErr) {
+        console.error("[IMAP] Failed to save placeholder sent message:", saveErr);
+      }
+      try {
+        const { enqueuePendingOperation } = await import("../db/pendingOperations");
+        await enqueuePendingOperation(this.accountId, "appendToSent", _threadId ?? messageId, {
+          rawBase64Url,
+          threadId: _threadId,
+          localMessageId: messageId,
+        });
+      } catch (queueErr) {
+        console.error("[IMAP] Failed to queue appendToSent retry:", queueErr);
+      }
     }
 
     return { id: messageId };
+  }
+
+  /**
+   * Retry the copy-to-Sent APPEND for an already-delivered message (queued when the
+   * APPEND failed during sendMessage). Rewires the placeholder local row to the real
+   * server UID so the next delta sync upserts onto the same ID instead of duplicating.
+   */
+  async appendToSent(
+    rawBase64Url: string,
+    _threadId?: string,
+    localMessageId?: string,
+  ): Promise<{ id: string }> {
+    const sentFolder = (await findSpecialFolder(this.accountId, "\\Sent")) ?? "Sent";
+    const db = await getDb();
+
+    // If the original APPEND actually landed server-side (we only saw a client error),
+    // delta sync has since imported the real row. Drop the placeholder and do NOT
+    // append again — that would put a duplicate copy in the server Sent folder.
+    const raw = base64UrlDecode(rawBase64Url);
+    const rfcIdMatch = raw.match(/^message-id:\s*<?([^>\r\n]+)>?/im);
+    const rfcId = rfcIdMatch?.[1]?.trim() ?? null;
+    if (rfcId && localMessageId) {
+      const existing = await db.select<{ id: string }[]>(
+        `SELECT id FROM messages
+         WHERE account_id = $1 AND message_id_header = $2 AND imap_folder = $3 AND id != $4
+         LIMIT 1`,
+        [this.accountId, rfcId, sentFolder, localMessageId],
+      );
+      if (existing.length > 0) {
+        await db.execute(`DELETE FROM messages WHERE account_id = $1 AND id = $2`, [
+          this.accountId,
+          localMessageId,
+        ]);
+        return { id: existing[0]!.id };
+      }
+    }
+
+    const imapConfig = await this.getImapConfig();
+    const uid = await imapAppendMessage(imapConfig, sentFolder, rawBase64Url, "(\\Seen)");
+    if (uid > 0 && localMessageId) {
+      const realId = `imap-${this.accountId}-${sentFolder}-${uid}`;
+      try {
+        await db.execute(
+          `UPDATE messages SET id = $1, imap_folder = $2, imap_uid = $3
+           WHERE account_id = $4 AND id = $5`,
+          [realId, sentFolder, uid, this.accountId, localMessageId],
+        );
+        await db.execute(
+          `UPDATE attachments SET message_id = $1 WHERE account_id = $2 AND message_id = $3`,
+          [realId, this.accountId, localMessageId],
+        );
+      } catch {
+        // PK collision: delta sync imported the real row concurrently — placeholder
+        // is now redundant.
+        await db.execute(`DELETE FROM messages WHERE account_id = $1 AND id = $2`, [
+          this.accountId,
+          localMessageId,
+        ]);
+      }
+      import("../db/messages").then(({ purgeImapDuplicates }) =>
+        purgeImapDuplicates(this.accountId).catch(() => {}),
+      );
+      return { id: realId };
+    }
+    return { id: localMessageId ?? `imap-${this.accountId}-sent-${Date.now()}` };
   }
 
   /**

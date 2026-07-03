@@ -1,10 +1,11 @@
 import { useEffect, useState, useCallback } from "react";
-import { Clock, Trash2, Paperclip } from "lucide-react";
+import { Clock, Trash2, Paperclip, AlertCircle, RotateCcw } from "lucide-react";
 import {
   getScheduledEmailsByAccounts,
   getScheduledEmailsForAccount,
   updateScheduledEmailStatus,
   updateScheduledTime,
+  retryScheduledEmail,
   type DbScheduledEmail,
 } from "@/services/db/scheduledEmails";
 import { useAccountStore, type Account } from "@/stores/accountStore";
@@ -56,6 +57,7 @@ function ScheduledItem({
   isSelected,
   onClick,
   onCancelQuick,
+  onRetry,
   onContextMenu,
 }: {
   email: DbScheduledEmail;
@@ -63,6 +65,7 @@ function ScheduledItem({
   isSelected: boolean;
   onClick: () => void;
   onCancelQuick: (e: React.MouseEvent) => void;
+  onRetry: (e: React.MouseEvent) => void;
   onContextMenu: (e: React.MouseEvent, email: DbScheduledEmail) => void;
 }) {
   const emailDensity = useUIStore((s) => s.emailDensity);
@@ -113,15 +116,37 @@ function ScheduledItem({
           </span>
         </div>
         <div className="flex items-center gap-1.5 mt-1">
-          <Clock size={11} className="text-accent shrink-0" />
-          <span className="text-xs text-accent">
-            {formatScheduledAt(email.scheduled_at)}
-          </span>
+          {email.status === "failed" ? (
+            <>
+              <AlertCircle size={11} className="text-danger shrink-0" />
+              <span className="text-xs text-danger">
+                {t("layout.scheduledPanel.sendFailed")}
+              </span>
+            </>
+          ) : (
+            <>
+              <Clock size={11} className="text-accent shrink-0" />
+              <span className="text-xs text-accent">
+                {formatScheduledAt(email.scheduled_at)}
+              </span>
+            </>
+          )}
           {email.attachment_paths && (
             <Paperclip size={11} className="text-text-tertiary shrink-0" />
           )}
         </div>
       </div>
+
+      {/* Retry button (failed sends only) */}
+      {email.status === "failed" && (
+        <button
+          onClick={onRetry}
+          className="p-1.5 rounded hover:bg-accent/10 text-text-tertiary hover:text-accent transition-colors shrink-0"
+          title={t("emailList.outgoingQueue.retryNow")}
+        >
+          <RotateCcw size={14} />
+        </button>
+      )}
 
       {/* Delete button */}
       <button
@@ -188,6 +213,14 @@ export function ScheduledEmailListView({ accountId }: ScheduledEmailListViewProp
     await updateScheduledEmailStatus(id, "cancelled");
     setEmails((prev) => prev.filter((em) => em.id !== id));
     if (selectedScheduledEmail?.id === id) setSelectedScheduledEmail(null);
+    refreshScheduledCounts(accounts.map((a) => a.id)).catch(console.error);
+  };
+
+  const handleRetry = async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    await retryScheduledEmail(id);
+    const now = Math.floor(Date.now() / 1000);
+    setEmails((prev) => prev.map((em) => (em.id === id ? { ...em, status: "pending", scheduled_at: now } : em)));
     refreshScheduledCounts(accounts.map((a) => a.id)).catch(console.error);
   };
 
@@ -285,6 +318,7 @@ export function ScheduledEmailListView({ accountId }: ScheduledEmailListViewProp
             isSelected={selectedScheduledEmail?.id === email.id}
             onClick={() => setSelectedScheduledEmail(email)}
             onCancelQuick={(e) => handleCancelQuick(e, email.id)}
+            onRetry={(e) => handleRetry(e, email.id)}
             onContextMenu={handleContextMenu}
           />
         ))}

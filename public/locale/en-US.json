@@ -816,7 +816,8 @@
     "attachmentPicker": {
       "attachFiles": "Attach files",
       "attach": "Attach",
-      "total": "total"
+      "total": "total",
+      "tooLarge": "Not attached (over the {limit} limit): {files}"
     },
     "addressInput": {
       "addRecipients": "Add recipients..."
@@ -1162,7 +1163,9 @@
       "vipSendersDesc": "These senders always trigger notifications regardless of category",
       "removeVip": "Remove",
       "vipEmailPlaceholder": "email@example.com",
-      "addVip": "Add"
+      "addVip": "Add",
+      "osPermissionDeniedTitle": "System notifications are blocked",
+      "osPermissionDeniedBody": "Notifications are enabled in Melo, but the OS is blocking them. Allow Melo in System Settings → Notifications."
     },
     "composing": {
       "sections": {
@@ -1860,7 +1863,8 @@
       "tomorrowAfternoon": "Tomorrow afternoon",
       "mondayMorning": "Monday morning",
       "todayAt": "Today at {time}",
-      "tomorrowAt": "Tomorrow at {time}"
+      "tomorrowAt": "Tomorrow at {time}",
+      "sendFailed": "Send failed — won't retry automatically"
     }
   },
   "sidebar": {
@@ -2366,5 +2370,35 @@
     "ignore": "Ignore",
     "restore": "Restore",
     "ignoredBadge": "Ignored"
+  },
+  "outgoing": {
+    "sendFailedTitle": "Send failed",
+    "sendFailedBody": "Could not send email. It's kept in Outgoing — check your SMTP settings.",
+    "sendFailedBodyWithError": "Could not send email: {error}. It's kept in Outgoing.",
+    "queuedTitle": "Send queued",
+    "queuedBody": "Could not reach the server. The email is kept in Outgoing and will be retried automatically — you'll be notified if it still can't be sent.",
+    "interruptedTitle": "Send interrupted",
+    "interruptedBody": "The app closed during a send. The email is kept in Outgoing — check your Sent folder, then retry it.",
+    "opFailedTitle": "Action could not be completed",
+    "opFailedBody": "A pending \"{operation}\" operation failed permanently. Check Outgoing in the sidebar.",
+    "scheduledFailedTitle": "Scheduled email not sent",
+    "scheduledFailedBody": "\"{subject}\" could not be sent. It's kept in Scheduled — retry it from there."
+  },
+  "notifications": {
+    "syncCatchUp": "{count} new emails arrived while sync was catching up"
+  },
+  "account": {
+    "reauthBannerTitle": "Account needs re-authorization",
+    "reauthBannerDesc": "Google rejected the saved credentials for {email}. Mail sync is paused until you sign in again.",
+    "reauthButton": "Re-authorize",
+    "reauthWaiting": "Waiting for Google…"
+  },
+  "errors": {
+    "migrationFailedTitle": "Database update failed",
+    "migrationFailedBody": "Melo could not update its local database to the latest version. To protect your data, the app won't start until this is resolved. Retrying often fixes transient problems.",
+    "migrationCopyDetails": "Copy details",
+    "migrationCopied": "Copied",
+    "migrationRetry": "Retry",
+    "migrationBackupHint": "Your emails on the server are safe. If the problem persists, back up the melo.db file in the app data folder before reinstalling."
   }
 }

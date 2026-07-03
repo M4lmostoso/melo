@@ -29,6 +29,8 @@ export interface ComposerState {
   localDraftId: string | null; // Stable UUID for the lifetime of one composer session (IMAP two-tier save)
   undoSendTimer: ReturnType<typeof setTimeout> | null;
   undoSendVisible: boolean;
+  /** pending_operations row (status 'undo') persisting the outgoing email during the undo window. */
+  undoSendOpId: string | null;
   attachments: ComposerAttachment[];
   /** Local DB message ID of the message being forwarded — used to lazy-fetch its attachments inside the composer window. */
   forwardSourceMessageId: string | null;
@@ -71,6 +73,7 @@ export interface ComposerState {
   setLocalDraftId: (id: string | null) => void;
   setUndoSendTimer: (timer: ReturnType<typeof setTimeout> | null) => void;
   setUndoSendVisible: (visible: boolean) => void;
+  setUndoSendOpId: (id: string | null) => void;
   addAttachment: (attachment: ComposerAttachment) => void;
   removeAttachment: (id: string) => void;
   clearAttachments: () => void;
@@ -104,6 +107,7 @@ export const useComposerStore = create<ComposerState>()((set) => ({
   localDraftId: null,
   undoSendTimer: null,
   undoSendVisible: false,
+  undoSendOpId: null,
   attachments: [],
   forwardSourceMessageId: null,
   viewMode: "modal",
@@ -143,6 +147,7 @@ openComposer: (opts) => {
         localDraftId: crypto.randomUUID(),
         undoSendTimer: null,
         undoSendVisible: false,
+        undoSendOpId: null,
         // Thread window uses modal (no drag region / pt-7), compose window uses fullpage
         viewMode: isFullComposerWindow && !isTest ? "fullpage" : "modal",
         fromEmail: null,
@@ -229,6 +234,7 @@ openComposer: (opts) => {
       localDraftId: null,
       undoSendTimer: null,
       undoSendVisible: false,
+      undoSendOpId: null,
       viewMode: "modal",
       fromEmail: null,
       composerAccountId: null,
@@ -251,6 +257,7 @@ openComposer: (opts) => {
   setLocalDraftId: (localDraftId) => set({ localDraftId }),
   setUndoSendTimer: (undoSendTimer) => set({ undoSendTimer }),
   setUndoSendVisible: (undoSendVisible) => set({ undoSendVisible }),
+  setUndoSendOpId: (undoSendOpId) => set({ undoSendOpId }),
   addAttachment: (attachment) =>
     set((state) => ({ attachments: [...state.attachments, attachment] })),
   removeAttachment: (id) =>

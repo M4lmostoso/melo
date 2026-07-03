@@ -97,6 +97,46 @@ export async function withTransaction(fn: (db: Database) => Promise<void>): Prom
   }
 }
 
+export interface AtomicStatement {
+  /** SQL with `?1`-style positional placeholders (NOT the plugin's `$1` style). */
+  sql: string;
+  params?: unknown[];
+}
+
+/**
+ * Execute a batch of statements inside ONE real SQLite transaction, via the
+ * Rust `db_execute_transaction` command (rusqlite). Unlike withTransaction —
+ * which only serializes at the JS level and commits each statement
+ * individually — this is genuinely atomic: a crash or error mid-batch rolls
+ * everything back. Use for multi-table writes where partial state = corruption
+ * (e.g. the sync reconciliation deletes). Serialized through txQueue so it
+ * never interleaves with withTransaction writers.
+ */
+export async function executeAtomicBatch(statements: AtomicStatement[]): Promise<number> {
+  if (statements.length === 0) return 0;
+
+  const prev = txQueue;
+  let release!: () => void;
+  txQueue = new Promise<void>((r) => {
+    release = r;
+  });
+  try {
+    await prev;
+  } catch {
+    // ignore previous task failures
+  }
+
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const affected = await invoke<number>("db_execute_transaction", {
+      statements: statements.map((s) => ({ sql: s.sql, params: s.params ?? [] })),
+    });
+    return affected;
+  } finally {
+    release();
+  }
+}
+
 /**
  * Execute a SELECT query and return the first result or null.
  */

@@ -50,7 +50,7 @@ import {
 } from "../db/unfetchableUids";
 import { getVipSenders } from "../db/notificationVips";
 import { getThreadCategory } from "../db/threadCategories";
-import { shouldNotifyForMessage, queueNewEmailNotification } from "../notifications/notificationManager";
+import { shouldNotifyForMessage, queueNewEmailNotification, logNotificationSuppressed } from "../notifications/notificationManager";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -650,12 +650,14 @@ async function reconcileDeletedMessages(
   console.log(`[imapSync] Reconciliation: removing ${orphans.length} message(s) deleted externally in ${folderPath}`);
 
   const orphanIds = orphans.map((o) => o.id);
-  const { getDb } = await import("../db/connection");
+  const { getDb, executeAtomicBatch } = await import("../db/connection");
   const db = await getDb();
 
-  // Batch all deletes — 6 IPC calls total regardless of orphan count (was 4-5 × N)
-  // Chunk to stay under SQLite's 999-variable limit
-  const CHUNK = 500;
+  // Each chunk's deletes across message_embeddings/messages/thread_labels/threads
+  // run inside ONE real SQLite transaction (Rust-side): a crash mid-chunk can no
+  // longer leave orphaned thread rows or stale counts. Chunked to stay under
+  // SQLite's 999-variable limit (chunk + affected-thread ids share one query).
+  const CHUNK = 400;
   for (let i = 0; i < orphanIds.length; i += CHUNK) {
     const chunk = orphanIds.slice(i, i + CHUNK);
     const ph = chunk.map((_, j) => `$${j + 2}`).join(",");
@@ -667,54 +669,63 @@ async function reconcileDeletedMessages(
     );
     const affectedThreadIds = threadRows.map((r) => r.thread_id);
 
-    await db.execute(
-      `DELETE FROM message_embeddings WHERE account_id = $1 AND message_id IN (${ph})`,
-      [accountId, ...chunk],
-    );
-    await db.execute(
-      `DELETE FROM messages WHERE account_id = $1 AND id IN (${ph})`,
-      [accountId, ...chunk],
-    );
-
-    // Delete thread_labels + threads where no messages remain; recalculate
-    // message_count for threads that still have messages so the badge stays accurate.
+    // Compute which affected threads survive the deletion BEFORE running it, so
+    // the whole write set can be a single atomic batch.
+    let emptyThreadIds: string[] = [];
+    let survivingIds: string[] = [];
     if (affectedThreadIds.length > 0) {
       const tph = affectedThreadIds.map((_, j) => `$${j + 2}`).join(",");
+      const mph = chunk.map((_, j) => `$${j + 2 + affectedThreadIds.length}`).join(",");
       const surviving = await db.select<{ thread_id: string }[]>(
-        `SELECT DISTINCT thread_id FROM messages WHERE account_id = $1 AND thread_id IN (${tph})`,
-        [accountId, ...affectedThreadIds],
+        `SELECT DISTINCT thread_id FROM messages
+         WHERE account_id = $1 AND thread_id IN (${tph}) AND id NOT IN (${mph})`,
+        [accountId, ...affectedThreadIds, ...chunk],
       );
       const survivingSet = new Set(surviving.map((r) => r.thread_id));
-      const emptyThreadIds = affectedThreadIds.filter((id) => !survivingSet.has(id));
-
-      if (emptyThreadIds.length > 0) {
-        const eph = emptyThreadIds.map((_, j) => `$${j + 2}`).join(",");
-        await db.execute(
-          `DELETE FROM thread_labels WHERE account_id = $1 AND thread_id IN (${eph})`,
-          [accountId, ...emptyThreadIds],
-        );
-        await db.execute(
-          `DELETE FROM threads WHERE account_id = $1 AND id IN (${eph})`,
-          [accountId, ...emptyThreadIds],
-        );
-      }
-
-      // Update message_count for surviving threads — stale count causes wrong badge
-      const survivingIds = affectedThreadIds.filter((id) => survivingSet.has(id));
-      if (survivingIds.length > 0) {
-        const sph = survivingIds.map((_, j) => `$${j + 2}`).join(",");
-        await db.execute(
-          `UPDATE threads
-           SET message_count = (
-             SELECT COUNT(*) FROM messages
-             WHERE account_id = threads.account_id AND thread_id = threads.id
-               AND is_draft = 0 AND is_trashed = 0
-           )
-           WHERE account_id = $1 AND id IN (${sph})`,
-          [accountId, ...survivingIds],
-        );
-      }
+      emptyThreadIds = affectedThreadIds.filter((id) => !survivingSet.has(id));
+      survivingIds = affectedThreadIds.filter((id) => survivingSet.has(id));
     }
+
+    // ?N-style placeholders — executeAtomicBatch goes through rusqlite, not the plugin.
+    const qph = chunk.map((_, j) => `?${j + 2}`).join(",");
+    const statements = [
+      {
+        sql: `DELETE FROM message_embeddings WHERE account_id = ?1 AND message_id IN (${qph})`,
+        params: [accountId, ...chunk],
+      },
+      {
+        sql: `DELETE FROM messages WHERE account_id = ?1 AND id IN (${qph})`,
+        params: [accountId, ...chunk],
+      },
+    ];
+    if (emptyThreadIds.length > 0) {
+      const eph = emptyThreadIds.map((_, j) => `?${j + 2}`).join(",");
+      statements.push(
+        {
+          sql: `DELETE FROM thread_labels WHERE account_id = ?1 AND thread_id IN (${eph})`,
+          params: [accountId, ...emptyThreadIds],
+        },
+        {
+          sql: `DELETE FROM threads WHERE account_id = ?1 AND id IN (${eph})`,
+          params: [accountId, ...emptyThreadIds],
+        },
+      );
+    }
+    if (survivingIds.length > 0) {
+      // Recalculate message_count inside the same transaction (post-delete view).
+      const sph = survivingIds.map((_, j) => `?${j + 2}`).join(",");
+      statements.push({
+        sql: `UPDATE threads
+              SET message_count = (
+                SELECT COUNT(*) FROM messages
+                WHERE account_id = threads.account_id AND thread_id = threads.id
+                  AND is_draft = 0 AND is_trashed = 0
+              )
+              WHERE account_id = ?1 AND id IN (${sph})`,
+        params: [accountId, ...survivingIds],
+      });
+    }
+    await executeAtomicBatch(statements);
   }
 }
 
@@ -1560,14 +1571,37 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
     ((await getSetting("notify_categories")) ?? "Primary").split(",").map((s) => s.trim()).filter(Boolean),
   );
   const vipSenders = smartNotifications ? await getVipSenders(accountId) : new Set<string>();
+  // Muted threads must not notify — mirrors the Gmail sync path (sync.ts).
+  const { getMutedThreadIds } = await import("../db/threads");
+  const mutedThreadIds = await getMutedThreadIds(accountId).catch(() => new Set<string>());
+
+  // Threads skipped because of a pending local op never reach the notify loop —
+  // leave a diagnostic trace so a "missing notification" report is explainable.
+  if (skipThreadIds.size > 0) {
+    logNotificationSuppressed(
+      "threads with pending local ops excluded from sync updates",
+      `count=${skipThreadIds.size}`,
+    );
+  }
 
   // urgencyQueue[i] corresponds to updates[i] — zip them for notification purposes
   for (let i = 0; i < updates.length; i++) {
     const update = updates[i]!;
     const uq = urgencyQueue[i]!;
-    if (!update.label_ids.includes("INBOX") || update.is_read) continue;
+    if (!update.label_ids.includes("INBOX")) continue;
+    if (update.is_read) {
+      // A new-but-already-read INBOX arrival is the interesting anomaly here
+      // (server-side filter, another client, or a \Seen delivery).
+      logNotificationSuppressed("delivered already read", `thread=${update.thread_id} subject=${update.subject ?? ""}`);
+      continue;
+    }
+    if (mutedThreadIds.has(update.thread_id)) {
+      logNotificationSuppressed("muted thread", `thread=${update.thread_id}`);
+      continue;
+    }
     const fromAddr = uq.fromAddress ?? undefined;
-    if (shouldNotifyForMessage(smartNotifications, notifyCategories, vipSenders, await getThreadCategory(accountId, update.thread_id), fromAddr)) {
+    const threadCategory = await getThreadCategory(accountId, update.thread_id);
+    if (shouldNotifyForMessage(smartNotifications, notifyCategories, vipSenders, threadCategory, fromAddr)) {
       queueNewEmailNotification(
         uq.fromName ?? uq.fromAddress ?? "Unknown",
         update.subject ?? "",
@@ -1575,6 +1609,65 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
         accountId,
         fromAddr,
         uq.bodyText ?? undefined,
+      );
+    } else {
+      logNotificationSuppressed(
+        "smart-notification category filter",
+        `category=${threadCategory ?? "Primary"} from=${fromAddr ?? "?"} subject=${update.subject ?? ""}`,
+      );
+    }
+  }
+
+  // Second pass: cross-folder duplicates that arrived in INBOX. The store layer
+  // skips them (same RFC Message-ID already stored under another folder), so they
+  // never become thread updates — but for the user this IS a new inbox arrival
+  // (e.g. a server-side filter copy processed before INBOX). Without this pass
+  // such messages are never notified. Recency-capped so late reconciles of old
+  // mail can't fire stale notifications.
+  const DUP_NOTIFY_MAX_AGE_MS = 48 * 60 * 60 * 1000;
+  const dupCutoff = Date.now() - DUP_NOTIFY_MAX_AGE_MS;
+  for (const h of allHeaders) {
+    if (h.stored || h.label_id !== "INBOX" || h.is_read) continue;
+    if (!(h.date > dupCutoff)) {
+      logNotificationSuppressed("cross-folder INBOX duplicate older than 48h", `subject=${h.subject ?? ""}`);
+      continue;
+    }
+    // Resolve the category of the thread holding the already-stored copy.
+    let dupCategory: string | null = null;
+    let dupThreadId: string | undefined;
+    if (h.message_id) {
+      try {
+        const { getDb } = await import("../db/connection");
+        const db = await getDb();
+        const rows = await db.select<{ thread_id: string }[]>(
+          `SELECT thread_id FROM messages WHERE account_id = $1 AND message_id_header = $2 LIMIT 1`,
+          [accountId, h.message_id],
+        );
+        dupThreadId = rows[0]?.thread_id;
+        if (dupThreadId) {
+          if (mutedThreadIds.has(dupThreadId)) {
+            logNotificationSuppressed("muted thread (cross-folder duplicate)", `thread=${dupThreadId}`);
+            continue;
+          }
+          dupCategory = await getThreadCategory(accountId, dupThreadId);
+        }
+      } catch {
+        // Lookup failure → fall through with defaults (category Primary)
+      }
+    }
+    if (shouldNotifyForMessage(smartNotifications, notifyCategories, vipSenders, dupCategory, h.from_address ?? undefined)) {
+      queueNewEmailNotification(
+        h.from_name ?? h.from_address ?? "Unknown",
+        h.subject ?? "",
+        dupThreadId,
+        accountId,
+        h.from_address ?? undefined,
+        h.snippet || undefined,
+      );
+    } else {
+      logNotificationSuppressed(
+        "smart-notification category filter (cross-folder duplicate)",
+        `category=${dupCategory ?? "Primary"} subject=${h.subject ?? ""}`,
       );
     }
   }

@@ -55,6 +55,15 @@ export type EmailAction =
       cleanupLocalDraftId?: string;
     }
   | {
+      // IMAP only: retry the copy-to-Sent APPEND after an SMTP-delivered send whose
+      // Sent APPEND failed. The message was already delivered — this only reconciles
+      // the server Sent folder and the placeholder local row.
+      type: "appendToSent";
+      rawBase64Url: string;
+      threadId?: string;
+      localMessageId?: string;
+    }
+  | {
       type: "createDraft";
       rawBase64Url: string;
       threadId?: string;
@@ -479,6 +488,16 @@ async function executeViaProvider(
         ).catch(() => {});
       }
       return result;
+    }
+    case "appendToSent": {
+      // Only the IMAP provider implements this (Gmail saves to Sent server-side).
+      const p = provider as unknown as {
+        appendToSent?: (raw: string, threadId?: string, localMessageId?: string) => Promise<{ id: string }>;
+      };
+      if (p.appendToSent) {
+        return p.appendToSent(action.rawBase64Url, action.threadId, action.localMessageId);
+      }
+      return;
     }
     case "createDraft":
       return provider.createDraft(action.rawBase64Url, action.threadId);

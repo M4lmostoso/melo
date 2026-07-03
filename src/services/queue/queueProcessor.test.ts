@@ -10,9 +10,10 @@ vi.mock("../db/pendingOperations", () => ({
   getPendingOperations: vi.fn(() => Promise.resolve([])),
   updateOperationStatus: vi.fn(() => Promise.resolve()),
   deleteOperation: vi.fn(() => Promise.resolve()),
-  incrementRetry: vi.fn(() => Promise.resolve()),
+  incrementRetry: vi.fn(() => Promise.resolve("retrying")),
   getPendingOpsCount: vi.fn(() => Promise.resolve(0)),
   compactQueue: vi.fn(() => Promise.resolve(0)),
+  promoteExpiredUndoOperations: vi.fn(() => Promise.resolve(0)),
 }));
 
 vi.mock("../emailActions", () => ({
@@ -41,6 +42,7 @@ import {
   deleteOperation,
   incrementRetry,
   compactQueue,
+  promoteExpiredUndoOperations,
 } from "../db/pendingOperations";
 import { executeQueuedAction } from "../emailActions";
 import { classifyError } from "@/utils/networkErrors";
@@ -160,6 +162,20 @@ describe("queueProcessor", () => {
   it("updates pending count after processing", async () => {
     await triggerQueueFlush();
     expect(mockSetPendingOpsCount).toHaveBeenCalledWith(0);
+  });
+
+  it("promotes expired undo-send rows before processing", async () => {
+    await triggerQueueFlush();
+    expect(promoteExpiredUndoOperations).toHaveBeenCalled();
+  });
+
+  it("does not promote undo rows when offline", async () => {
+    vi.mocked(useUIStore.getState).mockReturnValue(createMockUIStoreState({
+      isOnline: false,
+      setPendingOpsCount: mockSetPendingOpsCount,
+    }) as never);
+    await triggerQueueFlush();
+    expect(promoteExpiredUndoOperations).not.toHaveBeenCalled();
   });
 
   it("start and stop work without errors", () => {

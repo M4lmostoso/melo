@@ -68,6 +68,7 @@ vi.mock("../db/threads", () => ({
   deleteThread: vi.fn(),
   recalculateThreadStats: vi.fn(),
   getThreadSubjectMap: vi.fn(async () => new Map()),
+  getMutedThreadIds: vi.fn(async () => new Set<string>()),
 }));
 vi.mock("../db/attachments", () => ({
   upsertAttachment: vi.fn(),

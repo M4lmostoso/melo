@@ -7,6 +7,19 @@ import { getAccount } from "../db/accounts";
 import { createBackgroundChecker } from "../backgroundCheckers";
 import { sendEmail } from "../emailActions";
 import { useOutgoingStore } from "@/stores/outgoingStore";
+import { t } from "@/i18n";
+
+function notifyScheduledFailed(subject: string | null): void {
+  import("@tauri-apps/plugin-notification")
+    .then(({ sendNotification }) => {
+      sendNotification({
+        title: t("outgoing.scheduledFailedTitle"),
+        body: t("outgoing.scheduledFailedBody", { subject: subject ?? "" }),
+      });
+    })
+    .catch(() => {});
+  window.dispatchEvent(new Event("melo-sync-done"));
+}
 
 /**
  * Check for scheduled emails that are ready to be sent.
@@ -25,13 +38,17 @@ async function checkScheduledEmails(): Promise<void> {
       // Mark as "sending" BEFORE attempting send to prevent duplicate sends
       await updateScheduledEmailStatus(email.id, "sending");
 
-      // Parse attachments from JSON if present
+      // Parse attachments from JSON if present. A parse failure must NOT send the
+      // email stripped of its attachments — mark it failed and tell the user instead.
       let attachments: EmailAttachment[] | undefined;
       if (email.attachment_paths) {
         try {
           attachments = JSON.parse(email.attachment_paths) as EmailAttachment[];
         } catch {
-          console.warn(`Failed to parse attachment_paths for scheduled email ${email.id}`);
+          console.error(`Failed to parse attachment_paths for scheduled email ${email.id} — not sending without attachments`);
+          await updateScheduledEmailStatus(email.id, "failed");
+          notifyScheduledFailed(email.subject);
+          continue;
         }
       }
 
@@ -96,6 +113,7 @@ async function checkScheduledEmails(): Promise<void> {
         || message.toLowerCase().includes("econnrefused");
       // Revert to pending for transient errors (allows retry), mark failed for permanent
       await updateScheduledEmailStatus(email.id, isTransient ? "pending" : "failed");
+      if (!isTransient) notifyScheduledFailed(email.subject);
     }
   }
 }

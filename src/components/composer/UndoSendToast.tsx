@@ -3,18 +3,35 @@ import { CSSTransition } from "react-transition-group";
 import { t } from "@/i18n";
 import { useComposerStore } from "@/stores/composerStore";
 import { useOutgoingStore } from "@/stores/outgoingStore";
+import { deleteOperation } from "@/services/db/pendingOperations";
 
 const UNDO_DELAY_SECONDS = 5;
 
 export function UndoSendToast() {
-  const { undoSendVisible, undoSendTimer, setUndoSendTimer, setUndoSendVisible, setIsSending, closeComposer } =
-    useComposerStore();
+  const {
+    undoSendVisible,
+    undoSendTimer,
+    undoSendOpId,
+    setUndoSendTimer,
+    setUndoSendVisible,
+    setUndoSendOpId,
+    setIsSending,
+    closeComposer,
+  } = useComposerStore();
   const toastRef = useRef<HTMLDivElement>(null);
 
   const handleUndo = () => {
     if (undoSendTimer) {
       clearTimeout(undoSendTimer);
       setUndoSendTimer(null);
+    }
+    // Remove the persisted undo-send row, or the queue processor would still
+    // send the email after its deadline despite the user's Undo.
+    if (undoSendOpId) {
+      void deleteOperation(undoSendOpId).catch((err) =>
+        console.error("[UndoSendToast] Failed to delete undo-send row:", err),
+      );
+      setUndoSendOpId(null);
     }
     useOutgoingStore.getState().clearUndoEmails();
     setUndoSendVisible(false);

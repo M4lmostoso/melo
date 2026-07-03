@@ -37,6 +37,12 @@ import { buildRawEmail } from "@/utils/emailBuilder";
 import { useOutgoingStore } from "@/stores/outgoingStore";
 import { upsertContact } from "@/services/db/contacts";
 import { getSetting } from "@/services/db/settings";
+import {
+  enqueueUndoSend,
+  updateOperationParams,
+  updateOperationStatus,
+  deleteOperation,
+} from "@/services/db/pendingOperations";
 import { insertScheduledEmail } from "@/services/db/scheduledEmails";
 import { getDefaultSignature } from "@/services/db/signatures";
 import {
@@ -516,13 +522,6 @@ const getFullHtml = useCallback(() => {
     if (state.to.length === 0) return;
     sendingRef.current = true;
     state.setIsSending(true);
-    // Use startDiscard+waitForSave (not stopAutoSave) so any in-flight IMAP autosave
-    // completes before we capture currentDraftId — stopAutoSave nullifies savePromise,
-    // causing waitForSave to return early and leaving the new UID uncleaned.
-    // Cap at 2s: if the IMAP save is still running, startDiscard() already set
-    // isDiscarding=true so the save will tombstone itself on completion.
-    startDiscard();
-    await Promise.race([waitForSave(), new Promise<void>((r) => setTimeout(r, 2000))]);
     const html = getFullHtml();
     const senderEmail = state.fromEmail ?? activeAccount.email;
     const raw = buildRawEmail({
@@ -546,6 +545,32 @@ const getFullHtml = useCallback(() => {
     });
     const delaySetting = await getSetting("undo_send_delay_seconds");
     const delay = parseInt(delaySetting ?? "5", 10) * 1000;
+
+    // Persist the outgoing email to SQLite BEFORE tombstoning the draft. From this
+    // point on, a composer-window close / app quit / crash during the undo window can
+    // never lose the message: the row is promoted to 'pending' and sent by the queue
+    // processor if the timer below never fires. Non-fatal on error (test contexts
+    // have no DB) — the send then proceeds exactly as before, just without the net.
+    let undoOpId: string | null = null;
+    try {
+      undoOpId = await enqueueUndoSend(
+        effectiveAccountId,
+        state.threadId ?? crypto.randomUUID(),
+        { rawBase64Url: raw, threadId: state.threadId ?? undefined },
+        Math.round(delay / 1000),
+      );
+    } catch (err) {
+      console.error("[Composer] Failed to persist undo-send row:", err);
+    }
+    state.setUndoSendOpId(undoOpId);
+
+    // Use startDiscard+waitForSave (not stopAutoSave) so any in-flight IMAP autosave
+    // completes before we capture currentDraftId — stopAutoSave nullifies savePromise,
+    // causing waitForSave to return early and leaving the new UID uncleaned.
+    // Cap at 2s: if the IMAP save is still running, startDiscard() already set
+    // isDiscarding=true so the save will tombstone itself on completion.
+    startDiscard();
+    await Promise.race([waitForSave(), new Promise<void>((r) => setTimeout(r, 2000))]);
     // For IMAP: server UID-based ID (tracked in draftAutoSave module vars).
     // For Gmail: composerStore.draftId (the Gmail draft API ID).
     // Must be captured BEFORE closeComposer() resets the store.
@@ -554,6 +579,18 @@ const getFullHtml = useCallback(() => {
     // freshly-appended UID, capture it so the main window can EXPUNGE it from the server
     // Drafts folder — otherwise the draft lingers there after the send.
     const preTombstonedDraftId = getPreTombstonedDraftId();
+
+    // Carry the draft-cleanup hints on the persisted row so a send executed by the
+    // queue processor (composer died mid-undo) or retried after a failure still
+    // removes the draft instead of leaving it stranded.
+    if (undoOpId) {
+      await updateOperationParams(undoOpId, {
+        rawBase64Url: raw,
+        threadId: state.threadId ?? undefined,
+        cleanupDraftId: currentDraftId ?? preTombstonedDraftId ?? undefined,
+        cleanupLocalDraftId: state.localDraftId ?? undefined,
+      }).catch((err) => console.error("[Composer] Failed to update undo-send params:", err));
+    }
 
     const outgoingId = crypto.randomUUID();
     useOutgoingStore.getState().addEmail({
@@ -586,6 +623,7 @@ const getFullHtml = useCallback(() => {
           const { emit } = await import("@tauri-apps/api/event");
           await emit("melo-execute-send", {
             outgoingId,
+            opId: undoOpId,
             accountId: effectiveAccountId,
             raw,
             threadId: state.threadId ?? null,
@@ -629,7 +667,14 @@ const getFullHtml = useCallback(() => {
           // Fallback inline send (non-Tauri contexts only)
           void (async () => {
             try {
-              await sendEmail(effectiveAccountId, raw, state.threadId ?? undefined);
+              const result = await sendEmail(effectiveAccountId, raw, state.threadId ?? undefined);
+              if (undoOpId) {
+                if (result.success) {
+                  await deleteOperation(undoOpId).catch(() => {});
+                } else {
+                  await updateOperationStatus(undoOpId, "failed", result.error).catch(() => {});
+                }
+              }
               if (currentDraftId) {
                 await deleteDraftAction(
                   effectiveAccountId,
@@ -644,6 +689,9 @@ const getFullHtml = useCallback(() => {
                 await upsertContact(addr, null);
             } catch (err) {
               console.error("Failed to send email:", err);
+              if (undoOpId) {
+                await updateOperationStatus(undoOpId, "failed", err instanceof Error ? err.message : String(err)).catch(() => {});
+              }
             } finally {
               useOutgoingStore.getState().removeEmail(outgoingId);
               sendingRef.current = false;

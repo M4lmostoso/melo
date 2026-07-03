@@ -49,6 +49,10 @@ reqwest = { version = "0.12", default-features = false, features = ["native-tls"
 image = { version = "0.25", default-features = false, features = ["png"] }
 rusqlite = "0.31"
 rayon = "1"
+# OS keychain for the DB encryption key (macOS Keychain / Windows Credential
+# Manager). No Linux store feature on purpose: there keyring returns an error
+# and crypto.ts falls back to the legacy melo.key file.
+keyring = { version = "3", features = ["apple-native", "windows-native"] }
 
 [target.'cfg(windows)'.dependencies]
 windows = { version = "0.58", features = ["Win32_UI_Shell"] }

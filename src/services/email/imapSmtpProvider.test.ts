@@ -522,9 +522,12 @@ describe("ImapSmtpProvider", () => {
       const result = await provider.sendMessage(rawBase64Url);
       // Send still succeeds and returns a synthetic Sent id.
       expect(result.id).toMatch(/^imap-acc-1-sent-/);
-      // No server UID → no local save (avoids creating a duplicate random-ID row;
-      // the next delta sync imports the real message).
-      expect(upsertMessage).not.toHaveBeenCalled();
+      // The mail WAS delivered via SMTP: a placeholder row is saved so the user
+      // sees it in Sent (and doesn't re-send), and an appendToSent retry op
+      // reconciles the server folder later.
+      expect(upsertMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ id: result.id, imapUid: null, imapFolder: null }),
+      );
       spy.mockRestore();
     });
   });

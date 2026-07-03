@@ -1743,3 +1743,104 @@ pub async fn smtp_send_email(
 pub async fn smtp_test_connection(config: SmtpConfig) -> Result<SmtpSendResult, String> {
     smtp_client::test_connection(&config).await
 }
+
+// ---------- Atomic DB transactions ----------
+
+/// One statement of an atomic batch. `sql` uses `?1`-style positional
+/// placeholders; params support string / number / bool / null JSON values.
+#[derive(serde::Deserialize)]
+pub struct BatchStatement {
+    pub sql: String,
+    #[serde(default)]
+    pub params: Vec<serde_json::Value>,
+}
+
+fn json_to_sql_value(v: &serde_json::Value) -> Result<rusqlite::types::Value, String> {
+    use rusqlite::types::Value as SqlValue;
+    Ok(match v {
+        serde_json::Value::Null => SqlValue::Null,
+        serde_json::Value::Bool(b) => SqlValue::Integer(if *b { 1 } else { 0 }),
+        serde_json::Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                SqlValue::Integer(i)
+            } else if let Some(f) = n.as_f64() {
+                SqlValue::Real(f)
+            } else {
+                return Err(format!("unsupported number param: {n}"));
+            }
+        }
+        serde_json::Value::String(s) => SqlValue::Text(s.clone()),
+        other => return Err(format!("unsupported param type: {other}")),
+    })
+}
+
+/// Execute a batch of SQL statements inside ONE real SQLite transaction.
+///
+/// The tauri-plugin-sql pool cannot guarantee BEGIN/COMMIT land on the same
+/// pooled connection, so multi-statement writes from TypeScript are not atomic
+/// (a crash mid-sequence leaves partial state — orphaned thread rows, stale
+/// counts). This command opens a dedicated rusqlite connection (safe alongside
+/// the plugin pool thanks to WAL) and commits all-or-nothing.
+#[tauri::command]
+pub async fn db_execute_transaction(
+    app: tauri::AppHandle,
+    statements: Vec<BatchStatement>,
+) -> Result<u64, String> {
+    let db_path = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("melo.db");
+
+    // rusqlite is synchronous — keep it off the async runtime threads.
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut conn = rusqlite::Connection::open(&db_path).map_err(|e| e.to_string())?;
+        conn.busy_timeout(std::time::Duration::from_secs(10))
+            .map_err(|e| e.to_string())?;
+        let tx = conn.transaction().map_err(|e| e.to_string())?;
+        let mut affected: u64 = 0;
+        for stmt in &statements {
+            let params = stmt
+                .params
+                .iter()
+                .map(json_to_sql_value)
+                .collect::<Result<Vec<_>, String>>()?;
+            let n = tx
+                .execute(&stmt.sql, rusqlite::params_from_iter(params.iter()))
+                .map_err(|e| format!("SQL error in `{}`: {e}", stmt.sql))?;
+            affected += n as u64;
+        }
+        tx.commit().map_err(|e| e.to_string())?;
+        Ok(affected)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+// ---------- OS keychain (DB encryption key) ----------
+
+/// Read a secret from the OS keychain. Ok(None) = keychain works but no entry.
+#[tauri::command]
+pub fn keychain_get_secret(service: String, account: String) -> Result<Option<String>, String> {
+    let entry = keyring::Entry::new(&service, &account).map_err(|e| e.to_string())?;
+    match entry.get_password() {
+        Ok(p) => Ok(Some(p)),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+#[tauri::command]
+pub fn keychain_set_secret(service: String, account: String, value: String) -> Result<(), String> {
+    let entry = keyring::Entry::new(&service, &account).map_err(|e| e.to_string())?;
+    entry.set_password(&value).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn keychain_delete_secret(service: String, account: String) -> Result<(), String> {
+    let entry = keyring::Entry::new(&service, &account).map_err(|e| e.to_string())?;
+    match entry.delete_credential() {
+        Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+        Err(e) => Err(e.to_string()),
+    }
+}

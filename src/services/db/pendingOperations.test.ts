@@ -21,6 +21,10 @@ import {
   compactQueue,
   clearFailedOperations,
   retryFailedOperations,
+  enqueueUndoSend,
+  updateOperationParams,
+  claimUndoOperation,
+  promoteExpiredUndoOperations,
 } from "./pendingOperations";
 import { createMockDb } from "@/test/mocks";
 
@@ -114,6 +118,59 @@ describe("pendingOperations DB service", () => {
       mockDb.select.mockResolvedValueOnce([]);
       await incrementRetry("nonexistent");
       expect(mockDb.execute).not.toHaveBeenCalled();
+    });
+
+    it("returns 'retrying' while below max retries", async () => {
+      mockDb.select.mockResolvedValueOnce([{ retry_count: 0, max_retries: 10 }]);
+      await expect(incrementRetry("op-1")).resolves.toBe("retrying");
+    });
+
+    it("returns 'failed' when max retries reached", async () => {
+      mockDb.select.mockResolvedValueOnce([{ retry_count: 9, max_retries: 10 }]);
+      await expect(incrementRetry("op-1")).resolves.toBe("failed");
+    });
+  });
+
+  describe("undo-send lifecycle", () => {
+    it("enqueueUndoSend inserts a row with status undo and a promotion deadline", async () => {
+      const before = Math.floor(Date.now() / 1000);
+      const id = await enqueueUndoSend("acct-1", "thread-1", { rawBase64Url: "abc" }, 30);
+      expect(id).toBeTruthy();
+      const call = vi.mocked(mockDb.execute).mock.calls[0]!;
+      expect(String(call[0])).toContain("'undo'");
+      const params = call[1] as unknown[];
+      // promotion deadline = now + delay + 15s grace
+      const promoteAt = params[params.length - 1] as number;
+      expect(promoteAt).toBeGreaterThanOrEqual(before + 45);
+      expect(promoteAt).toBeLessThanOrEqual(before + 47);
+    });
+
+    it("updateOperationParams rewrites the params JSON", async () => {
+      await updateOperationParams("op-1", { rawBase64Url: "abc", cleanupDraftId: "d1" });
+      expect(mockDb.execute).toHaveBeenCalledWith(
+        expect.stringContaining("SET params = $1"),
+        [JSON.stringify({ rawBase64Url: "abc", cleanupDraftId: "d1" }), "op-1"],
+      );
+    });
+
+    it("claimUndoOperation returns true when the CAS update wins", async () => {
+      mockDb.execute.mockResolvedValueOnce({ rowsAffected: 1 } as never);
+      await expect(claimUndoOperation("op-1")).resolves.toBe(true);
+      const call = vi.mocked(mockDb.execute).mock.calls[0]!;
+      expect(String(call[0])).toContain("status = 'executing'");
+      expect(String(call[0])).toContain("AND status = 'undo'");
+    });
+
+    it("claimUndoOperation returns false when another owner already claimed the row", async () => {
+      mockDb.execute.mockResolvedValueOnce({ rowsAffected: 0 } as never);
+      await expect(claimUndoOperation("op-1")).resolves.toBe(false);
+    });
+
+    it("promoteExpiredUndoOperations flips only expired undo rows to pending", async () => {
+      mockDb.execute.mockResolvedValueOnce({ rowsAffected: 2 } as never);
+      await expect(promoteExpiredUndoOperations()).resolves.toBe(2);
+      const call = vi.mocked(mockDb.execute).mock.calls[0]!;
+      expect(String(call[0])).toContain("status = 'undo' AND next_retry_at <=");
     });
   });
 

@@ -5,7 +5,7 @@ import { upsertLabel } from "../db/labels";
 import { upsertUserLabel } from "../db/userLabels";
 import { setThreadLabels, deleteThread, markThreadUnreadInDb } from "../db/threads";
 import { updateAccountSyncState } from "../db/accounts";
-import { shouldNotifyForMessage, queueNewEmailNotification } from "../notifications/notificationManager";
+import { shouldNotifyForMessage, queueNewEmailNotification, logNotificationSuppressed } from "../notifications/notificationManager";
 import { applyFiltersToMessages } from "../filters/filterEngine";
 import { getSetting } from "../db/settings";
 import { getMutedThreadIds } from "../db/threads";
@@ -353,6 +353,12 @@ export async function deltaSync(
     let latestHistoryId = lastHistoryId;
     let pageToken: string | undefined;
 
+    // Gmail can split a delivery across history events: messagesAdded first
+    // (sometimes without INBOX/UNREAD yet), then a separate labelsAdded applying
+    // them. Deciding on the messagesAdded event alone misses those deliveries, so
+    // accumulate the label set per added message and evaluate AFTER all pages.
+    const addedMessageLabels = new Map<string, Set<string>>();
+
     do {
       const response = await client.getHistory(lastHistoryId, undefined, pageToken);
       latestHistoryId = response.historyId;
@@ -366,14 +372,13 @@ export async function deltaSync(
               if (labels.includes("UNREAD")) {
                 historyConfirmedUnreadThreadIds.add(added.message.threadId);
               }
-              if (labels.includes("INBOX") && labels.includes("UNREAD")) {
-                newInboxMessageIds.add(added.message.id);
-              }
+              addedMessageLabels.set(added.message.id, new Set(labels));
             }
           }
           if (item.messagesDeleted) {
             for (const deleted of item.messagesDeleted) {
               affectedThreadIds.add(deleted.message.threadId);
+              addedMessageLabels.delete(deleted.message.id);
             }
           }
           if (item.labelsAdded) {
@@ -382,6 +387,8 @@ export async function deltaSync(
               if (labeled.labelIds.includes("UNREAD")) {
                 historyConfirmedUnreadThreadIds.add(labeled.message.threadId);
               }
+              const labelSet = addedMessageLabels.get(labeled.message.id);
+              if (labelSet) for (const l of labeled.labelIds) labelSet.add(l);
             }
           }
           if (item.labelsRemoved) {
@@ -391,6 +398,8 @@ export async function deltaSync(
               if (unlabeled.labelIds.includes("UNREAD")) {
                 historyConfirmedUnreadThreadIds.delete(unlabeled.message.threadId);
               }
+              const labelSet = addedMessageLabels.get(unlabeled.message.id);
+              if (labelSet) for (const l of unlabeled.labelIds) labelSet.delete(l);
             }
           }
         }
@@ -398,6 +407,13 @@ export async function deltaSync(
 
       pageToken = response.nextPageToken;
     } while (pageToken);
+
+    // Final label state decides notification eligibility (see comment above).
+    for (const [msgId, labels] of addedMessageLabels) {
+      if (labels.has("INBOX") && labels.has("UNREAD")) {
+        newInboxMessageIds.add(msgId);
+      }
+    }
 
     if (affectedThreadIds.size === 0) {
       await updateAccountSyncState(accountId, latestHistoryId);
@@ -463,19 +479,28 @@ export async function deltaSync(
           // Send desktop notifications for new unread inbox messages (smart-filtered)
           // Skip notifications for muted threads
           for (const parsed of parsedMessages) {
-            if (newInboxMessageIds.has(parsed.id) && !mutedThreadIds.has(threadId)) {
-              const fromAddr = parsed.fromAddress ?? undefined;
-              if (shouldNotifyForMessage(smartNotifications, notifyCategories, vipSenders, await getThreadCategory(accountId, threadId), fromAddr)) {
-                const sender = parsed.fromName ?? parsed.fromAddress ?? "Unknown";
-                queueNewEmailNotification(
-                  sender,
-                  parsed.subject ?? "",
-                  parsed.threadId,
-                  accountId,
-                  fromAddr,
-                  parsed.snippet ?? undefined,
-                );
-              }
+            if (!newInboxMessageIds.has(parsed.id)) continue;
+            if (mutedThreadIds.has(threadId)) {
+              logNotificationSuppressed("muted thread", `thread=${threadId}`);
+              continue;
+            }
+            const fromAddr = parsed.fromAddress ?? undefined;
+            const threadCategory = await getThreadCategory(accountId, threadId);
+            if (shouldNotifyForMessage(smartNotifications, notifyCategories, vipSenders, threadCategory, fromAddr)) {
+              const sender = parsed.fromName ?? parsed.fromAddress ?? "Unknown";
+              queueNewEmailNotification(
+                sender,
+                parsed.subject ?? "",
+                parsed.threadId,
+                accountId,
+                fromAddr,
+                parsed.snippet ?? undefined,
+              );
+            } else {
+              logNotificationSuppressed(
+                "smart-notification category filter",
+                `category=${threadCategory ?? "Primary"} from=${fromAddr ?? "?"} subject=${parsed.subject ?? ""}`,
+              );
             }
           }
 

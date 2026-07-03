@@ -31,8 +31,10 @@ export async function getScheduledEmailsForAccount(
   accountId: string,
 ): Promise<DbScheduledEmail[]> {
   const db = await getDb();
+  // 'failed' rows stay visible so an interrupted/failed scheduled send is never
+  // silently dropped — the panel offers a retry that flips them back to 'pending'.
   return db.select<DbScheduledEmail[]>(
-    "SELECT * FROM scheduled_emails WHERE account_id = $1 AND status = 'pending' ORDER BY scheduled_at ASC",
+    "SELECT * FROM scheduled_emails WHERE account_id = $1 AND status IN ('pending', 'failed') ORDER BY scheduled_at ASC",
     [accountId],
   );
 }
@@ -109,8 +111,17 @@ export async function getScheduledEmailsByAccounts(
   const db = await getDb();
   const placeholders = accountIds.map((_, i) => `$${i + 1}`).join(", ");
   return db.select<DbScheduledEmail[]>(
-    `SELECT * FROM scheduled_emails WHERE account_id IN (${placeholders}) AND status = 'pending' ORDER BY scheduled_at ASC`,
+    `SELECT * FROM scheduled_emails WHERE account_id IN (${placeholders}) AND status IN ('pending', 'failed') ORDER BY scheduled_at ASC`,
     accountIds,
+  );
+}
+
+/** Re-arm a failed scheduled email: send at the next checker tick. */
+export async function retryScheduledEmail(id: string): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    "UPDATE scheduled_emails SET status = 'pending', scheduled_at = $1 WHERE id = $2 AND status = 'failed'",
+    [getCurrentUnixTimestamp(), id],
   );
 }
 

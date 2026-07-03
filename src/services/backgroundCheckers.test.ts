@@ -107,6 +107,9 @@ describe("createBackgroundChecker", () => {
     checker.start();
     expect(checkFn).toHaveBeenCalledTimes(1);
 
+    // Let the in-flight run settle before restarting — the overlap guard
+    // intentionally skips a new run while the previous one is still pending.
+    await vi.advanceTimersByTimeAsync(0);
     checker.stop();
 
     checker.start();
@@ -114,6 +117,27 @@ describe("createBackgroundChecker", () => {
 
     await vi.advanceTimersByTimeAsync(1000);
     expect(checkFn).toHaveBeenCalledTimes(3);
+
+    checker.stop();
+  });
+
+  it("should skip interval ticks while a slow run is still in flight", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const checkFn = vi.fn(() => gate);
+    const checker = createBackgroundChecker("Test", checkFn, 1000);
+
+    checker.start();
+    expect(checkFn).toHaveBeenCalledTimes(1);
+
+    // Three ticks elapse while the first run hangs — none may overlap it.
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(checkFn).toHaveBeenCalledTimes(1);
+
+    // Once the run completes, the next tick executes normally.
+    release();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(checkFn).toHaveBeenCalledTimes(2);
 
     checker.stop();
   });

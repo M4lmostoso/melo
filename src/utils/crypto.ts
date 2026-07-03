@@ -1,12 +1,21 @@
 /**
  * Application-level AES-GCM encryption using a device-derived key.
- * Key is randomly generated on first launch and stored in a separate file
- * via Tauri's filesystem in the app data directory.
+ *
+ * The key lives in the OS keychain (macOS Keychain / Windows Credential
+ * Manager) — storing it as a plaintext file next to melo.db would make the
+ * "encryption at rest" of passwords/tokens meaningless against any
+ * filesystem-level reader. Legacy installs that still have the melo.key file
+ * are migrated on first access with a read-back-verify before the file is
+ * deleted; if the keychain is unavailable (e.g. Linux without a secret
+ * service), the file remains the fallback so no data is ever lost.
  */
 
-import { exists, readTextFile, writeTextFile, mkdir, BaseDirectory } from "@tauri-apps/plugin-fs";
+import { exists, readTextFile, writeTextFile, remove, mkdir, BaseDirectory } from "@tauri-apps/plugin-fs";
+import { invoke } from "@tauri-apps/api/core";
 
 const KEY_FILE_NAME = "melo.key";
+const KEYCHAIN_SERVICE = "com.melomail.app";
+const KEYCHAIN_ACCOUNT = "melo-db-key";
 const ALGORITHM = "AES-GCM";
 const KEY_LENGTH = 256;
 const IV_LENGTH = 12;
@@ -46,21 +55,88 @@ function asBufferSource(arr: Uint8Array): BufferSource {
   return arr as unknown as BufferSource;
 }
 
-async function getOrCreateKey(): Promise<CryptoKey> {
-  if (cachedKey) return cachedKey;
+async function keychainGet(): Promise<string | null> {
+  return invoke<string | null>("keychain_get_secret", {
+    service: KEYCHAIN_SERVICE,
+    account: KEYCHAIN_ACCOUNT,
+  });
+}
 
-  let rawKeyB64: string;
+/**
+ * Store the key in the keychain and verify it reads back identically.
+ * Returns true only when the round trip succeeded — the caller must NOT
+ * delete any file copy otherwise (losing this key = losing all encrypted data).
+ */
+async function keychainSetVerified(rawKeyB64: string): Promise<boolean> {
+  try {
+    await invoke("keychain_set_secret", {
+      service: KEYCHAIN_SERVICE,
+      account: KEYCHAIN_ACCOUNT,
+      value: rawKeyB64,
+    });
+    const readBack = await keychainGet();
+    return readBack === rawKeyB64;
+  } catch {
+    return false;
+  }
+}
+
+async function loadOrCreateRawKey(): Promise<string> {
+  // 1. Keychain is the primary store.
+  let keychainAvailable = true;
+  try {
+    const fromKeychain = await keychainGet();
+    if (fromKeychain) {
+      // Migration tail: if the legacy plaintext file still exists and holds the
+      // same key, it is now redundant — remove it.
+      try {
+        if (await exists(KEY_FILE_NAME, FS_OPTIONS)) {
+          const fileKey = (await readTextFile(KEY_FILE_NAME, FS_OPTIONS)).trim();
+          if (fileKey === fromKeychain) {
+            await remove(KEY_FILE_NAME, FS_OPTIONS);
+            console.info("[crypto] Removed legacy melo.key file (key lives in OS keychain)");
+          }
+        }
+      } catch {
+        // File cleanup is best-effort; the keychain copy is authoritative.
+      }
+      return fromKeychain;
+    }
+  } catch (err) {
+    // Keychain unusable (no OS store / access denied) — fall back to the file.
+    keychainAvailable = false;
+    console.warn("[crypto] OS keychain unavailable, using file-based key:", err);
+  }
+
+  // 2. Legacy file key → migrate to keychain (read-back-verified before delete).
   if (await exists(KEY_FILE_NAME, FS_OPTIONS)) {
-    rawKeyB64 = (await readTextFile(KEY_FILE_NAME, FS_OPTIONS)).trim();
-  } else {
-    // Generate a new random key
-    const rawKey = new Uint8Array(KEY_LENGTH / 8);
-    crypto.getRandomValues(rawKey);
-    rawKeyB64 = base64Encode(rawKey);
+    const fileKey = (await readTextFile(KEY_FILE_NAME, FS_OPTIONS)).trim();
+    if (keychainAvailable && (await keychainSetVerified(fileKey))) {
+      try {
+        await remove(KEY_FILE_NAME, FS_OPTIONS);
+        console.info("[crypto] Migrated encryption key from melo.key to OS keychain");
+      } catch {
+        // Deletion failed — key is in both places; retried on next launch.
+      }
+    }
+    return fileKey;
+  }
 
+  // 3. First launch: generate. Prefer the keychain; file only as last resort.
+  const rawKey = new Uint8Array(KEY_LENGTH / 8);
+  crypto.getRandomValues(rawKey);
+  const rawKeyB64 = base64Encode(rawKey);
+  if (!(keychainAvailable && (await keychainSetVerified(rawKeyB64)))) {
     await ensureAppDataDir();
     await writeTextFile(KEY_FILE_NAME, rawKeyB64, FS_OPTIONS);
   }
+  return rawKeyB64;
+}
+
+async function getOrCreateKey(): Promise<CryptoKey> {
+  if (cachedKey) return cachedKey;
+
+  const rawKeyB64 = await loadOrCreateRawKey();
 
   const rawKey = base64Decode(rawKeyB64);
   cachedKey = await crypto.subtle.importKey(

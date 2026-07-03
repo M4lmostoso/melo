@@ -816,7 +816,8 @@
     "attachmentPicker": {
       "attachFiles": "Allega file",
       "attach": "Allega",
-      "total": "totale"
+      "total": "totale",
+      "tooLarge": "Non allegati (oltre il limite di {limit}): {files}"
     },
     "addressInput": {
       "addRecipients": "Aggiungi destinatari..."
@@ -1162,7 +1163,9 @@
       "vipSendersDesc": "Questi mittenti attivano sempre le notifiche indipendentemente dalla categoria",
       "removeVip": "Rimuovi",
       "vipEmailPlaceholder": "email@esempio.com",
-      "addVip": "Aggiungi"
+      "addVip": "Aggiungi",
+      "osPermissionDeniedTitle": "Notifiche di sistema bloccate",
+      "osPermissionDeniedBody": "Le notifiche sono attive in Melo, ma il sistema operativo le sta bloccando. Consenti Melo in Impostazioni di Sistema → Notifiche."
     },
     "composing": {
       "sections": {
@@ -1860,7 +1863,8 @@
       "tomorrowAfternoon": "Domani pomeriggio",
       "mondayMorning": "Lunedì mattina",
       "todayAt": "Oggi alle {time}",
-      "tomorrowAt": "Domani alle {time}"
+      "tomorrowAt": "Domani alle {time}",
+      "sendFailed": "Invio fallito — non verrà ritentato automaticamente"
     }
   },
   "sidebar": {
@@ -2366,5 +2370,35 @@
     "ignore": "Ignora",
     "restore": "Ripristina",
     "ignoredBadge": "Ignorato"
+  },
+  "outgoing": {
+    "sendFailedTitle": "Invio non riuscito",
+    "sendFailedBody": "Impossibile inviare l'email. È conservata in In uscita — controlla le impostazioni SMTP.",
+    "sendFailedBodyWithError": "Impossibile inviare l'email: {error}. È conservata in In uscita.",
+    "queuedTitle": "Invio in coda",
+    "queuedBody": "Impossibile raggiungere il server. L'email è conservata in In uscita e verrà ritentata automaticamente — riceverai una notifica se l'invio continua a fallire.",
+    "interruptedTitle": "Invio interrotto",
+    "interruptedBody": "L'app si è chiusa durante un invio. L'email è conservata in In uscita — controlla la cartella Inviati, poi riprova l'invio.",
+    "opFailedTitle": "Operazione non completata",
+    "opFailedBody": "Un'operazione \"{operation}\" in sospeso è fallita definitivamente. Controlla In uscita nella barra laterale.",
+    "scheduledFailedTitle": "Email programmata non inviata",
+    "scheduledFailedBody": "\"{subject}\" non è stata inviata. È conservata in Programmate — riprova da lì."
+  },
+  "notifications": {
+    "syncCatchUp": "{count} nuove email arrivate durante il recupero della sincronizzazione"
+  },
+  "account": {
+    "reauthBannerTitle": "L'account richiede una nuova autorizzazione",
+    "reauthBannerDesc": "Google ha rifiutato le credenziali salvate per {email}. La sincronizzazione della posta è sospesa finché non accedi di nuovo.",
+    "reauthButton": "Autorizza di nuovo",
+    "reauthWaiting": "In attesa di Google…"
+  },
+  "errors": {
+    "migrationFailedTitle": "Aggiornamento del database non riuscito",
+    "migrationFailedBody": "Melo non è riuscito ad aggiornare il database locale all'ultima versione. Per proteggere i tuoi dati, l'app non si avvierà finché il problema non è risolto. Riprovare spesso risolve i problemi transitori.",
+    "migrationCopyDetails": "Copia dettagli",
+    "migrationCopied": "Copiato",
+    "migrationRetry": "Riprova",
+    "migrationBackupHint": "Le tue email sul server sono al sicuro. Se il problema persiste, fai una copia del file melo.db nella cartella dati dell'app prima di reinstallare."
   }
 }

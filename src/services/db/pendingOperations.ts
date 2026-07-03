@@ -30,6 +30,76 @@ export async function enqueuePendingOperation(
   return id;
 }
 
+/**
+ * Persist an outgoing email BEFORE its undo window elapses, so a quit/crash during
+ * the undo countdown can never lose the message. The row sits in status 'undo'
+ * (invisible to the queue processor) until either:
+ *  - the composer's timer fires and the main window claims it via claimUndoOperation, or
+ *  - the user clicks Undo (deleteOperation), or
+ *  - the deadline + grace passes and promoteExpiredUndoOperations flips it to 'pending'
+ *    for the queue processor (app restarted / composer died mid-undo).
+ */
+export async function enqueueUndoSend(
+  accountId: string,
+  resourceId: string,
+  params: Record<string, unknown>,
+  undoDelaySeconds: number,
+): Promise<string> {
+  const db = await getDb();
+  const id = crypto.randomUUID();
+  // +15s grace so the live composer timer (which fires at undoDelaySeconds) always
+  // wins the claim race against the periodic promotion in the queue processor.
+  const promoteAt = Math.floor(Date.now() / 1000) + undoDelaySeconds + 15;
+  await db.execute(
+    `INSERT INTO pending_operations (id, account_id, operation_type, resource_id, params, status, next_retry_at)
+     VALUES ($1, $2, $3, $4, $5, 'undo', $6)`,
+    [id, accountId, "sendMessage", resourceId, JSON.stringify(params), promoteAt],
+  );
+  return id;
+}
+
+export async function updateOperationParams(
+  id: string,
+  params: Record<string, unknown>,
+): Promise<void> {
+  const db = await getDb();
+  await db.execute(`UPDATE pending_operations SET params = $1 WHERE id = $2`, [
+    JSON.stringify(params),
+    id,
+  ]);
+}
+
+/**
+ * Compare-and-swap claim of an undo-send row. Returns true when this caller now
+ * owns the send. Returns false when another owner (the queue processor, after
+ * promotion) already took it — the caller must NOT send, or the mail goes out twice.
+ */
+export async function claimUndoOperation(id: string): Promise<boolean> {
+  const db = await getDb();
+  const result = await db.execute(
+    `UPDATE pending_operations SET status = 'executing', next_retry_at = NULL
+     WHERE id = $1 AND status = 'undo'`,
+    [id],
+  );
+  return result.rowsAffected > 0;
+}
+
+/**
+ * Promote undo-send rows whose deadline+grace has passed to 'pending' so the queue
+ * processor sends them. Normally a no-op: the live composer claims its row first.
+ * Only fires when the composer window died (or the app restarted) mid-undo.
+ */
+export async function promoteExpiredUndoOperations(): Promise<number> {
+  const db = await getDb();
+  const now = Math.floor(Date.now() / 1000);
+  const result = await db.execute(
+    `UPDATE pending_operations SET status = 'pending', next_retry_at = NULL
+     WHERE status = 'undo' AND next_retry_at <= $1`,
+    [now],
+  );
+  return result.rowsAffected;
+}
+
 export async function getPendingOperations(
   accountId?: string,
   limit = 50,
@@ -73,14 +143,14 @@ export async function deleteOperation(id: string): Promise<void> {
 
 const BACKOFF_SCHEDULE = [60, 300, 900, 3600];
 
-export async function incrementRetry(id: string): Promise<void> {
+export async function incrementRetry(id: string): Promise<"failed" | "retrying"> {
   const db = await getDb();
   const rows = await db.select<{ retry_count: number; max_retries: number }[]>(
     `SELECT retry_count, max_retries FROM pending_operations WHERE id = $1`,
     [id],
   );
   const op = rows[0];
-  if (!op) return;
+  if (!op) return "retrying";
 
   const newCount = op.retry_count + 1;
   if (newCount >= op.max_retries) {
@@ -88,7 +158,7 @@ export async function incrementRetry(id: string): Promise<void> {
       `UPDATE pending_operations SET status = 'failed', retry_count = $1 WHERE id = $2`,
       [newCount, id],
     );
-    return;
+    return "failed";
   }
 
   const backoffIdx = Math.min(newCount - 1, BACKOFF_SCHEDULE.length - 1);
@@ -99,6 +169,7 @@ export async function incrementRetry(id: string): Promise<void> {
     `UPDATE pending_operations SET retry_count = $1, next_retry_at = $2 WHERE id = $3`,
     [newCount, nextRetryAt, id],
   );
+  return "retrying";
 }
 
 export async function getPendingOpsCount(accountId?: string): Promise<number> {

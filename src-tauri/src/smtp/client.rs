@@ -7,7 +7,17 @@ use lettre::{
     AsyncSmtpTransport, AsyncTransport, Tokio1Executor,
 };
 
+use std::time::Duration;
+
 use super::types::{SmtpConfig, SmtpSendResult};
+
+/// Hard wall-clock limit for a full SMTP send (connect + auth + DATA upload).
+/// Generous because a 24MB attachment on a slow uplink legitimately takes minutes,
+/// but finite so a wedged connection can never hang a send forever — the TS side
+/// classifies the timeout as retryable and the queue takes over.
+const SEND_TOTAL_TIMEOUT: Duration = Duration::from_secs(180);
+/// Connect + auth + QUIT only — no message payload involved.
+const TEST_CONNECTION_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Decode a base64url-encoded string (Gmail format) to raw bytes.
 fn decode_base64url(input: &str) -> Result<Vec<u8>, String> {
@@ -155,9 +165,14 @@ pub async fn send_raw_email(
     let envelope = extract_envelope(&raw_bytes)?;
     let transport = build_transport(config)?;
 
-    transport
-        .send_raw(&envelope, &raw_bytes)
+    tokio::time::timeout(SEND_TOTAL_TIMEOUT, transport.send_raw(&envelope, &raw_bytes))
         .await
+        .map_err(|_| {
+            format!(
+                "SMTP send timeout after {}s — network or server hang",
+                SEND_TOTAL_TIMEOUT.as_secs()
+            )
+        })?
         .map(|_response| SmtpSendResult {
             success: true,
             message: "Email sent successfully".to_string(),
@@ -169,9 +184,14 @@ pub async fn send_raw_email(
 pub async fn test_connection(config: &SmtpConfig) -> Result<SmtpSendResult, String> {
     let transport = build_transport(config)?;
 
-    transport
-        .test_connection()
+    tokio::time::timeout(TEST_CONNECTION_TIMEOUT, transport.test_connection())
         .await
+        .map_err(|_| {
+            format!(
+                "SMTP test timeout after {}s",
+                TEST_CONNECTION_TIMEOUT.as_secs()
+            )
+        })?
         .map(|success| SmtpSendResult {
             success,
             message: if success {

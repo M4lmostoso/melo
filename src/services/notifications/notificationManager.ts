@@ -16,6 +16,21 @@ import { t } from "@/i18n";
 
 let initialized = false;
 let notificationsEnabled = true;
+// True once initNotifications has fully resolved (permission checked). Used to
+// buffer notifications fired by the first sync cycle, which can run before init
+// completes — without this they would silently no-op at the OS level.
+let initCompleted = false;
+type QueuedNotification = Parameters<typeof queueNewEmailNotification>;
+const preInitBuffer: QueuedNotification[] = [];
+
+/**
+ * Diagnostic trail for "why didn't I get a notification?" — every suppression
+ * decision is logged with its reason so misses are greppable in the console/log
+ * output instead of being silent.
+ */
+export function logNotificationSuppressed(reason: string, detail?: string): void {
+  console.info(`[notify] suppressed (${reason})${detail ? `: ${detail}` : ""}`);
+}
 // Tracks whether custom action types (Reply/Archive buttons) were successfully
 // registered. On macOS, action buttons require "Alert" notification style; if
 // registerActionTypes fails or the style isn't Alerts, fall back to "default"
@@ -51,7 +66,12 @@ export async function initNotifications(): Promise<void> {
   const setting = await getSetting("notifications_enabled");
   notificationsEnabled = setting !== "false";
 
-  if (!notificationsEnabled) return;
+  if (!notificationsEnabled) {
+    initCompleted = true;
+    preInitBuffer.length = 0;
+    logNotificationSuppressed("disabled in settings");
+    return;
+  }
 
   let granted = await isPermissionGranted();
   if (!granted) {
@@ -61,6 +81,9 @@ export async function initNotifications(): Promise<void> {
 
   if (!granted) {
     notificationsEnabled = false;
+    initCompleted = true;
+    preInitBuffer.length = 0;
+    logNotificationSuppressed("OS permission denied");
     return;
   }
 
@@ -130,6 +153,41 @@ export async function initNotifications(): Promise<void> {
     // Expected on desktop: register_action_types / register_listener are mobile-only,
     // so notifications are sent without action buttons (see note above).
   }
+
+  // Flush notifications queued by a sync cycle that ran before init finished
+  // (startup race: the first background sync starts before initNotifications).
+  initCompleted = true;
+  const buffered = preInitBuffer.splice(0, preInitBuffer.length);
+  for (const args of buffered) queueNewEmailNotification(...args);
+}
+
+/**
+ * Re-check the OS-level notification permission. macOS can revoke it after it
+ * was granted (System Settings, Focus filters); without this the app would keep
+ * silently dropping notifications forever. Called on window focus and from the
+ * settings tab. Returns the effective state so the UI can show a warning.
+ */
+export async function recheckNotificationPermission(): Promise<{
+  enabledInSettings: boolean;
+  osPermissionGranted: boolean;
+}> {
+  const setting = await getSetting("notifications_enabled");
+  const enabledInSettings = setting !== "false";
+  let osPermissionGranted = false;
+  try {
+    osPermissionGranted = await isPermissionGranted();
+  } catch {
+    // Plugin unavailable (tests/browser) — treat as not granted, don't flip state.
+    return { enabledInSettings, osPermissionGranted: notificationsEnabled };
+  }
+  const effective = enabledInSettings && osPermissionGranted;
+  if (effective !== notificationsEnabled) {
+    console.info(
+      `[notify] permission re-check: notifications ${effective ? "re-enabled" : "disabled"} (settings=${enabledInSettings}, OS=${osPermissionGranted})`,
+    );
+    notificationsEnabled = effective;
+  }
+  return { enabledInSettings, osPermissionGranted };
 }
 
 /**
@@ -164,7 +222,17 @@ export function queueNewEmailNotification(
   fromAddress?: string,
   snippet?: string,
 ): void {
-  if (!notificationsEnabled) return;
+  if (!initCompleted) {
+    // Startup race: the first sync cycle can fire before initNotifications has
+    // checked the OS permission — an immediate sendNotification would silently
+    // no-op. Buffer and flush once init completes.
+    preInitBuffer.push([from, subject, threadId, accountId, fromAddress, snippet]);
+    return;
+  }
+  if (!notificationsEnabled) {
+    logNotificationSuppressed("notifications disabled or OS permission missing", `from=${from} subject=${subject}`);
+    return;
+  }
 
   pendingCount++;
 
@@ -218,6 +286,45 @@ export function shouldNotifyForMessage(
   if (fromAddress && vipSenders.has(normalizeEmail(fromAddress))) return true; // VIP always notifies
   const category = threadCategory ?? "Primary"; // uncategorized defaults to Primary
   return allowedCategories.has(category);
+}
+
+/**
+ * Summary notification after a catch-up/full re-sync (Gmail HISTORY_EXPIRED
+ * fallback, forced IMAP recovery). Those paths import mail without per-message
+ * notifications — without this digest, everything that arrived during the gap
+ * would land silently. Counts unread INBOX messages newer than the last
+ * successful sync. Skipped for a first-ever sync (lastSyncAtSeconds null):
+ * notifying about an entire just-imported mailbox would be noise.
+ */
+export async function notifySyncCatchUp(
+  accountId: string,
+  lastSyncAtSeconds: number | null,
+): Promise<void> {
+  if (!notificationsEnabled || !lastSyncAtSeconds) return;
+  try {
+    const { getDb } = await import("../db/connection");
+    const db = await getDb();
+    const rows = await db.select<{ count: number }[]>(
+      `SELECT COUNT(DISTINCT m.id) as count
+       FROM messages m
+       INNER JOIN thread_labels tl
+         ON tl.account_id = m.account_id AND tl.thread_id = m.thread_id
+       WHERE m.account_id = $1 AND tl.label_id = 'INBOX'
+         AND m.is_read = 0 AND m.internal_date > $2`,
+      [accountId, lastSyncAtSeconds * 1000],
+    );
+    const count = Number(rows[0]?.count ?? 0);
+    if (count > 0) {
+      void playSound("receive");
+      notify({
+        title: "Melo",
+        body: t("notifications.syncCatchUp", { count }),
+        actionTypeId: "email",
+      });
+    }
+  } catch (err) {
+    console.error("[notify] syncCatchUp failed:", err);
+  }
 }
 
 /**

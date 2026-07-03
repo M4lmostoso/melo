@@ -12,8 +12,15 @@ import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { runMigrations, repairMojibakeData, repairHasAttachmentsFlags } from "./services/db/migrations";
 import { getAllAccounts } from "./services/db/accounts";
 import { getSetting, deleteSetting } from "./services/db/settings";
-import { enqueuePendingOperation, updateOperationStatus } from "./services/db/pendingOperations";
-import { setLocale } from "./i18n";
+import {
+  enqueuePendingOperation,
+  updateOperationStatus,
+  claimUndoOperation,
+  deleteOperation,
+  incrementRetry,
+} from "./services/db/pendingOperations";
+import { classifyError } from "@/utils/networkErrors";
+import { setLocale, t } from "./i18n";
 import {
   startBackgroundSync,
   stopBackgroundSync,
@@ -81,6 +88,10 @@ import { ContextMenuPortal } from "./components/ui/ContextMenuPortal";
 import { LocalFilePreview } from "./components/ui/LocalFilePreview";
 import { MoveToFolderDialog } from "./components/email/MoveToFolderDialog";
 import { OfflineBanner } from "./components/ui/OfflineBanner";
+import { AccountReauthBanner } from "./components/accounts/AccountReauthBanner";
+import { MigrationErrorScreen } from "./components/MigrationErrorScreen";
+import { ToastHost } from "./components/ui/ToastHost";
+import { useToastStore } from "./stores/toastStore";
 import { UpdateToast } from "./components/ui/UpdateToast";
 import { CalendarReminderToast } from "./components/calendar/CalendarReminderToast";
 import { ErrorBoundary } from "./components/ui/ErrorBoundary";
@@ -132,6 +143,7 @@ export default function App() {
   const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed);
   const [showAddAccount, setShowAddAccount] = useState(false);
   const [initialized, setInitialized] = useState(false);
+  const [migrationError, setMigrationError] = useState<string | null>(null);
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
@@ -156,6 +168,7 @@ export default function App() {
 
     const handleOnline = () => {
       setOnline(true);
+      import("./services/connectivityMonitor").then(({ notifyBackOnline }) => notifyBackOnline()).catch(() => {});
       triggerQueueFlush();
       const accounts = useAccountStore.getState().accounts;
       const activeIds = accounts.filter((a) => a.isActive).map((a) => a.id);
@@ -179,6 +192,19 @@ export default function App() {
       window.removeEventListener("online", handleOnline);
       window.removeEventListener("offline", handleOffline);
     };
+  }, []);
+
+  // Notification permission can be revoked at OS level after being granted
+  // (System Settings, Focus modes). Re-check on window focus so the app doesn't
+  // silently drop every notification forever after a revoke.
+  useEffect(() => {
+    const recheck = () => {
+      import("./services/notifications/notificationManager")
+        .then(({ recheckNotificationPermission }) => recheckNotificationPermission())
+        .catch(() => {});
+    };
+    window.addEventListener("focus", recheck);
+    return () => window.removeEventListener("focus", recheck);
   }, []);
 
   // Sync watchdog: flag any account that hasn't completed a successful sync for
@@ -337,6 +363,8 @@ export default function App() {
       listen("melo-execute-send", async (event) => {
         const p = event.payload as {
           outgoingId: string;
+          /** pending_operations row (status 'undo') persisting this email — null in fallback contexts. */
+          opId?: string | null;
           accountId: string;
           raw: string;
           threadId: string | null;
@@ -352,6 +380,24 @@ export default function App() {
           inReplyToMessageId: string | null;
           preTombstonedDraftId: string | null;
         };
+
+        // Claim ownership of the persisted undo-send row (compare-and-swap on
+        // status='undo'). If the claim fails, the queue processor already promoted
+        // and owns this send — sending here too would deliver the email twice.
+        // A claim ERROR (DB hiccup) is treated as owned: the +15s promotion grace
+        // makes a concurrent processor send effectively impossible at this point,
+        // and dropping the send would lose the email.
+        if (p.opId) {
+          try {
+            const owned = await claimUndoOperation(p.opId);
+            if (!owned) {
+              console.warn(`[App] Undo-send row ${p.opId} already claimed — skipping duplicate send`);
+              return;
+            }
+          } catch (err) {
+            console.error("[App] claimUndoOperation failed, proceeding as owner:", err);
+          }
+        }
 
         // Track the in-flight send in *this* (persistent) window's Outgoing store so the
         // message shows in Outgoing for the whole real SMTP+APPEND round trip — not just
@@ -386,35 +432,55 @@ export default function App() {
             // Cancel, so the mail stays recoverable until the user resolves it.
             void playSound("send_error");
             try {
-              const opId = await enqueuePendingOperation(
-                p.accountId,
-                "sendMessage",
-                p.threadId ?? crypto.randomUUID(),
-                {
-                  rawBase64Url: p.raw,
-                  threadId: p.threadId ?? undefined,
-                  // Carry the draft references so a successful retry cleans up the draft
-                  // (and its phantom "unread in inbox") instead of leaving it stranded.
-                  cleanupDraftId: p.currentDraftId ?? p.preTombstonedDraftId ?? undefined,
-                  cleanupLocalDraftId: p.localDraftId ?? undefined,
-                },
-              );
-              await updateOperationStatus(opId, "failed", sendResult.error ?? undefined);
+              if (p.opId) {
+                // The persisted undo-send row already carries raw + cleanup hints.
+                await updateOperationStatus(p.opId, "failed", sendResult.error ?? undefined);
+              } else {
+                const opId = await enqueuePendingOperation(
+                  p.accountId,
+                  "sendMessage",
+                  p.threadId ?? crypto.randomUUID(),
+                  {
+                    rawBase64Url: p.raw,
+                    threadId: p.threadId ?? undefined,
+                    // Carry the draft references so a successful retry cleans up the draft
+                    // (and its phantom "unread in inbox") instead of leaving it stranded.
+                    cleanupDraftId: p.currentDraftId ?? p.preTombstonedDraftId ?? undefined,
+                    cleanupLocalDraftId: p.localDraftId ?? undefined,
+                  },
+                );
+                await updateOperationStatus(opId, "failed", sendResult.error ?? undefined);
+              }
             } catch (e) {
               console.error("[App] Failed to persist failed send to Outgoing:", e);
             }
             window.dispatchEvent(new Event("melo-sync-done"));
+            useToastStore.getState().showToast(
+              "error",
+              sendResult.error
+                ? t("outgoing.sendFailedBodyWithError", { error: sendResult.error })
+                : t("outgoing.sendFailedBody"),
+            );
             import("@tauri-apps/plugin-notification").then(({ sendNotification }) => {
               sendNotification({
-                title: "Send failed",
+                title: t("outgoing.sendFailedTitle"),
                 body: sendResult.error
-                  ? `Could not send email: ${sendResult.error}. It's kept in Outgoing.`
-                  : "Could not send email. It's kept in Outgoing — check your SMTP settings.",
+                  ? t("outgoing.sendFailedBodyWithError", { error: sendResult.error })
+                  : t("outgoing.sendFailedBody"),
               });
             }).catch(() => {});
             // Skip the post-send draft cleanup below: the message lives in Outgoing now and
             // there is no successful send to reconcile.
             return;
+          }
+
+          // Send succeeded or was re-queued by executeEmailAction (which enqueued its
+          // own pending op) — either way this row's job is done; remove it so the
+          // startup recovery never flags it as an interrupted send.
+          if (p.opId) {
+            await deleteOperation(p.opId).catch((e) =>
+              console.error("[App] Failed to delete claimed undo-send row:", e),
+            );
           }
 
           if (!sendResult.queued && p.threadId) {
@@ -430,8 +496,8 @@ export default function App() {
             window.dispatchEvent(new Event("melo-sync-done"));
             import("@tauri-apps/plugin-notification").then(({ sendNotification }) => {
               sendNotification({
-                title: "Send queued",
-                body: "Could not reach the server. The email is saved in Outgoing and will be sent automatically.",
+                title: t("outgoing.queuedTitle"),
+                body: t("outgoing.queuedBody"),
               });
             }).catch(() => {});
           }
@@ -495,7 +561,52 @@ export default function App() {
             await upsertContact(addr, null);
           }
         } catch (err) {
+          // Unexpected throw (sendEmail is designed to return {success:false} on
+          // permanent errors, so this is a bug or infra failure). The draft is already
+          // tombstoned — losing the row here would silently lose the email.
           console.error("[App] melo-execute-send failed:", err);
+          const classified = classifyError(err);
+          try {
+            if (p.opId) {
+              if (classified.isRetryable) {
+                // Hand the row to the queue processor with backoff.
+                await updateOperationStatus(p.opId, "pending", classified.message);
+                await incrementRetry(p.opId);
+              } else {
+                await updateOperationStatus(p.opId, "failed", classified.message);
+              }
+            } else {
+              // Fallback path without a persisted row: create one so the email
+              // stays recoverable in Outgoing instead of vanishing.
+              const opId = await enqueuePendingOperation(
+                p.accountId,
+                "sendMessage",
+                p.threadId ?? crypto.randomUUID(),
+                {
+                  rawBase64Url: p.raw,
+                  threadId: p.threadId ?? undefined,
+                  cleanupDraftId: p.currentDraftId ?? p.preTombstonedDraftId ?? undefined,
+                  cleanupLocalDraftId: p.localDraftId ?? undefined,
+                },
+              );
+              if (!classified.isRetryable) {
+                await updateOperationStatus(opId, "failed", classified.message);
+              }
+            }
+          } catch (persistErr) {
+            console.error("[App] Failed to persist interrupted send:", persistErr);
+          }
+          if (!classified.isRetryable) {
+            void playSound("send_error");
+            useToastStore.getState().showToast("error", t("outgoing.sendFailedBody"));
+            import("@tauri-apps/plugin-notification").then(({ sendNotification }) => {
+              sendNotification({
+                title: t("outgoing.sendFailedTitle"),
+                body: t("outgoing.sendFailedBody"),
+              });
+            }).catch(() => {});
+          }
+          window.dispatchEvent(new Event("melo-sync-done"));
         } finally {
           useOutgoingStore.getState().removeEmail(p.outgoingId);
         }
@@ -533,7 +644,12 @@ export default function App() {
         try {
           await runMigrations();
         } catch (migErr) {
-          console.error("Migration failed, continuing with existing schema:", migErr);
+          // Booting on a partially migrated schema surfaces as random SQL errors
+          // and possible data corruption — block with a repair screen instead.
+          console.error("Migration failed — blocking startup:", migErr);
+          setMigrationError(migErr instanceof Error ? (migErr.stack ?? migErr.message) : String(migErr));
+          invoke("close_splashscreen").catch(() => {});
+          return;
         }
         repairMojibakeData().catch((err) =>
           console.error("[App] mojibake repair failed:", err),
@@ -806,6 +922,15 @@ export default function App() {
           // Clear the flag so it doesn't fire again on next startup
           const { deleteSetting } = await import("./services/db/settings");
           deleteSetting("imap_date_repair_v1_pending_sync").catch(() => {});
+        }
+
+        // Recover operations interrupted by a crash/quit BEFORE the checkers start,
+        // so stuck 'executing'/'sending'/'undo' rows are resolved exactly once.
+        try {
+          const { recoverInterruptedOperations } = await import("./services/queue/queueRecovery");
+          await recoverInterruptedOperations();
+        } catch (err) {
+          console.error("[App] Interrupted-operation recovery failed:", err);
         }
 
         startSnoozeChecker();
@@ -1084,6 +1209,10 @@ export default function App() {
     );
   }, []);
 
+  if (migrationError) {
+    return <MigrationErrorScreen error={migrationError} />;
+  }
+
   if (!initialized) {
     return (
       <div className="flex h-screen items-center justify-center bg-bg-primary">
@@ -1103,6 +1232,8 @@ export default function App() {
   return (
     <div className="flex flex-col h-screen overflow-hidden text-text-primary">
       <OfflineBanner />
+      <AccountReauthBanner />
+      <ToastHost />
       <div className="animated-bg" aria-hidden="true" />
       <TitleBar />
       <div className="flex flex-1 min-w-0 overflow-hidden">

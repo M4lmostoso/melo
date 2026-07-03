@@ -74,6 +74,10 @@ async function syncGmailAccount(accountId: string): Promise<{ storedCount?: numb
         await initialSync(client, accountId, daysBack, (progress) => {
           statusCallback?.(accountId, "syncing", progress);
         });
+        // initialSync emits no per-message notifications: surface what arrived
+        // during the history gap as a single digest so it doesn't land silently.
+        const { notifySyncCatchUp } = await import("../notifications/notificationManager");
+        notifySyncCatchUp(accountId, account.last_sync_at).catch(() => {});
         return {};
       } else {
         throw err;
@@ -131,6 +135,10 @@ async function syncImapAccount(accountId: string): Promise<{ storedCount?: numbe
             total: progress.total,
           });
         });
+        // Recovery sync emits no per-message notifications: surface recent
+        // arrivals as a single digest instead of importing them silently.
+        const { notifySyncCatchUp } = await import("../notifications/notificationManager");
+        notifySyncCatchUp(accountId, account.last_sync_at).catch(() => {});
         return {}; // initial sync always triggers UI refresh (storedCount undefined)
       }
     }
@@ -268,6 +276,15 @@ async function syncAccountInternal(accountId: string): Promise<void> {
     console.log(`[sync] done ${accountLabel} stored=${storedCount ?? "?"} flags=${flagChangedCount ?? 0} unfetchable=${unfetchableCount ?? 0} ms=${Date.now() - _cycleStart}`);
     statusCallback?.(accountId, "done", undefined, undefined, storedCount, flagChangedCount, unfetchableCount);
 
+    // A successful sync proves the token works again (e.g. re-auth done from
+    // Settings) — clear any stale re-auth banner.
+    {
+      const { useUIStore } = await import("@/stores/uiStore");
+      if (useUIStore.getState().accountSyncStatuses[accountId]?.needsReauth) {
+        useUIStore.getState().setAccountSyncHealth(accountId, { needsReauth: false });
+      }
+    }
+
     // Sync calendar alongside email (non-blocking — calendar errors don't affect email sync)
     syncCalendarForAccount(accountId).catch((err) => {
       console.warn(`[syncManager] Calendar sync error for ${accountId}:`, err);
@@ -275,6 +292,23 @@ async function syncAccountInternal(accountId: string): Promise<void> {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err ?? "Unknown error");
     console.error(`[sync] error ${accountLabel} ms=${Date.now() - _cycleStart}:`, message);
+    // invalid_grant = revoked/expired refresh token: sync is dead until the user
+    // re-authorizes. Without this flag the only trace is a tiny error icon and
+    // mail silently stops arriving.
+    if (message.includes("invalid_grant")) {
+      const { useUIStore } = await import("@/stores/uiStore");
+      useUIStore.getState().setAccountSyncHealth(accountId, { needsReauth: true });
+    }
+    // Network-shaped failure while navigator.onLine says we're fine → possible
+    // captive portal / dead network. The probe flips to offline mode so writes
+    // queue instead of failing.
+    {
+      const { classifyError } = await import("@/utils/networkErrors");
+      if (classifyError(new Error(message)).type === "network") {
+        const { reportNetworkFailure } = await import("../connectivityMonitor");
+        reportNetworkFailure();
+      }
+    }
     statusCallback?.(accountId, "error", undefined, message);
   }
 }

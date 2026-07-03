@@ -1,5 +1,5 @@
-import { useRef } from "react";
-import { Paperclip, X } from "lucide-react";
+import { useRef, useState } from "react";
+import { Paperclip, X, AlertCircle } from "lucide-react";
 import { t } from "@/i18n";
 import { useComposerStore, type ComposerAttachment } from "@/stores/composerStore";
 import { readFileAsBase64 } from "@/utils/fileUtils";
@@ -12,14 +12,21 @@ export function AttachmentPicker({ endSlot }: { endSlot?: React.ReactNode }) {
   const attachments = useComposerStore((s) => s.attachments);
   const addAttachment = useComposerStore((s) => s.addAttachment);
   const removeAttachment = useComposerStore((s) => s.removeAttachment);
+  const [skippedFiles, setSkippedFiles] = useState<string[]>([]);
 
   const totalSize = attachments.reduce((sum, a) => sum + a.size, 0);
 
   const handleFiles = async (files: FileList) => {
+    // Track the running total across THIS batch too — the store-derived totalSize
+    // doesn't yet include files added earlier in the same loop.
+    let runningTotal = totalSize;
+    const skipped: string[] = [];
     for (const file of Array.from(files)) {
-      if (totalSize + file.size > MAX_TOTAL_SIZE) {
-        console.warn("Attachment size limit exceeded (24MB)");
-        break;
+      if (runningTotal + file.size > MAX_TOTAL_SIZE) {
+        // Never drop a file silently: the email would go out without it while the
+        // user believes it's attached.
+        skipped.push(file.name);
+        continue;
       }
       const content = await readFileAsBase64(file);
       const attachment: ComposerAttachment = {
@@ -31,7 +38,9 @@ export function AttachmentPicker({ endSlot }: { endSlot?: React.ReactNode }) {
         content,
       };
       addAttachment(attachment);
+      runningTotal += file.size;
     }
+    setSkippedFiles(skipped);
     // Reset input so re-selecting the same file works
     if (inputRef.current) inputRef.current.value = "";
   };
@@ -86,6 +95,24 @@ export function AttachmentPicker({ endSlot }: { endSlot?: React.ReactNode }) {
         )}
         {endSlot && <div className="ml-auto">{endSlot}</div>}
       </div>
+
+      {skippedFiles.length > 0 && (
+        <div className="flex items-center gap-1.5 mt-1.5 text-xs text-danger">
+          <AlertCircle size={12} className="shrink-0" />
+          <span>
+            {t("composer.attachmentPicker.tooLarge", {
+              files: skippedFiles.join(", "),
+              limit: formatFileSize(MAX_TOTAL_SIZE),
+            })}
+          </span>
+          <button
+            onClick={() => setSkippedFiles([])}
+            className="text-text-tertiary hover:text-text-primary shrink-0"
+          >
+            <X size={12} />
+          </button>
+        </div>
+      )}
     </div>
   );
 }

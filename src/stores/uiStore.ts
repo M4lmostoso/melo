@@ -47,6 +47,12 @@ export interface AccountSyncState {
    * as a visible warning so incompleteness is never silent.
    */
   unfetchableCount?: number;
+  /**
+   * The OAuth refresh token was rejected (invalid_grant — revoked/expired).
+   * Sync is dead until the user re-authorizes; surfaced as a prominent banner
+   * instead of letting mail silently stop arriving.
+   */
+  needsReauth?: boolean;
 }
 
 export interface SidebarNavItem {
@@ -111,7 +117,7 @@ interface UIState {
   setPendingOpsCount: (count: number) => void;
   setSyncingFolder: (folder: string | null) => void;
   setAccountSyncPhase: (accountId: string, phase: AccountSyncPhase, error?: string) => void;
-  setAccountSyncHealth: (accountId: string, health: { lastSyncedAt?: number; unfetchableCount?: number; isStale?: boolean }) => void;
+  setAccountSyncHealth: (accountId: string, health: { lastSyncedAt?: number; unfetchableCount?: number; isStale?: boolean; needsReauth?: boolean }) => void;
   selectedScheduledEmail: DbScheduledEmail | null;
   setSelectedScheduledEmail: (email: DbScheduledEmail | null) => void;
 }

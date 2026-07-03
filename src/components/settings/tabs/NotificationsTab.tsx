@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
+import { AlertTriangle } from "lucide-react";
 import { useAccountStore } from "@/stores/accountStore";
 import { getSetting, setSetting } from "@/services/db/settings";
+import { recheckNotificationPermission } from "@/services/notifications/notificationManager";
 import { Section, ToggleRow } from "./shared";
 import { Button } from "@/components/ui/Button";
 import { t } from "@/i18n";
@@ -15,6 +17,13 @@ export function NotificationsTab() {
   const [notifyCategories, setNotifyCategories] = useState<Set<string>>(() => new Set(["Primary"]));
   const [vipSenders, setVipSenders] = useState<{ email_address: string; display_name: string | null }[]>([]);
   const [newVipEmail, setNewVipEmail] = useState("");
+  const [osPermissionDenied, setOsPermissionDenied] = useState(false);
+
+  useEffect(() => {
+    recheckNotificationPermission()
+      .then(({ osPermissionGranted }) => setOsPermissionDenied(!osPermissionGranted))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     async function load() {
@@ -51,6 +60,15 @@ export function NotificationsTab() {
 
   return (
     <>
+      {notificationsEnabled && osPermissionDenied && (
+        <div className="flex items-start gap-2 mb-4 px-3 py-2.5 rounded-md border border-warning/40 bg-warning/10">
+          <AlertTriangle size={15} className="text-warning shrink-0 mt-0.5" />
+          <div className="text-xs text-text-primary">
+            <div className="font-medium">{t("settings.notifications.osPermissionDeniedTitle")}</div>
+            <div className="text-text-secondary mt-0.5">{t("settings.notifications.osPermissionDeniedBody")}</div>
+          </div>
+        </div>
+      )}
       <Section title={t("settings.notifications.sections.notifications")}>
         <ToggleRow
           label={t("settings.notifications.enableNotifications")}
