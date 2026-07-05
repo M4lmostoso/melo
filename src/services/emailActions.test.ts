@@ -36,8 +36,8 @@ vi.mock("@/services/db/connection", () => ({
 }));
 
 vi.mock("@/router/navigate", () => ({
-  navigateToThread: vi.fn(),
-  navigateBack: vi.fn(),
+  navigateToThread: vi.fn(() => Promise.resolve()),
+  navigateBack: vi.fn(() => Promise.resolve()),
   getSelectedThreadId: vi.fn(() => null),
 }));
 

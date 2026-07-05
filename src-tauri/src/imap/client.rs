@@ -1247,8 +1247,13 @@ pub async fn fetch_raw_message(
 pub async fn delta_check_folders(
     session: &mut ImapSession,
     folders: &[DeltaCheckRequest],
-) -> Result<Vec<DeltaCheckResult>, String> {
+    skip_range_search: bool,
+) -> Result<(Vec<DeltaCheckResult>, bool), String> {
     let mut results = Vec::with_capacity(folders.len());
+    // Only set once the SINCE fallback actually finds messages the range query
+    // missed — that's proof the server drops range results, not just "no new
+    // mail this cycle" (which also leaves range_uids empty).
+    let mut range_search_confirmed_unreliable = false;
 
     for req in folders {
         let mailbox = match tokio::time::timeout(IMAP_CMD_TIMEOUT, session.select(&req.folder)).await {
@@ -1277,20 +1282,26 @@ pub async fn delta_check_folders(
         }
 
         // UID SEARCH for messages newer than last_uid, excluding \Deleted flagged messages.
-        let query = format!("{}:* NOT DELETED", req.last_uid + 1);
-        let range_uids = match tokio::time::timeout(IMAP_SEARCH_TIMEOUT, session.uid_search(&query)).await {
-            Ok(Ok(uids)) => {
-                let mut result: Vec<u32> = uids.into_iter().filter(|&u| u > req.last_uid).collect();
-                result.sort();
-                result
-            }
-            Ok(Err(e)) => {
-                log::warn!("delta_check: UID SEARCH {} failed: {e}", req.folder);
-                vec![]
-            }
-            Err(_) => {
-                log::warn!("delta_check: UID SEARCH {} timed out after {}s", req.folder, IMAP_SEARCH_TIMEOUT.as_secs());
-                vec![]
+        // Skipped entirely once this server has confirmed it drops range results —
+        // no point paying the round trip for a query we know will come back empty.
+        let range_uids = if skip_range_search {
+            vec![]
+        } else {
+            let query = format!("{}:* NOT DELETED", req.last_uid + 1);
+            match tokio::time::timeout(IMAP_SEARCH_TIMEOUT, session.uid_search(&query)).await {
+                Ok(Ok(uids)) => {
+                    let mut result: Vec<u32> = uids.into_iter().filter(|&u| u > req.last_uid).collect();
+                    result.sort();
+                    result
+                }
+                Ok(Err(e)) => {
+                    log::warn!("delta_check: UID SEARCH {} failed: {e}", req.folder);
+                    vec![]
+                }
+                Err(_) => {
+                    log::warn!("delta_check: UID SEARCH {} timed out after {}s", req.folder, IMAP_SEARCH_TIMEOUT.as_secs());
+                    vec![]
+                }
             }
         };
 
@@ -1317,6 +1328,12 @@ pub async fn delta_check_folders(
                                 "delta_check: SINCE fallback found {} new UIDs for {}",
                                 result.len(), req.folder
                             );
+                            // Range search legitimately ran (not pre-skipped) and missed
+                            // real messages SINCE caught — proof this server drops range
+                            // results, not just "no new mail this cycle".
+                            if !skip_range_search {
+                                range_search_confirmed_unreliable = true;
+                            }
                         }
                         result
                     }
@@ -1344,7 +1361,7 @@ pub async fn delta_check_folders(
         });
     }
 
-    Ok(results)
+    Ok((results, range_search_confirmed_unreliable))
 }
 
 /// Search a folder: SELECT → UID SEARCH, returning UIDs and folder status without fetching bodies.
@@ -2359,7 +2376,7 @@ fn parse_message(
     let message = parser.parse(raw).ok_or("Failed to parse MIME message")?;
 
     let message_id = message.message_id().map(|s| s.to_string());
-    let subject = message.subject().map(|s| fix_mojibake(s));
+    let subject = message.subject().map(fix_mojibake);
     let date = message
         .date()
         .map(|d| d.to_timestamp() * 1000)
@@ -2452,7 +2469,7 @@ fn parse_message(
         // Body-part types to skip in the fallback (they are never attachments).
         let body_types = ["text/plain", "text/html"];
         let known: std::collections::HashSet<usize> = att_indices.iter().copied().collect();
-        for (&part_idx, _section) in &section_map {
+        for &part_idx in section_map.keys() {
             if known.contains(&part_idx) {
                 continue;
             }

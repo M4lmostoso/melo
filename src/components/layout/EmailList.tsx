@@ -16,7 +16,7 @@ import { getCategoriesForThreads, getCategoriesForThreadsGlobal, getCategoryUnre
 import { getActiveFollowUpThreadIds } from "@/services/db/followUpReminders";
 import { getBundleRules, getHeldThreadIds, getBundleSummaries, type DbBundleRule } from "@/services/db/bundleRules";
 import { getGmailClient } from "@/services/gmail/tokenManager";
-import { trashThread, permanentDeleteThread, archiveThread, spamThread, emptyTrash, markAllTrashRead, trashAllSpam, markAllSpamRead } from "@/services/emailActions";
+import { trashThread, permanentDeleteThread, archiveThread, spamThread, emptyTrash, markAllTrashRead, trashAllSpam, markAllSpamRead, isPendingRemoval } from "@/services/emailActions";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { useLabelStore } from "@/stores/labelStore";
 import { useSmartFolderStore } from "@/stores/smartFolderStore";
@@ -409,6 +409,10 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
   useEffect(() => {
     if (!selectedThreadId) return;
     if (threadMap.has(selectedThreadId)) return;
+    // Skip while an optimistic removal (trash/archive/spam/move) is still mid-flight —
+    // the router's selectedThreadId lags one tick behind the store update and would
+    // otherwise cause this effect to re-fetch and re-add the thread we just removed.
+    if (isPendingRemoval(selectedThreadId)) return;
     let cancelled = false;
     (async () => {
       const ok = await fetchAndAddThread(selectedThreadId, null);

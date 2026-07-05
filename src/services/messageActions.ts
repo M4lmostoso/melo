@@ -9,7 +9,7 @@ import { updateBadgeCount } from "@/services/badgeManager";
 import { navigateToThread } from "@/router/navigate";
 import { useUIStore } from "@/stores/uiStore";
 import { useThreadStore } from "@/stores/threadStore";
-import { getNextThreadId, type ActionResult } from "./emailActions";
+import { getNextThreadId, markPendingRemoval, type ActionResult } from "./emailActions";
 
 /**
  * Delete a single message within a thread.
@@ -89,7 +89,7 @@ export async function deleteSingleMessage(
     }
     const nextId = getNextThreadId(threadId);
     useThreadStore.getState().removeThread(threadId);
-    if (nextId) navigateToThread(nextId);
+    if (nextId) markPendingRemoval(threadId, navigateToThread(nextId));
   } else {
     // Recalculate thread stats and labels reflecting the soft-trashed message
     await recalculateThreadStats(accountId, threadId);

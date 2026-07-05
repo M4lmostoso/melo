@@ -4,6 +4,9 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use tauri::Manager;
 
+/// (account_id, thread_id, subject, from_name, from_address, snippet, date)
+type FtsMessageMeta = (String, String, Option<String>, Option<String>, Option<String>, Option<String>, i64);
+
 #[allow(dead_code)]
 #[derive(Debug, Serialize, Deserialize)]
 pub struct VectorSearchHit {
@@ -194,7 +197,7 @@ pub async fn ask_inbox_rust(
         let mut fts_rrf: HashMap<String, f64> = HashMap::new();
         // FTS-only hits need their metadata here since they may not have a
         // blob entry. Limited to top-50 so this is always small.
-        let mut fts_meta: HashMap<String, (String, String, Option<String>, Option<String>, Option<String>, Option<String>, i64)> = HashMap::new();
+        let mut fts_meta: HashMap<String, FtsMessageMeta> = HashMap::new();
 
         if let Some(ref terms) = fts_terms {
             let fts_query = build_fts_query(terms);

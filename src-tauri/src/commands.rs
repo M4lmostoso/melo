@@ -82,6 +82,11 @@ pub async fn imap_fetch_messages(
         .collect::<Vec<_>>()
         .join(",");
 
+    if pool.needs_raw_fetch(&config).await {
+        log::debug!("[imap_fetch_messages] server already confirmed raw-fetch-only, skipping async-imap attempt for folder {folder}");
+        return imap_client::raw_fetch_messages(&config, &folder, &uid_set).await;
+    }
+
     let (mut session, key) = pool.acquire(&config).await?;
     let result = imap_client::fetch_messages(&mut session, &folder, &uid_set).await;
 
@@ -93,6 +98,7 @@ pub async fn imap_fetch_messages(
         Err(e) if e.starts_with("ASYNC_IMAP_EMPTY:") => {
             // async-imap failed, fallback to raw TCP (doesn't use pool)
             log::info!("Falling back to raw TCP fetch for folder {folder}");
+            pool.mark_raw_fetch_only(&config).await;
             imap_client::raw_fetch_messages(&config, &folder, &uid_set).await
         }
         Err(e) => Err(e),
@@ -353,6 +359,7 @@ fn emit_progress(app: &tauri::AppHandle, id: &str, downloaded: u64, total: u64) 
 /// hang on large attachments and exposes genuine network progress via the IMAP
 /// literal size. `total_size` is only a hint; the real total comes from the wire.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // Tauri IPC signature — each param is a named invoke() arg
 pub async fn imap_download_attachment_to_path(
     app: tauri::AppHandle,
     config: ImapConfig,
@@ -538,7 +545,7 @@ fn jemalloc_purge_all() {
     // arena index 4294967295 == MALLCTL_ARENAS_ALL — applies to every arena
     unsafe {
         tikv_jemalloc_sys::mallctl(
-            b"arena.4294967295.purge\0".as_ptr() as *const _,
+            c"arena.4294967295.purge".as_ptr() as *const _,
             std::ptr::null_mut(),
             std::ptr::null_mut(),
             std::ptr::null_mut(),
@@ -885,10 +892,14 @@ pub async fn imap_delta_check(
     log::debug!("[imap_delta_check: {} folders", folders.len());
     // Pooled: the once-per-cycle batch check reuses a live session instead of
     // forcing a fresh LOGIN every 60s.
+    let skip_range_search = pool.skip_range_search(&config).await;
     let (mut session, key) = pool.acquire(&config).await?;
-    match imap_client::delta_check_folders(&mut session, &folders).await {
-        Ok(results) => {
+    match imap_client::delta_check_folders(&mut session, &folders, skip_range_search).await {
+        Ok((results, confirmed_unreliable)) => {
             pool.release(key, session).await;
+            if confirmed_unreliable {
+                pool.mark_no_range_search(&config).await;
+            }
             Ok(results)
         }
         Err(e) => Err(e),
@@ -923,19 +934,25 @@ pub async fn imap_fetch_messages_buffered(
         .collect::<Vec<_>>()
         .join(",");
 
-    let (mut session, key) = pool.acquire(&config).await?;
-    let result = imap_client::fetch_messages(&mut session, &folder, &uid_set).await;
+    let fetch_result: ImapFetchResult = if pool.needs_raw_fetch(&config).await {
+        log::debug!("[imap_fetch_messages_buffered] server already confirmed raw-fetch-only, skipping async-imap attempt for folder {folder}");
+        imap_client::raw_fetch_messages(&config, &folder, &uid_set).await?
+    } else {
+        let (mut session, key) = pool.acquire(&config).await?;
+        let result = imap_client::fetch_messages(&mut session, &folder, &uid_set).await;
 
-    let fetch_result: ImapFetchResult = match result {
-        Ok(r) => {
-            pool.release(key, session).await;
-            r
+        match result {
+            Ok(r) => {
+                pool.release(key, session).await;
+                r
+            }
+            Err(e) if e.starts_with("ASYNC_IMAP_EMPTY:") => {
+                log::info!("Falling back to raw TCP fetch for folder {folder} (buffered)");
+                pool.mark_raw_fetch_only(&config).await;
+                imap_client::raw_fetch_messages(&config, &folder, &uid_set).await?
+            }
+            Err(e) => return Err(e),
         }
-        Err(e) if e.starts_with("ASYNC_IMAP_EMPTY:") => {
-            log::info!("Falling back to raw TCP fetch for folder {folder} (buffered)");
-            imap_client::raw_fetch_messages(&config, &folder, &uid_set).await?
-        }
-        Err(e) => return Err(e),
     };
 
     let mut meta_messages = Vec::with_capacity(fetch_result.messages.len());
@@ -1068,6 +1085,7 @@ pub async fn imap_flush_bodies(
 /// Returns only the minimal `ImapSyncHeader` slice needed for JWZ threading (~200 B/msg).
 /// WebKit IPC traffic per batch: ~1-2 KB regardless of message body size.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // Tauri IPC signature — each param is a named invoke() arg
 pub async fn imap_fetch_and_store(
     app: tauri::AppHandle,
     pool: tauri::State<'_, ImapSessionPool>,
@@ -1094,8 +1112,11 @@ pub async fn imap_fetch_and_store(
         .join(",");
 
     // Fetch full messages (body_html + body_text) from IMAP.
-    let (mut session, key) = pool.acquire(&config).await?;
-    let fetch_result: ImapFetchResult =
+    let fetch_result: ImapFetchResult = if pool.needs_raw_fetch(&config).await {
+        log::debug!("[imap_fetch_and_store] server already confirmed raw-fetch-only, skipping async-imap attempt for folder {folder}");
+        imap_client::raw_fetch_messages(&config, &folder, &uid_set).await?
+    } else {
+        let (mut session, key) = pool.acquire(&config).await?;
         match imap_client::fetch_messages(&mut session, &folder, &uid_set).await {
             Ok(r) => {
                 pool.release(key, session).await;
@@ -1103,10 +1124,12 @@ pub async fn imap_fetch_and_store(
             }
             Err(e) if e.starts_with("ASYNC_IMAP_EMPTY:") => {
                 log::info!("imap_fetch_and_store: raw TCP fallback for {folder}");
+                pool.mark_raw_fetch_only(&config).await;
                 imap_client::raw_fetch_messages(&config, &folder, &uid_set).await?
             }
             Err(e) => return Err(e),
-        };
+        }
+    };
 
     // Open rusqlite — WAL mode means no conflict with the Tauri SQL plugin reader pool.
     let db_path = app
@@ -1207,7 +1230,7 @@ pub async fn imap_fetch_and_store(
         let rfc_id_for_header = msg.message_id.clone().unwrap_or_else(synthetic_rfc_id);
 
         // Filter 2: dedup by RFC message ID (message exists in another folder already)
-        let stored = if msg.message_id.as_ref().map_or(false, |id| existing_rfc_ids.contains(id)) {
+        let stored = if msg.message_id.as_ref().is_some_and(|id| existing_rfc_ids.contains(id)) {
             // Same-folder UID renumber: server replaced the appended copy (old UID) with the
             // SMTP auto-saved copy (new UID). Update the existing row's imap_uid so that
             // reconcileDeletedMessages finds the message on the server and does NOT delete it.
@@ -1507,6 +1530,7 @@ pub async fn imap_store_threads(
 /// Bodies are written Rust → SQLite without ever touching the WebKit heap.
 /// Returns a tiny acknowledgement; TypeScript handles categorisation separately.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)] // Tauri IPC signature — each param is a named invoke() arg
 pub async fn gmail_store_thread(
     app: tauri::AppHandle,
     account_id: String,

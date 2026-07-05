@@ -108,19 +108,18 @@ export function navigateToLabel(
  * Navigate to a thread within the current mail context.
  * Appends /thread/$threadId to the current route.
  */
-export function navigateToThread(threadId: string): void {
+export function navigateToThread(threadId: string): Promise<void> {
   const { location } = router.state;
   const pathname = location.pathname;
 
   // Already on a mail/$label route
   const mailMatch = pathname.match(/^\/mail\/([^/]+)/);
   if (mailMatch) {
-    router.navigate({
+    return router.navigate({
       to: "/mail/$label/thread/$threadId",
       params: { label: mailMatch[1]!, threadId },
       search: location.search as Record<string, string>,
     });
-    return;
   }
 
   // On a custom label route — read decoded labelId from router state, not raw URL,
@@ -131,28 +130,26 @@ export function navigateToThread(threadId: string): void {
     );
     const labelId = (currentMatch?.params as { labelId?: string } | undefined)?.labelId;
     if (labelId) {
-      router.navigate({
+      return router.navigate({
         to: "/label/$labelId/thread/$threadId",
         params: { labelId, threadId },
         search: location.search as Record<string, string>,
       });
-      return;
     }
   }
 
   // On a smart folder route
   const sfMatch = pathname.match(/^\/smart-folder\/([^/]+)/);
   if (sfMatch) {
-    router.navigate({
+    return router.navigate({
       to: "/smart-folder/$folderId/thread/$threadId",
       params: { folderId: sfMatch[1]!, threadId },
       search: location.search as Record<string, string>,
     });
-    return;
   }
 
   // Fallback: navigate to inbox with thread
-  router.navigate({
+  return router.navigate({
     to: "/mail/$label/thread/$threadId",
     params: { label: "inbox", threadId },
   });
@@ -175,43 +172,40 @@ export function navigateToHelp(topic = "getting-started"): void {
 /**
  * Navigate back (deselect thread → go to parent list route).
  */
-export function navigateBack(): void {
+export function navigateBack(): Promise<void> {
   const { location } = router.state;
   const pathname = location.pathname;
 
   // If on a thread sub-route, go to parent
   const mailThreadMatch = pathname.match(/^\/mail\/([^/]+)\/thread\//);
   if (mailThreadMatch) {
-    router.navigate({
+    return router.navigate({
       to: "/mail/$label",
       params: { label: mailThreadMatch[1]! },
       search: location.search as Record<string, string>,
     });
-    return;
   }
 
   const labelThreadMatch = pathname.match(/^\/label\/([^/]+)\/thread\//);
   if (labelThreadMatch) {
-    router.navigate({
+    return router.navigate({
       to: "/label/$labelId",
       params: { labelId: labelThreadMatch[1]! },
       search: location.search as Record<string, string>,
     });
-    return;
   }
 
   const sfThreadMatch = pathname.match(/^\/smart-folder\/([^/]+)\/thread\//);
   if (sfThreadMatch) {
-    router.navigate({
+    return router.navigate({
       to: "/smart-folder/$folderId",
       params: { folderId: sfThreadMatch[1]! },
       search: location.search as Record<string, string>,
     });
-    return;
   }
 
   // Not on a thread route — navigate to inbox
-  router.navigate({ to: "/mail/$label", params: { label: "inbox" } });
+  return router.navigate({ to: "/mail/$label", params: { label: "inbox" } });
 }
 
 /**

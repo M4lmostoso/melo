@@ -91,6 +91,24 @@ export interface ActionResult {
 // Optimistic UI helpers
 // ---------------------------------------------------------------------------
 
+// Thread ids that were just removed from the store by an optimistic update, while
+// the follow-up router navigation (to a sibling thread, or back to the list) is
+// still in flight. The EmailList "deep-link safety net" effect reacts to the
+// router's selectedThreadId, which lags one tick behind the synchronous store
+// removal — without this guard it would re-fetch and re-add the thread we just
+// removed, producing a zombie row that only clears on the next full folder load.
+const pendingRemovalIds = new Set<string>();
+
+export function isPendingRemoval(threadId: string): boolean {
+  return pendingRemovalIds.has(threadId);
+}
+
+/** Mark threadId as pending-removal until the given navigation settles. */
+export function markPendingRemoval(threadId: string, navigation: Promise<void>): void {
+  pendingRemovalIds.add(threadId);
+  navigation.finally(() => pendingRemovalIds.delete(threadId));
+}
+
 export function getNextThreadId(currentId: string): string | null {
   // Only auto-advance if the removed thread is the one being viewed
   const selectedId = getSelectedThreadId();
@@ -120,11 +138,11 @@ function applyOptimisticUpdate(action: EmailAction): void {
       const nextId = getNextThreadId(action.threadId);
       store.removeThread(action.threadId);
       if (nextId) {
-        navigateToThread(nextId);
+        markPendingRemoval(action.threadId, navigateToThread(nextId));
       } else if (isViewing) {
         // No sibling to advance to (e.g. the last thread in a smart folder). Deselect so the
         // reading pane empties and the deep-link safety net doesn't re-fetch the removed thread.
-        navigateBack();
+        markPendingRemoval(action.threadId, navigateBack());
       }
       break;
     }

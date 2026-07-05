@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 use tokio::sync::Mutex;
 
@@ -28,6 +28,15 @@ fn max_sessions_for_key(key: &str) -> usize {
 /// and LOGIN for every attachment/CID fetch.
 pub struct ImapSessionPool {
     sessions: Mutex<HashMap<String, Vec<ImapSession>>>,
+    // Server-identity keyed quirk cache (in-memory, reset on app restart). Some
+    // servers (DavMail/Exchange proxies, Mailo, ...) return non-standard FETCH
+    // responses or silently drop UID range SEARCH queries. Once a quirk is
+    // confirmed for a given server, we skip straight to the known-working path
+    // instead of re-attempting (and re-downloading) the doomed one on every
+    // batch/folder/cycle — this is what turned multi-minute, double-bandwidth
+    // syncs on quirky IMAP bridges into single-pass ones.
+    raw_fetch_only: Mutex<HashSet<String>>,
+    no_range_search: Mutex<HashSet<String>>,
 }
 
 fn session_key(config: &ImapConfig) -> String {
@@ -38,6 +47,38 @@ impl ImapSessionPool {
     pub fn new() -> Self {
         Self {
             sessions: Mutex::new(HashMap::new()),
+            raw_fetch_only: Mutex::new(HashSet::new()),
+            no_range_search: Mutex::new(HashSet::new()),
+        }
+    }
+
+    /// True if this server previously returned FETCH responses async-imap
+    /// couldn't parse into a body — skip the doomed pooled attempt and go
+    /// straight to the raw TCP fetch, which downloads the message bytes once
+    /// instead of twice.
+    pub async fn needs_raw_fetch(&self, config: &ImapConfig) -> bool {
+        self.raw_fetch_only.lock().await.contains(&session_key(config))
+    }
+
+    pub async fn mark_raw_fetch_only(&self, config: &ImapConfig) {
+        let key = session_key(config);
+        if self.raw_fetch_only.lock().await.insert(key.clone()) {
+            log::info!("[ImapPool] key={key} confirmed raw-fetch-only — skipping async-imap fetch attempts for this server going forward");
+        }
+    }
+
+    /// True if this server previously confirmed it silently drops `UID SEARCH
+    /// n:*` range queries (the SINCE-date fallback found messages the range
+    /// query missed) — skip straight to the SINCE fallback instead of paying a
+    /// doomed round trip on every folder, every sync cycle.
+    pub async fn skip_range_search(&self, config: &ImapConfig) -> bool {
+        self.no_range_search.lock().await.contains(&session_key(config))
+    }
+
+    pub async fn mark_no_range_search(&self, config: &ImapConfig) {
+        let key = session_key(config);
+        if self.no_range_search.lock().await.insert(key.clone()) {
+            log::info!("[ImapPool] key={key} confirmed UID range SEARCH unreliable — using SINCE fallback directly for this server going forward");
         }
     }
 
