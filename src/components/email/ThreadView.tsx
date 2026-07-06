@@ -530,6 +530,19 @@ const handlePrint = useCallback(async () => {
     return () => window.removeEventListener("melo-message-deleted", handler);
   }, [thread.id, threadAccountId, setSelectedMessageId]);
 
+  // Reload message list when a background sync completes, so a message that
+  // arrives for this thread while it's already open (e.g. a bounce/NDR reply)
+  // doesn't stay invisible until the component remounts.
+  useEffect(() => {
+    const handler = () => {
+      getMessagesForThread(threadAccountId, thread.id, false, trashedOnly)
+        .then(setMessages)
+        .catch(console.error);
+    };
+    window.addEventListener("melo-sync-done", handler);
+    return () => window.removeEventListener("melo-sync-done", handler);
+  }, [thread.id, threadAccountId, trashedOnly]);
+
   // Listen for "View Source" event from context menu
   useEffect(() => {
     const handler = (e: Event) => {
