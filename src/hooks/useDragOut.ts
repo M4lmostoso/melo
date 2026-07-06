@@ -1,12 +1,18 @@
 import { useRef, useCallback, useState, useEffect } from "react";
 import { listen } from "@tauri-apps/api/event";
 import type { AttachmentRef } from "@/services/attachments/attachmentActions";
-import { materializeMany, dragPaths, DRAG_ICON } from "@/services/attachments/attachmentActions";
+import { materializeEach, dragPaths, DRAG_ICON } from "@/services/attachments/attachmentActions";
 
 type StartDragFn = (opts: { item: string[]; icon: string }) => Promise<void>;
 
 /** Per-attachment drag-readiness, keyed by the attachment db id. */
 export type DragPrepState = "preparing" | "ready" | "error";
+
+/** Warm-up entry for one item id: resolved paths once every ref settled. */
+interface WarmEntry {
+  paths: string[] | null;
+  promise: Promise<string[]>;
+}
 
 /**
  * Native file drag-out for attachments.
@@ -18,13 +24,16 @@ export type DragPrepState = "preparing" | "ready" | "error";
  * materialized to disk eagerly on `mousedown` and the plugin module is
  * pre-imported — leaving `dragstart` free of any blocking await.
  *
+ * Warm-ups are tracked per item id (a Map, not a single slot): hovering item B
+ * while item A is still preparing no longer abandons A. The heavy lifting is
+ * shared through the module-level single-flight registry in attachmentActions,
+ * so re-hovering and overlapping selections never duplicate a download.
+ *
  * `resolveRefs(id)` returns the attachments to drag for the pressed item
  * (selection-aware: the whole selection when the item is selected, else itself).
  */
 export function useDragOut(resolveRefs: (id: string) => AttachmentRef[]) {
-  const pathsRef = useRef<string[] | null>(null);
-  const pathsPromiseRef = useRef<Promise<string[]> | null>(null);
-  const warmedIdRef = useRef<string | null>(null);
+  const warmRef = useRef(new Map<string, WarmEntry>());
   const startDragRef = useRef<StartDragFn | null>(null);
   const draggedRef = useRef(false);
   const resolveR = useRef(resolveRefs);
@@ -47,30 +56,42 @@ export function useDragOut(resolveRefs: (id: string) => AttachmentRef[]) {
 
   // Materialize the attachment(s) for `id` to disk so their paths are ready by
   // the time `dragstart` fires (the native drag must start synchronously there).
-  // Idempotent per id: re-hovering or pressing the same item won't restart an
-  // in-flight download — important for slow IMAP fetches that must finish before
-  // the drag begins.
+  // Always re-resolves the refs (selection may have changed since the last
+  // warm-up); the single-flight registry makes repeated calls free.
   const warmUp = useCallback((id: string) => {
-    if (warmedIdRef.current === id && pathsPromiseRef.current) return;
-    warmedIdRef.current = id;
     const refs = resolveR.current(id).filter((r) => r.attachmentId);
-    pathsRef.current = null;
-    const dbIds = refs.map((r) => r.dbId);
-    const setAll = (s: DragPrepState) =>
-      setPrepState((prev) => {
-        const next = { ...prev };
-        for (const d of dbIds) next[d] = s;
-        return next;
-      });
-    setAll("preparing");
-    const p = materializeMany(refs)
-      .then((paths) => {
-        if (warmedIdRef.current === id) pathsRef.current = paths;
-        setAll("ready");
+    if (refs.length === 0) return;
+
+    const promises = materializeEach(refs);
+
+    // Mark "preparing" only what isn't already on disk — never regress "ready".
+    setPrepState((prev) => {
+      const next = { ...prev };
+      for (const r of refs) {
+        if (next[r.dbId] !== "ready") next[r.dbId] = "preparing";
+      }
+      return next;
+    });
+    for (const r of refs) {
+      promises.get(r.dbId)!
+        .then(() => setPrepState((prev) => (prev[r.dbId] === "ready" ? prev : { ...prev, [r.dbId]: "ready" })))
+        .catch(() => setPrepState((prev) => ({ ...prev, [r.dbId]: "error" })));
+    }
+
+    // Paths for the native drag. Tolerate partial failure: drag whatever
+    // materialized — failed items keep their per-item error indicator.
+    const entry: WarmEntry = {
+      paths: null,
+      promise: Promise.allSettled(refs.map((r) => promises.get(r.dbId)!)).then((settled) => {
+        const paths = settled
+          .filter((s): s is PromiseFulfilledResult<string> => s.status === "fulfilled")
+          .map((s) => s.value);
+        entry.paths = paths;
         return paths;
-      })
-      .catch(() => { setAll("error"); return [] as string[]; });
-    pathsPromiseRef.current = p;
+      }),
+    };
+    warmRef.current.set(id, entry);
+
     if (!startDragRef.current) {
       import("@crabnebula/tauri-plugin-drag")
         .then((m) => { startDragRef.current = m.startDrag as StartDragFn; })
@@ -108,16 +129,19 @@ export function useDragOut(resolveRefs: (id: string) => AttachmentRef[]) {
     draggedRef.current = true;
     setTimeout(() => { draggedRef.current = false; }, 0);
 
-    if (pathsRef.current) {
-      fire(pathsRef.current);
-    } else if (pathsPromiseRef.current) {
-      pathsPromiseRef.current.then(fire);
-    } else {
-      // dragstart without a prior mousedown warm-up — materialize now.
-      const refs = resolveR.current(id).filter((r) => r.attachmentId);
-      materializeMany(refs).then(fire).catch((err) => console.error("Attachment drag failed:", err));
+    let entry = warmRef.current.get(id);
+    if (!entry) {
+      // dragstart without a prior warm-up (e.g. keyboard-initiated) — start now.
+      warmUp(id);
+      entry = warmRef.current.get(id);
     }
-  }, [fire]);
+    if (!entry) return;
+    if (entry.paths) {
+      fire(entry.paths);
+    } else {
+      entry.promise.then(fire);
+    }
+  }, [fire, warmUp]);
 
   /** True when the last gesture became a drag — use to suppress the click. */
   const didDrag = useCallback(() => draggedRef.current, []);

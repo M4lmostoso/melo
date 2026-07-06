@@ -854,26 +854,32 @@ pub async fn fetch_attachment(
     Ok(base64_str)
 }
 
-/// Fetch a CID inline image via RAW TCP — bypasses async-imap completely.
+/// Resolve several inline CID images of ONE message with a single full-message
+/// download, then match each Content-ID locally.
 ///
-/// Diagnosis: with DavMail (Exchange/EWS → IMAP), even the full `BODY.PEEK[]`
-/// FETCH hangs inside async-imap's response parser (the parser keeps buffering
-/// without producing items, defeating `tokio::time::timeout`). The same UID
-/// fetched through the raw-TCP path (`raw_fetch_messages`) works fine — which
-/// is how the body got into the DB in the first place. So for CID resolution
-/// we use the raw path too.
+/// The batch CID resolver used to fetch `BODY.PEEK[]` once *per* image — each
+/// opening a fresh connection and pulling the whole message. An email with N
+/// inline images (signatures/newsletters with many embedded logos) therefore
+/// re-downloaded the message N times. This fetches the body once, parses it, and
+/// extracts every requested Content-ID from that single download.
 ///
-/// Behaviour: opens a fresh TCP/TLS connection (no session pool), logs in,
-/// SELECTs the folder, fetches `BODY.PEEK[]` for the single UID, parses the
-/// raw bytes with mail-parser, and returns the base64-encoded contents of the
-/// MIME part whose Content-ID header matches `content_id`.
-pub async fn raw_fetch_cid_attachment(
+/// Uses the raw-TCP path (no async-imap, no session pool): with DavMail
+/// (Exchange/EWS → IMAP) the async-imap `BODY.PEEK[]` parser stalls without
+/// yielding, defeating `tokio::time::timeout`; raw TCP + manual literal parsing
+/// completes reliably (it is how the body reached the DB during sync).
+///
+/// Returns a map from normalized (bracket-stripped) Content-ID to the decoded
+/// part contents. CIDs not found in the message are absent from the map.
+pub async fn raw_fetch_cid_attachments_batch(
     config: &ImapConfig,
     folder: &str,
     uid: u32,
-    content_id: &str,
-) -> Result<String, String> {
-    log::debug!("[raw_fetch_cid_attachment] folder={folder} uid={uid} cid={content_id}");
+    content_ids: &[String],
+) -> Result<std::collections::HashMap<String, Vec<u8>>, String> {
+    log::debug!(
+        "[raw_fetch_cid_batch] folder={folder} uid={uid} cids={}",
+        content_ids.len()
+    );
 
     let stream = if config.security == "starttls" {
         raw_connect_starttls(config).await?
@@ -900,12 +906,11 @@ pub async fn raw_fetch_cid_attachment(
     };
     raw_send_and_wait(&mut reader, login_cmd.as_bytes(), "a1").await?;
 
-    // SELECT folder (read-only would be nice via EXAMINE, but SELECT matches
-    // the rest of the codebase and keeps server-side state consistent)
+    // SELECT folder
     let select_cmd = format!("a2 SELECT \"{folder}\"\r\n");
     raw_send_and_wait(&mut reader, select_cmd.as_bytes(), "a2").await?;
 
-    // FETCH full body for the single UID
+    // FETCH the full body once for the single UID
     let fetch_cmd = format!("a3 UID FETCH {uid} BODY.PEEK[]\r\n");
     reader.get_mut().write_all(fetch_cmd.as_bytes()).await
         .map_err(|e| format!("FETCH write: {e}"))?;
@@ -916,33 +921,134 @@ pub async fn raw_fetch_cid_attachment(
     let raw_msg = raw_messages.into_iter().next()
         .ok_or_else(|| format!("No message returned for UID {uid}"))?;
 
-    // Parse RFC822 client-side and locate the part with matching Content-ID.
-    // Walk EVERY MIME part — `attachments()` / `html_bodies()` / `text_bodies()`
-    // each miss inline parts (Content-Disposition: inline), which is what CID
-    // images are. Direct `parts` iteration catches them all.
+    // Parse once and walk EVERY MIME part (attachments()/html_bodies() miss inline
+    // parts — the same reason raw_fetch_cid_attachment iterates `parts` directly).
     let parser = MessageParser::default();
     let message = parser
         .parse(raw_msg.body.as_slice())
         .ok_or_else(|| format!("mail-parser failed for UID {uid}"))?;
 
-    let target = content_id.trim().trim_matches(|c| c == '<' || c == '>');
+    let wanted: std::collections::HashSet<&str> = content_ids
+        .iter()
+        .map(|c| c.trim().trim_matches(|ch| ch == '<' || ch == '>'))
+        .collect();
 
+    let mut out: std::collections::HashMap<String, Vec<u8>> =
+        std::collections::HashMap::with_capacity(content_ids.len());
     for part in &message.parts {
-        let part_cid = part
-            .content_id()
-            .map(|c| c.trim().trim_matches(|ch| ch == '<' || ch == '>'));
-        if part_cid == Some(target) {
-            return Ok(base64::engine::general_purpose::STANDARD.encode(part.contents()));
+        let Some(part_cid) = part.content_id() else { continue };
+        let norm = part_cid.trim().trim_matches(|ch| ch == '<' || ch == '>');
+        if wanted.contains(norm) && !out.contains_key(norm) {
+            out.insert(norm.to_string(), part.contents().to_vec());
         }
     }
 
-    Err(format!("Content-ID {target} not found in UID {uid}"))
+    Ok(out)
+}
+
+/// Fetch several MIME parts of ONE message with a single full-message download,
+/// then slice out each requested IMAP section locally.
+///
+/// DavMail (Exchange/EWS → IMAP) mangles per-part `BODY.PEEK[part_id]` fetches —
+/// in practice it re-sends (nearly) the whole message for *each* part requested.
+/// Downloading N attachments of a single email one part at a time therefore
+/// transferred N × the message: minutes of wall-clock and enough bandwidth to
+/// saturate the link and trip the offline detector. This fetches `BODY.PEEK[]`
+/// exactly once via the raw-TCP path (immune to the async-imap parser hang),
+/// parses it with mail-parser, and extracts every requested section from that
+/// single download — so one email is always one message download.
+///
+/// Returns a map from the requested `part_id` (IMAP section string, e.g. "2" or
+/// "1.2") to the decoded part contents. Sections not present in the message are
+/// simply absent from the map.
+pub async fn raw_fetch_message_parts(
+    config: &ImapConfig,
+    folder: &str,
+    uid: u32,
+    part_ids: &[String],
+) -> Result<std::collections::HashMap<String, Vec<u8>>, String> {
+    log::debug!(
+        "[raw_fetch_message_parts] folder={folder} uid={uid} parts={}",
+        part_ids.len()
+    );
+
+    let stream = if config.security == "starttls" {
+        raw_connect_starttls(config).await?
+    } else {
+        connect_stream(config).await?
+    };
+    let mut reader = BufReader::new(stream);
+
+    // Read greeting (non-STARTTLS only — STARTTLS path already consumed it)
+    if config.security != "starttls" {
+        let mut line = String::new();
+        reader.read_line(&mut line).await.map_err(|e| format!("greeting: {e}"))?;
+    }
+
+    // LOGIN
+    let login_cmd = if config.auth_method == "oauth2" {
+        let xoauth2 = format!("user={}\x01auth=Bearer {}\x01\x01", config.username, config.password);
+        let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, xoauth2.as_bytes());
+        format!("a1 AUTHENTICATE XOAUTH2 {b64}\r\n")
+    } else {
+        let esc_user = config.username.replace('\\', "\\\\").replace('"', "\\\"");
+        let esc_pass = config.password.replace('\\', "\\\\").replace('"', "\\\"");
+        format!("a1 LOGIN \"{esc_user}\" \"{esc_pass}\"\r\n")
+    };
+    raw_send_and_wait(&mut reader, login_cmd.as_bytes(), "a1").await?;
+
+    // SELECT folder
+    let select_cmd = format!("a2 SELECT \"{folder}\"\r\n");
+    raw_send_and_wait(&mut reader, select_cmd.as_bytes(), "a2").await?;
+
+    // FETCH the full body once for the single UID
+    let fetch_cmd = format!("a3 UID FETCH {uid} BODY.PEEK[]\r\n");
+    reader.get_mut().write_all(fetch_cmd.as_bytes()).await
+        .map_err(|e| format!("FETCH write: {e}"))?;
+
+    let raw_messages = raw_parse_fetch_responses(&mut reader, "a3").await?;
+    let _ = reader.get_mut().write_all(b"a4 LOGOUT\r\n").await;
+
+    let raw_msg = raw_messages.into_iter().next()
+        .ok_or_else(|| format!("No message returned for UID {uid}"))?;
+
+    // Parse once and map IMAP section paths → mail-parser part index. Using the
+    // same section builder as sync guarantees the part_id strings match what was
+    // stored on the attachment rows.
+    let parser = MessageParser::default();
+    let message = parser
+        .parse(raw_msg.body.as_slice())
+        .ok_or_else(|| format!("mail-parser failed for UID {uid}"))?;
+
+    let section_map = build_imap_section_map(&message);
+    let mut idx_by_section: std::collections::HashMap<&str, usize> =
+        std::collections::HashMap::with_capacity(section_map.len());
+    for (idx, section) in &section_map {
+        idx_by_section.insert(section.as_str(), *idx);
+    }
+
+    let mut out: std::collections::HashMap<String, Vec<u8>> =
+        std::collections::HashMap::with_capacity(part_ids.len());
+    for part_id in part_ids {
+        if out.contains_key(part_id) {
+            continue;
+        }
+        if let Some(&idx) = idx_by_section.get(part_id.as_str()) {
+            if let Some(part) = message.parts.get(idx) {
+                out.insert(part_id.clone(), part.contents().to_vec());
+            }
+        } else {
+            log::warn!("[raw_fetch_message_parts] section {part_id} not found in UID {uid}");
+        }
+    }
+
+    Ok(out)
 }
 
 /// Download a single MIME part directly to a file via raw TCP, reporting real
 /// byte-level progress.
 ///
-/// Uses the raw-TCP path (like [`raw_fetch_cid_attachment`]) which is immune to the
+/// Uses the raw-TCP path (like [`raw_fetch_cid_attachments_batch`]) which is immune to the
 /// async-imap parser hang on large attachments. The IMAP literal `{size}` announces
 /// the exact byte count of the part body up front, and we read it in chunks — so the
 /// reported progress is genuine network progress, not synthetic milestones.

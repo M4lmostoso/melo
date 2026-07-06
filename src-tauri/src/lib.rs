@@ -426,6 +426,7 @@ pub fn run() {
             commands::imap_get_folder_status,
             commands::imap_fetch_attachment,
             commands::imap_download_attachment_to_path,
+            commands::imap_batch_download_attachments,
             commands::imap_cache_attachment,
             commands::gmail_download_attachment_to_path,
             commands::imap_batch_resolve_cid_images,

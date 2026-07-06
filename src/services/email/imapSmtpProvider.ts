@@ -12,6 +12,7 @@ import {
   imapFetchMessageBody,
   imapFetchAttachment,
   imapDownloadAttachmentToPath,
+  imapBatchDownloadAttachments,
   imapFetchRawMessage,
   imapTestConnection,
   imapAppendMessage,
@@ -503,6 +504,54 @@ export class ImapSmtpProvider implements EmailProvider {
     const config = await this.getImapConfig();
     await imapDownloadAttachmentToPath(config, folder, uid, attachmentId, destPath, dbId, totalSize);
     console.log(`[imap] download done`);
+  }
+
+  async downloadAttachmentsBatch(
+    items: { messageId: string; attachmentId: string; destPath: string; dbId: string }[],
+  ): Promise<{ dbId: string; ok: boolean; error: string | null }[]> {
+    // Multi-attachment messages: one BODY.PEEK[] per message in Rust — avoids
+    // the per-part fetch that DavMail mangles into a near-full-message transfer
+    // (an N-attachment email was costing ~N × the message). Single-attachment
+    // messages keep the per-part streaming path: on healthy servers it fetches
+    // only that MIME part (a full-message fetch would waste bandwidth) and it
+    // reports real byte-level progress; on DavMail it costs ~one message either
+    // way.
+    const byMessage = new Map<string, typeof items>();
+    for (const it of items) {
+      const g = byMessage.get(it.messageId);
+      if (g) g.push(it);
+      else byMessage.set(it.messageId, [it]);
+    }
+
+    const results: { dbId: string; ok: boolean; error: string | null }[] = [];
+    const batched: typeof items = [];
+    for (const group of byMessage.values()) {
+      if (group.length === 1) {
+        const it = group[0]!;
+        try {
+          await this.downloadAttachmentToPath(it.messageId, it.attachmentId, it.destPath, it.dbId, 0);
+          results.push({ dbId: it.dbId, ok: true, error: null });
+        } catch (err) {
+          results.push({ dbId: it.dbId, ok: false, error: err instanceof Error ? err.message : String(err) });
+        }
+      } else {
+        batched.push(...group);
+      }
+    }
+
+    if (batched.length > 0) {
+      const config = await this.getImapConfig();
+      const requests = batched.map((it) => ({
+        messageId: it.messageId,
+        partId: it.attachmentId,
+        destPath: it.destPath,
+        dbId: it.dbId,
+      }));
+      console.log(`[imap] batch download ${requests.length} attachment(s)`);
+      results.push(...await imapBatchDownloadAttachments(config, requests));
+      console.log(`[imap] batch download done`);
+    }
+    return results;
   }
 
   async fetchRawMessage(messageId: string): Promise<string> {

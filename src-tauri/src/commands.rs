@@ -9,10 +9,11 @@ use crate::imap::client as imap_client;
 use crate::imap::idle::ImapIdleRegistry;
 use crate::imap::pool::ImapSessionPool;
 use crate::imap::types::{
-    BodyCache, BodyEntry, CidImageRequest, CidImageResult, DeltaCheckRequest, DeltaCheckResult,
-    GmailAttachment, GmailMessage, GmailStoredHeader, ImapConfig, ImapFetchResult,
-    ImapFetchResultMeta, ImapFolder, ImapFolderSearchResult, ImapFolderStatus, ImapFolderSyncResult,
-    ImapMessage, ImapMessageMeta, ImapSyncHeader, ImapThreadUpdate, SyncSemaphore,
+    AttachmentDownloadRequest, AttachmentDownloadResult, BodyCache, BodyEntry, CidImageRequest,
+    CidImageResult, DeltaCheckRequest, DeltaCheckResult, GmailAttachment, GmailMessage,
+    GmailStoredHeader, ImapConfig, ImapFetchResult, ImapFetchResultMeta, ImapFolder,
+    ImapFolderSearchResult, ImapFolderStatus, ImapFolderSyncResult, ImapMessage, ImapMessageMeta,
+    ImapSyncHeader, ImapThreadUpdate, SyncSemaphore,
 };
 use crate::smtp::client as smtp_client;
 use crate::smtp::types::{SmtpConfig, SmtpSendResult};
@@ -580,12 +581,19 @@ fn to_base36(mut n: u32) -> String {
     String::from_utf8(buf).unwrap()
 }
 
-/// Fetch and cache all CID inline images for one email in a single Rust command.
+/// Fetch and cache all CID inline images for one or more emails in a single
+/// Rust command.
 ///
-/// By processing all images inside one `async fn` we stay on (mostly) the same
-/// Tokio thread throughout, which means a single jemalloc arena is used for every
-/// iteration. Pages freed after iteration N are reused by iteration N+1 — the
-/// physical-memory footprint is O(max_image_size), not O(sum_of_all_images).
+/// Requests are grouped by `message_id` and each distinct message is downloaded
+/// exactly ONCE (`BODY.PEEK[]`), with every requested Content-ID sliced out of
+/// that single parse. This replaces the old one-`BODY.PEEK[]`-per-image loop,
+/// which re-downloaded the whole message for each inline image — quadratic on
+/// DavMail for signature/newsletter emails with many embedded logos.
+///
+/// Memory: one message's decoded inline parts are held at once (O(sum of that
+/// message's inline images)), then dropped and the pages returned to the OS via
+/// `jemalloc_purge_all()` before the next message — footprint stays bounded to a
+/// single email, not the whole batch.
 ///
 /// JS receives only local file paths (strings); binary data never crosses the
 /// WKWebView XPC bridge.
@@ -615,85 +623,254 @@ pub async fn imap_batch_resolve_cid_images(
     conn.busy_timeout(std::time::Duration::from_secs(10))
         .map_err(|e| e.to_string())?;
 
+    // Group request indices by message_id (preserve first-seen order) so every
+    // distinct message is fetched exactly ONCE, not once per inline image.
+    use std::collections::HashMap;
+    let mut order: Vec<String> = Vec::new();
+    let mut groups: HashMap<String, Vec<usize>> = HashMap::new();
+    for (i, req) in requests.iter().enumerate() {
+        groups
+            .entry(req.message_id.clone())
+            .or_insert_with(|| {
+                order.push(req.message_id.clone());
+                Vec::new()
+            })
+            .push(i);
+    }
+
     let mut results: Vec<CidImageResult> = Vec::with_capacity(requests.len());
 
-    for req in &requests {
+    for message_id in &order {
+        let idxs = &groups[message_id];
+
         // --- Phase 1: synchronous DB lookup (no await, conn safe to use) ---
         let lookup: Result<(String, u32), String> = conn
             .query_row(
                 "SELECT imap_folder, imap_uid FROM messages WHERE id = ?1",
-                rusqlite::params![req.message_id],
+                rusqlite::params![message_id],
                 |row| Ok((row.get::<_, String>(0)?, row.get::<_, u32>(1)?)),
             )
             .map_err(|e| format!("message lookup: {e}"));
 
         let (folder, uid) = match lookup {
             Ok(v) => v,
-            Err(e) => { log::warn!("[CID] skip {}: {e}", req.attachment_db_id); continue; }
+            Err(e) => { log::warn!("[CID] skip msg {message_id}: {e}"); continue; }
         };
 
-        // --- Phase 2: RAW TCP fetch (bypasses async-imap and the session pool) ---
+        // --- Phase 2: ONE raw-TCP full-message fetch, all CIDs sliced locally ---
         //
         // The async-imap-based paths hang on DavMail (Exchange/EWS → IMAP gateway):
-        // BODY.PEEK[part_id] mangles the per-part response, and BODY.PEEK[] also
-        // gets stuck for some UIDs because the parser doesn't yield to the runtime
-        // (defeating tokio::time::timeout). Raw TCP + manual literal parsing —
-        // the same path the sync fallback uses — completes reliably.
-        //
-        // Tradeoff: a fresh TCP/TLS handshake per inline image. For typical
-        // signatures (1-3 CIDs per email) this is fine and far better than the
-        // alternative of pegging the renderer to 32 GB RSS in seconds.
-        let fetch_result = match req.content_id.as_deref().filter(|s| !s.is_empty()) {
-            Some(cid) => imap_client::raw_fetch_cid_attachment(&config, &folder, uid, cid).await,
-            None => continue,
-        };
+        // BODY.PEEK[part_id] mangles the per-part response, and BODY.PEEK[] via the
+        // session pool also stalls (the parser doesn't yield to the runtime,
+        // defeating tokio::time::timeout). Raw TCP + manual literal parsing — the
+        // same path the sync fallback uses — completes reliably. We fetch the body
+        // once and match every requested Content-ID against it, so an email with N
+        // inline images costs one message download instead of N.
+        let cids: Vec<String> = idxs
+            .iter()
+            .filter_map(|&i| {
+                requests[i]
+                    .content_id
+                    .as_deref()
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_string)
+            })
+            .collect();
+        if cids.is_empty() {
+            continue;
+        }
 
-        let base64_str = match fetch_result {
-            Ok(s) => s,
+        let cid_map =
+            match imap_client::raw_fetch_cid_attachments_batch(&config, &folder, uid, &cids).await {
+                Ok(m) => m,
+                Err(e) => {
+                    log::warn!("[CID] batch fetch failed for msg {message_id}: {e}");
+                    continue;
+                }
+            };
+
+        // --- Phase 3: synchronous write + DB update per image (no await) ---
+        // raw_fetch_cid_attachments_batch already returns decoded bytes.
+        for &i in idxs {
+            let req = &requests[i];
+            let cid = match req.content_id.as_deref().filter(|s| !s.is_empty()) {
+                Some(c) => c.trim().trim_matches(|ch| ch == '<' || ch == '>'),
+                None => continue,
+            };
+            let Some(bytes) = cid_map.get(cid) else {
+                log::warn!("[CID] cid {cid} not found in msg {message_id}");
+                continue;
+            };
+
+            let outcome: Result<CidImageResult, String> = (|| {
+                let size = bytes.len() as u32;
+
+                // Include MIME-derived extension so WebKit identifies the image type
+                // immediately (CoreGraphics fast-path) without MIME sniffing the raw bytes.
+                let ext = mime_to_ext(req.mime_type.as_deref());
+                let file_name = djb2_hash(&req.attachment_db_id);
+                let rel_path = format!("attachment_cache/{file_name}{ext}");
+                std::fs::write(app_data.join(&rel_path), bytes)
+                    .map_err(|e| format!("write cache: {e}"))?;
+
+                conn.execute(
+                    "UPDATE attachments SET local_path = ?1, cached_at = unixepoch(), cache_size = ?2 WHERE id = ?3",
+                    rusqlite::params![rel_path, size as i64, req.attachment_db_id],
+                )
+                .map_err(|e| format!("DB update: {e}"))?;
+
+                Ok(CidImageResult {
+                    attachment_db_id: req.attachment_db_id.clone(),
+                    local_path: rel_path,
+                })
+            })();
+
+            match outcome {
+                Ok(r) => results.push(r),
+                Err(e) => log::warn!("[CID] skip {}: {e}", req.attachment_db_id),
+            }
+        }
+
+        // Return the message's decoded pages to the OS before the next message
+        // (MADV_DONTNEED — counteracts macOS MADV_FREE retaining freed pages).
+        drop(cid_map);
+        jemalloc_purge_all();
+    }
+
+    Ok(results)
+}
+
+/// Download every attachment of one or more IMAP messages to disk, fetching each
+/// distinct message only ONCE.
+///
+/// The per-attachment path (`imap_download_attachment_to_path`) issues a fresh
+/// connection + `BODY.PEEK[part_id]` per file. On DavMail that per-part fetch is
+/// mangled into a near-full-message transfer, so downloading N attachments of a
+/// single email pulled ~N × the message — minutes of transfer that could saturate
+/// the link and flip the app to "offline". Here requests are grouped by
+/// `message_id` and each group is served by a single `BODY.PEEK[]` fetch with all
+/// parts sliced out locally, so one email is always one message download.
+///
+/// Binary data never crosses the WKWebView bridge — Rust writes straight to the
+/// destination paths; JS receives only per-file ok/error.
+#[tauri::command]
+pub async fn imap_batch_download_attachments(
+    app: tauri::AppHandle,
+    config: ImapConfig,
+    requests: Vec<AttachmentDownloadRequest>,
+) -> Result<Vec<AttachmentDownloadResult>, String> {
+    use std::collections::HashMap;
+
+    if requests.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let db_path = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("melo.db");
+    let conn = rusqlite::Connection::open(&db_path).map_err(|e| e.to_string())?;
+    conn.busy_timeout(std::time::Duration::from_secs(10))
+        .map_err(|e| e.to_string())?;
+
+    // Group request indices by message_id, preserving first-seen message order.
+    let mut order: Vec<String> = Vec::new();
+    let mut groups: HashMap<String, Vec<usize>> = HashMap::new();
+    for (i, r) in requests.iter().enumerate() {
+        groups
+            .entry(r.message_id.clone())
+            .or_insert_with(|| {
+                order.push(r.message_id.clone());
+                Vec::new()
+            })
+            .push(i);
+    }
+
+    let mut results: Vec<AttachmentDownloadResult> = Vec::with_capacity(requests.len());
+
+    for message_id in &order {
+        let idxs = &groups[message_id];
+
+        // --- Phase 1: resolve folder/uid (sync DB, no await) ---
+        let lookup: Result<(String, u32), String> = conn
+            .query_row(
+                "SELECT imap_folder, imap_uid FROM messages WHERE id = ?1",
+                rusqlite::params![message_id],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, u32>(1)?)),
+            )
+            .map_err(|e| format!("message lookup: {e}"));
+
+        let (folder, uid) = match lookup {
+            Ok(v) => v,
             Err(e) => {
-                log::warn!("[CID] skip {}: {e}", req.attachment_db_id);
+                for &i in idxs {
+                    results.push(AttachmentDownloadResult {
+                        db_id: requests[i].db_id.clone(),
+                        ok: false,
+                        error: Some(e.clone()),
+                    });
+                }
                 continue;
             }
         };
 
-        // --- Phase 3: synchronous decode + write + DB update (no await, conn safe) ---
-        let outcome: Result<CidImageResult, String> = (|| {
-            use base64::Engine;
-            let bytes = base64::engine::general_purpose::STANDARD
-                .decode(base64_str.as_bytes())
-                .map_err(|e| format!("base64 decode: {e}"))?;
-            drop(base64_str); // explicit early free before the write allocation
-            let size = bytes.len() as u32;
+        // --- Phase 2: ONE full-message fetch, all parts sliced locally ---
+        let part_ids: Vec<String> = idxs.iter().map(|&i| requests[i].part_id.clone()).collect();
+        let parts_map =
+            match imap_client::raw_fetch_message_parts(&config, &folder, uid, &part_ids).await {
+                Ok(m) => m,
+                Err(e) => {
+                    log::warn!("[batch-download] fetch failed for {message_id}: {e}");
+                    for &i in idxs {
+                        results.push(AttachmentDownloadResult {
+                            db_id: requests[i].db_id.clone(),
+                            ok: false,
+                            error: Some(e.clone()),
+                        });
+                    }
+                    continue;
+                }
+            };
 
-            // Include MIME-derived extension so WebKit identifies the image type
-            // immediately (CoreGraphics fast-path) without MIME sniffing the raw bytes.
-            let ext = mime_to_ext(req.mime_type.as_deref());
-            let file_name = djb2_hash(&req.attachment_db_id);
-            let rel_path = format!("attachment_cache/{file_name}{ext}");
-            std::fs::write(app_data.join(&rel_path), &bytes)
-                .map_err(|e| format!("write cache: {e}"))?;
-            drop(bytes); // explicit early free — pages now available to jemalloc
-
-            conn.execute(
-                "UPDATE attachments SET local_path = ?1, cached_at = unixepoch(), cache_size = ?2 WHERE id = ?3",
-                rusqlite::params![rel_path, size as i64, req.attachment_db_id],
-            )
-            .map_err(|e| format!("DB update: {e}"))?;
-
-            Ok(CidImageResult {
-                attachment_db_id: req.attachment_db_id.clone(),
-                local_path: rel_path,
-            })
-        })();
-
-        match outcome {
-            Ok(r) => results.push(r),
-            Err(e) => log::warn!("[CID] skip {}: {e}", req.attachment_db_id),
+        // --- Phase 3: write each part to its destination (sync, no await) ---
+        for &i in idxs {
+            let req = &requests[i];
+            let result = match parts_map.get(&req.part_id) {
+                Some(bytes) => {
+                    let total = bytes.len() as u64;
+                    emit_progress(&app, &req.db_id, total, total);
+                    let write_res = (|| {
+                        if let Some(parent) = std::path::Path::new(&req.dest_path).parent() {
+                            std::fs::create_dir_all(parent)
+                                .map_err(|e| format!("create dir: {e}"))?;
+                        }
+                        std::fs::write(&req.dest_path, bytes).map_err(|e| format!("write: {e}"))
+                    })();
+                    match write_res {
+                        Ok(()) => AttachmentDownloadResult {
+                            db_id: req.db_id.clone(),
+                            ok: true,
+                            error: None,
+                        },
+                        Err(e) => AttachmentDownloadResult {
+                            db_id: req.db_id.clone(),
+                            ok: false,
+                            error: Some(e),
+                        },
+                    }
+                }
+                None => AttachmentDownloadResult {
+                    db_id: req.db_id.clone(),
+                    ok: false,
+                    error: Some(format!("part {} not found in message", req.part_id)),
+                },
+            };
+            results.push(result);
         }
 
-        // Force jemalloc to return dirty pages to OS via MADV_DONTNEED after every
-        // image. Counteracts macOS MADV_FREE: without this, freed pages from iteration
-        // N accumulate in physical footprint even though Rust has dropped the data.
+        // Return the parsed-message pages to the OS before the next message.
+        drop(parts_map);
         jemalloc_purge_all();
     }
 

@@ -62,6 +62,20 @@ export interface EmailProvider {
     dbId: string,
     totalSize: number,
   ): Promise<void>;
+  /**
+   * Download several attachments to disk in one shot. Optional: providers that
+   * can serve every attachment of a message from a single fetch (IMAP) override
+   * this so an N-attachment email is one message download instead of N. When
+   * absent, callers fall back to looping {@link downloadAttachmentToPath}.
+   */
+  downloadAttachmentsBatch?(
+    items: {
+      messageId: string;
+      attachmentId: string;
+      destPath: string;
+      dbId: string;
+    }[],
+  ): Promise<{ dbId: string; ok: boolean; error: string | null }[]>;
   fetchRawMessage(messageId: string): Promise<string>;
 
   // Actions (operate on thread/message level)

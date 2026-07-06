@@ -257,6 +257,30 @@ pub struct CidImageResult {
     pub local_path: String,
 }
 
+/// One attachment to materialize to disk in a batch download. Requests sharing a
+/// `message_id` are served by a SINGLE full-message fetch — see
+/// `imap_batch_download_attachments`. `rename_all = "camelCase"` is mandatory:
+/// Tauri ships the JS object verbatim (`messageId`, `partId`, …) and a snake_case
+/// struct would silently fail deserialization.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AttachmentDownloadRequest {
+    pub message_id: String,
+    pub part_id: String,
+    pub dest_path: String,
+    /// Attachment row id — used to key the `attachment-download-progress` event.
+    pub db_id: String,
+}
+
+/// Outcome for one attachment in a batch download.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AttachmentDownloadResult {
+    pub db_id: String,
+    pub ok: bool,
+    pub error: Option<String>,
+}
+
 // ---------------------------------------------------------------------------
 // Gmail zero-IPC types
 // ---------------------------------------------------------------------------

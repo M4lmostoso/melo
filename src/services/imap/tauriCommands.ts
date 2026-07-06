@@ -362,6 +362,38 @@ export async function imapDownloadAttachmentToPath(
   });
 }
 
+/** One attachment to write to disk in a batch download. */
+export interface AttachmentDownloadRequest {
+  messageId: string;
+  partId: string;
+  destPath: string;
+  /** Attachment row id — keys the `attachment-download-progress` event. */
+  dbId: string;
+}
+
+/** Per-file outcome from {@link imapBatchDownloadAttachments}. */
+export interface AttachmentDownloadResult {
+  dbId: string;
+  ok: boolean;
+  error: string | null;
+}
+
+/**
+ * Download many IMAP attachments, fetching each distinct message only ONCE.
+ *
+ * Requests are grouped by `messageId` in Rust and served with a single
+ * `BODY.PEEK[]` fetch per message, all parts sliced out locally. This avoids the
+ * per-part `BODY.PEEK[part_id]` fetch that DavMail mangles into a near-full
+ * message transfer (which made an N-attachment email download ~N × the message).
+ * Binary data stays in Rust — JS receives only per-file ok/error.
+ */
+export async function imapBatchDownloadAttachments(
+  config: ImapConfig,
+  requests: AttachmentDownloadRequest[],
+): Promise<AttachmentDownloadResult[]> {
+  return invoke<AttachmentDownloadResult[]>('imap_batch_download_attachments', { config, requests });
+}
+
 /**
  * Fetch the raw RFC822 source of a single message by UID.
  * Returns the full message as a UTF-8 string.

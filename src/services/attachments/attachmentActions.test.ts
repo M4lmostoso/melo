@@ -7,11 +7,21 @@ vi.mock("@/services/email/providerFactory", () => ({
 // `downloadAttachmentsToFolder` joins paths via a dynamic import of the Tauri path API.
 vi.mock("@tauri-apps/api/path", () => ({
   join: (...parts: string[]) => Promise.resolve(parts.join("/")),
+  appDataDir: () => Promise.resolve("/appdata"),
+}));
+
+vi.mock("@tauri-apps/plugin-fs", () => ({
+  mkdir: vi.fn().mockResolvedValue(undefined),
+  exists: vi.fn().mockResolvedValue(false),
+  stat: vi.fn(),
+  copyFile: vi.fn().mockResolvedValue(undefined),
 }));
 
 import { getEmailProvider } from "@/services/email/providerFactory";
 import {
   downloadAttachmentsToFolder,
+  materializeEach,
+  _resetMaterializeStateForTests,
   type AttachmentRef,
 } from "./attachmentActions";
 
@@ -30,6 +40,7 @@ describe("downloadAttachmentsToFolder", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    _resetMaterializeStateForTests();
     downloadAttachmentToPath.mockResolvedValue(undefined);
     vi.mocked(getEmailProvider).mockResolvedValue({ downloadAttachmentToPath } as never);
   });
@@ -96,5 +107,98 @@ describe("downloadAttachmentsToFolder", () => {
     expect(res.ok).toBe(1);
     expect(res.failed).toBe(1);
     expect(res.firstPath).toBe("/dir/b.pdf");
+  });
+
+  it("routes multi-attachment groups through the provider batch download", async () => {
+    const downloadAttachmentsBatch = vi.fn(
+      async (items: { dbId: string }[]) => items.map((i) => ({ dbId: i.dbId, ok: true, error: null })),
+    );
+    vi.mocked(getEmailProvider).mockResolvedValue({ downloadAttachmentToPath, downloadAttachmentsBatch } as never);
+
+    const res = await downloadAttachmentsToFolder(
+      [makeRef({ dbId: "a", filename: "a.pdf" }), makeRef({ dbId: "b", filename: "b.pdf" })],
+      "/dir",
+    );
+
+    expect(res).toEqual({ ok: 2, failed: 0, firstPath: "/dir/a.pdf" });
+    expect(downloadAttachmentsBatch).toHaveBeenCalledTimes(1);
+    expect(downloadAttachmentsBatch.mock.calls[0]![0]).toHaveLength(2);
+    expect(downloadAttachmentToPath).not.toHaveBeenCalled();
+  });
+});
+
+describe("materializeEach (shared single-flight)", () => {
+  const okBatch = (items: { dbId: string }[]) =>
+    items.map((i) => ({ dbId: i.dbId, ok: true, error: null }));
+  const downloadAttachmentsBatch = vi.fn();
+  const downloadAttachmentToPath = vi.fn();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    _resetMaterializeStateForTests();
+    downloadAttachmentsBatch.mockImplementation(async (items) => okBatch(items));
+    downloadAttachmentToPath.mockResolvedValue(undefined);
+    vi.mocked(getEmailProvider).mockResolvedValue({ downloadAttachmentsBatch, downloadAttachmentToPath } as never);
+  });
+
+  it("fetches attachments of the same message in one batch call", async () => {
+    const map = materializeEach([
+      makeRef({ dbId: "a", filename: "a.pdf" }),
+      makeRef({ dbId: "b", filename: "b.pdf" }),
+    ]);
+    const paths = await Promise.all([map.get("a")!, map.get("b")!]);
+
+    expect(downloadAttachmentsBatch).toHaveBeenCalledTimes(1);
+    expect(downloadAttachmentsBatch.mock.calls[0]![0]).toHaveLength(2);
+    expect(paths[0]).toContain("a.pdf");
+    expect(paths[1]).toContain("b.pdf");
+  });
+
+  it("coalesces separate calls made within the batching window", async () => {
+    const p1 = materializeEach([makeRef({ dbId: "a", filename: "a.pdf" })]).get("a")!;
+    const p2 = materializeEach([makeRef({ dbId: "b", filename: "b.pdf" })]).get("b")!;
+    await Promise.all([p1, p2]);
+
+    expect(downloadAttachmentsBatch).toHaveBeenCalledTimes(1);
+    expect(downloadAttachmentsBatch.mock.calls[0]![0]).toHaveLength(2);
+  });
+
+  it("returns the same promise for an attachment already in flight", async () => {
+    const ref = makeRef({ dbId: "a", filename: "a.pdf" });
+    const p1 = materializeEach([ref]).get("a")!;
+    const p2 = materializeEach([ref]).get("a")!;
+    expect(p2).toBe(p1);
+
+    await p1;
+    expect(downloadAttachmentsBatch).toHaveBeenCalledTimes(1);
+  });
+
+  it("evicts failures so a retry can start fresh", async () => {
+    downloadAttachmentsBatch.mockImplementationOnce(async (items: { dbId: string }[]) =>
+      items.map((i) => ({ dbId: i.dbId, ok: false, error: "boom" })),
+    );
+    const ref = makeRef({ dbId: "a", filename: "a.pdf" });
+
+    const p1 = materializeEach([ref]).get("a")!;
+    await expect(p1).rejects.toThrow("boom");
+
+    const p2 = materializeEach([ref]).get("a")!;
+    expect(p2).not.toBe(p1);
+    await expect(p2).resolves.toContain("a.pdf");
+  });
+
+  it("download-to-folder copies from an in-flight prefetch instead of re-fetching", async () => {
+    const ref = makeRef({ dbId: "a", filename: "a.pdf" });
+    await materializeEach([ref]).get("a")!;
+    expect(downloadAttachmentsBatch).toHaveBeenCalledTimes(1);
+
+    const res = await downloadAttachmentsToFolder([ref], "/dl");
+
+    expect(res).toEqual({ ok: 1, failed: 0, firstPath: "/dl/a.pdf" });
+    // No second network fetch — the cached file was copied to the destination.
+    expect(downloadAttachmentsBatch).toHaveBeenCalledTimes(1);
+    expect(downloadAttachmentToPath).not.toHaveBeenCalled();
+    const { copyFile } = await import("@tauri-apps/plugin-fs");
+    expect(vi.mocked(copyFile)).toHaveBeenCalledWith(expect.stringContaining("a.pdf"), "/dl/a.pdf");
   });
 });
