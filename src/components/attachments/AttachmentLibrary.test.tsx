@@ -40,9 +40,10 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({
   save: vi.fn(),
 }));
 
-vi.mock("@tauri-apps/plugin-fs", () => ({
-  writeFile: vi.fn(),
-}));
+vi.mock("@tauri-apps/plugin-fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@tauri-apps/plugin-fs")>();
+  return { ...actual, writeFile: vi.fn() };
+});
 
 vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn().mockResolvedValue(() => {}),

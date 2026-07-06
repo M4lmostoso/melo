@@ -10,11 +10,29 @@ vi.mock("@tauri-apps/api/path", () => ({
   appDataDir: () => Promise.resolve("/appdata"),
 }));
 
-vi.mock("@tauri-apps/plugin-fs", () => ({
-  mkdir: vi.fn().mockResolvedValue(undefined),
-  exists: vi.fn().mockResolvedValue(false),
-  stat: vi.fn(),
-  copyFile: vi.fn().mockResolvedValue(undefined),
+vi.mock("@tauri-apps/plugin-fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@tauri-apps/plugin-fs")>();
+  return {
+    ...actual,
+    mkdir: vi.fn().mockResolvedValue(undefined),
+    exists: vi.fn().mockResolvedValue(false),
+    stat: vi.fn(),
+    copyFile: vi.fn().mockResolvedValue(undefined),
+    remove: vi.fn().mockResolvedValue(undefined),
+  };
+});
+
+// The unified cache records local_path in the DB; return no cached rows and
+// accept the bookkeeping UPDATEs.
+vi.mock("@/services/db/connection", () => ({
+  getDb: vi.fn().mockResolvedValue({
+    select: vi.fn().mockResolvedValue([]),
+    execute: vi.fn().mockResolvedValue(undefined),
+  }),
+}));
+
+vi.mock("./cacheManager", () => ({
+  evictOldestCached: vi.fn().mockResolvedValue(undefined),
 }));
 
 import { getEmailProvider } from "@/services/email/providerFactory";

@@ -2,16 +2,14 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { save } from "@tauri-apps/plugin-dialog";
 import { listen } from "@tauri-apps/api/event";
 import { getAttachmentsForMessage, type DbAttachment } from "@/services/db/attachments";
-import { getEmailProvider } from "@/services/email/providerFactory";
 import { Modal } from "@/components/ui/Modal";
 import { Download, Eye, Loader2, GripVertical } from "lucide-react";
 import { t } from "@/i18n";
 import { formatFileSize, isImage, isPdf, isText, isOfficeDoc, isOfficeSpreadsheet, canPreview, getFileIcon } from "@/utils/fileTypeHelpers";
-import { base64ToBytes } from "@/utils/fileUtils";
 import { OfficeDocPreview } from "@/components/ui/OfficeDocPreview";
 import { useMultiSelect } from "@/hooks/useMultiSelect";
 import { useDragOut } from "@/hooks/useDragOut";
-import { toAttachmentRef, openAttachmentWithDefaultApp, downloadAttachmentsToFolder } from "@/services/attachments/attachmentActions";
+import { toAttachmentRef, openAttachmentWithDefaultApp, downloadAttachmentsToFolder, materializeAttachment } from "@/services/attachments/attachmentActions";
 import { ContextMenu, type ContextMenuItem } from "@/components/ui/ContextMenu";
 
 /** Dedup attachments by filename+size (content-based) */
@@ -26,13 +24,11 @@ function dedup(attachments: DbAttachment[]): DbAttachment[] {
 }
 
 interface AttachmentListProps {
-  accountId: string;
-  messageId: string;
   attachments: DbAttachment[];
   referencedCids?: Set<string>;
 }
 
-export function AttachmentList({ accountId, messageId, attachments, referencedCids }: AttachmentListProps) {
+export function AttachmentList({ attachments, referencedCids }: AttachmentListProps) {
   const [preview, setPreview] = useState<DbAttachment | null>(null);
 
   // Filter out CID images rendered in the email body and true inline parts, then dedup
@@ -237,8 +233,6 @@ export function AttachmentList({ accountId, messageId, attachments, referencedCi
       {preview && (
         <AttachmentPreview
           attachment={preview}
-          accountId={accountId}
-          messageId={messageId}
           onClose={() => setPreview(null)}
         />
       )}
@@ -248,13 +242,9 @@ export function AttachmentList({ accountId, messageId, attachments, referencedCi
 
 export function AttachmentPreview({
   attachment,
-  accountId,
-  messageId,
   onClose,
 }: {
   attachment: DbAttachment;
-  accountId: string;
-  messageId: string;
   onClose: () => void;
 }) {
   const [loading, setLoading] = useState(false);
@@ -287,19 +277,21 @@ export function AttachmentPreview({
   const isOffice = isOfficeDoc(attachment.mime_type, attachment.filename) || isOfficeSpreadsheet(attachment.mime_type, attachment.filename);
 
   const attachmentId = attachment.gmail_attachment_id ?? attachment.imap_part_id;
+  const cachePathRef = useRef<string | null>(null);
 
   const fetchData = useCallback(async (): Promise<Uint8Array> => {
     if (bytesRef.current) return bytesRef.current;
 
-    const provider = await getEmailProvider(accountId);
-    const response = await provider.fetchAttachment(messageId, attachmentId!);
-
-    // Normalize URL-safe base64 (Gmail API) to standard base64
-    const base64 = response.data.replace(/-/g, "+").replace(/_/g, "/");
-    const bytes = await base64ToBytes(base64);
+    // Materialize into the unified attachment cache (single-flight, batched per
+    // message, shared with drag-out and download-to-folder), then read the file
+    // from disk — no base64 across the IPC bridge, no per-part IMAP fetch.
+    const path = await materializeAttachment(toAttachmentRef(attachment));
+    cachePathRef.current = path;
+    const { readFile } = await import("@tauri-apps/plugin-fs");
+    const bytes = await readFile(path);
     bytesRef.current = bytes;
     return bytes;
-  }, [accountId, messageId, attachmentId]);
+  }, [attachment]);
 
   const handlePreviewLoad = useCallback(async () => {
     if (!attachmentId || !isPreviewable || blobUrl || previewBytes) return;
@@ -350,8 +342,13 @@ export function AttachmentPreview({
     setDownloadFailed(false);
     setDownloadProgress(0);
     try {
-      const provider = await getEmailProvider(accountId);
-      await provider.downloadAttachmentToPath(messageId, attachmentId, filePath, attachment.id, attachment.size ?? 0);
+      // Materialize into the unified cache (already there if the preview
+      // loaded — instant copy), then copy to the chosen destination. Byte
+      // progress still flows from Rust keyed by attachment.id while fetching.
+      const src = cachePathRef.current ?? await materializeAttachment(toAttachmentRef(attachment));
+      cachePathRef.current = src;
+      const { copyFile } = await import("@tauri-apps/plugin-fs");
+      await copyFile(src, filePath);
       setDownloadProgress(100);
       const { revealItemInDir } = await import("@tauri-apps/plugin-opener");
       await revealItemInDir(filePath);

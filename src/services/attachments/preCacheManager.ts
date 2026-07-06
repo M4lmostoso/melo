@@ -3,6 +3,7 @@ import { getDb } from "../db/connection";
 import { getAccount } from "../db/accounts";
 import { getSetting } from "../db/settings";
 import { getEmailProvider } from "../email/providerFactory";
+import { materializeEach, type AttachmentRef } from "./attachmentActions";
 import { useUIStore } from "@/stores/uiStore";
 
 const MAX_ATTACHMENT_SIZE = 5 * 1024 * 1024; // 5MB
@@ -38,31 +39,32 @@ async function preCacheRecentInner(): Promise<void> {
 
   if (runningSize >= maxCacheBytes) return;
 
-  // Pre-cache only Gmail attachments (gmail_attachment_id IS NOT NULL).
+  // Pre-cache recent attachments for BOTH provider families:
   //
-  // IMAP attachments are intentionally excluded:
-  // - Each IMAP fetch allocates large Rust buffers (async-imap buffers the full response)
-  // - 20 sequential fetches across different Tokio threads each get a separate jemalloc
-  //   arena — freed pages (MADV_FREE on macOS) cannot be reused across arenas
-  // - This causes cumulative physical-footprint growth of 2-3 GB per pre-cache run
-  //
-  // Gmail attachments fetch via native WKWebView HTTP (no Rust/XPC binary transfer for
-  // the download itself), and JavaScriptCore's GC reclaims memory between iterations,
-  // so the same loop is safe there.
+  // - Gmail: fetched via the Rust HTTP command straight into the cache (no
+  //   base64 across the WebView bridge).
+  // - IMAP: routed through the unified materializer (`materializeEach`), which
+  //   groups by message and uses the raw-TCP batch command — one BODY.PEEK[]
+  //   per message. The old blanket exclusion of IMAP is obsolete: it guarded
+  //   against async-imap's per-fetch jemalloc buffering (2-3 GB footprint per
+  //   run), but the raw-TCP batch path never touches async-imap and processes
+  //   one message at a time with pages purged in between.
   const cutoff = Math.floor(Date.now() / 1000) - RECENT_DAYS * 24 * 60 * 60;
   const attachments = await db.select<{
     id: string;
     message_id: string;
     account_id: string;
+    filename: string | null;
     size: number;
-    gmail_attachment_id: string;
+    gmail_attachment_id: string | null;
+    imap_part_id: string | null;
   }[]>(
-    `SELECT a.id, a.message_id, a.account_id, a.size, a.gmail_attachment_id
+    `SELECT a.id, a.message_id, a.account_id, a.filename, a.size, a.gmail_attachment_id, a.imap_part_id
      FROM attachments a
      INNER JOIN messages m ON m.account_id = a.account_id AND m.id = a.message_id
      WHERE a.cached_at IS NULL
        AND a.is_inline = 0
-       AND a.gmail_attachment_id IS NOT NULL
+       AND (a.gmail_attachment_id IS NOT NULL OR a.imap_part_id IS NOT NULL)
        AND a.size IS NOT NULL AND a.size <= $1
        AND m.date >= $2
      ORDER BY m.date DESC
@@ -72,19 +74,33 @@ async function preCacheRecentInner(): Promise<void> {
 
   if (attachments.length === 0) return;
 
+  const imapRefs: AttachmentRef[] = [];
+
   for (const att of attachments) {
     if (runningSize + (att.size ?? 0) > maxCacheBytes) break;
 
     try {
-      // Belt-and-suspenders: skip if the account is IMAP (the SQL filter already
-      // enforces gmail_attachment_id IS NOT NULL, but a schema migration edge-case
-      // or future code change could slip an IMAP record through — IMAP fetches
-      // allocate large jemalloc buffers per-thread that compound across 20 iterations).
       const account = await getAccount(att.account_id);
-      if (!account || account.imap_host) continue;
+      if (!account) continue;
 
+      if (account.imap_host) {
+        if (att.imap_part_id) {
+          imapRefs.push({
+            dbId: att.id,
+            accountId: att.account_id,
+            messageId: att.message_id,
+            attachmentId: att.imap_part_id,
+            filename: att.filename,
+            size: att.size,
+          });
+          runningSize += att.size ?? 0;
+        }
+        continue;
+      }
+
+      if (!att.gmail_attachment_id) continue;
       const provider = await getEmailProvider(att.account_id);
-      
+
       if (provider.getValidToken) {
         const token = await provider.getValidToken();
         const { invoke } = await import("@tauri-apps/api/core");
@@ -116,6 +132,17 @@ async function preCacheRecentInner(): Promise<void> {
     // before the next one allocates. Without this, V8/JSC may defer GC until
     // the loop finishes, keeping all intermediate buffers alive simultaneously.
     await new Promise((r) => setTimeout(r, 0));
+  }
+
+  // IMAP refs go through the shared materializer in one shot: grouped by
+  // message (one download per email), deduplicated against any in-flight
+  // preview/drag work, and recorded in attachments.local_path when done.
+  if (imapRefs.length > 0) {
+    const results = await Promise.allSettled(
+      [...materializeEach(imapRefs).values()],
+    );
+    const failures = results.filter((r) => r.status === "rejected").length;
+    if (failures > 0) console.warn(`[preCache] ${failures}/${imapRefs.length} IMAP attachment(s) failed — will retry next interval`);
   }
 }
 

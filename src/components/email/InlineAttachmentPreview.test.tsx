@@ -2,11 +2,21 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { InlineAttachmentPreview } from "./InlineAttachmentPreview";
 import type { DbAttachment } from "@/services/db/attachments";
 
-vi.mock("@/services/email/providerFactory", () => ({
-  getEmailProvider: vi.fn(),
+// Thumbnails materialize through the unified attachment cache and are served
+// natively via the asset protocol.
+vi.mock("@/services/attachments/attachmentActions", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/services/attachments/attachmentActions")>();
+  return {
+    ...actual,
+    materializeAttachment: vi.fn(),
+  };
+});
+
+vi.mock("@tauri-apps/api/core", () => ({
+  convertFileSrc: (path: string) => `asset://${path}`,
 }));
 
-import { getEmailProvider } from "@/services/email/providerFactory";
+import { materializeAttachment } from "@/services/attachments/attachmentActions";
 
 // Mock IntersectionObserver to trigger immediately
 beforeAll(() => {
@@ -42,24 +52,16 @@ const makeAttachment = (overrides: Partial<DbAttachment> = {}): DbAttachment => 
 });
 
 describe("InlineAttachmentPreview", () => {
-  const mockFetchAttachment = vi.fn();
   const onAttachmentClick = vi.fn();
 
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(getEmailProvider).mockResolvedValue({
-      fetchAttachment: mockFetchAttachment,
-    } as never);
-    // Mock URL.createObjectURL
-    global.URL.createObjectURL = vi.fn().mockReturnValue("blob:mock-url");
-    global.URL.revokeObjectURL = vi.fn();
+    vi.mocked(materializeAttachment).mockResolvedValue("/cache/att-1/photo.png");
   });
 
   it("renders nothing when no previewable attachments", () => {
     const { container } = render(
       <InlineAttachmentPreview
-        accountId="acc-1"
-        messageId="msg-1"
         attachments={[makeAttachment({ mime_type: "application/zip", filename: "archive.zip" })]}
         onAttachmentClick={onAttachmentClick}
       />,
@@ -71,8 +73,6 @@ describe("InlineAttachmentPreview", () => {
   it("renders nothing when all attachments are true inline (no filename)", () => {
     const { container } = render(
       <InlineAttachmentPreview
-        accountId="acc-1"
-        messageId="msg-1"
         attachments={[makeAttachment({ is_inline: 1, filename: null })]}
         onAttachmentClick={onAttachmentClick}
       />,
@@ -85,8 +85,6 @@ describe("InlineAttachmentPreview", () => {
     const referencedCids = new Set(["img001@example.com"]);
     const { container } = render(
       <InlineAttachmentPreview
-        accountId="acc-1"
-        messageId="msg-1"
         attachments={[makeAttachment({ content_id: "img001@example.com", filename: "photo.png", mime_type: "image/png" })]}
         referencedCids={referencedCids}
         onAttachmentClick={onAttachmentClick}
@@ -99,8 +97,6 @@ describe("InlineAttachmentPreview", () => {
   it("renders image thumbnails for image attachments", () => {
     render(
       <InlineAttachmentPreview
-        accountId="acc-1"
-        messageId="msg-1"
         attachments={[makeAttachment()]}
         onAttachmentClick={onAttachmentClick}
       />,
@@ -113,8 +109,6 @@ describe("InlineAttachmentPreview", () => {
   it("does not render PDF attachments (handled by AttachmentList)", () => {
     const { container } = render(
       <InlineAttachmentPreview
-        accountId="acc-1"
-        messageId="msg-1"
         attachments={[makeAttachment({
           mime_type: "application/pdf",
           filename: "report.pdf",
@@ -127,64 +121,46 @@ describe("InlineAttachmentPreview", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("uses getEmailProvider for thumbnail loading", async () => {
-    mockFetchAttachment.mockResolvedValue({
-      data: btoa("fake-image-bytes"),
-      size: 15,
-    });
-
+  it("materializes the thumbnail through the unified cache", async () => {
     render(
       <InlineAttachmentPreview
-        accountId="acc-1"
-        messageId="msg-1"
         attachments={[makeAttachment()]}
         onAttachmentClick={onAttachmentClick}
       />,
     );
 
     await waitFor(() => {
-      expect(getEmailProvider).toHaveBeenCalledWith("acc-1");
-      expect(mockFetchAttachment).toHaveBeenCalledWith("msg-1", "gmail-att-1");
+      expect(materializeAttachment).toHaveBeenCalledWith(
+        expect.objectContaining({ dbId: "att-1", accountId: "acc-1", attachmentId: "gmail-att-1" }),
+      );
     });
   });
 
   it("works with IMAP account attachments", async () => {
-    mockFetchAttachment.mockResolvedValue({
-      data: btoa("imap-image-data"),
-      size: 14,
-    });
-
     render(
       <InlineAttachmentPreview
-        accountId="imap-acc"
-        messageId="imap-inbox-42"
         attachments={[makeAttachment({
           account_id: "imap-acc",
           message_id: "imap-inbox-42",
-          gmail_attachment_id: "1.2",
-        })]}
+          gmail_attachment_id: null,
+          imap_part_id: "1.2",
+        } as Partial<DbAttachment>)]}
         onAttachmentClick={onAttachmentClick}
       />,
     );
 
     await waitFor(() => {
-      expect(getEmailProvider).toHaveBeenCalledWith("imap-acc");
-      expect(mockFetchAttachment).toHaveBeenCalledWith("imap-inbox-42", "1.2");
+      expect(materializeAttachment).toHaveBeenCalledWith(
+        expect.objectContaining({ accountId: "imap-acc", messageId: "imap-inbox-42", attachmentId: "1.2" }),
+      );
     });
   });
 
   it("calls onAttachmentClick when image thumbnail is clicked", async () => {
-    mockFetchAttachment.mockResolvedValue({
-      data: btoa("image-data"),
-      size: 10,
-    });
-
     const att = makeAttachment();
 
     render(
       <InlineAttachmentPreview
-        accountId="acc-1"
-        messageId="msg-1"
         attachments={[att]}
         onAttachmentClick={onAttachmentClick}
       />,

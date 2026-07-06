@@ -1,9 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import type { DbAttachment } from "@/services/db/attachments";
-import { getEmailProvider } from "@/services/email/providerFactory";
+import { materializeAttachment, toAttachmentRef } from "@/services/attachments/attachmentActions";
 import { t } from "@/i18n";
 import { isImage } from "@/utils/fileTypeHelpers";
-import { base64ToBytes } from "@/utils/fileUtils";
 
 /** Dedup attachments by filename+size (content-based) */
 function dedup(attachments: DbAttachment[]): DbAttachment[] {
@@ -17,16 +16,12 @@ function dedup(attachments: DbAttachment[]): DbAttachment[] {
 }
 
 interface InlineAttachmentPreviewProps {
-  accountId: string;
-  messageId: string;
   attachments: DbAttachment[];
   referencedCids?: Set<string>;
   onAttachmentClick: (attachment: DbAttachment) => void;
 }
 
 export function InlineAttachmentPreview({
-  accountId,
-  messageId,
   attachments,
   referencedCids,
   onAttachmentClick,
@@ -50,8 +45,6 @@ export function InlineAttachmentPreview({
           <ImageThumbnail
             key={att.id}
             attachment={att}
-            accountId={accountId}
-            messageId={messageId}
             onClick={() => onAttachmentClick(att)}
           />
         ))}
@@ -62,13 +55,9 @@ export function InlineAttachmentPreview({
 
 function ImageThumbnail({
   attachment,
-  accountId,
-  messageId,
   onClick,
 }: {
   attachment: DbAttachment;
-  accountId: string;
-  messageId: string;
   onClick: () => void;
 }) {
   const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
@@ -82,28 +71,18 @@ function ImageThumbnail({
     setLoading(true);
 
     try {
-      const provider = await getEmailProvider(accountId);
-      const attachmentId = attachment.gmail_attachment_id ?? attachment.imap_part_id!;
-      const response = await provider.fetchAttachment(messageId, attachmentId);
-
-      // Normalize URL-safe base64 (Gmail API) to standard base64.
-      // IMAP returns standard base64; Gmail returns URL-safe. Standard base64 never has - or _,
-      // so we can safely detect and convert only URL-safe format.
-      const base64 = response.data.includes("-") || response.data.includes("_")
-        ? response.data.replace(/-/g, "+").replace(/_/g, "/")
-        : response.data;
-      const bytes = await base64ToBytes(base64);
-
-      const blob = new Blob([bytes.buffer as ArrayBuffer], {
-        type: attachment.mime_type ?? "image/jpeg",
-      });
-      setThumbnailUrl(URL.createObjectURL(blob));
+      // Materialize into the unified attachment cache (single-flight, batched
+      // per message, shared with preview/drag/download), then serve the file
+      // natively via the asset protocol — no base64 IPC, no blob copy in JS.
+      const path = await materializeAttachment(toAttachmentRef(attachment));
+      const { convertFileSrc } = await import("@tauri-apps/api/core");
+      setThumbnailUrl(convertFileSrc(path));
     } catch (err) {
       console.error("Failed to load thumbnail:", err);
     } finally {
       setLoading(false);
     }
-  }, [accountId, messageId, attachment]);
+  }, [attachment]);
 
   // Lazy load via IntersectionObserver
   useEffect(() => {
@@ -123,13 +102,6 @@ function ImageThumbnail({
     observer.observe(el);
     return () => observer.disconnect();
   }, [loadThumbnail]);
-
-  // Cleanup blob URL
-  useEffect(() => {
-    return () => {
-      if (thumbnailUrl) URL.revokeObjectURL(thumbnailUrl);
-    };
-  }, [thumbnailUrl]);
 
   return (
     <div ref={observerRef}>

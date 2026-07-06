@@ -450,8 +450,6 @@ export function AttachmentLibrary() {
       {previewAttachment && (
         <AttachmentPreview
           attachment={previewAttachment}
-          accountId={previewAttachment.account_id}
-          messageId={previewAttachment.message_id}
           onClose={() => setPreviewAttachment(null)}
         />
       )}

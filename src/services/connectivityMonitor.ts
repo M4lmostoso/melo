@@ -17,6 +17,47 @@ const FAILURE_DEBOUNCE_MS = 15_000;
 let reprobeTimer: ReturnType<typeof setInterval> | null = null;
 let lastFailureProbeAt = 0;
 let probing = false;
+let lastActivityAt = 0;
+let activityListenerStarted = false;
+
+/** How recent observed network activity must be to count as proof of connectivity. */
+const ACTIVITY_FRESH_MS = 10_000;
+
+/**
+ * Record proof of real network activity (e.g. attachment download bytes
+ * arriving from Rust). If bytes are flowing, we ARE online — a failed probe
+ * during a large download just means the link is saturated, and flipping to
+ * offline mode mid-download is exactly the false positive this prevents.
+ */
+export function reportNetworkActivity(): void {
+  lastActivityAt = Date.now();
+  // Flowing bytes while flagged offline → recover through the standard path.
+  if (!useUIStore.getState().isOnline && navigator.onLine) {
+    stopReprobeLoop();
+    console.info("[connectivity] download activity observed while flagged offline — back online");
+    window.dispatchEvent(new Event("online"));
+  }
+}
+
+function hasFreshActivity(): boolean {
+  return Date.now() - lastActivityAt < ACTIVITY_FRESH_MS;
+}
+
+/**
+ * Subscribe to Rust attachment-download progress events as a connectivity
+ * signal. Called once from App startup; safe to call repeatedly.
+ */
+export function initConnectivityActivitySignal(): void {
+  if (activityListenerStarted) return;
+  activityListenerStarted = true;
+  import("@tauri-apps/api/event")
+    .then(({ listen }) =>
+      listen("attachment-download-progress", () => reportNetworkActivity()),
+    )
+    .catch(() => {
+      activityListenerStarted = false;
+    });
+}
 
 export async function probeConnectivity(): Promise<boolean> {
   try {
@@ -36,7 +77,7 @@ export async function probeConnectivity(): Promise<boolean> {
 function startReprobeLoop(): void {
   if (reprobeTimer) return;
   reprobeTimer = setInterval(async () => {
-    if (await probeConnectivity()) {
+    if (hasFreshActivity() || await probeConnectivity()) {
       stopReprobeLoop();
       console.info("[connectivity] probe succeeded — back online");
       // Reuse the app's full online-recovery path (queue flush, sync, IDLE).
@@ -60,6 +101,10 @@ function stopReprobeLoop(): void {
 export function reportNetworkFailure(): void {
   if (!navigator.onLine) return; // real offline — the 'offline' event handles it
   if (!useUIStore.getState().isOnline) return; // already flagged
+  // Bytes are actively flowing (e.g. a large attachment download saturating the
+  // link) — the failure is congestion, not a dead network. Don't even probe:
+  // the probe itself would likely time out behind the download traffic.
+  if (hasFreshActivity()) return;
   const now = Date.now();
   if (probing || now - lastFailureProbeAt < FAILURE_DEBOUNCE_MS) return;
   lastFailureProbeAt = now;

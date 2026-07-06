@@ -816,9 +816,31 @@ pub async fn imap_batch_download_attachments(
         };
 
         // --- Phase 2: ONE full-message fetch, all parts sliced locally ---
+        // Byte progress of the message literal is emitted under the FIRST
+        // request's db_id: the folder-download UI tracks the file that opened
+        // the group, so the bar moves during the (single) big transfer instead
+        // of sitting still until files are written.
         let part_ids: Vec<String> = idxs.iter().map(|&i| requests[i].part_id.clone()).collect();
+        let progress_id = requests[idxs[0]].db_id.clone();
+        let progress_app = app.clone();
+        let mut last_pct: i64 = -1;
+        let mut emit_literal_progress = move |downloaded: u64, total: u64| {
+            let pct = if total > 0 { (downloaded as i64 * 100) / total as i64 } else { 0 };
+            if pct != last_pct {
+                last_pct = pct;
+                emit_progress(&progress_app, &progress_id, downloaded, total);
+            }
+        };
         let parts_map =
-            match imap_client::raw_fetch_message_parts(&config, &folder, uid, &part_ids).await {
+            match imap_client::raw_fetch_message_parts(
+                &config,
+                &folder,
+                uid,
+                &part_ids,
+                Some(&mut emit_literal_progress),
+            )
+            .await
+            {
                 Ok(m) => m,
                 Err(e) => {
                     log::warn!("[batch-download] fetch failed for {message_id}: {e}");

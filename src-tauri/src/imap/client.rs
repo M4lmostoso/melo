@@ -966,6 +966,7 @@ pub async fn raw_fetch_message_parts(
     folder: &str,
     uid: u32,
     part_ids: &[String],
+    mut on_progress: Option<&mut (dyn FnMut(u64, u64) + Send)>,
 ) -> Result<std::collections::HashMap<String, Vec<u8>>, String> {
     log::debug!(
         "[raw_fetch_message_parts] folder={folder} uid={uid} parts={}",
@@ -1006,7 +1007,8 @@ pub async fn raw_fetch_message_parts(
     reader.get_mut().write_all(fetch_cmd.as_bytes()).await
         .map_err(|e| format!("FETCH write: {e}"))?;
 
-    let raw_messages = raw_parse_fetch_responses(&mut reader, "a3").await?;
+    let raw_messages =
+        raw_parse_fetch_responses_with_progress(&mut reader, "a3", &mut on_progress).await?;
     let _ = reader.get_mut().write_all(b"a4 LOGOUT\r\n").await;
 
     let raw_msg = raw_messages.into_iter().next()
@@ -2053,8 +2055,24 @@ async fn read_literal_with_idle_timeout(
     size: usize,
     idle: std::time::Duration,
 ) -> Result<Vec<u8>, String> {
+    read_literal_with_progress(reader, size, idle, &mut None).await
+}
+
+/// Like [`read_literal_with_idle_timeout`], reporting `(bytes_read, total)`
+/// after every chunk when a callback is supplied — used by the attachment batch
+/// download so the UI shows genuine network progress during the (single) large
+/// full-message fetch.
+async fn read_literal_with_progress(
+    reader: &mut tokio::io::BufReader<ImapStream>,
+    size: usize,
+    idle: std::time::Duration,
+    on_progress: &mut Option<&mut (dyn FnMut(u64, u64) + Send)>,
+) -> Result<Vec<u8>, String> {
     let mut buf = vec![0u8; size];
     let mut filled = 0;
+    if let Some(cb) = on_progress.as_mut() {
+        cb(0, size as u64);
+    }
     while filled < size {
         let n = tokio::time::timeout(idle, reader.read(&mut buf[filled..]))
             .await
@@ -2067,6 +2085,9 @@ async fn read_literal_with_idle_timeout(
             return Err(format!("connection closed mid-literal ({filled}/{size} bytes)"));
         }
         filled += n;
+        if let Some(cb) = on_progress.as_mut() {
+            cb(filled as u64, size as u64);
+        }
     }
     Ok(buf)
 }
@@ -2083,6 +2104,16 @@ async fn read_literal_with_idle_timeout(
 async fn raw_parse_fetch_responses(
     reader: &mut tokio::io::BufReader<ImapStream>,
     tag: &str,
+) -> Result<Vec<RawFetchedMessage>, String> {
+    raw_parse_fetch_responses_with_progress(reader, tag, &mut None).await
+}
+
+/// Like [`raw_parse_fetch_responses`], reporting byte-level progress of each
+/// message literal via the optional callback.
+async fn raw_parse_fetch_responses_with_progress(
+    reader: &mut tokio::io::BufReader<ImapStream>,
+    tag: &str,
+    on_progress: &mut Option<&mut (dyn FnMut(u64, u64) + Send)>,
 ) -> Result<Vec<RawFetchedMessage>, String> {
     let mut messages: Vec<RawFetchedMessage> = Vec::new();
     let tag_ok = format!("{tag} OK");
@@ -2136,7 +2167,7 @@ async fn raw_parse_fetch_responses(
                 if let Some(literal_size) = extract_literal_size(&line) {
                     // Read exactly `literal_size` bytes, but abort if the stream
                     // stalls (DavMail hang) instead of blocking the folder forever.
-                    let body = read_literal_with_idle_timeout(reader, literal_size, IMAP_CMD_TIMEOUT)
+                    let body = read_literal_with_progress(reader, literal_size, IMAP_CMD_TIMEOUT, on_progress)
                         .await
                         .map_err(|e| format!("read literal for UID {uid}: {e}"))?;
 

@@ -1,4 +1,6 @@
 import { getEmailProvider } from "@/services/email/providerFactory";
+import { getDb } from "@/services/db/connection";
+import { evictOldestCached } from "./cacheManager";
 
 /**
  * Minimal descriptor needed to materialize an attachment to disk. Both
@@ -36,7 +38,14 @@ export function toAttachmentRef(a: AttachmentRow): AttachmentRef {
   };
 }
 
+/** Legacy drag staging dir — no longer written to; cleaned up at startup. */
 const DRAG_TEMP_DIR = "drag_temp";
+
+/** Unified on-disk attachment cache, shared with cacheManager/CID resolver:
+ * `attachment_cache/<hash(dbId)>/<real-file-name>`, tracked in
+ * `attachments.local_path` and LRU-evicted by cacheManager. The real file name
+ * in the leaf lets native drag-out expose it directly from the cache. */
+const CACHE_DIR = "attachment_cache";
 
 /**
  * Sanitize a filename for a real, user-visible download: strip path separators and
@@ -117,25 +126,61 @@ export async function downloadAttachmentsToFolder(
 
   let index = 0;
 
-  // Reuse the drag-prefetch cache first: attachments already materialized (or
-  // being materialized right now by a hover warm-up) are copied from disk
-  // instead of re-fetched — the prefetch IS the download, work is never doubled.
+  // Reuse the unified cache first: attachments already on disk (prefetch,
+  // pre-cache, CID resolver, previous sessions via DB local_path) or being
+  // materialized right now by a hover warm-up are copied instead of re-fetched
+  // — the prefetch IS the download, work is never doubled.
+  const dbLocal = new Map<string, string>();
+  if (items.length > 0) {
+    try {
+      const db = await getDb();
+      const ids = items.map((it) => it.ref.dbId);
+      const placeholders = ids.map((_, i) => `$${i + 1}`).join(",");
+      const rows = await db.select<{ id: string; local_path: string | null }[]>(
+        `SELECT id, local_path FROM attachments WHERE id IN (${placeholders}) AND local_path IS NOT NULL`,
+        ids,
+      );
+      for (const r of rows) if (r.local_path) dbLocal.set(r.id, r.local_path);
+    } catch {
+      // best-effort — fall back to network
+    }
+  }
+
   const rest: { ref: AttachmentRef; dest: string }[] = [];
   for (const it of items) {
+    let src: string | null = null;
     const inflight = materializePromises.get(it.ref.dbId);
-    if (!inflight) {
+    if (inflight) {
+      try {
+        src = await inflight;
+      } catch {
+        src = null; // in-flight failed — fall through to a fresh fetch
+      }
+    } else if (dbLocal.has(it.ref.dbId)) {
+      try {
+        const { appDataDir } = await import("@tauri-apps/api/path");
+        const { exists, stat } = await import("@tauri-apps/plugin-fs");
+        const abs = await join(await appDataDir(), dbLocal.get(it.ref.dbId)!);
+        if (await exists(abs)) {
+          const info = await stat(abs);
+          if (it.ref.size == null || info.size === it.ref.size) src = abs;
+        }
+      } catch {
+        src = null;
+      }
+    }
+    if (!src) {
       rest.push(it);
       continue;
     }
     onProgress?.({ index, total: items.length, dbId: it.ref.dbId });
     try {
-      const src = await inflight;
       const { copyFile } = await import("@tauri-apps/plugin-fs");
       await copyFile(src, it.dest);
       ok++;
       if (!firstPath) firstPath = it.dest;
     } catch (err) {
-      console.error("Copy from prefetch cache failed:", err);
+      console.error("Copy from attachment cache failed:", err);
       failed++;
     }
     index++;
@@ -322,8 +367,29 @@ export function materializeEach(refs: AttachmentRef[]): Map<string, Promise<stri
   return out;
 }
 
+/** Best-effort DB bookkeeping after a file lands in the cache: record the
+ * relative path so every consumer (preview, drag, download, pre-cache) finds it,
+ * and kick LRU eviction. Never fails the materialization itself. */
+async function recordCached(dbId: string, relPath: string, sizeOnDisk: number | null): Promise<void> {
+  try {
+    const db = await getDb();
+    await db.execute(
+      "UPDATE attachments SET local_path = $1, cached_at = unixepoch(), cache_size = $2 WHERE id = $3",
+      [relPath, sizeOnDisk, dbId],
+    );
+    evictOldestCached().catch(() => {});
+  } catch (err) {
+    console.warn("Attachment cache bookkeeping failed:", err);
+  }
+}
+
 /** Drain one coalesced queue: resolve cache hits, then fetch the rest grouped by
- * account+message (batch-capable providers download each message exactly once). */
+ * account+message (batch-capable providers download each message exactly once).
+ *
+ * Everything lands in the SAME store the CID resolver and pre-cache use:
+ * `attachment_cache/<hash>/<real-name>` on disk + `attachments.local_path` in
+ * the DB (LRU-evicted via cacheManager). One copy of the bytes serves preview,
+ * drag-out, download-to-folder and open-with-app. */
 async function runMaterializeBatch(todo: MaterializeTodo[]): Promise<void> {
   let appData: string;
   let joinFn: (...paths: string[]) => Promise<string>;
@@ -341,39 +407,100 @@ async function runMaterializeBatch(todo: MaterializeTodo[]): Promise<void> {
     return;
   }
 
+  // Existing cache entries from the DB (covers previous sessions, the CID
+  // resolver and the Gmail pre-cache — not just this session's registry).
+  const localPaths = new Map<string, string>();
+  try {
+    const db = await getDb();
+    const ids = todo.map((t) => t.ref.dbId);
+    const placeholders = ids.map((_, i) => `$${i + 1}`).join(",");
+    const rows = await db.select<{ id: string; local_path: string | null }[]>(
+      `SELECT id, local_path FROM attachments WHERE id IN (${placeholders}) AND local_path IS NOT NULL`,
+      ids,
+    );
+    for (const r of rows) if (r.local_path) localPaths.set(r.id, r.local_path);
+  } catch {
+    // DB lookup best-effort — worst case we re-download
+  }
+
   // Resolve each item's cache path; serve disk hits without any network.
-  const pending: { t: MaterializeTodo; dest: string }[] = [];
+  const pending: { t: MaterializeTodo; dest: string; relPath: string }[] = [];
   for (const t of todo) {
     try {
-      const dir = await joinFn(appData, DRAG_TEMP_DIR, await dirNameForDbId(t.ref.dbId));
-      await fs.mkdir(dir, { recursive: true });
-      const dest = await joinFn(dir, safeFileName(t.ref.filename));
-      let reused = false;
+      const relDir = `${CACHE_DIR}/${await dirNameForDbId(t.ref.dbId)}`;
+      const relPath = `${relDir}/${safeFileName(t.ref.filename)}`;
+      const dest = await joinFn(appData, relPath);
+
+      // 1. Reuse whatever local_path the DB already records (any layout —
+      //    legacy flat CID/pre-cache names included). Migrate legacy entries
+      //    into the named layout so native drag exposes the real filename.
+      const known = localPaths.get(t.ref.dbId);
+      let served = false;
+      if (known) {
+        try {
+          const knownAbs = await joinFn(appData, known);
+          if (await fs.exists(knownAbs)) {
+            const info = await fs.stat(knownAbs);
+            if (t.ref.size == null || info.size === t.ref.size) {
+              if (known === relPath) {
+                t.resolve(knownAbs);
+              } else {
+                await fs.mkdir(await joinFn(appData, relDir), { recursive: true });
+                await fs.copyFile(knownAbs, dest);
+                await recordCached(t.ref.dbId, relPath, info.size);
+                fs.remove(knownAbs).catch(() => {});
+                t.resolve(dest);
+              }
+              served = true;
+            }
+          }
+        } catch {
+          // fall through to the direct disk probe / download
+        }
+      }
+      if (served) continue;
+
+      // 2. Direct disk probe at the canonical location (DB row may have been
+      //    lost while the file survived).
+      await fs.mkdir(await joinFn(appData, relDir), { recursive: true });
       try {
         if (await fs.exists(dest)) {
           const info = await fs.stat(dest);
           if (t.ref.size == null || info.size === t.ref.size) {
+            await recordCached(t.ref.dbId, relPath, info.size);
             t.resolve(dest);
-            reused = true;
+            continue;
           }
         }
       } catch {
         // stat/exists best-effort — fall through to (re)download
       }
-      if (!reused) pending.push({ t, dest });
+      pending.push({ t, dest, relPath });
     } catch (err) {
       t.reject(err);
     }
   }
   if (pending.length === 0) return;
 
-  const groups = new Map<string, { t: MaterializeTodo; dest: string }[]>();
+  const groups = new Map<string, { t: MaterializeTodo; dest: string; relPath: string }[]>();
   for (const item of pending) {
     const key = `${item.t.ref.accountId}\n${item.t.ref.messageId}`;
     const g = groups.get(key);
     if (g) g.push(item);
     else groups.set(key, [item]);
   }
+
+  // Record + resolve one downloaded file (stat is best-effort for cache_size).
+  const finish = async (t: MaterializeTodo, dest: string, relPath: string) => {
+    let sizeOnDisk: number | null = t.ref.size;
+    try {
+      sizeOnDisk = (await fs.stat(dest)).size;
+    } catch {
+      // keep the declared size
+    }
+    await recordCached(t.ref.dbId, relPath, sizeOnDisk);
+    t.resolve(dest);
+  };
 
   for (const group of groups.values()) {
     let provider;
@@ -395,9 +522,9 @@ async function runMaterializeBatch(todo: MaterializeTodo[]): Promise<void> {
           })),
         );
         const byId = new Map(results.map((r) => [r.dbId, r]));
-        for (const { t, dest } of group) {
+        for (const { t, dest, relPath } of group) {
           const r = byId.get(t.ref.dbId);
-          if (r?.ok) t.resolve(dest);
+          if (r?.ok) await finish(t, dest, relPath);
           else t.reject(new Error(r?.error ?? "download failed"));
         }
       } catch (err) {
@@ -410,7 +537,7 @@ async function runMaterializeBatch(todo: MaterializeTodo[]): Promise<void> {
       let next = 0;
       const worker = async () => {
         while (next < group.length) {
-          const { t, dest } = group[next++]!;
+          const { t, dest, relPath } = group[next++]!;
           try {
             await provider.downloadAttachmentToPath(
               t.ref.messageId,
@@ -419,7 +546,7 @@ async function runMaterializeBatch(todo: MaterializeTodo[]): Promise<void> {
               t.ref.dbId,
               t.ref.size ?? 0,
             );
-            t.resolve(dest);
+            await finish(t, dest, relPath);
           } catch (err) {
             t.reject(err);
           }
@@ -431,10 +558,10 @@ async function runMaterializeBatch(todo: MaterializeTodo[]): Promise<void> {
 }
 
 /**
- * Ensure an attachment exists on disk under `<appData>/drag_temp/<dbId>/<name>`
- * with its real file name and return the absolute path. Shares work with any
- * concurrent materialization of the same attachment (drag prefetch, batch
- * download) via the single-flight registry.
+ * Ensure an attachment exists on disk in the unified cache
+ * (`attachment_cache/<hash>/<name>`) and return the absolute path. Shares work
+ * with any concurrent materialization of the same attachment (drag prefetch,
+ * batch download, preview) via the single-flight registry.
  */
 export async function materializeAttachment(ref: AttachmentRef): Promise<string> {
   return materializeEach([ref]).get(ref.dbId)!;

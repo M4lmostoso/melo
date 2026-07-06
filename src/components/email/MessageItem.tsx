@@ -537,16 +537,12 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
           )}
 
           <InlineAttachmentPreview
-            accountId={message.account_id}
-            messageId={message.id}
             attachments={attachments}
             referencedCids={referencedCids}
             onAttachmentClick={() => {}}
           />
 
           <AttachmentList
-            accountId={message.account_id}
-            messageId={message.id}
             attachments={calendarAttachment ? attachments.filter((a) => a.id !== calendarAttachment.id) : attachments}
             referencedCids={referencedCids}
           />

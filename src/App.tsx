@@ -166,6 +166,13 @@ export default function App() {
     const { setOnline } = useUIStore.getState();
     setOnline(navigator.onLine);
 
+    // Attachment download bytes flowing = proof of connectivity: prevents the
+    // probe from flipping to offline mode while a large download saturates the
+    // link, and recovers early if it already flipped.
+    import("./services/connectivityMonitor")
+      .then(({ initConnectivityActivitySignal }) => initConnectivityActivitySignal())
+      .catch(() => {});
+
     const handleOnline = () => {
       setOnline(true);
       import("./services/connectivityMonitor").then(({ notifyBackOnline }) => notifyBackOnline()).catch(() => {});

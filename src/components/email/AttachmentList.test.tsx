@@ -19,12 +19,30 @@ vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn().mockResolvedValue(() => {}),
 }));
 
-// Reveal-in-folder after a successful raw download.
+// Reveal-in-folder after a successful download.
 vi.mock("@tauri-apps/plugin-opener", () => ({
   revealItemInDir: vi.fn().mockResolvedValue(undefined),
 }));
 
-import { getEmailProvider } from "@/services/email/providerFactory";
+// Preview/download now go through the unified attachment cache: materialize to
+// disk, then readFile (preview) or copyFile (save-as).
+vi.mock("@/services/attachments/attachmentActions", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/services/attachments/attachmentActions")>();
+  return {
+    ...actual,
+    materializeAttachment: vi.fn(),
+    downloadAttachmentsToFolder: vi.fn(),
+    openAttachmentWithDefaultApp: vi.fn(),
+  };
+});
+
+vi.mock("@tauri-apps/plugin-fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@tauri-apps/plugin-fs")>();
+  return { ...actual, readFile: vi.fn(), copyFile: vi.fn() };
+});
+
+import { materializeAttachment } from "@/services/attachments/attachmentActions";
+import { readFile, copyFile } from "@tauri-apps/plugin-fs";
 import { save } from "@tauri-apps/plugin-dialog";
 
 const makeAttachment = (overrides: Partial<DbAttachment> = {}): DbAttachment => ({
@@ -42,36 +60,24 @@ const makeAttachment = (overrides: Partial<DbAttachment> = {}): DbAttachment => 
 });
 
 describe("AttachmentList", () => {
-  const mockFetchAttachment = vi.fn();
-  const mockDownloadAttachmentToPath = vi.fn();
-
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(getEmailProvider).mockResolvedValue({
-      fetchAttachment: mockFetchAttachment,
-      downloadAttachmentToPath: mockDownloadAttachmentToPath,
-    } as never);
+    vi.mocked(materializeAttachment).mockResolvedValue("/cache/att-1/photo.png");
+    vi.mocked(readFile).mockResolvedValue(new Uint8Array([1, 2, 3]));
+    vi.mocked(copyFile).mockResolvedValue(undefined);
+    global.URL.createObjectURL = vi.fn().mockReturnValue("blob:mock-url");
+    global.URL.revokeObjectURL = vi.fn();
   });
 
   it("renders nothing when no file attachments", () => {
-    const { container } = render(
-      <AttachmentList
-        accountId="acc-1"
-        messageId="msg-1"
-        attachments={[]}
-      />,
-    );
+    const { container } = render(<AttachmentList attachments={[]} />);
 
     expect(container.innerHTML).toBe("");
   });
 
   it("renders nothing when all attachments are true inline (no filename)", () => {
     const { container } = render(
-      <AttachmentList
-        accountId="acc-1"
-        messageId="msg-1"
-        attachments={[makeAttachment({ is_inline: 1, filename: null })]}
-      />,
+      <AttachmentList attachments={[makeAttachment({ is_inline: 1, filename: null })]} />,
     );
 
     expect(container.innerHTML).toBe("");
@@ -80,8 +86,6 @@ describe("AttachmentList", () => {
   it("shows attachment with is_inline flag if it has a filename", () => {
     render(
       <AttachmentList
-        accountId="acc-1"
-        messageId="msg-1"
         attachments={[makeAttachment({ is_inline: 1, filename: "report.pdf", mime_type: "application/pdf" })]}
       />,
     );
@@ -95,13 +99,7 @@ describe("AttachmentList", () => {
       makeAttachment({ id: "att-2", gmail_attachment_id: "gid-2", filename: "doc.pdf", mime_type: "application/pdf" }),
     ];
 
-    render(
-      <AttachmentList
-        accountId="acc-1"
-        messageId="msg-1"
-        attachments={attachments}
-      />,
-    );
+    render(<AttachmentList attachments={attachments} />);
 
     expect(screen.getByText("2 attachments")).toBeInTheDocument();
     expect(screen.getByText("photo.png")).toBeInTheDocument();
@@ -109,25 +107,13 @@ describe("AttachmentList", () => {
   });
 
   it("renders file size for attachments", () => {
-    render(
-      <AttachmentList
-        accountId="acc-1"
-        messageId="msg-1"
-        attachments={[makeAttachment({ size: 2048 })]}
-      />,
-    );
+    render(<AttachmentList attachments={[makeAttachment({ size: 2048 })]} />);
 
     expect(screen.getByText("2.0 KB")).toBeInTheDocument();
   });
 
   it("selects an attachment on single click (does not open preview)", () => {
-    render(
-      <AttachmentList
-        accountId="acc-1"
-        messageId="msg-1"
-        attachments={[makeAttachment()]}
-      />,
-    );
+    render(<AttachmentList attachments={[makeAttachment()]} />);
 
     const item = screen.getByText("photo.png").closest('[role="button"]')!;
     expect(item).toHaveAttribute("aria-selected", "false");
@@ -135,96 +121,62 @@ describe("AttachmentList", () => {
     fireEvent.click(item);
 
     expect(item).toHaveAttribute("aria-selected", "true");
-    // Single click must NOT fetch/preview
-    expect(mockFetchAttachment).not.toHaveBeenCalled();
+    // Single click must NOT materialize/preview
+    expect(materializeAttachment).not.toHaveBeenCalled();
   });
 
-  it("opens preview modal when pressing space on an attachment", async () => {
-    // Return a small base64-encoded PNG (1x1 pixel)
-    mockFetchAttachment.mockResolvedValue({
-      data: btoa("fake-image-data"),
-      size: 15,
-    });
-
-    render(
-      <AttachmentList
-        accountId="acc-1"
-        messageId="msg-1"
-        attachments={[makeAttachment()]}
-      />,
-    );
+  it("opens preview modal when pressing space and loads bytes from the cache", async () => {
+    render(<AttachmentList attachments={[makeAttachment()]} />);
 
     fireEvent.keyDown(screen.getByText("photo.png"), { key: " " });
 
     await waitFor(() => {
-      expect(getEmailProvider).toHaveBeenCalledWith("acc-1");
-      expect(mockFetchAttachment).toHaveBeenCalledWith("msg-1", "gmail-att-1");
+      expect(materializeAttachment).toHaveBeenCalledWith(
+        expect.objectContaining({ dbId: "att-1", attachmentId: "gmail-att-1" }),
+      );
+      expect(readFile).toHaveBeenCalledWith("/cache/att-1/photo.png");
     });
   });
 
-  it("uses getEmailProvider instead of getGmailClient for preview", async () => {
-    mockFetchAttachment.mockResolvedValue({
-      data: btoa("test-data"),
-      size: 9,
-    });
-
+  it("materializes IMAP part ids through the same cache path", async () => {
     render(
       <AttachmentList
-        accountId="imap-acc"
-        messageId="imap-msg-1"
         attachments={[makeAttachment({
           account_id: "imap-acc",
           message_id: "imap-msg-1",
-          gmail_attachment_id: "part-1.2",
-        })]}
+          gmail_attachment_id: null,
+          imap_part_id: "1.2",
+        } as Partial<DbAttachment>)]}
       />,
     );
 
     fireEvent.keyDown(screen.getByText("photo.png"), { key: " " });
 
     await waitFor(() => {
-      expect(getEmailProvider).toHaveBeenCalledWith("imap-acc");
-      expect(mockFetchAttachment).toHaveBeenCalledWith("imap-msg-1", "part-1.2");
+      expect(materializeAttachment).toHaveBeenCalledWith(
+        expect.objectContaining({ accountId: "imap-acc", messageId: "imap-msg-1", attachmentId: "1.2" }),
+      );
     });
   });
 
-  it("handles download via provider abstraction", async () => {
-    mockFetchAttachment.mockResolvedValue({
-      data: btoa("file-content"),
-      size: 12,
-    });
-    mockDownloadAttachmentToPath.mockResolvedValue(undefined);
+  it("saves via cache copy on download", async () => {
     vi.mocked(save).mockResolvedValue("/downloads/photo.png");
 
-    render(
-      <AttachmentList
-        accountId="acc-1"
-        messageId="msg-1"
-        attachments={[makeAttachment()]}
-      />,
-    );
+    render(<AttachmentList attachments={[makeAttachment()]} />);
 
     // Open the preview modal first (Space = Quick Look preview)
     fireEvent.keyDown(screen.getByText("photo.png"), { key: " " });
 
-    // Wait for preview to load, then click download
     await waitFor(() => {
       expect(screen.getByText("Download")).toBeInTheDocument();
     });
 
     fireEvent.click(screen.getByText("Download"));
 
-    // Download now streams straight to the chosen path via the provider's
-    // raw-TCP downloadAttachmentToPath (no in-JS writeFile step).
+    // The cached file is copied to the chosen destination — no re-fetch.
     await waitFor(() => {
       expect(save).toHaveBeenCalled();
-      expect(mockDownloadAttachmentToPath).toHaveBeenCalledWith(
-        "msg-1",
-        "gmail-att-1",
-        "/downloads/photo.png",
-        "att-1",
-        1024,
-      );
+      expect(copyFile).toHaveBeenCalledWith("/cache/att-1/photo.png", "/downloads/photo.png");
     });
   });
 
@@ -232,8 +184,6 @@ describe("AttachmentList", () => {
     const referencedCids = new Set(["img001@example.com"]);
     const { container } = render(
       <AttachmentList
-        accountId="acc-1"
-        messageId="msg-1"
         attachments={[makeAttachment({ content_id: "img001@example.com", filename: "photo.png", mime_type: "image/png" })]}
         referencedCids={referencedCids}
       />,
@@ -246,8 +196,6 @@ describe("AttachmentList", () => {
     const referencedCids = new Set<string>();
     render(
       <AttachmentList
-        accountId="acc-1"
-        messageId="msg-1"
         attachments={[makeAttachment({ content_id: "img001@example.com", filename: "photo.png", mime_type: "image/png" })]}
         referencedCids={referencedCids}
       />,
@@ -259,8 +207,6 @@ describe("AttachmentList", () => {
   it("shows non-image CID attachments with real filename when not referenced", () => {
     render(
       <AttachmentList
-        accountId="acc-1"
-        messageId="msg-1"
         attachments={[makeAttachment({ content_id: "part1@example.com", mime_type: "application/pdf", filename: "report.pdf" })]}
       />,
     );
@@ -271,8 +217,6 @@ describe("AttachmentList", () => {
   it("deduplicates attachments by filename+size (different gmail_attachment_id)", () => {
     render(
       <AttachmentList
-        accountId="acc-1"
-        messageId="msg-1"
         attachments={[
           makeAttachment({ id: "att-1", gmail_attachment_id: "gid-1", filename: "photo.png", size: 1024 }),
           makeAttachment({ id: "att-2", gmail_attachment_id: "gid-2", filename: "photo.png", size: 1024 }),
@@ -286,8 +230,6 @@ describe("AttachmentList", () => {
   it("does not dedup attachments with different filenames", () => {
     render(
       <AttachmentList
-        accountId="acc-1"
-        messageId="msg-1"
         attachments={[
           makeAttachment({ id: "att-1", gmail_attachment_id: "gid-1", filename: "photo.png", size: 1024 }),
           makeAttachment({ id: "att-2", gmail_attachment_id: "gid-2", filename: "photo2.png", size: 1024 }),
@@ -298,48 +240,15 @@ describe("AttachmentList", () => {
     expect(screen.getByText("2 attachments")).toBeInTheDocument();
   });
 
-  it("shows error state when preview fetch fails", async () => {
-    mockFetchAttachment.mockRejectedValue(new Error("Network error"));
+  it("shows error state when materialization fails", async () => {
+    vi.mocked(materializeAttachment).mockRejectedValue(new Error("Network error"));
 
-    render(
-      <AttachmentList
-        accountId="acc-1"
-        messageId="msg-1"
-        attachments={[makeAttachment()]}
-      />,
-    );
+    render(<AttachmentList attachments={[makeAttachment()]} />);
 
     fireEvent.keyDown(screen.getByText("photo.png"), { key: " " });
 
     await waitFor(() => {
       expect(screen.getByText("Failed to load preview")).toBeInTheDocument();
-    });
-  });
-
-  it("normalizes URL-safe base64 from Gmail API", async () => {
-    // Standard base64 "Hello+World/" becomes URL-safe "Hello-World_" in Gmail API
-    // The component should normalize - to + and _ to / before atob()
-    const standardBase64 = btoa("Hello World!");
-    // Convert to URL-safe base64 (replace + with - and / with _)
-    const urlSafeBase64 = standardBase64.replace(/\+/g, "-").replace(/\//g, "_");
-    mockFetchAttachment.mockResolvedValue({
-      data: urlSafeBase64,
-      size: 12,
-    });
-
-    render(
-      <AttachmentList
-        accountId="acc-1"
-        messageId="msg-1"
-        attachments={[makeAttachment()]}
-      />,
-    );
-
-    fireEvent.keyDown(screen.getByText("photo.png"), { key: " " });
-
-    // Should not throw — the component normalizes - to + and _ to /
-    await waitFor(() => {
-      expect(mockFetchAttachment).toHaveBeenCalled();
     });
   });
 });
