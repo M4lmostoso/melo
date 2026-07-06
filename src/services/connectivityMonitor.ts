@@ -8,6 +8,10 @@ import { useUIStore } from "@/stores/uiStore";
  * This probe requests a known HTTPS endpoint. Over HTTPS a captive portal
  * cannot impersonate the host (TLS cert mismatch → fetch throws), so ANY
  * response — regardless of status — proves real internet connectivity.
+ *
+ * The request MUST go through the Tauri HTTP plugin, not the webview fetch:
+ * generate_204 sends no CORS headers, so the webview rejects the response
+ * and the probe reports "offline" against a perfectly working network.
  */
 const PROBE_URL = "https://www.googleapis.com/generate_204";
 const PROBE_TIMEOUT_MS = 10_000;
@@ -61,10 +65,11 @@ export function initConnectivityActivitySignal(): void {
 
 export async function probeConnectivity(): Promise<boolean> {
   try {
+    const { fetch: tauriFetch } = await import("@tauri-apps/plugin-http");
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
     try {
-      await fetch(PROBE_URL, { method: "GET", cache: "no-store", signal: controller.signal });
+      await tauriFetch(PROBE_URL, { method: "GET", signal: controller.signal });
       return true;
     } finally {
       clearTimeout(timeout);
