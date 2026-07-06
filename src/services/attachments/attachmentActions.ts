@@ -151,6 +151,10 @@ export async function downloadAttachmentsToFolder(
     let src: string | null = null;
     const inflight = materializePromises.get(it.ref.dbId);
     if (inflight) {
+      // Report BEFORE awaiting: the in-flight fetch (e.g. a hover warm-up) can
+      // take a while, and the progress UI must show which file we're on
+      // instead of sitting at 0% in silence.
+      onProgress?.({ index, total: items.length, dbId: it.ref.dbId });
       try {
         src = await inflight;
       } catch {
@@ -317,6 +321,30 @@ let materializeFlushTimer: ReturnType<typeof setTimeout> | null = null;
  * window becomes ONE batched fetch instead of N single-part fetches. */
 const MATERIALIZE_COALESCE_MS = 80;
 
+/** Max concurrent message fetches across all coalescing flushes. Hover-sweeping
+ * a list must never open a connection storm toward the server — on DavMail each
+ * fetch is a full-message transfer and parallel storms saturate the link,
+ * starving every other fetch into timeout. */
+const MAX_CONCURRENT_GROUP_FETCHES = 2;
+let activeGroupFetches = 0;
+let groupFetchWaiters: (() => void)[] = [];
+
+async function withGroupFetchSlot<T>(fn: () => Promise<T>): Promise<T> {
+  while (activeGroupFetches >= MAX_CONCURRENT_GROUP_FETCHES) {
+    await new Promise<void>((r) => groupFetchWaiters.push(r));
+  }
+  activeGroupFetches++;
+  try {
+    return await fn();
+  } finally {
+    activeGroupFetches--;
+    groupFetchWaiters.shift()?.();
+  }
+}
+
+/** Skip whole-message expansion for enormous siblings (they'd churn the LRU cache). */
+const MAX_EXPANSION_SIZE = 25 * 1024 * 1024;
+
 /** Test-only: clear module-level materialization state between tests. */
 export function _resetMaterializeStateForTests(): void {
   materializePromises.clear();
@@ -325,6 +353,8 @@ export function _resetMaterializeStateForTests(): void {
     clearTimeout(materializeFlushTimer);
     materializeFlushTimer = null;
   }
+  activeGroupFetches = 0;
+  groupFetchWaiters = [];
 }
 
 /**
@@ -512,47 +542,97 @@ async function runMaterializeBatch(todo: MaterializeTodo[]): Promise<void> {
     }
 
     if (provider.downloadAttachmentsBatch) {
+      // Thunderbird model: the unit of transfer is the MESSAGE. The batch
+      // fetch downloads the whole message anyway, so expand the group to every
+      // not-yet-cached attachment of that message and slice them all from the
+      // single download — this message never needs fetching again. (Without
+      // this, hovering attachments one at a time re-downloaded the entire
+      // message once per attachment.)
       try {
-        const results = await provider.downloadAttachmentsBatch(
-          group.map(({ t, dest }) => ({
-            messageId: t.ref.messageId,
-            attachmentId: t.ref.attachmentId!,
-            destPath: dest,
-            dbId: t.ref.dbId,
-          })),
+        const db = await getDb();
+        const first = group[0]!.t.ref;
+        const siblings = await db.select<{
+          id: string;
+          imap_part_id: string | null;
+          filename: string | null;
+          size: number | null;
+          local_path: string | null;
+        }[]>(
+          "SELECT id, imap_part_id, filename, size, local_path FROM attachments WHERE account_id = $1 AND message_id = $2",
+          [first.accountId, first.messageId],
         );
-        const byId = new Map(results.map((r) => [r.dbId, r]));
-        for (const { t, dest, relPath } of group) {
-          const r = byId.get(t.ref.dbId);
-          if (r?.ok) await finish(t, dest, relPath);
-          else t.reject(new Error(r?.error ?? "download failed"));
+        for (const s of siblings) {
+          if (!s.imap_part_id) continue;
+          if (s.local_path) continue; // already cached
+          if (materializePromises.has(s.id)) continue; // requested or in flight
+          if (s.size != null && s.size > MAX_EXPANSION_SIZE) continue;
+          let resolve!: (v: string) => void;
+          let reject!: (e: unknown) => void;
+          const p = new Promise<string>((res, rej) => { resolve = res; reject = rej; });
+          p.catch(() => materializePromises.delete(s.id));
+          materializePromises.set(s.id, p);
+          const ref: AttachmentRef = {
+            dbId: s.id,
+            accountId: first.accountId,
+            messageId: first.messageId,
+            attachmentId: s.imap_part_id,
+            filename: s.filename,
+            size: s.size,
+          };
+          const relDir = `${CACHE_DIR}/${await dirNameForDbId(s.id)}`;
+          const relPath = `${relDir}/${safeFileName(s.filename)}`;
+          await fs.mkdir(await joinFn(appData, relDir), { recursive: true });
+          group.push({ t: { ref, resolve, reject }, dest: await joinFn(appData, relPath), relPath });
         }
-      } catch (err) {
-        for (const { t } of group) t.reject(err);
+      } catch {
+        // expansion is best-effort — the requested parts still download
       }
+
+      await withGroupFetchSlot(async () => {
+        try {
+          const results = await provider.downloadAttachmentsBatch!(
+            group.map(({ t, dest }) => ({
+              messageId: t.ref.messageId,
+              attachmentId: t.ref.attachmentId!,
+              destPath: dest,
+              dbId: t.ref.dbId,
+            })),
+          );
+          const byId = new Map(results.map((r) => [r.dbId, r]));
+          for (const { t, dest, relPath } of group) {
+            const r = byId.get(t.ref.dbId);
+            if (r?.ok) await finish(t, dest, relPath);
+            else t.reject(new Error(r?.error ?? "download failed"));
+          }
+        } catch (err) {
+          for (const { t } of group) t.reject(err);
+        }
+      });
     } else {
       // Per-file with a small concurrency cap — efficient per-attachment
       // endpoints (Gmail) don't need whole-message batching.
-      const CONCURRENCY = 4;
-      let next = 0;
-      const worker = async () => {
-        while (next < group.length) {
-          const { t, dest, relPath } = group[next++]!;
-          try {
-            await provider.downloadAttachmentToPath(
-              t.ref.messageId,
-              t.ref.attachmentId!,
-              dest,
-              t.ref.dbId,
-              t.ref.size ?? 0,
-            );
-            await finish(t, dest, relPath);
-          } catch (err) {
-            t.reject(err);
+      await withGroupFetchSlot(async () => {
+        const CONCURRENCY = 4;
+        let next = 0;
+        const worker = async () => {
+          while (next < group.length) {
+            const { t, dest, relPath } = group[next++]!;
+            try {
+              await provider.downloadAttachmentToPath(
+                t.ref.messageId,
+                t.ref.attachmentId!,
+                dest,
+                t.ref.dbId,
+                t.ref.size ?? 0,
+              );
+              await finish(t, dest, relPath);
+            } catch (err) {
+              t.reject(err);
+            }
           }
-        }
-      };
-      await Promise.all(Array.from({ length: Math.min(CONCURRENCY, group.length) }, worker));
+        };
+        await Promise.all(Array.from({ length: Math.min(CONCURRENCY, group.length) }, worker));
+      });
     }
   }
 }

@@ -22,13 +22,15 @@ vi.mock("@tauri-apps/plugin-fs", async (importOriginal) => {
   };
 });
 
-// The unified cache records local_path in the DB; return no cached rows and
-// accept the bookkeeping UPDATEs.
+// The unified cache records local_path in the DB; tests control what the
+// cached-rows and message-siblings queries return via dbSelect.
+const { dbSelect, dbExecute } = vi.hoisted(() => ({
+  dbSelect: vi.fn(),
+  dbExecute: vi.fn(),
+}));
+
 vi.mock("@/services/db/connection", () => ({
-  getDb: vi.fn().mockResolvedValue({
-    select: vi.fn().mockResolvedValue([]),
-    execute: vi.fn().mockResolvedValue(undefined),
-  }),
+  getDb: vi.fn().mockResolvedValue({ select: dbSelect, execute: dbExecute }),
 }));
 
 vi.mock("./cacheManager", () => ({
@@ -59,6 +61,8 @@ describe("downloadAttachmentsToFolder", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     _resetMaterializeStateForTests();
+    dbSelect.mockResolvedValue([]);
+    dbExecute.mockResolvedValue(undefined);
     downloadAttachmentToPath.mockResolvedValue(undefined);
     vi.mocked(getEmailProvider).mockResolvedValue({ downloadAttachmentToPath } as never);
   });
@@ -154,6 +158,8 @@ describe("materializeEach (shared single-flight)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     _resetMaterializeStateForTests();
+    dbSelect.mockResolvedValue([]);
+    dbExecute.mockResolvedValue(undefined);
     downloadAttachmentsBatch.mockImplementation(async (items) => okBatch(items));
     downloadAttachmentToPath.mockResolvedValue(undefined);
     vi.mocked(getEmailProvider).mockResolvedValue({ downloadAttachmentsBatch, downloadAttachmentToPath } as never);
@@ -203,6 +209,27 @@ describe("materializeEach (shared single-flight)", () => {
     const p2 = materializeEach([ref]).get("a")!;
     expect(p2).not.toBe(p1);
     await expect(p2).resolves.toContain("a.pdf");
+  });
+
+  it("expands one requested attachment to every uncached sibling of the message (Thunderbird model)", async () => {
+    dbSelect.mockImplementation(async (sql: string) => {
+      if (sql.includes("WHERE account_id")) {
+        return [
+          { id: "a", imap_part_id: "2", filename: "a.pdf", size: 100, local_path: null },
+          { id: "b", imap_part_id: "3", filename: "b.pdf", size: 200, local_path: null },
+          { id: "c", imap_part_id: "4", filename: "c.pdf", size: 300, local_path: "attachment_cache/x/c.pdf" },
+        ];
+      }
+      return [];
+    });
+
+    await materializeEach([makeRef({ dbId: "a", attachmentId: "2", filename: "a.pdf" })]).get("a")!;
+
+    // ONE fetch, sliced for the requested file AND the uncached sibling;
+    // the already-cached sibling is left alone.
+    expect(downloadAttachmentsBatch).toHaveBeenCalledTimes(1);
+    const payload = downloadAttachmentsBatch.mock.calls[0]![0] as { dbId: string }[];
+    expect(payload.map((x) => x.dbId).sort()).toEqual(["a", "b"]);
   });
 
   it("download-to-folder copies from an in-flight prefetch instead of re-fetching", async () => {
