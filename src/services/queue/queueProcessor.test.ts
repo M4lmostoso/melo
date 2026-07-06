@@ -28,6 +28,12 @@ vi.mock("@/utils/networkErrors", () => ({
   })),
 }));
 
+// network-classified failures fire-and-forget into the real connectivity
+// monitor, whose probe always rejects in jsdom → unhandled setOnline(false)
+vi.mock("../connectivityMonitor", () => ({
+  reportNetworkFailure: vi.fn(),
+}));
+
 vi.mock("../backgroundCheckers", () => ({
   createBackgroundChecker: vi.fn((_name: string, fn: () => Promise<void>) => ({
     start: () => fn(),
