@@ -1,6 +1,7 @@
 import type { EmailProvider, EmailFolder, SyncResult } from "./types";
 import type { GmailClient, GmailMessagePart } from "../gmail/client";
 import { parseGmailMessage, type ParsedMessage } from "../gmail/messageParser";
+import { base64ToBytes } from "@/utils/fileUtils";
 
 /** Sentinel prefix for attachments whose bytes are inline in body.data (no Gmail attachmentId). */
 const INLINE_ATTACHMENT_PREFIX = "inline:";
@@ -173,9 +174,7 @@ export class GmailApiProvider implements EmailProvider {
     if (attachmentId.startsWith(INLINE_ATTACHMENT_PREFIX)) {
       const { data } = await this.fetchAttachment(messageId, attachmentId);
       const base64 = data.replace(/-/g, "+").replace(/_/g, "/");
-      const binary = atob(base64);
-      const bytes = new Uint8Array(binary.length);
-      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const bytes = await base64ToBytes(base64);
       const { writeFile } = await import("@tauri-apps/plugin-fs");
       await writeFile(destPath, bytes);
       return;

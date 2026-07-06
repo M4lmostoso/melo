@@ -14,15 +14,13 @@ import { Modal } from "@/components/ui/Modal";
 import { OfficeDocPreview } from "@/components/ui/OfficeDocPreview";
 import { DateTimePickerDialog } from "@/components/ui/DateTimePickerDialog";
 import { getSchedulePresets } from "@/utils/schedulePresets";
+import { base64ToBytes as decodeBase64 } from "@/utils/fileUtils";
 import { t } from "@/i18n";
 
 type ScheduledAttachment = { filename: string; mimeType: string; content: string };
 
-function base64ToBytes(base64: string): Uint8Array {
-  const binary = atob(base64.replace(/-/g, "+").replace(/_/g, "/"));
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
+function base64ToBytes(base64: string): Promise<Uint8Array> {
+  return decodeBase64(base64.replace(/-/g, "+").replace(/_/g, "/"));
 }
 
 function ScheduledAttachmentPreview({ att, onClose }: { att: ScheduledAttachment; onClose: () => void }) {
@@ -35,15 +33,21 @@ function ScheduledAttachmentPreview({ att, onClose }: { att: ScheduledAttachment
 
   useEffect(() => {
     if (!isPreviewable) return;
-    const bytes = base64ToBytes(att.content);
-    if (isOffice) {
-      setPreviewBytes(bytes);
-    } else {
-      const effectiveMime = isPdf(att.mimeType, att.filename) ? "application/pdf" : (att.mimeType ?? "application/octet-stream");
-      const blob = new Blob([bytes.buffer as ArrayBuffer], { type: effectiveMime });
-      setBlobUrl(URL.createObjectURL(blob));
-    }
-    return () => { setBlobUrl((u) => { if (u) URL.revokeObjectURL(u); return null; }); };
+    let cancelled = false;
+    base64ToBytes(att.content).then((bytes) => {
+      if (cancelled) return;
+      if (isOffice) {
+        setPreviewBytes(bytes);
+      } else {
+        const effectiveMime = isPdf(att.mimeType, att.filename) ? "application/pdf" : (att.mimeType ?? "application/octet-stream");
+        const blob = new Blob([bytes.buffer as ArrayBuffer], { type: effectiveMime });
+        setBlobUrl(URL.createObjectURL(blob));
+      }
+    });
+    return () => {
+      cancelled = true;
+      setBlobUrl((u) => { if (u) URL.revokeObjectURL(u); return null; });
+    };
   }, [att, isPreviewable, isOffice]);
 
   const handleDownload = async () => {
@@ -52,7 +56,7 @@ function ScheduledAttachmentPreview({ att, onClose }: { att: ScheduledAttachment
     try {
       const filePath = await save({ defaultPath: att.filename, filters: [{ name: "All Files", extensions: ["*"] }] });
       if (!filePath) return;
-      await writeFile(filePath, base64ToBytes(att.content));
+      await writeFile(filePath, await base64ToBytes(att.content));
     } catch (err) {
       console.error("Failed to save attachment:", err);
     } finally {

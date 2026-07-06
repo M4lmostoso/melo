@@ -3,6 +3,7 @@ import type { DbAttachment } from "@/services/db/attachments";
 import { getEmailProvider } from "@/services/email/providerFactory";
 import { t } from "@/i18n";
 import { isImage } from "@/utils/fileTypeHelpers";
+import { base64ToBytes } from "@/utils/fileUtils";
 
 /** Dedup attachments by filename+size (content-based) */
 function dedup(attachments: DbAttachment[]): DbAttachment[] {
@@ -91,11 +92,7 @@ function ImageThumbnail({
       const base64 = response.data.includes("-") || response.data.includes("_")
         ? response.data.replace(/-/g, "+").replace(/_/g, "/")
         : response.data;
-      const binaryStr = atob(base64);
-      const bytes = new Uint8Array(binaryStr.length);
-      for (let i = 0; i < binaryStr.length; i++) {
-        bytes[i] = binaryStr.charCodeAt(i);
-      }
+      const bytes = await base64ToBytes(base64);
 
       const blob = new Blob([bytes.buffer as ArrayBuffer], {
         type: attachment.mime_type ?? "image/jpeg",

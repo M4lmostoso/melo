@@ -7,6 +7,7 @@ import { Modal } from "@/components/ui/Modal";
 import { Download, Eye, Loader2, GripVertical } from "lucide-react";
 import { t } from "@/i18n";
 import { formatFileSize, isImage, isPdf, isText, isOfficeDoc, isOfficeSpreadsheet, canPreview, getFileIcon } from "@/utils/fileTypeHelpers";
+import { base64ToBytes } from "@/utils/fileUtils";
 import { OfficeDocPreview } from "@/components/ui/OfficeDocPreview";
 import { useMultiSelect } from "@/hooks/useMultiSelect";
 import { useDragOut } from "@/hooks/useDragOut";
@@ -295,11 +296,7 @@ export function AttachmentPreview({
 
     // Normalize URL-safe base64 (Gmail API) to standard base64
     const base64 = response.data.replace(/-/g, "+").replace(/_/g, "/");
-    const binaryStr = atob(base64);
-    const bytes = new Uint8Array(binaryStr.length);
-    for (let i = 0; i < binaryStr.length; i++) {
-      bytes[i] = binaryStr.charCodeAt(i);
-    }
+    const bytes = await base64ToBytes(base64);
     bytesRef.current = bytes;
     return bytes;
   }, [accountId, messageId, attachmentId]);

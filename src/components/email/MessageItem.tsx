@@ -10,6 +10,7 @@ import { MailMinus, Reply, ReplyAll, Forward, Trash2, Paperclip } from "lucide-r
 import { AuthBadge } from "./AuthBadge";
 import { AuthWarningBanner } from "./AuthWarningBanner";
 import { isCalendarInvite } from "@/utils/fileTypeHelpers";
+import { base64ToBytes } from "@/utils/fileUtils";
 import { useAccountStore } from "@/stores/accountStore";
 import { useContactsStore } from "@/stores/contactsStore";
 import { parseAddressList, resolveRecipientLabel } from "@/utils/emailUtils";
@@ -201,7 +202,7 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
           const base64 = result.data.includes("-") || result.data.includes("_")
             ? result.data.replace(/-/g, "+").replace(/_/g, "/")
             : result.data;
-          const relPath = await cacheAttachment(att.id, base64ToUint8Array(base64));
+          const relPath = await cacheAttachment(att.id, await base64ToBytes(base64));
           return {
             cidKey,
             dataUri: convertFileSrc(`${baseDir}${sep}${relPath}`),
@@ -557,13 +558,6 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
 
 function escapeCid(cid: string): string {
   return cid.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function base64ToUint8Array(base64: string): Uint8Array {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
 }
 
 export function parseUnsubscribeUrl(header: string): string | null {
