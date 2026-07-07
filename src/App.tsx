@@ -1008,7 +1008,7 @@ export default function App() {
 
   // Listen for sync status updates
   useEffect(() => {
-    const unsub = onSyncStatus((accountId, status, progress, error, storedCount, flagChangedCount, unfetchableCount) => {
+    const unsub = onSyncStatus((accountId, status, progress, error, storedCount, _flagChangedCount, unfetchableCount) => {
       const { setAccountSyncPhase, setAccountSyncHealth } = useUIStore.getState();
       if (status === "syncing") {
         setAccountSyncPhase(accountId, "syncing");
@@ -1036,19 +1036,21 @@ export default function App() {
           unfetchableCount: unfetchableCount ?? 0,
           isStale: false,
         });
-        // Only show "Sync complete" and reload UI when something actually changed.
-        // storedCount === undefined means Gmail or initial sync — always reload.
-        // storedCount === 0 means idle delta sync — skip to avoid GC churn every 60s.
+        // Only show the "Sync complete" toast when something actually changed.
+        // storedCount === undefined means Gmail or initial sync — always show it.
+        // storedCount === 0 means idle delta sync — skip the toast to avoid noise every 60s.
         if (storedCount === undefined || storedCount > 0) {
           setSyncStatus("Sync complete");
           setTimeout(() => setSyncStatus(null), 2_000);
-          window.dispatchEvent(new Event("melo-sync-done"));
-        } else if (flagChangedCount && flagChangedCount > 0) {
-          window.dispatchEvent(new Event("melo-sync-done"));
-          setSyncStatus(null);
         } else {
           setSyncStatus(null);
         }
+        // Always dispatch, regardless of storedCount/flagChangedCount: those counters
+        // are sync-provider heuristics and can undercount (e.g. a message stored via a
+        // repair/retry path outside the normal counted insert). Skipping this refresh
+        // on a miscount left the sidebar badge and unread smart folders stale until the
+        // next app restart even though the message was already in the DB.
+        window.dispatchEvent(new Event("melo-sync-done"));
         updateBadgeCount();
 
         // Resume embedding backfill only when new messages arrived
