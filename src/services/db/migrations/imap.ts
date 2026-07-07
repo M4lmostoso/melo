@@ -319,4 +319,27 @@ export const MIGRATIONS_IMAP = [
       ALTER TABLE imap_unfetchable_uids ADD COLUMN ignored INTEGER NOT NULL DEFAULT 0;
     `,
   },
+  {
+    version: 70,
+    description: "Skip-list the orphaned twin UID of messages whose imap_uid was ping-ponged by the same-folder dedup (Exchange/DavMail keeps two copies of a sent message under different UIDs); without this the reconcile re-downloads their full bodies every maintenance cycle",
+    sql: `
+      INSERT OR IGNORE INTO imap_unfetchable_uids (account_id, folder_path, uid, attempts, reason)
+      SELECT m.account_id, m.imap_folder,
+             CAST(substr(m.id, length('imap-' || m.account_id || '-' || m.imap_folder || '-') + 1) AS INTEGER),
+             1, 'duplicate'
+      FROM messages m
+      WHERE m.imap_uid IS NOT NULL
+        AND m.imap_folder IS NOT NULL
+        AND substr(m.id, 1, length('imap-' || m.account_id || '-' || m.imap_folder || '-')) = 'imap-' || m.account_id || '-' || m.imap_folder || '-'
+        AND substr(m.id, length('imap-' || m.account_id || '-' || m.imap_folder || '-') + 1) != ''
+        AND substr(m.id, length('imap-' || m.account_id || '-' || m.imap_folder || '-') + 1) NOT GLOB '*[^0-9]*'
+        AND CAST(substr(m.id, length('imap-' || m.account_id || '-' || m.imap_folder || '-') + 1) AS INTEGER) != m.imap_uid
+        AND NOT EXISTS (
+          SELECT 1 FROM messages m2
+          WHERE m2.account_id = m.account_id
+            AND m2.imap_folder = m.imap_folder
+            AND m2.imap_uid = CAST(substr(m.id, length('imap-' || m.account_id || '-' || m.imap_folder || '-') + 1) AS INTEGER)
+        );
+    `,
+  },
 ];

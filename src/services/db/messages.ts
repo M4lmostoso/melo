@@ -1,4 +1,5 @@
 import { getDb, withTransaction } from "./connection";
+import { recalculateThreadStats } from "./threads";
 
 export interface DbMessage {
   id: string;
@@ -451,6 +452,13 @@ export async function purgeImapDuplicates(accountId: string): Promise<number> {
         `DELETE FROM threads WHERE account_id = $1 AND id IN (${eph})`,
         [accountId, ...emptyThreadIds],
       );
+    }
+
+    // Threads that still have messages left need their cached snippet/subject/
+    // message_count recomputed — a purged duplicate can be the row those fields
+    // were derived from, leaving stale ("zombie") thread-list previews otherwise.
+    for (const threadId of survivingSet) {
+      await recalculateThreadStats(accountId, threadId);
     }
   }
 

@@ -1436,11 +1436,17 @@ pub async fn imap_fetch_and_store(
             // Same-folder UID renumber: server replaced the appended copy (old UID) with the
             // SMTP auto-saved copy (new UID). Update the existing row's imap_uid so that
             // reconcileDeletedMessages finds the message on the server and does NOT delete it.
+            // Only ever move the row FORWARD (imap_uid < new uid): a genuine renumber always
+            // assigns a higher UID (RFC 3501 monotonicity). Exchange/DavMail can keep BOTH
+            // copies alive in the folder; an unconditional update made the row's imap_uid
+            // ping-pong between the two UIDs, so the reconcile saw the "other" UID as missing
+            // and re-downloaded the full body every cycle, forever. With the monotonic guard
+            // the lower UID stays unstored and gets skip-listed as 'duplicate' instead.
             if let Some(ref rfc_id) = msg.message_id {
                 conn.execute(
                     "UPDATE messages SET imap_uid = ?1, imap_folder = ?2 \
                      WHERE account_id = ?3 AND message_id_header = ?4 \
-                       AND imap_folder = ?2 AND imap_uid != ?1",
+                       AND imap_folder = ?2 AND imap_uid < ?1",
                     rusqlite::params![msg.uid, msg.folder, account_id, rfc_id],
                 )
                 .map_err(|e| format!("uid update for dup uid {}: {e}", msg.uid))?;

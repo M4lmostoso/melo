@@ -23,7 +23,10 @@ const OVERALL_CONNECT_TIMEOUT: Duration = Duration::from_secs(60);
 /// not catch (e.g. before the literal is even reached). This total cap guarantees
 /// a batch can never freeze the sync: on expiry we return a "literal stalled"
 /// error, which the TS layer treats as unfetchable and isolates via recursion.
-const RAW_FETCH_TOTAL_TIMEOUT: Duration = Duration::from_secs(90);
+/// Sized for a slow-but-healthy DavMail (~9s/message observed on attachment-heavy
+/// folders): killing a healthy batch is expensive — both halves get re-downloaded
+/// from scratch — so the cap must comfortably exceed honest worst-case throughput.
+const RAW_FETCH_TOTAL_TIMEOUT: Duration = Duration::from_secs(180);
 
 /// Configure TCP keepalive and nodelay on a connected socket.
 fn configure_tcp_socket(stream: &TcpStream) {
@@ -1745,10 +1748,13 @@ pub async fn raw_fetch_messages(
     // The budget scales with the batch size so that when the TS layer recurses
     // down to a single poison UID, that UID is abandoned quickly (~base) instead
     // of waiting the full large-batch budget at every recursion level.
+    // 8s/UID: DavMail serves attachment-heavy messages at ~9s each when the
+    // link is busy; a tighter budget killed healthy batches, and every kill
+    // re-downloads both halves (field-observed as multi-minute sync stalls).
     let uid_count = uid_range.split(',').filter(|s| !s.trim().is_empty()).count().max(1);
     let budget = std::cmp::min(
         RAW_FETCH_TOTAL_TIMEOUT,
-        Duration::from_secs(20 + uid_count as u64 * 4),
+        Duration::from_secs(20 + uid_count as u64 * 8),
     );
     match tokio::time::timeout(
         budget,
