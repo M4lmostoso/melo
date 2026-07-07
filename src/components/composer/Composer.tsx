@@ -526,8 +526,18 @@ const getFullHtml = useCallback(() => {
     state.setIsSending(true);
     const html = getFullHtml();
     const senderEmail = state.fromEmail ?? activeAccount.email;
+    // fromEmail only stores the alias's bare address (composerStore has no
+    // fromName field) — recover the display name from the matching alias, or
+    // fall back to the account's own name for the primary address. Without
+    // this the outgoing From: header is a bare address even when sending via
+    // a named alias, so recipients see no display name at all.
+    const senderName =
+      aliases.find((a) => a.email === senderEmail)?.displayName ??
+      (senderEmail === activeAccount.email ? activeAccount.displayName : null) ??
+      null;
+    const from = senderName ? `${senderName} <${senderEmail}>` : senderEmail;
     const raw = buildRawEmail({
-      from: senderEmail,
+      from,
       to: state.to,
       cc: state.cc.length > 0 ? state.cc : undefined,
       bcc: state.bcc.length > 0 ? state.bcc : undefined,

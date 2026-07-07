@@ -80,6 +80,13 @@ function AddressInput({
     [addresses, onChange],
   );
 
+  const addContact = useCallback(
+    (contact: DbContact) => {
+      addAddress(contact.display_name ? `${contact.display_name} <${contact.email}>` : contact.email);
+    },
+    [addAddress],
+  );
+
   const removeAddress = useCallback(
     (index: number) => {
       onChange(addresses.filter((_, i) => i !== index));
@@ -119,7 +126,7 @@ function AddressInput({
     if (e.key === "Tab") {
       e.preventDefault();
       if (showSuggestions && selectedIdx >= 0) {
-        addAddress(suggestions[selectedIdx]!.email);
+        addContact(suggestions[selectedIdx]!);
       } else if (inputValue.trim()) {
         addAddress(inputValue);
       }
@@ -129,7 +136,7 @@ function AddressInput({
     if (e.key === "Enter" || e.key === ",") {
       e.preventDefault();
       if (showSuggestions && selectedIdx >= 0) {
-        addAddress(suggestions[selectedIdx]!.email);
+        addContact(suggestions[selectedIdx]!);
       } else if (inputValue.trim()) {
         addAddress(inputValue);
       }
@@ -200,7 +207,7 @@ function AddressInput({
               <button
                 key={contact.id}
                 onMouseDown={(e) => e.preventDefault()}
-                onClick={() => addAddress(contact.email)}
+                onClick={() => addContact(contact)}
                 className={`w-full text-left px-3 py-1.5 text-sm hover:bg-bg-hover ${
                   i === selectedIdx ? "bg-bg-hover" : ""
                 }`}

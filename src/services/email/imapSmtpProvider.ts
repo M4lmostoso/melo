@@ -235,7 +235,13 @@ function walkMimePart(
     const filename = filenameFromCD ?? filenameFromCT;
     const cidRaw = headerSection.match(/^content-id:\s*<([^>]+)>/im)?.[1] ?? null;
     const isInline = cdLine.toLowerCase().trimStart().startsWith("inline");
-    const isAttachment = cdLine.toLowerCase().trimStart().startsWith("attachment") || filename;
+    // A part referenced via cid: (Content-ID present) is an inline attachment even
+    // when it has neither Content-Disposition: attachment nor a filename — that's
+    // exactly how the composer emits inline images (emailBuilder.ts), and skipping
+    // them here means saveSentMessageLocally never records the attachment row the
+    // cid: resolver needs, so the just-sent image (and any image-based signature)
+    // renders as a blank placeholder until a later full sync happens to fix it up.
+    const isAttachment = cdLine.toLowerCase().trimStart().startsWith("attachment") || !!filename || !!cidRaw;
 
     if (isAttachment) {
       const mimeType = (ctLow.split(";")[0] ?? "application/octet-stream").trim();
@@ -248,7 +254,7 @@ function walkMimePart(
         mimeType,
         size,
         contentId: cidRaw,
-        isInline: isInline && !filename,
+        isInline: (isInline || !!cidRaw) && !filename,
       });
     }
   }

@@ -731,17 +731,13 @@ pub async fn append_message(
     .map_err(|e| format!("STATUS (post-append) failed: {e}"))?;
     let uid_next_after = status_after.uid_next.unwrap_or(0);
 
-    if uid_next_before == 0 || uid_next_after == 0 {
+    let resolved_uid = if uid_next_before == 0 || uid_next_after == 0 {
         // Server didn't report UIDNEXT; return best-effort value.
-        return Ok(uid_next_before);
-    }
-
-    if uid_next_after == uid_next_before + 1 {
+        uid_next_before
+    } else if uid_next_after == uid_next_before + 1 {
         // Happy path: exactly one message was appended, UID = uid_next_before.
-        return Ok(uid_next_before);
-    }
-
-    if uid_next_after > uid_next_before + 1 {
+        uid_next_before
+    } else if uid_next_after > uid_next_before + 1 {
         // Concurrent appends occurred. Search the new UID range to find messages
         // appended since uid_next_before and return the highest one (ours is last).
         let search_query = format!("{}:{} NOT DELETED", uid_next_before, uid_next_after - 1);
@@ -758,7 +754,9 @@ pub async fn append_message(
                          (uid_next {} → {}), returning highest new UID {}",
                         uid_next_before, uid_next_after, highest
                     );
-                    return Ok(highest);
+                    highest
+                } else {
+                    uid_next_before
                 }
             }
             _ => {
@@ -766,11 +764,29 @@ pub async fn append_message(
                     "append_message: post-append UID search failed for {folder}, \
                      falling back to uid_next_before={uid_next_before}"
                 );
+                uid_next_before
+            }
+        }
+    } else {
+        uid_next_before
+    };
+
+    // The \Seen flag passed to APPEND above is only a request — plenty of IMAP
+    // servers silently drop flags on APPEND (observed on the Termomeccanica
+    // account: a just-sent message came back unseen on the next delta sync,
+    // which overwrote the optimistic local is_read=true and flipped the thread
+    // back to unread). Explicitly STORE it afterwards so it's a real, separate
+    // command almost every server honors.
+    if resolved_uid > 0 {
+        let wants_seen = flags.is_some_and(|f| f.contains("\\Seen"));
+        if wants_seen {
+            if let Err(e) = set_flags(session, folder, &resolved_uid.to_string(), "+FLAGS", "(\\Seen)").await {
+                log::warn!("append_message: failed to explicitly mark UID {resolved_uid} in {folder} as \\Seen: {e}");
             }
         }
     }
 
-    Ok(uid_next_before)
+    Ok(resolved_uid)
 }
 
 /// Get folder status (UIDVALIDITY, UIDNEXT, MESSAGES, UNSEEN).
