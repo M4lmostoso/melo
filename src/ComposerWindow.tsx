@@ -108,9 +108,9 @@ export default function ComposerWindow() {
 // Parse composer state from URL params (primary source — always reliable)
          const windowLabel = params.get("windowLabel");
          const mode = (params.get("mode") as ComposerMode) ?? "new";
-         const to = params.get("to")?.split(",").filter(Boolean) ?? [];
-         const cc = params.get("cc")?.split(",").filter(Boolean) ?? [];
-         const bcc = params.get("bcc")?.split(",").filter(Boolean) ?? [];
+         const to = params.getAll("to").filter(Boolean);
+         const cc = params.getAll("cc").filter(Boolean);
+         const bcc = params.getAll("bcc").filter(Boolean);
          const subject = params.get("subject") ?? "";
          const threadId = params.get("threadId") ?? null;
          const inReplyToMessageId = params.get("inReplyToMessageId") ?? null;

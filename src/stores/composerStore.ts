@@ -174,9 +174,9 @@ openComposer: (opts) => {
         params.set("windowLabel", windowLabel);
         if (opts?.mode) params.set("mode", opts.mode);
         if (opts?.subject) params.set("subject", opts.subject);
-        if (opts?.to?.length) params.set("to", opts.to.join(","));
-        if (opts?.cc?.length) params.set("cc", opts.cc.join(","));
-        if (opts?.bcc?.length) params.set("bcc", opts.bcc.join(","));
+        for (const addr of opts?.to ?? []) params.append("to", addr);
+        for (const addr of opts?.cc ?? []) params.append("cc", addr);
+        for (const addr of opts?.bcc ?? []) params.append("bcc", addr);
         if (opts?.threadId) params.set("threadId", opts.threadId);
         if (opts?.inReplyToMessageId) params.set("inReplyToMessageId", opts.inReplyToMessageId);
         if (opts?.references) params.set("references", opts.references);

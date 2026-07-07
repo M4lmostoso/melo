@@ -48,7 +48,7 @@ import {
 import { triggerSync } from "@/services/gmail/syncManager";
 import { useUIStore } from "@/stores/uiStore";
 import { setThreadCategory, ALL_CATEGORIES } from "@/services/db/threadCategories";
-import { normalizeEmail } from "@/utils/emailUtils";
+import { buildReplyAllRecipients } from "@/utils/emailUtils";
 import { escapeHtml, sanitizeHtml } from "@/utils/sanitize";
 
 type QuotedMsg = { from_name: string | null; from_address: string | null; date: string | number; subject?: string | null; to_addresses?: string | null; body_html: string | null; body_text: string | null };
@@ -294,34 +294,13 @@ function ThreadMenu({
     const lastMessage = messages[messages.length - 1];
     if (!lastMessage) return;
     const replyTo = lastMessage.reply_to ?? lastMessage.from_address;
-    const allRecipients = new Set<string>();
-    if (replyTo) allRecipients.add(replyTo);
-
-    const myEmails = new Set(useAccountStore.getState().accounts.map(a => normalizeEmail(a.email)));
-
-    if (lastMessage.to_addresses) {
-      lastMessage.to_addresses.split(",").forEach((a) => {
-        const trimmed = a.trim();
-        if (trimmed && !myEmails.has(normalizeEmail(trimmed))) {
-          allRecipients.add(trimmed);
-        }
-      });
-    }
-
-    const ccList: string[] = [];
-    if (lastMessage.cc_addresses) {
-      lastMessage.cc_addresses.split(",").forEach((a) => {
-        const trimmed = a.trim();
-        if (trimmed && !myEmails.has(normalizeEmail(trimmed))) {
-          ccList.push(trimmed);
-        }
-      });
-    }
+    const myEmails = useAccountStore.getState().accounts.map(a => a.email);
+    const { to, cc } = buildReplyAllRecipients({ replyTo, toHeader: lastMessage.to_addresses, ccHeader: lastMessage.cc_addresses, selfEmails: myEmails });
 
     openComposer({
       mode: "replyAll",
-      to: Array.from(allRecipients).filter(r => !myEmails.has(normalizeEmail(r))),
-      cc: ccList,
+      to,
+      cc,
       subject: `Re: ${lastMessage.subject ?? ""}`,
       quotedHtml: buildQuote(messages),
       threadId: lastMessage.thread_id,
@@ -706,28 +685,8 @@ function MessageMenu({
 
   const handleReplyAll = async () => {
     const replyAddr = replyTo ?? fromAddress;
-    const allRecipients = new Set<string>();
-    if (replyAddr) allRecipients.add(replyAddr);
-
-    const myEmails = new Set(useAccountStore.getState().accounts.map(a => normalizeEmail(a.email)));
-
-    if (toAddresses) {
-      toAddresses.split(",").forEach((a) => {
-        const trimmed = a.trim();
-        if (trimmed && !myEmails.has(normalizeEmail(trimmed))) {
-          allRecipients.add(trimmed);
-        }
-      });
-    }
-    const ccList: string[] = [];
-    if (ccAddresses) {
-      ccAddresses.split(",").forEach((a) => {
-        const trimmed = a.trim();
-        if (trimmed && !myEmails.has(normalizeEmail(trimmed))) {
-          ccList.push(trimmed);
-        }
-      });
-    }
+    const myEmails = useAccountStore.getState().accounts.map(a => a.email);
+    const { to, cc } = buildReplyAllRecipients({ replyTo: replyAddr, toHeader: toAddresses, ccHeader: ccAddresses, selfEmails: myEmails });
     let msgs: QuotedMsg[] = [msg];
     if (accountId) {
       try {
@@ -738,8 +697,8 @@ function MessageMenu({
     }
     openComposer({
       mode: "replyAll",
-      to: Array.from(allRecipients).filter(r => !myEmails.has(normalizeEmail(r))),
-      cc: ccList,
+      to,
+      cc,
       subject: `Re: ${subject ?? ""}`,
       quotedHtml: buildQuote(msgs),
       threadId,

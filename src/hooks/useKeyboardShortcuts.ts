@@ -14,6 +14,7 @@ import { escapeHtml, sanitizeHtml } from "@/utils/sanitize";
 import { parseUnsubscribeUrl } from "@/components/email/MessageItem";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { triggerSync } from "@/services/gmail/syncManager";
+import { buildReplyAllRecipients } from "@/utils/emailUtils";
 
 function buildReplyQuote(msgs: DbMessage[]): string {
   if (msgs.length === 0) return "";
@@ -340,13 +341,9 @@ case "action.reply": {
           const replyMode = useUIStore.getState().defaultReplyMode;
           const replyTo = lastMessage.reply_to ?? lastMessage.from_address;
           if (replyMode === "replyAll") {
-            const myEmails = new Set(useAccountStore.getState().accounts.map(a => a.email.toLowerCase()));
-            const allRecipients = new Set<string>();
-            if (replyTo) allRecipients.add(replyTo);
-            lastMessage.to_addresses?.split(",").forEach(a => { const t = a.trim(); if (t && !myEmails.has(t.toLowerCase())) allRecipients.add(t); });
-            const ccList: string[] = [];
-            lastMessage.cc_addresses?.split(",").forEach(a => { const t = a.trim(); if (t && !myEmails.has(t.toLowerCase())) ccList.push(t); });
-            useComposerStore.getState().openComposer({ mode: "replyAll", to: [...allRecipients].filter(r => !myEmails.has(r.toLowerCase())), cc: ccList, subject: `Re: ${lastMessage.subject ?? ""}`, quotedHtml: buildReplyQuote(messages), threadId: lastMessage.thread_id, inReplyToMessageId: lastMessage.id, accountId: activeAccountId });
+            const myEmails = useAccountStore.getState().accounts.map(a => a.email);
+            const { to, cc } = buildReplyAllRecipients({ replyTo, toHeader: lastMessage.to_addresses, ccHeader: lastMessage.cc_addresses, selfEmails: myEmails });
+            useComposerStore.getState().openComposer({ mode: "replyAll", to, cc, subject: `Re: ${lastMessage.subject ?? ""}`, quotedHtml: buildReplyQuote(messages), threadId: lastMessage.thread_id, inReplyToMessageId: lastMessage.id, accountId: activeAccountId });
           } else {
             useComposerStore.getState().openComposer({ mode: "reply", to: replyTo ? [replyTo] : [], subject: `Re: ${lastMessage.subject ?? ""}`, quotedHtml: buildReplyQuote(messages), threadId: lastMessage.thread_id, inReplyToMessageId: lastMessage.id, accountId: activeAccountId });
           }
@@ -360,13 +357,9 @@ case "action.reply": {
         const lastMessage = messages[messages.length - 1];
         if (lastMessage) {
           const replyTo = lastMessage.reply_to ?? lastMessage.from_address;
-          const myEmails = new Set(useAccountStore.getState().accounts.map(a => a.email.toLowerCase()));
-          const allRecipients = new Set<string>();
-          if (replyTo) allRecipients.add(replyTo);
-          lastMessage.to_addresses?.split(",").forEach(a => { const t = a.trim(); if (t && !myEmails.has(t.toLowerCase())) allRecipients.add(t); });
-          const ccList: string[] = [];
-          lastMessage.cc_addresses?.split(",").forEach(a => { const t = a.trim(); if (t && !myEmails.has(t.toLowerCase())) ccList.push(t); });
-          useComposerStore.getState().openComposer({ mode: "replyAll", to: [...allRecipients].filter(r => !myEmails.has(r.toLowerCase())), cc: ccList, subject: `Re: ${lastMessage.subject ?? ""}`, quotedHtml: buildReplyQuote(messages), threadId: lastMessage.thread_id, inReplyToMessageId: lastMessage.id, accountId: activeAccountId });
+          const myEmails = useAccountStore.getState().accounts.map(a => a.email);
+          const { to, cc } = buildReplyAllRecipients({ replyTo, toHeader: lastMessage.to_addresses, ccHeader: lastMessage.cc_addresses, selfEmails: myEmails });
+          useComposerStore.getState().openComposer({ mode: "replyAll", to, cc, subject: `Re: ${lastMessage.subject ?? ""}`, quotedHtml: buildReplyQuote(messages), threadId: lastMessage.thread_id, inReplyToMessageId: lastMessage.id, accountId: activeAccountId });
         }
       }
       break;
