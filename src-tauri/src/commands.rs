@@ -1407,6 +1407,7 @@ pub async fn imap_fetch_and_store(
         }
 
         let is_read = msg.is_read || msg.is_draft || label_id == "TRASH";
+        let is_trashed = label_id == "TRASH";
         let snippet = msg.snippet.unwrap_or_default();
         let has_attachments = msg.attachments.iter().any(|a| {
             !a.is_inline
@@ -1486,9 +1487,9 @@ pub async fn imap_fetch_and_store(
                       cc_addresses, bcc_addresses, reply_to, subject, snippet, date, is_read, \
                       is_starred, body_html, body_text, body_cached, raw_size, internal_date, \
                       list_unsubscribe, list_unsubscribe_post, auth_results, message_id_header, \
-                      references_header, in_reply_to_header, imap_uid, imap_folder) \
+                      references_header, in_reply_to_header, imap_uid, imap_folder, is_trashed) \
                      VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,\
-                             ?19,?20,?21,?22,?23,?24,?25,?26,?27) \
+                             ?19,?20,?21,?22,?23,?24,?25,?26,?27,?28) \
                      ON CONFLICT(account_id, id) DO UPDATE SET \
                        from_address=?4, from_name=?5, to_addresses=?6, cc_addresses=?7, \
                        bcc_addresses=?8, reply_to=?9, subject=?10, snippet=?11, date=?12, \
@@ -1502,7 +1503,8 @@ pub async fn imap_fetch_and_store(
                        references_header=COALESCE(?24, references_header), \
                        in_reply_to_header=COALESCE(?25, in_reply_to_header), \
                        imap_uid=COALESCE(?26, imap_uid), \
-                       imap_folder=COALESCE(?27, imap_folder)",
+                       imap_folder=COALESCE(?27, imap_folder), \
+                       is_trashed=?28",
                     rusqlite::params![
                         local_id,
                         account_id,
@@ -1531,6 +1533,7 @@ pub async fn imap_fetch_and_store(
                         msg.in_reply_to,
                         msg.uid,
                         msg.folder,
+                        is_trashed as i32,
                     ],
                 )
                 .map_err(|e| format!("message insert uid {}: {e}", msg.uid))?;
