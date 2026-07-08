@@ -20,6 +20,7 @@ import {
   incrementRetry,
 } from "./services/db/pendingOperations";
 import { classifyError } from "@/utils/networkErrors";
+import { FONT_FAMILY_STACKS } from "@/constants/fonts";
 import { setLocale, t } from "./i18n";
 import {
   startBackgroundSync,
@@ -142,6 +143,7 @@ import { playSound } from "./services/soundService";
 export default function App() {
   const theme = useUIStore((s) => s.theme);
   const fontScale = useUIStore((s) => s.fontScale);
+  const appFontFamily = useUIStore((s) => s.appFontFamily);
   const colorTheme = useUIStore((s) => s.colorTheme);
   const backgroundMode = useUIStore((s) => s.backgroundMode);
   const sidebarCollapsed = useUIStore((s) => s.sidebarCollapsed);
@@ -769,6 +771,12 @@ export default function App() {
           ui.setFontScale(savedFontScale);
         }
 
+        // Restore app font family
+        const savedAppFont = await getSetting("app_font_family");
+        if (savedAppFont && savedAppFont in FONT_FAMILY_STACKS) {
+          ui.setAppFontFamily(savedAppFont as keyof typeof FONT_FAMILY_STACKS);
+        }
+
         // Restore composer font family
         const savedComposerFont = await getSetting("composer_font_family");
         if (
@@ -1127,6 +1135,11 @@ export default function App() {
     );
     root.classList.add(`font-scale-${fontScale}`);
   }, [fontScale]);
+
+  // Sync app font family to <html> element
+  useEffect(() => {
+    document.documentElement.style.setProperty("--app-font", FONT_FAMILY_STACKS[appFontFamily]);
+  }, [appFontFamily]);
 
   // Sync background mode classes to <html> element
   useEffect(() => {

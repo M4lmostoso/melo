@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { useUIStore } from "@/stores/uiStore";
+import { useUIStore, type AppFontFamily } from "@/stores/uiStore";
 import { getSetting, setSetting } from "@/services/db/settings";
 import { setLocale, getLocale } from "@/i18n";
 import { COLOR_THEMES } from "@/constants/themes";
@@ -135,6 +135,8 @@ export function GeneralTab() {
   const setEmailDensity = useUIStore((s) => s.setEmailDensity);
   const fontScale = useUIStore((s) => s.fontScale);
   const setFontScale = useUIStore((s) => s.setFontScale);
+  const appFontFamily = useUIStore((s) => s.appFontFamily);
+  const setAppFontFamily = useUIStore((s) => s.setAppFontFamily);
   const colorTheme = useUIStore((s) => s.colorTheme);
   const setColorTheme = useUIStore((s) => s.setColorTheme);
   const inboxViewMode = useUIStore((s) => s.inboxViewMode);
@@ -253,6 +255,25 @@ export function GeneralTab() {
             <option value="default">{t("settings.general.fontSizeDefault")}</option>
             <option value="large">{t("settings.general.fontSizeLarge")}</option>
             <option value="xlarge">{t("settings.general.fontSizeXLarge")}</option>
+          </select>
+        </SettingRow>
+        <SettingRow label={t("settings.general.fontFamily")}>
+          <select
+            value={appFontFamily}
+            onChange={(e) => {
+              setAppFontFamily(e.target.value as AppFontFamily);
+            }}
+            className="w-48 bg-bg-tertiary text-text-primary text-sm px-3 py-1.5 rounded-md border border-border-primary focus:border-accent outline-none"
+          >
+            <option value="system">{t("settings.general.fontFamilySystem")}</option>
+            <option value="arial">Arial</option>
+            <option value="calibri">Calibri</option>
+            <option value="times">Times New Roman</option>
+            <option value="courier">Courier New</option>
+            <option value="georgia">Georgia</option>
+            <option value="verdana">Verdana</option>
+            <option value="avenir">Avenir</option>
+            <option value="inter">Inter</option>
           </select>
         </SettingRow>
         <SettingRow label={t("settings.general.accentColor")}>

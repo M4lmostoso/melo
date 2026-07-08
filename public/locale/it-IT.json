@@ -1528,6 +1528,8 @@
       "fontSizeDefault": "Predefinito",
       "fontSizeLarge": "Grande",
       "fontSizeXLarge": "Extra grande",
+      "fontFamily": "Carattere",
+      "fontFamilySystem": "Sistema",
       "accentColor": "Colore principale",
       "inboxViewMode": "Modalità vista posta in arrivo",
       "inboxViewUnified": "Posta in arrivo",

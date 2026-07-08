@@ -13,12 +13,13 @@ import { initializeClients } from "./services/gmail/tokenManager";
 import { getThreadById, getThreadLabelIds } from "./services/db/threads";
 import { getThemeById, COLOR_THEMES } from "./constants/themes";
 import type { ColorThemeId } from "./constants/themes";
+import { FONT_FAMILY_STACKS } from "./constants/fonts";
 import type { Thread } from "./stores/threadStore";
 
 const isMac = navigator.userAgent.includes("Macintosh");
 
 export default function ThreadWindow() {
-  const { setTheme, setFontScale, setColorTheme } = useUIStore();
+  const { setTheme, setFontScale, setAppFontFamily, setColorTheme } = useUIStore();
   const { setAccounts } = useAccountStore();
   const composerOpen = useComposerStore((s) => s.isOpen);
   const [thread, setThread] = useState<Thread | null>(null);
@@ -59,6 +60,12 @@ export default function ThreadWindow() {
           savedFontScale === "xlarge"
         ) {
           setFontScale(savedFontScale);
+        }
+
+        // Restore app font family
+        const savedAppFont = await getSetting("app_font_family");
+        if (savedAppFont && savedAppFont in FONT_FAMILY_STACKS) {
+          setAppFontFamily(savedAppFont as keyof typeof FONT_FAMILY_STACKS);
         }
 
         // Restore color theme
@@ -161,6 +168,12 @@ export default function ThreadWindow() {
     );
     root.classList.add(`font-scale-${fontScale}`);
   }, [fontScale]);
+
+  // Sync app font family to <html>
+  const appFontFamily = useUIStore((s) => s.appFontFamily);
+  useEffect(() => {
+    document.documentElement.style.setProperty("--app-font", FONT_FAMILY_STACKS[appFontFamily]);
+  }, [appFontFamily]);
 
   // Apply color theme CSS custom properties to <html>
   const colorTheme = useUIStore((s) => s.colorTheme);

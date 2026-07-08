@@ -102,9 +102,11 @@ body,
 }
 
 body {
-    font-family:
+    font-family: var(
+        --app-font,
         -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
-        Arial, sans-serif;
+        Arial, sans-serif
+    );
     background: linear-gradient(180deg, #FBF6EC 0%, #F2EAD3 100%);
     background-attachment: fixed;
     color: var(--color-text-primary);

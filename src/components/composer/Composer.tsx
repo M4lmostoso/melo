@@ -27,6 +27,7 @@ import { useComposerStore } from "@/stores/composerStore";
 import { useAccountStore } from "@/stores/accountStore";
 import { useThreadStore } from "@/stores/threadStore";
 import { useUIStore, type ComposerFontFamily } from "@/stores/uiStore";
+import { FONT_FAMILY_STACKS } from "@/constants/fonts";
 import {
   sendEmail,
   archiveThread,
@@ -74,17 +75,7 @@ import { sanitizeHtml } from "@/utils/sanitize";
 import { t } from "@/i18n";
 import { fetchForwardAttachments } from "@/services/email/forwardAttachments";
 
-const COMPOSER_FONT_MAP: Record<ComposerFontFamily, string> = {
-  system: "-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif",
-  arial: "Arial, Helvetica, sans-serif",
-  calibri: "Calibri, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif",
-  times: "Times New Roman, Times, serif",
-  courier: "Courier New, Courier, monospace",
-  georgia: "Georgia, Times, serif",
-  verdana: "Verdana, Geneva, sans-serif",
-  avenir: "Avenir, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif",
-  inter: "Inter, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif",
-};
+const COMPOSER_FONT_MAP: Record<ComposerFontFamily, string> = FONT_FAMILY_STACKS;
 
 /**
  * Notify the rest of the app that the set of drafts changed (saved or deleted) so

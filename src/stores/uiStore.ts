@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { setSetting } from "@/services/db/settings";
 import { DEFAULT_COLOR_THEME, type ColorThemeId } from "@/constants/themes";
+import type { FontFamilyId } from "@/constants/fonts";
 import type { DbScheduledEmail } from "@/services/db/scheduledEmails";
 
 type Theme = "light" | "dark" | "system";
@@ -11,16 +12,8 @@ export type DefaultReplyMode = "reply" | "replyAll";
 export type MarkAsReadBehavior = "instant" | "2s" | "manual";
 export type FontScale = "small" | "default" | "large" | "xlarge";
 export type BackgroundMode = "flat" | "aurora" | "spotlight";
-export type ComposerFontFamily =
-  | "system"
-  | "arial"
-  | "calibri"
-  | "times"
-  | "courier"
-  | "georgia"
-  | "verdana"
-  | "avenir"
-  | "inter";
+export type ComposerFontFamily = FontFamilyId;
+export type AppFontFamily = FontFamilyId;
 export type ComposerFontSize =
   | "10px"
   | "12px"
@@ -75,6 +68,7 @@ interface UIState {
   defaultReplyMode: DefaultReplyMode;
   markAsReadBehavior: MarkAsReadBehavior;
   fontScale: FontScale;
+  appFontFamily: AppFontFamily;
   colorTheme: ColorThemeId;
   sendAndArchive: boolean;
   composerFontFamily: ComposerFontFamily;
@@ -103,6 +97,7 @@ interface UIState {
   setDefaultReplyMode: (mode: DefaultReplyMode) => void;
   setMarkAsReadBehavior: (behavior: MarkAsReadBehavior) => void;
   setFontScale: (scale: FontScale) => void;
+  setAppFontFamily: (family: AppFontFamily) => void;
   setColorTheme: (theme: ColorThemeId) => void;
   setSendAndArchive: (enabled: boolean) => void;
   setComposerFontFamily: (family: ComposerFontFamily) => void;
@@ -134,6 +129,7 @@ export const useUIStore = create<UIState>((set) => ({
   defaultReplyMode: "reply",
   markAsReadBehavior: "instant",
   fontScale: "default",
+  appFontFamily: "system",
   colorTheme: DEFAULT_COLOR_THEME,
   sendAndArchive: false,
   composerFontFamily: "system",
@@ -198,6 +194,10 @@ export const useUIStore = create<UIState>((set) => ({
   setFontScale: (fontScale) => {
     setSetting("font_size", fontScale).catch(() => {});
     set({ fontScale });
+  },
+  setAppFontFamily: (appFontFamily) => {
+    setSetting("app_font_family", appFontFamily).catch(() => {});
+    set({ appFontFamily });
   },
   setColorTheme: (colorTheme) => {
     setSetting("color_theme", colorTheme).catch(() => {});

@@ -1528,6 +1528,8 @@
       "fontSizeDefault": "Default",
       "fontSizeLarge": "Large",
       "fontSizeXLarge": "Extra Large",
+      "fontFamily": "Font",
+      "fontFamilySystem": "System",
       "accentColor": "Accent color",
       "inboxViewMode": "Inbox view mode",
       "inboxViewUnified": "Unified",
