@@ -644,6 +644,34 @@ describe('buildThreads', () => {
     expect(deltaThreads[0].threadId).toBe(generateThreadId('a@host'));
   });
 
+  it('does not merge two unrelated new messages that share an identical plain subject', () => {
+    // Regression: composing a brand-new email with the same subject as an
+    // old, unrelated thread must not fold it into that thread. Neither
+    // message here is a reply (no Re:/Fwd:, no In-Reply-To/References).
+    const messages: ThreadableMessage[] = [
+      {
+        id: 'local-old',
+        messageId: 'old@host',
+        inReplyTo: null,
+        references: null,
+        subject: 'Carrière-sous-Poissy: P&ID',
+        date: 1000,
+      },
+      {
+        id: 'local-new',
+        messageId: 'new@host',
+        inReplyTo: null,
+        references: null,
+        subject: 'Carrière-sous-Poissy: P&ID',
+        date: 2000,
+      },
+    ];
+
+    const threads = buildThreads(messages);
+    expect(threads).toHaveLength(2);
+    expect(threads.map((t) => t.messageIds)).toEqual([['local-old'], ['local-new']]);
+  });
+
   it('does not merge subjects that differ only by list prefix', () => {
     const messages: ThreadableMessage[] = [
       {

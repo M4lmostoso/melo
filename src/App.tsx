@@ -54,6 +54,10 @@ import {
   startCalendarReminderChecker,
   stopCalendarReminderChecker,
 } from "./services/calendar/calendarReminderManager";
+import {
+  startDbMaintenanceChecker,
+  stopDbMaintenanceChecker,
+} from "./services/db/maintenance";
 import { initNotifications } from "./services/notifications/notificationManager";
 import {
   initGlobalShortcut,
@@ -945,6 +949,7 @@ export default function App() {
         startFollowUpChecker();
         startBundleChecker();
         startCalendarReminderChecker();
+        startDbMaintenanceChecker();
         startQueueProcessor();
         startPreCacheManager();
 
@@ -996,6 +1001,7 @@ export default function App() {
       stopFollowUpChecker();
       stopBundleChecker();
       stopCalendarReminderChecker();
+      stopDbMaintenanceChecker();
       stopQueueProcessor();
       stopPreCacheManager();
       stopUpdateChecker();

@@ -16,6 +16,7 @@ import {
   CheckSquare,
   Info,
   Volume2,
+  DatabaseZap,
   type LucideIcon,
 } from "lucide-react";
 import { GeneralTab } from "./tabs/GeneralTab";
@@ -31,6 +32,7 @@ import { TasksTab } from "./tabs/TasksTab";
 import { CalendarTab } from "./tabs/CalendarTab";
 import { AboutTab } from "./tabs/AboutTab";
 import { SoundsTab } from "./tabs/SoundsTab";
+import { DatabaseTab } from "./tabs/DatabaseTab";
 
 type SettingsTab =
   | "general"
@@ -45,6 +47,7 @@ type SettingsTab =
   | "ai"
   | "intelligence"
   | "tasks"
+  | "database"
   | "about";
 
 type TabDef = { id: SettingsTab; label: string; icon: LucideIcon };
@@ -80,6 +83,7 @@ const tabGroups: TabGroup[] = [
     tabs: [
       { id: "shortcuts", label: t("settings.tabs.shortcuts"), icon: Keyboard },
       { id: "tasks", label: t("settings.tabs.tasks"), icon: CheckSquare },
+      { id: "database", label: t("settings.tabs.database"), icon: DatabaseZap },
       { id: "about", label: t("settings.tabs.about"), icon: Info },
     ],
   },
@@ -165,6 +169,7 @@ export function SettingsPage() {
               {activeTab === "ai" && <AITab />}
               {activeTab === "intelligence" && <IntelligenceTab />}
               {activeTab === "tasks" && <TasksTab />}
+              {activeTab === "database" && <DatabaseTab />}
               {activeTab === "about" && <AboutTab />}
             </div>
           </div>

@@ -243,7 +243,13 @@ export function buildThreads(messages: ThreadableMessage[]): ThreadGroup[] {
     }
   }
 
-  // Step 4: Group by subject — merge roots with same normalized subject
+  // Step 4: Group by subject — merge roots with same normalized subject.
+  // Guard: only merge if at least one side actually looks like a reply
+  // (Re:/Fwd: prefix, or In-Reply-To/References present). Otherwise two
+  // unrelated brand-new messages that happen to share a subject line
+  // (e.g. "Ciao", "Update") would be wrongly merged into one thread —
+  // matching Gmail/Thunderbird behavior rather than raw JWZ, which merges
+  // same-subject roots unconditionally.
   const subjectMap = new Map<string, Container>();
   for (const root of roots) {
     const subject = getSubjectForContainer(root);
@@ -253,6 +259,10 @@ export function buildThreads(messages: ThreadableMessage[]): ThreadGroup[] {
     const existing = subjectMap.get(normalized);
     if (!existing) {
       subjectMap.set(normalized, root);
+    } else if (!containerLooksLikeReply(existing) && !containerLooksLikeReply(root)) {
+      // Neither side shows any sign of being a reply — leave them as
+      // separate threads despite the matching subject.
+      continue;
     } else {
       // Keep the one that is a "real" root (has a message, or is the oldest)
       // Prefer the one that is a phantom (no message) as the root,
@@ -333,6 +343,34 @@ function collectMessages(
   for (const child of container.children) {
     collectMessages(child, result, visited);
   }
+}
+
+/**
+ * Whether normalizing the subject actually stripped something (a Re:/Fwd:
+ * prefix or a [list] tag). That stripping is evidence the subject came from
+ * an actual conversation/mailing-list thread rather than being a plain,
+ * unrelated subject that merely happens to match another message's text.
+ */
+function subjectHasConversationMarker(subject: string | null): boolean {
+  if (!subject) return false;
+  const wsNormalized = subject.replace(/\s+/g, ' ').trim();
+  return normalizeSubject(subject) !== wsNormalized;
+}
+
+/**
+ * Whether a container shows any evidence of being part of a conversation:
+ * a Re:/Fwd:/[list] subject marker, or In-Reply-To/References headers.
+ * Phantom containers (no message, only reachable via another message's
+ * reference chain) count as evidence since they were already linked by
+ * real headers.
+ */
+function containerLooksLikeReply(container: Container): boolean {
+  const msg = container.message;
+  if (!msg) return true;
+  if (subjectHasConversationMarker(msg.subject)) return true;
+  if (msg.inReplyTo) return true;
+  if (parseReferences(msg.references).length > 0) return true;
+  return false;
 }
 
 /**

@@ -2055,6 +2055,118 @@ pub async fn db_execute_transaction(
     .map_err(|e| e.to_string())?
 }
 
+// ---------- DB maintenance (VACUUM / ANALYZE) ----------
+
+#[derive(serde::Serialize)]
+pub struct DbStats {
+    pub file_size_bytes: u64,
+    pub page_count: u64,
+    pub page_size: u64,
+    pub freelist_count: u64,
+    pub freelist_bytes: u64,
+}
+
+/// Point-in-time size/fragmentation snapshot, shown in Settings before the
+/// user decides whether a VACUUM is worth the disk-space cost.
+#[tauri::command]
+pub async fn db_get_stats(app: tauri::AppHandle) -> Result<DbStats, String> {
+    let db_path = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("melo.db");
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let file_size_bytes = std::fs::metadata(&db_path).map_err(|e| e.to_string())?.len();
+        let conn = rusqlite::Connection::open(&db_path).map_err(|e| e.to_string())?;
+        conn.busy_timeout(std::time::Duration::from_secs(10))
+            .map_err(|e| e.to_string())?;
+        let page_count: u64 = conn
+            .query_row("PRAGMA page_count", [], |r| r.get(0))
+            .map_err(|e| e.to_string())?;
+        let page_size: u64 = conn
+            .query_row("PRAGMA page_size", [], |r| r.get(0))
+            .map_err(|e| e.to_string())?;
+        let freelist_count: u64 = conn
+            .query_row("PRAGMA freelist_count", [], |r| r.get(0))
+            .map_err(|e| e.to_string())?;
+        Ok(DbStats {
+            file_size_bytes,
+            page_count,
+            page_size,
+            freelist_count,
+            freelist_bytes: freelist_count * page_size,
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Refreshes the query planner's table/index statistics (`sqlite_stat1`).
+/// Cheap and non-blocking in practice — safe to run on a schedule, unlike
+/// VACUUM which needs sole access to the file.
+#[tauri::command]
+pub async fn db_run_optimize(app: tauri::AppHandle) -> Result<(), String> {
+    let db_path = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("melo.db");
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let conn = rusqlite::Connection::open(&db_path).map_err(|e| e.to_string())?;
+        conn.busy_timeout(std::time::Duration::from_secs(10))
+            .map_err(|e| e.to_string())?;
+        conn.execute_batch("PRAGMA optimize;")
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[derive(serde::Serialize)]
+pub struct DbVacuumResult {
+    pub file_size_before_bytes: u64,
+    pub file_size_after_bytes: u64,
+}
+
+/// Rebuilds the DB file to reclaim space left behind by years of message
+/// deletes/moves, then refreshes planner stats. Rewrites the whole file
+/// (needs up to ~2x its size free on disk) and holds a write lock for the
+/// duration, so this is a manual, user-initiated action — never run
+/// automatically in the background.
+#[tauri::command]
+pub async fn db_run_vacuum(app: tauri::AppHandle) -> Result<DbVacuumResult, String> {
+    let db_path = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("melo.db");
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let file_size_before_bytes =
+            std::fs::metadata(&db_path).map_err(|e| e.to_string())?.len();
+
+        let conn = rusqlite::Connection::open(&db_path).map_err(|e| e.to_string())?;
+        // Long timeout: VACUUM waits for the background sync's write lock to
+        // free up rather than failing outright on a busy mailbox.
+        conn.busy_timeout(std::time::Duration::from_secs(30))
+            .map_err(|e| e.to_string())?;
+        conn.execute_batch("VACUUM; ANALYZE; PRAGMA optimize;")
+            .map_err(|e| e.to_string())?;
+
+        let file_size_after_bytes =
+            std::fs::metadata(&db_path).map_err(|e| e.to_string())?.len();
+        Ok(DbVacuumResult {
+            file_size_before_bytes,
+            file_size_after_bytes,
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 // ---------- OS keychain (DB encryption key) ----------
 
 /// Read a secret from the OS keychain. Ok(None) = keychain works but no entry.

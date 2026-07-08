@@ -978,7 +978,8 @@
       "mailRules": "Mail Rules",
       "people": "People",
       "ai": "AI",
-      "sounds": "Sounds"
+      "sounds": "Sounds",
+      "database": "Database"
     },
     "sidebar": {
       "accounts": "Accounts",
@@ -1480,6 +1481,26 @@
       "apacheLicense": "GNU General Public License v3.0",
       "licenseText": "Licensed under the GNU General Public License, version 3 or later. You may obtain a copy of the License at",
       "licenseText2": "Copyright 2026 Melo contributors. You may use, distribute, and modify this software under the terms of the GPLv3 (or later). Melo is a fork of Velo (Apache 2.0); portions remain under that license. This software is distributed on an \"AS IS\" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND."
+    },
+    "database": {
+      "sections": {
+        "diskUsage": "Disk Usage",
+        "autoMaintenance": "Automatic Maintenance",
+        "compact": "Compact Database"
+      },
+      "fileSize": "Database file size",
+      "reclaimableSpace": "Reclaimable space",
+      "pageCount": "Page count",
+      "autoMaintenanceDesc": "Melo automatically refreshes query planner statistics (PRAGMA optimize) once a day in the background. This keeps search and inbox queries fast without any user action.",
+      "lastOptimize": "Last statistics refresh",
+      "compactDesc": "Deleting and moving emails leaves unused space inside the database file. Compacting rebuilds the file to reclaim that space. This can take a while on large mailboxes and needs free disk space roughly equal to the current database size — it won't delete any of your data.",
+      "lastVacuum": "Last compaction",
+      "compactNow": "Compact Now",
+      "compacting": "Compacting...",
+      "compactConfirmTitle": "Compact database?",
+      "compactConfirmMessage": "This rebuilds the database file to reclaim unused space. It may take a while and temporarily needs extra free disk space. Your emails will not be affected.",
+      "vacuumSuccess": "Reclaimed {size}",
+      "never": "Never"
     },
     "general": {
       "sections": {

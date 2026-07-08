@@ -978,7 +978,8 @@
       "mailRules": "Regole email",
       "people": "Persone",
       "ai": "AI",
-      "sounds": "Suoni"
+      "sounds": "Suoni",
+      "database": "Database"
     },
     "sidebar": {
       "accounts": "Account",
@@ -1480,6 +1481,26 @@
       "apacheLicense": "Licenza Pubblica Generica GNU v3.0",
       "licenseText": "Concesso in licenza ai sensi della GNU General Public License, versione 3 o successiva. Puoi ottenere una copia della Licenza su",
       "licenseText2": "Copyright 2026 Melo contributors. Puoi usare, distribuire e modificare questo software ai sensi della licenza GPLv3 (o successiva). Melo è un fork di Velo (Apache 2.0); alcune parti restano sotto tale licenza. Questo software è distribuito \"COSÌ COM'È\", SENZA GARANZIE O CONDIZIONI DI ALCUN TIPO."
+    },
+    "database": {
+      "sections": {
+        "diskUsage": "Spazio su disco",
+        "autoMaintenance": "Manutenzione automatica",
+        "compact": "Compatta database"
+      },
+      "fileSize": "Dimensione file database",
+      "reclaimableSpace": "Spazio recuperabile",
+      "pageCount": "Numero di pagine",
+      "autoMaintenanceDesc": "Melo aggiorna automaticamente le statistiche del query planner (PRAGMA optimize) una volta al giorno in background. Questo mantiene veloci le ricerche e le query della posta senza alcuna azione da parte tua.",
+      "lastOptimize": "Ultimo aggiornamento statistiche",
+      "compactDesc": "Cancellare e spostare email lascia spazio inutilizzato all'interno del file del database. Compattare ricostruisce il file per recuperare quello spazio. Su caselle di posta molto grandi può richiedere del tempo e serve spazio libero su disco circa pari alla dimensione attuale del database — non verrà eliminato nessun dato.",
+      "lastVacuum": "Ultima compattazione",
+      "compactNow": "Compatta ora",
+      "compacting": "Compattazione...",
+      "compactConfirmTitle": "Compattare il database?",
+      "compactConfirmMessage": "Questa operazione ricostruisce il file del database per recuperare spazio inutilizzato. Può richiedere del tempo e richiede temporaneamente più spazio libero su disco. Le tue email non verranno modificate.",
+      "vacuumSuccess": "Recuperati {size}",
+      "never": "Mai"
     },
     "general": {
       "sections": {
