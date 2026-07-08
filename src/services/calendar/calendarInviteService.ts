@@ -16,6 +16,19 @@ import { sendEmail } from "../emailActions";
 
 export type RsvpPartstat = "ACCEPTED" | "DECLINED" | "TENTATIVE";
 
+/**
+ * Signal the calendar UI (and anything else listening) that a calendar mutation
+ * happened outside the sync loop, so an open Calendar page refreshes from the DB.
+ * Reuses the same event the sync loop emits. No-op if there's no window (tests).
+ */
+function notifyCalendarChanged(): void {
+  try {
+    window.dispatchEvent(new CustomEvent("melo-calendar-sync-done"));
+  } catch {
+    /* no window (e.g. unit test) */
+  }
+}
+
 export interface ParsedInvite {
   event: CalendarEventData;
   method: string;
@@ -83,6 +96,7 @@ export async function loadInvite(
       await upsertEmailInviteEvent(
         buildInviteRow(event, icsText, attachment.account_id, messageId, null),
       );
+      notifyCalendarChanged();
     } catch (err) {
       console.warn("[calendarInvite] auto-add on receive failed:", err);
     }
@@ -164,12 +178,14 @@ export async function respondToInvite(params: {
     }
     await upsertEmailInviteEvent(buildInviteRow(event, icsText, account.id, messageId, "declined"));
     await setEmailInviteServerEvent(messageId, null, null, null); // clear server coords
+    notifyCalendarChanged();
     return;
   }
 
   // 3. On ACCEPT/TENTATIVE: persist locally, then push to the calendar server,
   //    recording the server coordinates so a later decline can delete it.
   await upsertEmailInviteEvent(buildInviteRow(event, icsText, account.id, messageId, partstat.toLowerCase()));
+  notifyCalendarChanged();
 
   try {
     const supported = await hasCalendarSupport(account.id);
@@ -199,6 +215,7 @@ export async function respondToInvite(params: {
 /** Update only the RSVP status (for re-responding without re-sending). */
 export async function updateRsvp(messageId: string, partstat: RsvpPartstat): Promise<void> {
   await updateCalendarEventRsvp(messageId, partstat.toLowerCase());
+  notifyCalendarChanged();
 }
 
 /** UTF-8-safe base64 — plain btoa() throws on accented chars in summary/CN. */

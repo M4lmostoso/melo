@@ -154,6 +154,23 @@ export function parseVEvent(icalData: string, href?: string): CalendarEventData 
 }
 
 /**
+ * Detect the "ghost" placeholder Exchange leaves behind on the CalDAV collection
+ * after a meeting is rescheduled/cancelled by the organizer: a reminder-only stub
+ * with no organizer/attendees, BUSYSTATUS:FREE and a generic "REMINDER" description.
+ * Outlook/macOS Calendar hide these from the UI; DavMail still returns them via
+ * REPORT, so without this filter they linger in Melo as duplicate events forever
+ * (their real UID differs from the live meeting's, so no upsert ever replaces them).
+ */
+export function isBusyFreeGhostStub(icalData: string): boolean {
+  const busystatus = icalData.match(/X-MICROSOFT-CDO-BUSYSTATUS:(\w+)/i)?.[1]?.toUpperCase();
+  if (busystatus !== "FREE") return false;
+  const hasOrganizerOrAttendee = /^(ORGANIZER|ATTENDEE)[;:]/im.test(icalData);
+  if (hasOrganizerOrAttendee) return false;
+  const description = icalData.match(/^DESCRIPTION(?:;[^:]*)?:(.*)$/im)?.[1]?.trim().toLowerCase();
+  return description === "reminder\\n" || description === "reminder";
+}
+
+/**
  * Parse all VEVENTs from iCalendar data, returning one entry per occurrence.
  * Used for CalDAV objects with `expand` that return multiple instances in one blob.
  * Each recurring instance gets a stable unique ID: `uid_startTimestamp`.

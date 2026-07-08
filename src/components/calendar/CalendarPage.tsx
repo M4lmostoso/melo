@@ -214,11 +214,45 @@ export function CalendarPage() {
     setLoading(false);
   }, [targetAccountIds, getRange]);
 
+  // Lightweight refresh: re-read the visible range from the local DB only (no
+  // network). Used to reflect changes made by a background sync — new/updated/
+  // deleted events (e.g. an Exchange "ghost" swept up by deletion reconciliation)
+  // — without triggering another provider fetch.
+  const reloadEventsFromCache = useCallback(async () => {
+    const { start, end } = getRange();
+    const startTs = Math.floor(start.getTime() / 1000);
+    const endTs = Math.floor(end.getTime() / 1000);
+    try {
+      const allVisibleCals: DbCalendar[] = [];
+      for (const accountId of targetAccountIds) {
+        if (!(await hasCalendarSupport(accountId))) continue;
+        const visible = await getVisibleCalendars(accountId);
+        allVisibleCals.push(...visible);
+      }
+      const calendarIds = allVisibleCals.map((c) => c.id);
+      if (calendarIds.length > 0) {
+        const fresh = await getCalendarEventsInRangeForCalendars(calendarIds, startTs, endTs);
+        setEvents(fresh);
+      }
+    } catch {
+      // ignore cache errors
+    }
+  }, [targetAccountIds, getRange]);
+
   useEffect(() => {
     loadCalendars();
     loadEvents();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeAccountId, accounts, currentDate, view]);
+
+  // Refresh the calendar whenever a sync (or any calendar mutation elsewhere in
+  // the app) reports it changed the DB. Reads from cache only, so it's cheap to
+  // run on every sync cycle.
+  useEffect(() => {
+    const handler = () => reloadEventsFromCache();
+    window.addEventListener("melo-calendar-sync-done", handler);
+    return () => window.removeEventListener("melo-calendar-sync-done", handler);
+  }, [reloadEventsFromCache]);
 
   const handlePrev = useCallback(() => {
     setCurrentDate((d) => {

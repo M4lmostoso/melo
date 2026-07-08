@@ -7,7 +7,7 @@ import type {
   CreateEventInput,
   UpdateEventInput,
 } from "./types";
-import { generateVEvent, parseVEvent, expandVEvents } from "./icalHelper";
+import { generateVEvent, parseVEvent, expandVEvents, isBusyFreeGhostStub } from "./icalHelper";
 import { getAccount } from "@/services/db/accounts";
 import { getCalendarByRemoteId } from "@/services/db/calendars";
 import { getCalendarEventsInRangeForCalendars } from "@/services/db/calendarEvents";
@@ -166,6 +166,11 @@ export class CalDAVProvider implements CalendarProvider {
     const rangeEndTs = Math.floor(timeMax.getTime() / 1000);
     const created: CalendarEventData[] = [];
     for (const obj of objects) {
+      // Skip Exchange's leftover "reminder-only" stubs from rescheduled/cancelled
+      // meetings — see isBusyFreeGhostStub. Excluding them from `created` also means
+      // they drop out of `serverIds` below, so any already-stored ghost row gets
+      // swept up by the normal deletion reconciliation on this same sync.
+      if (isBusyFreeGhostStub(obj.icalData)) continue;
       const events = expandVEvents(obj.icalData, obj.url, rangeStartTs, rangeEndTs);
       for (const event of events) {
         event.etag = obj.etag;

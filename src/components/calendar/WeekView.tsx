@@ -145,7 +145,7 @@ export function WeekView({ currentDate, events, colorMap = {}, onEventClick }: W
                     <button
                       key={e.id}
                       onClick={() => onEventClick(e)}
-                      className="w-full text-left text-[0.625rem] px-1 py-0.5 rounded truncate transition-colors hover:opacity-80"
+                      className="w-full text-left text-xs px-1 py-0.5 rounded truncate transition-colors hover:opacity-80"
                       style={{ backgroundColor: `${c}1a`, color: c }}
                     >
                       {e.summary ?? t("calendar.eventFallback")}
@@ -230,10 +230,10 @@ export function WeekView({ currentDate, events, colorMap = {}, onEventClick }: W
                       >
                         <div className="w-0.5 shrink-0 rounded-l" style={{ backgroundColor: c }} />
                         <div className="flex flex-col min-w-0 px-1 py-0.5 flex-1">
-                          <div className="text-[0.625rem] font-semibold leading-tight whitespace-nowrap text-text-tertiary">
+                          <div className="text-xs font-semibold leading-tight whitespace-nowrap text-text-tertiary">
                             {startLabel}–{endLabel}
                           </div>
-                          <div className="text-[0.625rem] leading-tight text-text-primary">
+                          <div className="text-xs leading-tight text-text-primary">
                             {e.summary ?? t("calendar.eventFallback")}
                           </div>
                           {showJoin && (
