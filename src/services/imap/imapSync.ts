@@ -45,6 +45,7 @@ import {
   recordUnfetchableAttempts,
   recordDuplicateUids,
   clearUnfetchableUids,
+  pruneGoneUnfetchableUids,
   getUnfetchableCountForAccount,
   getUnfetchableMaxRetries,
 } from "../db/unfetchableUids";
@@ -561,6 +562,13 @@ async function reconcileFolderAdditions(
   // UIDs already retried past the cap: the server keeps listing them but never
   // serves them. Skip them so we don't re-grind the same failures every cycle.
   const skipped = await getSkippedUidsForFolder(accountId, folderPath, maxRetries);
+  // A skip-listed UID is permanently excluded from `missing` below, so it can
+  // never be re-fetched to self-clear. If it's no longer on the server at all
+  // (deleted/moved since the failure was recorded), prune it now instead of
+  // leaving a zombie entry that inflates the unfetchable count forever.
+  const serverUidSet = new Set(serverUids);
+  const goneUids = [...skipped].filter((u) => !serverUidSet.has(u));
+  await pruneGoneUnfetchableUids(accountId, folderPath, goneUids).catch(() => {});
   const missing = serverUids
     .filter((u) => !stored.has(u) && !tomb.has(u) && !skipped.has(u))
     .sort((a, b) => a - b);

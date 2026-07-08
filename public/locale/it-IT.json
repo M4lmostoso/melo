@@ -2391,7 +2391,12 @@
     "contextUnknown": "Nessun messaggio adiacente trovato in locale per stimarne la posizione",
     "ignore": "Ignora",
     "restore": "Ripristina",
-    "ignoredBadge": "Ignorato"
+    "ignoredBadge": "Ignorato",
+    "summaryLabel": "Messaggi saltati",
+    "summaryCountZero": "Nessun messaggio saltato",
+    "summaryCount": "{count} messaggio",
+    "summaryCountPlural": "{count} messaggi",
+    "viewDetails": "Vedi dettagli"
   },
   "outgoing": {
     "sendFailedTitle": "Invio non riuscito",

@@ -3,12 +3,17 @@ import { Modal } from "@/components/ui/Modal";
 import { UnfetchableMessagesList } from "@/components/settings/UnfetchableMessagesList";
 
 interface UnfetchableMessagesModalProps {
-  accountId: string;
+  /** Restrict to one account (sidebar warning); omit for all accounts (Settings). */
+  accountId?: string;
   isOpen: boolean;
   onClose: () => void;
 }
 
-/** Detail dialog opened by clicking the amber sync warning on an account in the sidebar. */
+/**
+ * Detail dialog listing genuinely-unfetchable messages. Opened either from
+ * the amber sync warning on an account in the sidebar (scoped to that
+ * account) or from the Settings → Accounts summary (all accounts).
+ */
 export function UnfetchableMessagesModal({ accountId, isOpen, onClose }: UnfetchableMessagesModalProps) {
   return (
     <Modal
@@ -22,10 +27,12 @@ export function UnfetchableMessagesModal({ accountId, isOpen, onClose }: Unfetch
         <p className="text-xs text-text-tertiary leading-relaxed mb-2">
           {t("unfetchableMessages.description")}
         </p>
-        <UnfetchableMessagesList accountId={accountId} />
-        <p className="text-xs text-text-tertiary leading-relaxed mt-3">
-          {t("unfetchableMessages.settingsHint")}
-        </p>
+        <UnfetchableMessagesList accountId={accountId} showAccount={!accountId} />
+        {accountId && (
+          <p className="text-xs text-text-tertiary leading-relaxed mt-3">
+            {t("unfetchableMessages.settingsHint")}
+          </p>
+        )}
       </div>
     </Modal>
   );

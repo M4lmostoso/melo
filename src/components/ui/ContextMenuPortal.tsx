@@ -285,7 +285,7 @@ function ThreadMenu({
       subject: `Re: ${lastMessage.subject ?? ""}`,
       quotedHtml: buildQuote(messages),
       threadId: lastMessage.thread_id,
-      inReplyToMessageId: lastMessage.id,
+      inReplyToMessageId: lastMessage.message_id_header ?? null,
     });
   };
 
@@ -304,7 +304,7 @@ function ThreadMenu({
       subject: `Re: ${lastMessage.subject ?? ""}`,
       quotedHtml: buildQuote(messages),
       threadId: lastMessage.thread_id,
-      inReplyToMessageId: lastMessage.id,
+      inReplyToMessageId: lastMessage.message_id_header ?? null,
     });
   };
 
@@ -318,7 +318,7 @@ function ThreadMenu({
       subject: `Fwd: ${lastMessage.subject ?? thread.subject ?? ""}`,
       quotedHtml: buildForwardQuote(messages),
       threadId: lastMessage.thread_id,
-      inReplyToMessageId: lastMessage.id,
+      inReplyToMessageId: lastMessage.message_id_header ?? null,
       forwardSourceMessageId: lastMessage.id,
     });
   };
@@ -666,11 +666,13 @@ function MessageMenu({
   const handleReply = async () => {
     const replyAddr = replyTo ?? fromAddress;
     let msgs: QuotedMsg[] = [msg];
+    let rfcMsgId: string | null = null;
     if (accountId) {
       try {
         const fetched = await getMessagesForThread(accountId, threadId);
         const idx = fetched.findIndex(m => m.id === messageId);
         msgs = idx >= 0 ? fetched.slice(0, idx + 1) : fetched;
+        rfcMsgId = idx >= 0 ? (fetched[idx]?.message_id_header ?? null) : null;
       } catch { /* fall back to single message */ }
     }
     openComposer({
@@ -679,7 +681,7 @@ function MessageMenu({
       subject: `Re: ${subject ?? ""}`,
       quotedHtml: buildQuote(msgs),
       threadId,
-      inReplyToMessageId: messageId,
+      inReplyToMessageId: rfcMsgId,
     });
   };
 
@@ -688,11 +690,13 @@ function MessageMenu({
     const myEmails = useAccountStore.getState().accounts.map(a => a.email);
     const { to, cc } = buildReplyAllRecipients({ replyTo: replyAddr, toHeader: toAddresses, ccHeader: ccAddresses, selfEmails: myEmails });
     let msgs: QuotedMsg[] = [msg];
+    let rfcMsgId: string | null = null;
     if (accountId) {
       try {
         const fetched = await getMessagesForThread(accountId, threadId);
         const idx = fetched.findIndex(m => m.id === messageId);
         msgs = idx >= 0 ? fetched.slice(0, idx + 1) : fetched;
+        rfcMsgId = idx >= 0 ? (fetched[idx]?.message_id_header ?? null) : null;
       } catch { /* fall back to single message */ }
     }
     openComposer({
@@ -702,17 +706,19 @@ function MessageMenu({
       subject: `Re: ${subject ?? ""}`,
       quotedHtml: buildQuote(msgs),
       threadId,
-      inReplyToMessageId: messageId,
+      inReplyToMessageId: rfcMsgId,
     });
   };
 
   const handleForward = async () => {
     let msgs: QuotedMsg[] = [msg];
+    let rfcMsgId: string | null = null;
     if (accountId) {
       try {
         const fetched = await getMessagesForThread(accountId, threadId);
         const idx = fetched.findIndex(m => m.id === messageId);
         msgs = idx >= 0 ? fetched.slice(0, idx + 1) : fetched;
+        rfcMsgId = idx >= 0 ? (fetched[idx]?.message_id_header ?? null) : null;
       } catch { /* fall back to single message */ }
     }
     openComposer({
@@ -721,7 +727,7 @@ function MessageMenu({
       subject: `Fwd: ${subject ?? ""}`,
       quotedHtml: buildForwardQuote(msgs),
       threadId,
-      inReplyToMessageId: messageId,
+      inReplyToMessageId: rfcMsgId,
       forwardSourceMessageId: messageId,
     });
   };

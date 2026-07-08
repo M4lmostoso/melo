@@ -2391,7 +2391,12 @@
     "contextUnknown": "No neighboring messages found locally to estimate its position",
     "ignore": "Ignore",
     "restore": "Restore",
-    "ignoredBadge": "Ignored"
+    "ignoredBadge": "Ignored",
+    "summaryLabel": "Skipped messages",
+    "summaryCountZero": "No skipped messages",
+    "summaryCount": "{count} message",
+    "summaryCountPlural": "{count} messages",
+    "viewDetails": "View details"
   },
   "outgoing": {
     "sendFailedTitle": "Send failed",

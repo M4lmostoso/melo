@@ -27,7 +27,8 @@ import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { t } from "@/i18n";
 import { EditImapAccount } from "@/components/accounts/EditImapAccount";
 import { ImapIdleFoldersEditor } from "@/components/settings/ImapIdleFoldersEditor";
-import { UnfetchableMessagesList } from "@/components/settings/UnfetchableMessagesList";
+import { UnfetchableMessagesModal } from "@/components/layout/UnfetchableMessagesModal";
+import { getTotalUnfetchableCount, getUnfetchableMaxRetries } from "@/services/db/unfetchableUids";
 import { EditGmailAccount } from "@/components/accounts/EditGmailAccount";
 import { AddAccount } from "@/components/accounts/AddAccount";
 import {
@@ -257,6 +258,13 @@ export function AccountsTab() {
     label?: string | null;
   } | null>(null);
   const [showAddAccount, setShowAddAccount] = useState(false);
+  const [unfetchableTotal, setUnfetchableTotal] = useState<number | null>(null);
+  const [showUnfetchableModal, setShowUnfetchableModal] = useState(false);
+
+  const reloadUnfetchableTotal = useCallback(async () => {
+    const max = await getUnfetchableMaxRetries();
+    setUnfetchableTotal(await getTotalUnfetchableCount(max));
+  }, []);
 
   useEffect(() => {
     getSetting("sync_period_days").then((val) => {
@@ -265,7 +273,8 @@ export function AccountsTab() {
     getSetting("imap_unfetchable_max_retries").then((val) => {
       if (val) setUnfetchableRetries(val);
     });
-  }, []);
+    reloadUnfetchableTotal();
+  }, [reloadUnfetchableTotal]);
 
   const handleManualSync = useCallback(async () => {
     const activeIds = accounts.map((a) => a.id);
@@ -540,8 +549,36 @@ export function AccountsTab() {
         title={t("settings.accounts.sections.skippedMessages")}
         description={t("unfetchableMessages.settingsDesc")}
       >
-        <UnfetchableMessagesList showAccount />
+        <SettingRow label={t("unfetchableMessages.summaryLabel")}>
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-text-primary tabular-nums">
+              {unfetchableTotal === null
+                ? "…"
+                : unfetchableTotal === 0
+                  ? t("unfetchableMessages.summaryCountZero")
+                  : t(
+                      unfetchableTotal === 1
+                        ? "unfetchableMessages.summaryCount"
+                        : "unfetchableMessages.summaryCountPlural",
+                      { count: unfetchableTotal },
+                    )}
+            </span>
+            <Button variant="secondary" size="md" onClick={() => setShowUnfetchableModal(true)}>
+              {t("unfetchableMessages.viewDetails")}
+            </Button>
+          </div>
+        </SettingRow>
       </Section>
+
+      {showUnfetchableModal && (
+        <UnfetchableMessagesModal
+          isOpen={showUnfetchableModal}
+          onClose={() => {
+            setShowUnfetchableModal(false);
+            reloadUnfetchableTotal();
+          }}
+        />
+      )}
 
       <SyncOfflineSection />
 

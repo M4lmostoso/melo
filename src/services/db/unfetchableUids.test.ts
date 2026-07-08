@@ -2,6 +2,7 @@ import {
   getUnfetchableCountForAccount,
   getUnfetchableMaxRetries,
   listUnfetchableMessages,
+  pruneGoneUnfetchableUids,
   setUnfetchableIgnored,
   type UnfetchableMessageEntry,
 } from "./unfetchableUids";
@@ -113,6 +114,23 @@ describe("unfetchableUids", () => {
       const [sql, params] = mockSelect.mock.calls[0] as [string, unknown[]];
       expect(sql).toContain("AND u.account_id = $2");
       expect(params).toEqual([3, "acc-2"]);
+    });
+  });
+
+  describe("pruneGoneUnfetchableUids", () => {
+    it("deletes entries for UIDs no longer present on the server", async () => {
+      mockExecute.mockResolvedValue(undefined);
+
+      await pruneGoneUnfetchableUids("acc-1", "Sent", [11998, 12168]);
+
+      const [sql, params] = mockExecute.mock.calls[0] as [string, unknown[]];
+      expect(sql).toContain("DELETE FROM imap_unfetchable_uids");
+      expect(params).toEqual(["acc-1", "Sent", 11998, 12168]);
+    });
+
+    it("does nothing when given no UIDs", async () => {
+      await pruneGoneUnfetchableUids("acc-1", "Sent", []);
+      expect(mockExecute).not.toHaveBeenCalled();
     });
   });
 

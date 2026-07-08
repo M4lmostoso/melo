@@ -169,7 +169,7 @@ export function InlineReply({ thread, messages, accountId, noReply, onSent }: In
         cc: cc.length > 0 ? cc : undefined,
         subject: getSubject(),
         htmlBody: html,
-        inReplyTo: lastMessage?.id,
+        inReplyTo: lastMessage?.message_id_header ?? undefined,
         threadId: thread.id,
       });
 
@@ -225,7 +225,7 @@ export function InlineReply({ thread, messages, accountId, noReply, onSent }: In
       subject: getSubject(),
       bodyHtml,
       threadId: thread.id,
-      inReplyToMessageId: lastMessage.id,
+      inReplyToMessageId: lastMessage.message_id_header ?? null,
       accountId,
       ...(mode === "forward" ? { forwardSourceMessageId: lastMessage.id } : {}),
     });

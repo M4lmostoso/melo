@@ -84,6 +84,29 @@ export async function recordDuplicateUids(
   }
 }
 
+/**
+ * Prune skip-listed entries for UIDs that are no longer on the server at all
+ * (deleted/moved after the original fetch failure was recorded). Skip-listed
+ * UIDs are excluded from the reconcile's `missing` set, so they can never be
+ * fetched again to trigger clearUnfetchableUids() — without this, a message
+ * later removed server-side would stay a permanent zombie entry, inflating
+ * the unfetchable count forever even though nothing is actually missing.
+ */
+export async function pruneGoneUnfetchableUids(
+  accountId: string,
+  folderPath: string,
+  goneUids: number[],
+): Promise<void> {
+  if (goneUids.length === 0) return;
+  const db = await getDb();
+  const placeholders = goneUids.map((_, i) => `$${i + 3}`).join(", ");
+  await db.execute(
+    `DELETE FROM imap_unfetchable_uids
+     WHERE account_id = $1 AND folder_path = $2 AND uid IN (${placeholders})`,
+    [accountId, folderPath, ...goneUids],
+  );
+}
+
 /** Clear entries for UIDs that were successfully fetched after all (self-clearing). */
 export async function clearUnfetchableUids(
   accountId: string,
@@ -117,6 +140,17 @@ export async function getUnfetchableCountForAccount(
     `SELECT COUNT(*) AS n FROM imap_unfetchable_uids
      WHERE account_id = $1 AND attempts >= $2 AND reason != 'duplicate' AND ignored = 0`,
     [accountId, maxAttempts],
+  );
+  return rows[0]?.n ?? 0;
+}
+
+/** Total genuinely-unfetchable messages across all accounts (see getUnfetchableCountForAccount). */
+export async function getTotalUnfetchableCount(maxAttempts: number): Promise<number> {
+  const db = await getDb();
+  const rows = await db.select<{ n: number }[]>(
+    `SELECT COUNT(*) AS n FROM imap_unfetchable_uids
+     WHERE attempts >= $1 AND reason != 'duplicate' AND ignored = 0`,
+    [maxAttempts],
   );
   return rows[0]?.n ?? 0;
 }
