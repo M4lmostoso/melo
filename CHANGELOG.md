@@ -4,6 +4,26 @@
 
 ---
 
+## [0.1.4](https://github.com/M4lmostoso/melo/compare/v0.1.3...v0.1.4) (2026-07-08)
+
+
+### Features
+
+* add customizable application font family settings and persistent state management ([9303a92](https://github.com/M4lmostoso/melo/commit/9303a9250d8504c552f72f35894acc4bfc64488a))
+* add database maintenance settings tab, background auto-optimization, and improve thread grouping logic by validating conversation markers ([4895f02](https://github.com/M4lmostoso/melo/commit/4895f023c9a756c27225abfc1e2f9b89bf35e23f))
+* add is_trashed column to message database schema and update insert/upsert logic ([0dff66d](https://github.com/M4lmostoso/melo/commit/0dff66df2489189825dc4c2230d61cf300f16e68))
+* auto-reload messages in ThreadView when background sync completes ([9e6773e](https://github.com/M4lmostoso/melo/commit/9e6773e0b13ded6815c94c8c2738ba875f3cde90))
+* optimize attachment and CID image fetching by implementing batch downloading via single IMAP body stream ([c924758](https://github.com/M4lmostoso/melo/commit/c924758b8ec55a3769edb78b7ad318e906ceabdb))
+* optimize attachment downloads with message-level batch expansion and concurrent fetch throttling ([45149e8](https://github.com/M4lmostoso/melo/commit/45149e8bba0dd4f8b37d7c48d08958a518065332))
+
+
+### Bug Fixes
+
+* ensure reliable \Seen flag application, improve From header formatting, include CID parts as attachments, and include display names in address suggestions ([ecccbef](https://github.com/M4lmostoso/melo/commit/ecccbef8185c25f3fc7565b16ebe09a5b30c12b0))
+* ensure sync completion event triggers UI refresh even when delta counters are zero ([9eac270](https://github.com/M4lmostoso/melo/commit/9eac2709253a6ada7db3457987846a3cda12af52))
+* improve imap sync stability by increasing fetch timeouts, ensuring thread stats consistency, and preventing duplicate UID ping-pong via monotonic updates and skip-listing. ([e26a8b8](https://github.com/M4lmostoso/melo/commit/e26a8b81c35f46b312d05bd781eda2caaddcd4ea))
+* use Tauri HTTP plugin for connectivity probe to bypass webview CORS restrictions ([c625197](https://github.com/M4lmostoso/melo/commit/c62519744c4111bd6864561614461dd7f67b4f33))
+
 ## [0.1.3](https://github.com/M4lmostoso/melo/compare/v0.1.2...v0.1.3) (2026-07-03)
 
 
