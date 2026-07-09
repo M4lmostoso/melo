@@ -4,6 +4,10 @@ import StarterKit from "@tiptap/starter-kit";
 import { Image } from "@tiptap/extension-image";
 import { TextStyle } from "@tiptap/extension-text-style";
 import { Color } from "@tiptap/extension-color";
+import { Table } from "@tiptap/extension-table";
+import { TableRow } from "@tiptap/extension-table-row";
+import { TableHeader } from "@tiptap/extension-table-header";
+import { TableCell } from "@tiptap/extension-table-cell";
 import { Type } from "lucide-react";
 import { BlockStyle, FontFamily, FontSize, StickyColor } from "./tiptapExtensions";
 import { COLORS } from "./EditorToolbar";
@@ -57,6 +61,13 @@ export function QuoteEditor({ initialHtml, onChange }: QuoteEditorProps) {
       FontFamily,
       FontSize,
       BlockStyle,
+      // Table nodes so quoted emails containing tables survive edit mode instead
+      // of collapsing into paragraphs — the whole point of editing a quote is to
+      // answer between the original's rows.
+      Table.configure({ resizable: false }),
+      TableRow,
+      TableHeader,
+      TableCell,
       StickyColor.configure({ getColor: () => stickyColorRef.current }),
     ],
     content: initialHtml,
