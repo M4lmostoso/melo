@@ -1398,6 +1398,14 @@ pub async fn imap_fetch_and_store(
 
     let mut headers: Vec<ImapSyncHeader> = Vec::with_capacity(fetch_result.messages.len());
 
+    // RFC Message-IDs stored earlier in THIS batch. `existing_rfc_ids` is a snapshot
+    // taken before the loop, so when both copies of a DavMail/Exchange sent message
+    // (same Message-ID, two UIDs) arrive in the same fetch, neither is in the DB yet
+    // and both would be inserted. Tracking what we've already stored this batch lets
+    // Filter 2 collapse the second copy just like a cross-cycle duplicate.
+    let mut seen_rfc_ids_in_batch: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
+
     conn.execute_batch("BEGIN").map_err(|e| e.to_string())?;
 
     for msg in fetch_result.messages.into_iter() {
@@ -1432,8 +1440,11 @@ pub async fn imap_fetch_and_store(
         };
         let rfc_id_for_header = msg.message_id.clone().unwrap_or_else(synthetic_rfc_id);
 
-        // Filter 2: dedup by RFC message ID (message exists in another folder already)
-        let stored = if msg.message_id.as_ref().is_some_and(|id| existing_rfc_ids.contains(id)) {
+        // Filter 2: dedup by RFC message ID (message already stored — in another
+        // folder, an earlier sync cycle, or earlier in this same batch).
+        let stored = if msg.message_id.as_ref().is_some_and(|id| {
+            existing_rfc_ids.contains(id) || seen_rfc_ids_in_batch.contains(id)
+        }) {
             // Same-folder UID renumber: server replaced the appended copy (old UID) with the
             // SMTP auto-saved copy (new UID). Update the existing row's imap_uid so that
             // reconcileDeletedMessages finds the message on the server and does NOT delete it.
@@ -1562,6 +1573,11 @@ pub async fn imap_fetch_and_store(
                         ],
                     )
                     .map_err(|e| format!("attachment insert uid {}: {e}", msg.uid))?;
+                }
+                // Record the stored Message-ID so a second copy of the same message
+                // later in this batch is caught by Filter 2 above.
+                if let Some(ref id) = msg.message_id {
+                    seen_rfc_ids_in_batch.insert(id.clone());
                 }
                 true
             }

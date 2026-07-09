@@ -2516,6 +2516,22 @@ fn detect_special_use(name: &async_imap::types::Name) -> Option<String> {
     }
 }
 
+/// Normalize an RFC Message-ID for use as a dedup key.
+///
+/// Strips surrounding angle brackets and whitespace. `mail-parser` usually
+/// returns the id without brackets, but malformed/folded headers (common from
+/// DavMail/Exchange, which stores a sent message as two copies with slightly
+/// different raw headers) can leave a stray leading `<` or trailing `>`. Without
+/// this, `…@host` and `…@host>` are treated as different messages and the
+/// same-message dedup (Filter 2 in commands.rs) fails to collapse the copies.
+fn normalize_message_id(raw: &str) -> String {
+    raw.trim()
+        .trim_start_matches('<')
+        .trim_end_matches('>')
+        .trim()
+        .to_string()
+}
+
 /// Parse a raw email message into our ImapMessage struct.
 ///
 /// `internal_date`: optional INTERNALDATE timestamp from the IMAP server,
@@ -2534,7 +2550,10 @@ fn parse_message(
 ) -> Result<ImapMessage, String> {
     let message = parser.parse(raw).ok_or("Failed to parse MIME message")?;
 
-    let message_id = message.message_id().map(|s| s.to_string());
+    let message_id = message
+        .message_id()
+        .map(normalize_message_id)
+        .filter(|s| !s.is_empty());
     let subject = message.subject().map(fix_mojibake);
     let date = message
         .date()
@@ -2884,5 +2903,38 @@ fn format_address_list(addr: Option<&mail_parser::Address>) -> Option<String> {
         None
     } else {
         Some(parts.join(", "))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_message_id_strips_brackets_and_whitespace() {
+        // Well-formed id already returned bare by mail-parser stays untouched.
+        assert_eq!(
+            normalize_message_id("abc@host.com"),
+            "abc@host.com"
+        );
+        // Malformed/folded headers (DavMail/Exchange second copy) leave stray brackets.
+        assert_eq!(
+            normalize_message_id("abc@host.com>"),
+            "abc@host.com"
+        );
+        assert_eq!(
+            normalize_message_id("<abc@host.com>"),
+            "abc@host.com"
+        );
+        assert_eq!(
+            normalize_message_id("  <abc@host.com>  "),
+            "abc@host.com"
+        );
+        // Both copies of the same sent message must normalize to the SAME key so
+        // Filter 2 dedup collapses them.
+        assert_eq!(
+            normalize_message_id("1783590354061.bz4x936f@termomeccanica.com"),
+            normalize_message_id("1783590354061.bz4x936f@termomeccanica.com>")
+        );
     }
 }
