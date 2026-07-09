@@ -236,6 +236,8 @@ function SyncOfflineSection() {
 
 export function AccountsTab() {
   const accounts = useAccountStore((s) => s.accounts);
+  const defaultAccountId = useAccountStore((s) => s.defaultAccountId);
+  const setDefaultAccount = useAccountStore((s) => s.setDefaultAccount);
   const removeAccountFromStore = useAccountStore((s) => s.removeAccount);
   const reorderAccounts = useAccountStore((s) => s.reorderAccounts);
   const accountSensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
@@ -354,6 +356,10 @@ export function AccountsTab() {
   }, []);
 
   const mailAccounts = accounts.filter((a) => a.provider !== "caldav");
+  // The account Melo actually uses when none is selected: the explicit choice, else the
+  // first account. Showing the badge on the effective default removes the "which one is
+  // it?" ambiguity even before the user picks one.
+  const effectiveDefaultId = defaultAccountId ?? mailAccounts[0]?.id ?? null;
 
   const handleDragEnd = (event: DragEndEvent) => {
     const { active, over } = event;
@@ -368,6 +374,7 @@ export function AccountsTab() {
     <>
       <Section
         title={t("settings.accounts.sections.mailAccounts")}
+        description={mailAccounts.length > 1 ? t("settings.accounts.defaultAccountDesc") : undefined}
         action={
           <button
             onClick={() => setShowAddAccount(true)}
@@ -404,10 +411,23 @@ export function AccountsTab() {
                               <span className="text-[0.6rem] font-medium px-1.5 py-0.5 rounded-full bg-bg-tertiary text-text-tertiary">
                                 {providerLabel}
                               </span>
+                              {account.id === effectiveDefaultId && (
+                                <span className="text-[0.6rem] font-medium px-1.5 py-0.5 rounded-full bg-success/15 text-success">
+                                  {t("settings.accounts.accountDefault")}
+                                </span>
+                              )}
                             </div>
                             <div className="text-xs text-text-tertiary">{account.email}</div>
                           </div>
                           <div className="flex items-center gap-3">
+                            {mailAccounts.length > 1 && account.id !== effectiveDefaultId && (
+                              <button
+                                onClick={() => setDefaultAccount(account.id)}
+                                className="text-xs text-accent hover:text-accent-hover transition-colors"
+                              >
+                                {t("settings.accounts.setAsDefaultAccount")}
+                              </button>
+                            )}
                             {isImapBased ? (
                               <button
                                 onClick={() => setEditingImapAccountId(account.id)}

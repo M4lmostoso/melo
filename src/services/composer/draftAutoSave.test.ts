@@ -1,11 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { useComposerStore } from "@/stores/composerStore";
-import { startAutoSave, stopAutoSave } from "./draftAutoSave";
+import { startAutoSave, stopAutoSave, discardCurrentAccountDraft } from "./draftAutoSave";
+import { deleteDraft as deleteDraftAction } from "@/services/emailActions";
 
 // Mock emailActions instead of getGmailClient
 vi.mock("@/services/emailActions", () => ({
   createDraft: vi.fn().mockResolvedValue({ success: true, data: { draftId: "draft-1" } }),
   updateDraft: vi.fn().mockResolvedValue({ success: true }),
+  deleteDraft: vi.fn().mockResolvedValue({ success: true }),
 }));
 
 // The Gmail autosave path persists the draft id via the settings table — stub it out.
@@ -29,6 +31,7 @@ vi.mock("@/stores/accountStore", () => ({
 
 describe("draftAutoSave", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     vi.useFakeTimers();
     vi.stubGlobal("localStorage", {
       getItem: vi.fn().mockReturnValue(null),
@@ -95,5 +98,26 @@ describe("draftAutoSave", () => {
     await vi.advanceTimersByTimeAsync(3500);
 
     expect(useComposerStore.getState().draftId).toBeNull();
+  });
+
+  it("discards the old account's draft when switching accounts (Gmail)", async () => {
+    startAutoSave("account-1");
+
+    // Simulate a saved Gmail draft on the current account
+    useComposerStore.getState().setDraftId("draft-1");
+
+    await discardCurrentAccountDraft();
+
+    // The previous account's draft must be deleted so it isn't orphaned/re-imported
+    expect(deleteDraftAction).toHaveBeenCalledWith("account-1", "draft-1", undefined);
+  });
+
+  it("does nothing on switch when no autosave session is active", async () => {
+    // No startAutoSave() call → currentAccountId is null
+    useComposerStore.getState().setDraftId("draft-1");
+
+    await discardCurrentAccountDraft();
+
+    expect(deleteDraftAction).not.toHaveBeenCalled();
   });
 });

@@ -64,6 +64,7 @@ import {
   getActiveDraftId,
   getServerDraftId,
   getPreTombstonedDraftId,
+  discardCurrentAccountDraft,
 } from "@/services/composer/draftAutoSave";
 import {
   getTemplatesForAccount,
@@ -143,6 +144,7 @@ export function Composer() {
 
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
   const accounts = useAccountStore((s) => s.accounts);
+  const defaultAccountId = useAccountStore((s) => s.defaultAccountId);
   const composerAccountId = useComposerStore((s) => s.composerAccountId);
   const setComposerAccountId = useComposerStore((s) => s.setComposerAccountId);
   // In unified/global view both composerAccountId and activeAccountId may be null for a
@@ -154,9 +156,32 @@ export function Composer() {
     return id ? (s.threadMap.get(id)?.accountId ?? null) : null;
   });
 
-  const effectiveAccountId = composerAccountId ?? activeAccountId ?? selectedThreadAccountId;
+  // Last resort (unified inbox, brand-new compose, no thread context): the user's
+  // chosen default account, else the first account.
+  const fallbackAccountId = defaultAccountId ?? accounts[0]?.id ?? null;
+  const effectiveAccountId =
+    composerAccountId ?? activeAccountId ?? selectedThreadAccountId ?? fallbackAccountId;
   const activeAccount = accounts.find((a) => a.id === effectiveAccountId);
   const sendingRef = useRef(false);
+
+  // Switching the composer to another account must first discard the draft already
+  // persisted to the current account — otherwise it's orphaned on the old account
+  // (server Drafts folder + local rows) and re-imported by sync as a "reproducing"
+  // ghost draft. After cleanup we start a fresh draft session for the new account.
+  const handleSwitchAccount = useCallback(
+    async (id: string | null) => {
+      if (!id || id === effectiveAccountId) return;
+      await discardCurrentAccountDraft();
+      const store = useComposerStore.getState();
+      store.setDraftId(null);
+      store.setLocalDraftId(crypto.randomUUID());
+      // New compose: drop the stale thread id so the new account gets its own thread.
+      // Reply/forward: keep the original thread id (it belongs to a received message).
+      if (store.mode === "new") useComposerStore.setState({ threadId: null });
+      setComposerAccountId(id);
+    },
+    [effectiveAccountId, setComposerAccountId],
+  );
   const isDiscardingRef = useRef(false);
   const toInputRef = useRef<AddressInputHandle>(null);
   const ccInputRef = useRef<AddressInputHandle>(null);
@@ -1066,7 +1091,7 @@ const getFullHtml = useCallback(() => {
               <ComposerAccountSwitcher
                 accounts={accounts}
                 currentAccountId={effectiveAccountId}
-                onSwitch={setComposerAccountId}
+                onSwitch={(id) => void handleSwitchAccount(id)}
               />
             )}
           </div>

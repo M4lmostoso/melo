@@ -879,7 +879,11 @@ export default function App() {
           label: a.label ?? null,
           pecEnabled: a.pec_enabled === 1,
         }));
-        const savedAccountId = await getSetting("active_account_id");
+        const [savedAccountId, savedDefaultId] = await Promise.all([
+          getSetting("active_account_id"),
+          getSetting("default_account_id"),
+        ]);
+        useAccountStore.getState().hydrateDefaultAccount(savedDefaultId || null);
         useAccountStore.getState().setAccounts(mapped, savedAccountId);
 
 // Initialize Gmail clients for existing accounts

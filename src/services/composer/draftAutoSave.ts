@@ -569,6 +569,61 @@ export async function deleteLocalImapDraft(
 }
 
 /**
+ * Discard the draft that has already been persisted to the CURRENT account.
+ * Call this when the user switches the composer to a different account mid-draft.
+ *
+ * Without it, the draft saved to the old account (IMAP server APPEND + local rows,
+ * or the Gmail draft) is orphaned: it lingers in the old account's Drafts folder
+ * and the next background sync re-imports the server copy as a ghost that appears
+ * to "reproduce". This flushes any in-flight server save first (so a freshly
+ * appended UID is captured and removed too), then EXPUNGEs the server draft and
+ * deletes the local rows for the account we're leaving.
+ */
+export async function discardCurrentAccountDraft(): Promise<void> {
+  const accountId = currentAccountId;
+  if (!accountId) return;
+  const wasImap = isImap;
+
+  // Stop timers + subscription and let any in-flight server APPEND finish so we
+  // can capture (and clean up) a UID that may have just been created.
+  startDiscard();
+  await waitForSave();
+
+  const state = useComposerStore.getState();
+  const localId = state.localDraftId;
+  const gmailDraftId = state.draftId;
+  const serverDraftId = getServerDraftId();
+  const pendingServerId =
+    preTombstonedDraftId && preTombstonedDraftId.startsWith(`imap-${accountId}-`)
+      ? preTombstonedDraftId
+      : null;
+
+  try {
+    const { deleteDraft: deleteDraftAction } = await import("@/services/emailActions");
+    if (wasImap) {
+      // EXPUNGE the server draft (APPEND) + its UID-based local row from the old account.
+      const srvId = serverDraftId ?? pendingServerId;
+      if (srvId) {
+        await deleteDraftAction(accountId, srvId, state.threadId ?? undefined).catch(() => {});
+      }
+      // Remove the stable UUID local row (+ thread DRAFT cleanup).
+      if (localId) {
+        await deleteLocalImapDraft(accountId, localId);
+      }
+    } else if (gmailDraftId) {
+      await deleteDraftAction(accountId, gmailDraftId, state.threadId ?? undefined).catch(() => {});
+    }
+  } catch (err) {
+    console.warn("[draftAutoSave] discardCurrentAccountDraft failed:", err);
+  } finally {
+    // Reset tracking so the next startAutoSave() begins a clean session.
+    currentServerUid = null;
+    currentServerFolder = null;
+    preTombstonedDraftId = null;
+  }
+}
+
+/**
  * Start watching composerStore changes and auto-saving drafts.
  * For IMAP: two-tier (local SQLite every 3s + server APPEND every 18s).
  * For Gmail: existing single-tier (provider-based, 3s debounce).

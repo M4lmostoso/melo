@@ -27,6 +27,7 @@ import {
   type FolderSyncState,
 } from "../db/folderSyncState";
 import { clearDeletedImapUidsForFolder, pruneDeletedImapUids, getDeletedImapUidsForFolder } from "../db/deletedImapUids";
+import { getLabelsForAccount } from "../db/labels";
 import { reconcilePecReceipts } from "../pec/pecManager";
 import {
   buildThreads,
@@ -1128,17 +1129,35 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
     allFolders = await imapListFolders(config);
     await syncFoldersToLabels(accountId, getSyncableFolders(allFolders));
   } else {
-    allFolders = syncStates.map((s) => ({
-      path: s.folder_path,
-      raw_path: s.folder_path,
-      name: s.folder_path.split("/").pop() ?? s.folder_path,
-      delimiter: "/",
-      special_use: null,
-      exists: 0,
-      unseen: 0,
-      parent_path: null,
-      has_children: false,
-    }));
+    // Reconstruct the folder list from cached sync-state instead of listing from
+    // the server. We MUST preserve each folder's special-use attribute, otherwise
+    // system folders whose hierarchy delimiter is not "/" (e.g. Courier/Dovecot
+    // "INBOX." namespace: "INBOX.Trash", "INBOX.Sent") fail special-folder
+    // detection in mapFolderToLabel and get mis-mapped to a generic
+    // `folder-<path>` user label. That in turn makes computeThreadLabels add
+    // INBOX/UNREAD to trashed messages, leaking the whole Trash folder into the
+    // Inbox as unread. special_use + name come from the labels table, which is
+    // refreshed on maintenance cycles from the authoritative server folder list.
+    const cachedLabels = await getLabelsForAccount(accountId);
+    const metaByPath = new Map(
+      cachedLabels
+        .filter((l) => l.imap_folder_path)
+        .map((l) => [l.imap_folder_path as string, l]),
+    );
+    allFolders = syncStates.map((s) => {
+      const meta = metaByPath.get(s.folder_path);
+      return {
+        path: s.folder_path,
+        raw_path: s.folder_path,
+        name: meta?.name ?? s.folder_path.split("/").pop() ?? s.folder_path,
+        delimiter: "/",
+        special_use: meta?.imap_special_use ?? null,
+        exists: 0,
+        unseen: 0,
+        parent_path: null,
+        has_children: false,
+      };
+    });
   }
   const syncableFolders = getSyncableFolders(allFolders);
 
