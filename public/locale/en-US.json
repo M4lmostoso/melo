@@ -873,7 +873,13 @@
     "attachFileSizeWarning": "Attachment size limit exceeded (24MB)",
     "addressPlaceholder": "Add recipients...",
     "aiAssistActive": "AI Assist (active)",
-    "removeColor": "Remove color"
+    "removeColor": "Remove color",
+    "quotedText": "Quoted text",
+    "editQuote": "Edit quote",
+    "doneEditingQuote": "Done",
+    "stickyColorTip": "Text color — stays selected across lines until you change it",
+    "stickyColorHint": "Pick a color to type your inline answers",
+    "stickyColorOn": "Color stays selected as you type"
   },
   "search": {
     "commandPalette": {

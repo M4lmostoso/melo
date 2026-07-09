@@ -7,7 +7,7 @@ import { TextStyle } from "@tiptap/extension-text-style";
 import { Color } from "@tiptap/extension-color";
 import { FontFamily, FontSize } from "./tiptapExtensions";
 
-import { Clock, X } from "lucide-react";
+import { Clock, X, Pencil, Check } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
@@ -16,6 +16,7 @@ import { getPreSendWarnings, type PreSendWarning } from "@/services/composer/pre
 import { findUnusualAccountForNewMessage, type UnusualAccountWarning } from "@/services/composer/unusualAccountCheck";
 import { AddressInput, type AddressInputHandle } from "./AddressInput";
 import { EditorToolbar } from "./EditorToolbar";
+import { QuoteEditor } from "./QuoteEditor";
 import { AiAssistPanel } from "./AiAssistPanel";
 import { AttachmentPicker } from "./AttachmentPicker";
 import { ScheduleSendDialog } from "./ScheduleSendDialog";
@@ -127,6 +128,12 @@ export function Composer() {
   const viewMode = useComposerStore((s) => s.viewMode);
   const signatureHtml = useComposerStore((s) => s.signatureHtml);
   const quotedHtml = useComposerStore((s) => s.quotedHtml);
+  // Whether the quoted citation is in inline-edit mode (see QuoteEditor). Reset
+  // whenever the composer closes so a fresh draft starts with a verbatim quote.
+  const [editingQuote, setEditingQuote] = useState(false);
+  useEffect(() => {
+    if (!isOpen) setEditingQuote(false);
+  }, [isOpen]);
   const isSaving = useComposerStore((s) => s.isSaving);
   const isSending = useComposerStore((s) => s.isSending);
   const lastSavedAt = useComposerStore((s) => s.lastSavedAt);
@@ -1138,8 +1145,28 @@ const getFullHtml = useCallback(() => {
               </div>
             )}
             {quotedHtml && (
-              <div className="px-4 py-2 border-t border-border-secondary text-xs text-text-tertiary">
-                <div dangerouslySetInnerHTML={{ __html: quotedHtml }} />
+              <div className="border-t border-border-secondary">
+                <div className="flex items-center justify-between px-4 py-1 text-[11px] text-text-tertiary">
+                  <span>{t("composer.quotedText")}</span>
+                  <button
+                    type="button"
+                    onClick={() => setEditingQuote((v) => !v)}
+                    title={editingQuote ? t("composer.doneEditingQuote") : t("composer.editQuote")}
+                    className={`flex items-center gap-1 px-1.5 py-0.5 rounded hover:bg-bg-hover transition-colors ${
+                      editingQuote ? "text-accent font-medium" : "text-text-secondary"
+                    }`}
+                  >
+                    {editingQuote ? <Check size={12} /> : <Pencil size={12} />}
+                    {editingQuote ? t("composer.doneEditingQuote") : t("composer.editQuote")}
+                  </button>
+                </div>
+                {editingQuote ? (
+                  <QuoteEditor initialHtml={quotedHtml} onChange={setQuotedHtml} />
+                ) : (
+                  <div className="px-4 py-2 text-xs text-text-tertiary">
+                    <div dangerouslySetInnerHTML={{ __html: quotedHtml }} />
+                  </div>
+                )}
               </div>
             )}
           </div>

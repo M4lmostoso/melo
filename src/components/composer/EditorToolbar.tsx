@@ -36,7 +36,7 @@ const FONT_FAMILIES = [
 ];
 
 // 32 colors: grays → reds/oranges → greens → blues → purples/pinks
-const COLORS = [
+export const COLORS = [
   "#000000", "#333333", "#555555", "#777777", "#999999", "#BBBBBB", "#DDDDDD", "#FFFFFF",
   "#7F1D1D", "#B91C1C", "#DC2626", "#F97316", "#D97706", "#CA8A04", "#84CC16", "#65A30D",
   "#14532D", "#16A34A", "#059669", "#0D9488", "#0284C7", "#2563EB", "#1D4ED8", "#4F46E5",
