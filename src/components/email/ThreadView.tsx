@@ -771,6 +771,7 @@ const handlePrint = useCallback(async () => {
             messages={messages}
             accountId={threadAccountId}
             noReply={noReply}
+            onForward={(msg) => void handleForward(msg)}
             onSent={() => {
               getMessagesForThread(threadAccountId, thread.id, false, trashedOnly)
                 .then(setMessages)

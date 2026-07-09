@@ -474,9 +474,11 @@ export function SearchBar() {
             ? (threadMap.get(openThreadId)?.accountId ?? null)
             : null;
           const viewingAccountId = useAccountStore.getState().viewingAccountId;
+          const defaultAccountId = useAccountStore.getState().defaultAccountId;
           const fallbackAccountId = threadAccountId
             ?? viewingAccountId
             ?? activeAccountId
+            ?? defaultAccountId
             ?? accounts.find((a) => a.includeInGlobal)?.id
             ?? undefined;
           openComposer({ accountId: fallbackAccountId });

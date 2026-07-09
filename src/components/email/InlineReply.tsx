@@ -30,9 +30,16 @@ interface InlineReplyProps {
   accountId: string;
   noReply?: boolean;
   onSent: () => void;
+  /**
+   * Open the full composer to forward a message. Forwarding always routes here
+   * because it needs a recipient field, the quoted body, and the original
+   * attachments — none of which the inline bar provides. `msg` is the message
+   * to forward (the thread's last message when triggered from the inline bar).
+   */
+  onForward: (msg: DbMessage) => void;
 }
 
-export function InlineReply({ thread, messages, accountId, noReply, onSent }: InlineReplyProps) {
+export function InlineReply({ thread, messages, accountId, noReply, onSent, onForward }: InlineReplyProps) {
   const [mode, setMode] = useState<ReplyMode | null>(null);
   const [sending, setSending] = useState(false);
   const [signatureHtml, setSignatureHtml] = useState("");
@@ -85,7 +92,18 @@ export function InlineReply({ thread, messages, accountId, noReply, onSent }: In
     }
   }, [editor, thread.id, accountId, messages]);
 
+  // Forwarding needs a recipient field, the quoted body, and the original
+  // attachments, so it always opens the full composer instead of the inline bar.
+  const requestForward = useCallback(() => {
+    if (!lastMessage) return;
+    onForward(lastMessage);
+  }, [lastMessage, onForward]);
+
   const activateMode = useCallback((newMode: ReplyMode) => {
+    if (newMode === "forward") {
+      requestForward();
+      return;
+    }
     setMode(newMode);
     setHasAutoDraft(false);
     autoDraftAbortRef.current = true; // Cancel any in-flight draft
@@ -96,7 +114,7 @@ export function InlineReply({ thread, messages, accountId, noReply, onSent }: In
     if (newMode === "reply" || newMode === "replyAll") {
       loadAutoDraft(newMode);
     }
-  }, [editor, loadAutoDraft]);
+  }, [editor, loadAutoDraft, requestForward]);
 
   // Load default signature
   useEffect(() => {
@@ -346,7 +364,7 @@ export function InlineReply({ thread, messages, accountId, noReply, onSent }: In
             {(["reply", "replyAll", "forward"] as const).map((m) => (
               <button
                 key={m}
-                onClick={() => setMode(m)}
+                onClick={() => (m === "forward" ? requestForward() : setMode(m))}
                 className={`px-2 py-1 text-[0.6875rem] rounded transition-colors ${
                   mode === m
                     ? "bg-accent/10 text-accent font-medium"
