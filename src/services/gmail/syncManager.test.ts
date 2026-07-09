@@ -45,6 +45,9 @@ vi.mock("../db/calendarEvents", () => ({
   upsertCalendarEvent: vi.fn(),
   deleteEventByRemoteId: vi.fn(),
 }));
+vi.mock("../ai/urgencyPipeline", () => ({
+  runExtinguishBackfill: vi.fn(async () => {}),
+}));
 
 // Import after mocks
 import {

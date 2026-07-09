@@ -334,6 +334,13 @@ async function runSync(accountIds: string[]): Promise<void> {
       // Once-per-cycle housekeeping: drop AI cache rows for threads that no
       // longer exist (deleted/expunged), keeping the table bounded.
       pruneAiCache().catch(() => {});
+      // Reconcile reputation/heat for replies that landed via this sync — including
+      // replies sent from an external client (Gmail web, phone), which only appear
+      // in the DB once their sent copy syncs in. Idempotent + guarded (skips already
+      // reply-processed threads), so it's cheap to run every cycle.
+      import("../ai/urgencyPipeline")
+        .then(({ runExtinguishBackfill }) => runExtinguishBackfill())
+        .catch(() => {});
     } finally {
       syncPromise = null;
     }

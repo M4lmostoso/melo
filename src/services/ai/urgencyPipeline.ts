@@ -315,9 +315,16 @@ export async function runUrgencyBackfill(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 /**
- * For each urgent unextinguished thread within the decay window where the user
- * has already sent a reply, run the Smart Judge and extinguish (or decay) it.
- * Safe to run at startup and after every resync — skips already-extinguished threads.
+ * For each urgent unextinguished thread within the decay window where a reply
+ * from the account owner is present, run the Smart Judge and extinguish (or decay) it.
+ *
+ * The reply is detected from the DB (latest message whose from_address == the account
+ * email), so it fires regardless of where the reply was sent from — replying via Melo
+ * OR from an external client (Gmail web, phone, etc.) both feed reputation once the
+ * sent message syncs in. Threads already reply-processed are skipped via the
+ * is_heat_extinguished / urgency_reply_decayed flags, so this is safe to run after
+ * every sync cycle; a fresh inbound message resets urgency_reply_decayed (see
+ * scoreThreadUrgency) so a later reply is re-evaluated.
  */
 export async function runExtinguishBackfill(): Promise<void> {
   const settings = await getUrgencySettings();
@@ -360,6 +367,7 @@ export async function runExtinguishBackfill(): Promise<void> {
      WHERE t.urgency_score > 0
        AND t.is_heat_extinguished = 0
        AND (t.manual_urgency_override IS NULL OR t.manual_urgency_override = 0)
+       AND (t.urgency_reply_decayed IS NULL OR t.urgency_reply_decayed = 0)
        AND t.last_message_at IS NOT NULL
        AND t.last_message_at >= $1`,
     [cutoffMs],
