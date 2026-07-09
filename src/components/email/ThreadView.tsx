@@ -466,26 +466,52 @@ const handlePrint = useCallback(async () => {
     const container = scrollContainerRef.current;
     if (!container) return;
 
-    const tryScroll = (): boolean => {
+    // Scroll the third-to-last message to the top. When the last three messages
+    // don't fill the viewport (e.g. short replies) the target can't reach the
+    // very top — in that case clamp to the bottom so the latest messages are
+    // still shown, instead of leaving the thread scrolled to the oldest ones.
+    // While content is still loading we defer clamping (allowClamp=false) so a
+    // not-yet-grown iframe isn't mistaken for a genuinely short message.
+    const applyScroll = (allowClamp: boolean): boolean => {
       const targetEl = messageRefs.current[messages.length - 3];
       if (!targetEl) return false;
       const offset = targetEl.getBoundingClientRect().top - container.getBoundingClientRect().top;
-      // If scrollHeight hasn't grown enough yet, report failure so we retry on resize
-      if (offset > container.scrollHeight - container.clientHeight) return false;
-      container.scrollTop += offset;
+      const maxScroll = container.scrollHeight - container.clientHeight;
+      if (offset > maxScroll) {
+        if (!allowClamp) return false;
+        container.scrollTop = maxScroll;
+      } else {
+        container.scrollTop += offset;
+      }
       initialScrollDoneRef.current = true;
       return true;
     };
 
-    if (tryScroll()) return;
+    if (applyScroll(false)) return;
 
-    // Content still loading — observe the container's children for size changes
+    // Content still loading — observe the container's children for size changes.
+    // If the target can reach the top, commit immediately (snappy for long
+    // messages). Otherwise, once resizes settle, commit a clamped scroll so
+    // genuinely short trailing messages still land on the latest content.
+    let settleTimer: ReturnType<typeof setTimeout> | undefined;
     const observer = new ResizeObserver(() => {
-      if (tryScroll()) observer.disconnect();
+      if (applyScroll(false)) {
+        if (settleTimer) clearTimeout(settleTimer);
+        observer.disconnect();
+        return;
+      }
+      if (settleTimer) clearTimeout(settleTimer);
+      settleTimer = setTimeout(() => {
+        applyScroll(true);
+        observer.disconnect();
+      }, 300);
     });
     for (const child of container.children) observer.observe(child);
 
-    return () => observer.disconnect();
+    return () => {
+      if (settleTimer) clearTimeout(settleTimer);
+      observer.disconnect();
+    };
   }, [loading, messages.length]);
 
   // Compute visible slice — always shows last INITIAL_MESSAGES_TO_SHOW messages,
