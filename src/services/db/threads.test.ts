@@ -10,7 +10,7 @@ vi.mock("@/services/db/connection", async (importOriginal) => {
 });
 
 import { getDb } from "@/services/db/connection";
-import { muteThread, unmuteThread, getMutedThreadIds, deleteAllThreadsForAccount, recalculateThreadStats } from "./threads";
+import { muteThread, unmuteThread, getMutedThreadIds, deleteAllThreadsForAccount, recalculateThreadStats, getUnreadCountsByLabel } from "./threads";
 import { createMockDb } from "@/test/mocks";
 
 const mockDb = createMockDb();
@@ -141,6 +141,40 @@ describe("threads service - mute", () => {
       const result = await getMutedThreadIds("acc-1");
 
       expect(result.size).toBe(0);
+    });
+  });
+
+  describe("getUnreadCountsByLabel", () => {
+    // Regression: a conversation that spans folders (an unread INBOX/SPAM reply
+    // plus older, already-read messages sitting in Trash) must NOT put a phantom
+    // "1" on the Trash folder. The per-label count must come from messages that
+    // belong to each label's folder view, never the thread-level is_read flag.
+    it("counts unread from folder-appropriate messages, not the thread is_read flag", async () => {
+      let capturedSql = "";
+      mockDb.select.mockImplementationOnce((sql: string) => {
+        capturedSql = sql;
+        return Promise.resolve([]);
+      });
+
+      await getUnreadCountsByLabel("acc-1");
+
+      // Must not gate the whole query on the thread-level flag...
+      expect(capturedSql).not.toContain("t.is_read = 0");
+      // ...but count trashed-unread for TRASH and non-trashed-unread otherwise.
+      expect(capturedSql).toContain("tl.label_id = 'TRASH'");
+      expect(capturedSql).toContain("mu.is_read = 0 AND mu.is_draft = 0 AND mu.is_trashed = 1");
+      expect(capturedSql).toContain("mu.is_read = 0 AND mu.is_draft = 0 AND mu.is_trashed = 0");
+    });
+
+    it("maps rows into a label→count record", async () => {
+      mockDb.select.mockResolvedValueOnce([
+        { label_id: "INBOX", count: 3 },
+        { label_id: "SPAM", count: 1 },
+      ]);
+
+      const result = await getUnreadCountsByLabel("acc-1");
+
+      expect(result).toEqual({ INBOX: 3, SPAM: 1 });
     });
   });
 });

@@ -737,14 +737,27 @@ export async function getUnreadCountsByLabel(
 ): Promise<Record<string, number>> {
   const db = await getDb();
   const rows = await db.select<{ label_id: string; count: number }[]>(
+    // Unread must be counted from messages that actually belong to each label's
+    // folder view, NOT from the thread-level is_read flag. A conversation can span
+    // folders (e.g. an unread INBOX/SPAM reply plus older, already-read messages
+    // sitting in Trash); using t.is_read would attribute that unread to EVERY label
+    // the thread carries — including TRASH — producing a phantom "1" on the Trash
+    // folder even though every trashed message is read. So: for TRASH count unread
+    // trashed messages, for every other label count unread non-trashed messages.
     `SELECT tl.label_id, COUNT(*) as count
      FROM threads t
      INNER JOIN thread_labels tl ON tl.account_id = t.account_id AND tl.thread_id = t.id
-     WHERE t.account_id = $1 AND t.is_read = 0
+     WHERE t.account_id = $1
        AND tl.label_id != 'SENT'
        AND NOT (
          EXISTS (SELECT 1 FROM thread_labels tl_d WHERE tl_d.account_id = t.account_id AND tl_d.thread_id = t.id AND tl_d.label_id = 'DRAFT')
          AND NOT EXISTS (SELECT 1 FROM thread_labels tl_i WHERE tl_i.account_id = t.account_id AND tl_i.thread_id = t.id AND tl_i.label_id = 'INBOX')
+       )
+       AND (
+         CASE WHEN tl.label_id = 'TRASH'
+           THEN EXISTS (SELECT 1 FROM messages mu WHERE mu.account_id = t.account_id AND mu.thread_id = t.id AND mu.is_read = 0 AND mu.is_draft = 0 AND mu.is_trashed = 1)
+           ELSE EXISTS (SELECT 1 FROM messages mu WHERE mu.account_id = t.account_id AND mu.thread_id = t.id AND mu.is_read = 0 AND mu.is_draft = 0 AND mu.is_trashed = 0)
+         END
        )
      GROUP BY tl.label_id`,
     [accountId],
