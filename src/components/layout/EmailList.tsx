@@ -897,7 +897,13 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     const handler = () => {
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => {
-        loadThreads();
+        // Don't reload while the user has an active search: the list is showing
+        // search results (not the label feed), and loadThreads() calls
+        // clearSearch(), which would wipe the query mid-typing — erasing the
+        // search box and aborting the in-flight AI answer request.
+        if (!useThreadStore.getState().searchQuery) {
+          loadThreads();
+        }
         // Refresh the contact name cache so names learned from newly synced
         // message headers resolve without requiring an app restart.
         useContactsStore.getState().loadContacts().catch(console.error);

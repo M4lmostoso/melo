@@ -1414,7 +1414,14 @@ pub async fn imap_fetch_and_store(
             continue;
         }
 
-        let is_read = msg.is_read || msg.is_draft || label_id == "TRASH";
+        // DavMail/Exchange don't reliably return the \Draft flag on re-fetch, so a
+        // leftover server draft in the Drafts folder comes back with is_draft=false.
+        // Trust the folder mapping instead: anything synced from the Drafts folder
+        // (label_id == "DRAFT") IS a draft. Without this, such rows land with
+        // is_draft=0 and leak into the thread reading pane (which shows is_draft=0),
+        // showing a sent reply twice (once as Sent, once as the un-cleaned draft copy).
+        let is_draft = msg.is_draft || label_id == "DRAFT";
+        let is_read = msg.is_read || is_draft || label_id == "TRASH";
         let is_trashed = label_id == "TRASH";
         let snippet = msg.snippet.unwrap_or_default();
         let has_attachments = msg.attachments.iter().any(|a| {
@@ -1498,9 +1505,10 @@ pub async fn imap_fetch_and_store(
                       cc_addresses, bcc_addresses, reply_to, subject, snippet, date, is_read, \
                       is_starred, body_html, body_text, body_cached, raw_size, internal_date, \
                       list_unsubscribe, list_unsubscribe_post, auth_results, message_id_header, \
-                      references_header, in_reply_to_header, imap_uid, imap_folder, is_trashed) \
+                      references_header, in_reply_to_header, imap_uid, imap_folder, is_trashed, \
+                      is_draft) \
                      VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,\
-                             ?19,?20,?21,?22,?23,?24,?25,?26,?27,?28) \
+                             ?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29) \
                      ON CONFLICT(account_id, id) DO UPDATE SET \
                        from_address=?4, from_name=?5, to_addresses=?6, cc_addresses=?7, \
                        bcc_addresses=?8, reply_to=?9, subject=?10, snippet=?11, date=?12, \
@@ -1515,7 +1523,8 @@ pub async fn imap_fetch_and_store(
                        in_reply_to_header=COALESCE(?25, in_reply_to_header), \
                        imap_uid=COALESCE(?26, imap_uid), \
                        imap_folder=COALESCE(?27, imap_folder), \
-                       is_trashed=?28",
+                       is_trashed=?28, \
+                       is_draft=?29",
                     rusqlite::params![
                         local_id,
                         account_id,
@@ -1545,6 +1554,7 @@ pub async fn imap_fetch_and_store(
                         msg.uid,
                         msg.folder,
                         is_trashed as i32,
+                        is_draft as i32,
                     ],
                 )
                 .map_err(|e| format!("message insert uid {}: {e}", msg.uid))?;
@@ -1594,7 +1604,7 @@ pub async fn imap_fetch_and_store(
             label_id: label_id.clone(),
             is_read,
             is_starred: msg.is_starred,
-            is_draft: msg.is_draft,
+            is_draft,
             has_attachments,
             snippet,
             from_address: msg.from_address,
