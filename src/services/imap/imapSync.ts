@@ -614,7 +614,7 @@ async function reconcileFolderAdditions(
 // Deletion reconciliation
 // ---------------------------------------------------------------------------
 
-async function reconcileDeletedMessages(
+export async function reconcileDeletedMessages(
   config: ImapConfig,
   accountId: string,
   folderPath: string,
@@ -721,15 +721,24 @@ async function reconcileDeletedMessages(
       );
     }
     if (survivingIds.length > 0) {
-      // Recalculate message_count inside the same transaction (post-delete view).
+      // Recompute the thread's derived flags inside the same transaction
+      // (post-delete view). message_count alone is NOT enough: if the removed
+      // message was the unread one, a message_count-only update leaves is_read=0
+      // stale on a thread whose remaining messages are all read — producing a
+      // phantom Inbox/badge count that no message backs (the "unread" smart
+      // folder, which counts messages, shows 0). Mirror recalculateThreadStats
+      // step 1 for every pure-SQL flag so the thread row stays consistent with
+      // its surviving messages atomically.
       const sph = survivingIds.map((_, j) => `?${j + 2}`).join(",");
       statements.push({
         sql: `UPDATE threads
-              SET message_count = (
-                SELECT COUNT(*) FROM messages
-                WHERE account_id = threads.account_id AND thread_id = threads.id
-                  AND is_draft = 0 AND is_trashed = 0
-              )
+              SET is_read = COALESCE((SELECT MIN(is_read) FROM messages WHERE account_id = threads.account_id AND thread_id = threads.id AND is_draft = 0 AND is_trashed = 0), 1),
+                  is_starred = COALESCE((SELECT MAX(is_starred) FROM messages WHERE account_id = threads.account_id AND thread_id = threads.id AND is_trashed = 0), 0),
+                  has_attachments = CASE WHEN EXISTS(SELECT 1 FROM attachments a JOIN messages m ON a.message_id = m.id WHERE m.account_id = threads.account_id AND m.thread_id = threads.id AND m.is_trashed = 0 AND a.is_inline = 0 AND a.content_id IS NULL) THEN 1 ELSE 0 END,
+                  message_count = (SELECT COUNT(*) FROM messages WHERE account_id = threads.account_id AND thread_id = threads.id AND is_draft = 0 AND is_trashed = 0),
+                  last_message_at = COALESCE((SELECT MAX(date) FROM messages WHERE account_id = threads.account_id AND thread_id = threads.id AND is_trashed = 0), threads.last_message_at),
+                  snippet = COALESCE((SELECT snippet FROM messages WHERE account_id = threads.account_id AND thread_id = threads.id AND is_draft = 0 AND is_trashed = 0 ORDER BY date DESC LIMIT 1), threads.snippet),
+                  subject = COALESCE((SELECT subject FROM messages WHERE account_id = threads.account_id AND thread_id = threads.id AND is_draft = 0 AND is_trashed = 0 ORDER BY date DESC LIMIT 1), threads.subject)
               WHERE account_id = ?1 AND id IN (${sph})`,
         params: [accountId, ...survivingIds],
       });

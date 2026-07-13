@@ -774,11 +774,17 @@ export async function getUnreadCountsByCategory(
 ): Promise<Record<string, number>> {
   const db = await getDb();
   const rows = await db.select<{ category: string | null; count: number }[]>(
+    // Count from actual unread messages in the INBOX view, NOT the thread-level
+    // is_read flag. A stale thread flag (e.g. left is_read=0 after a message was
+    // removed from the thread without recomputing flags) would otherwise inflate
+    // a category badge with a phantom unread that no message backs. Mirrors
+    // getUnreadCountsByLabel.
     `SELECT tc.category, COUNT(*) as count
      FROM threads t
      INNER JOIN thread_labels tl ON tl.account_id = t.account_id AND tl.thread_id = t.id
      LEFT JOIN thread_categories tc ON tc.account_id = t.account_id AND tc.thread_id = t.id
-     WHERE t.account_id = $1 AND tl.label_id = 'INBOX' AND t.is_read = 0
+     WHERE t.account_id = $1 AND tl.label_id = 'INBOX'
+       AND EXISTS (SELECT 1 FROM messages mu WHERE mu.account_id = t.account_id AND mu.thread_id = t.id AND mu.is_read = 0 AND mu.is_draft = 0 AND mu.is_trashed = 0)
      GROUP BY tc.category`,
     [accountId],
   );
@@ -792,13 +798,19 @@ export async function getUnreadCountsByCategory(
 
 export async function getUnreadInboxCount(accountId?: string): Promise<number> {
   const db = await getDb();
+  // Message-based, not thread-flag based: a stale thread is_read=0 (left behind
+  // when a message is removed from a thread without recomputing flags) must not
+  // produce a phantom app-icon badge. Count threads with a genuinely unread,
+  // non-trashed INBOX message. Mirrors getUnreadCountsByLabel.
+  const unreadExists =
+    "EXISTS (SELECT 1 FROM messages mu WHERE mu.account_id = t.account_id AND mu.thread_id = t.id AND mu.is_read = 0 AND mu.is_draft = 0 AND mu.is_trashed = 0)";
   const sql = accountId
     ? `SELECT COUNT(*) as count FROM threads t
        INNER JOIN thread_labels tl ON tl.account_id = t.account_id AND tl.thread_id = t.id
-       WHERE tl.account_id = $1 AND tl.label_id = 'INBOX' AND t.is_read = 0`
+       WHERE tl.account_id = $1 AND tl.label_id = 'INBOX' AND ${unreadExists}`
     : `SELECT COUNT(*) as count FROM threads t
        INNER JOIN thread_labels tl ON tl.account_id = t.account_id AND tl.thread_id = t.id
-       WHERE tl.label_id = 'INBOX' AND t.is_read = 0`;
+       WHERE tl.label_id = 'INBOX' AND ${unreadExists}`;
   const params = accountId ? [accountId] : [];
   const rows = await db.select<{ count: number }[]>(sql, params);
   const count = rows[0]?.count ?? 0;
@@ -1215,12 +1227,23 @@ export async function getGlobalUnreadCounts(
   const placeholders = accountIds.map((_, i) => `$${i + 1}`).join(", ");
   type Row = { account_id: string; label_id: string; unread_count: number };
   const rows = await db.select<Row[]>(
+    // Message-based per-label counts (multi-account equivalent of
+    // getUnreadCountsByLabel). Keying on the thread-level is_read flag would
+    // surface a phantom badge whenever a thread flag is left stale after a
+    // message was removed; and a non-trashed unread reply on an INBOX+TRASH
+    // thread must NOT be attributed to the TRASH label. So count trashed unread
+    // messages for TRASH and non-trashed unread messages for every other label.
     `SELECT tl.account_id, tl.label_id, COUNT(*) AS unread_count
      FROM thread_labels tl
      INNER JOIN threads t ON t.id = tl.thread_id AND t.account_id = tl.account_id
      WHERE tl.account_id IN (${placeholders})
-       AND t.is_read = 0
        AND tl.label_id != 'SENT'
+       AND (
+         CASE WHEN tl.label_id = 'TRASH'
+           THEN EXISTS (SELECT 1 FROM messages mu WHERE mu.account_id = t.account_id AND mu.thread_id = t.id AND mu.is_read = 0 AND mu.is_draft = 0 AND mu.is_trashed = 1)
+           ELSE EXISTS (SELECT 1 FROM messages mu WHERE mu.account_id = t.account_id AND mu.thread_id = t.id AND mu.is_read = 0 AND mu.is_draft = 0 AND mu.is_trashed = 0)
+         END
+       )
        AND EXISTS (
          SELECT 1 FROM thread_labels inbox
          WHERE inbox.thread_id = tl.thread_id

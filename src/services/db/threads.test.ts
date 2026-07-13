@@ -10,7 +10,7 @@ vi.mock("@/services/db/connection", async (importOriginal) => {
 });
 
 import { getDb } from "@/services/db/connection";
-import { muteThread, unmuteThread, getMutedThreadIds, deleteAllThreadsForAccount, recalculateThreadStats, getUnreadCountsByLabel } from "./threads";
+import { muteThread, unmuteThread, getMutedThreadIds, deleteAllThreadsForAccount, recalculateThreadStats, getUnreadCountsByLabel, getUnreadCountsByCategory, getUnreadInboxCount, getGlobalUnreadCounts } from "./threads";
 import { createMockDb } from "@/test/mocks";
 
 const mockDb = createMockDb();
@@ -175,6 +175,53 @@ describe("threads service - mute", () => {
       const result = await getUnreadCountsByLabel("acc-1");
 
       expect(result).toEqual({ INBOX: 3, SPAM: 1 });
+    });
+  });
+
+  // Regression: a stale thread-level is_read=0 (left behind when a message is
+  // removed from a thread without recomputing flags) produced a phantom Inbox
+  // badge while the "unread" smart folder — which counts actual messages —
+  // showed 0. Every Inbox/category/global count must be message-based.
+  describe("Inbox unread counts are message-based, not thread-flag based", () => {
+    it("getUnreadCountsByCategory counts non-trashed unread INBOX messages", async () => {
+      let capturedSql = "";
+      mockDb.select.mockImplementationOnce((sql: string) => {
+        capturedSql = sql;
+        return Promise.resolve([]);
+      });
+
+      await getUnreadCountsByCategory("acc-1");
+
+      expect(capturedSql).not.toContain("t.is_read = 0");
+      expect(capturedSql).toContain("mu.is_read = 0 AND mu.is_draft = 0 AND mu.is_trashed = 0");
+    });
+
+    it("getUnreadInboxCount counts non-trashed unread INBOX messages", async () => {
+      let capturedSql = "";
+      mockDb.select.mockImplementationOnce((sql: string) => {
+        capturedSql = sql;
+        return Promise.resolve([{ count: 0 }]);
+      });
+
+      await getUnreadInboxCount("acc-1");
+
+      expect(capturedSql).not.toContain("t.is_read = 0");
+      expect(capturedSql).toContain("mu.is_read = 0 AND mu.is_draft = 0 AND mu.is_trashed = 0");
+    });
+
+    it("getGlobalUnreadCounts splits TRASH from other labels and ignores the thread flag", async () => {
+      let capturedSql = "";
+      mockDb.select.mockImplementationOnce((sql: string) => {
+        capturedSql = sql;
+        return Promise.resolve([]);
+      });
+
+      await getGlobalUnreadCounts(["acc-1"]);
+
+      expect(capturedSql).not.toContain("t.is_read = 0");
+      expect(capturedSql).toContain("tl.label_id = 'TRASH'");
+      expect(capturedSql).toContain("mu.is_read = 0 AND mu.is_draft = 0 AND mu.is_trashed = 1");
+      expect(capturedSql).toContain("mu.is_read = 0 AND mu.is_draft = 0 AND mu.is_trashed = 0");
     });
   });
 });

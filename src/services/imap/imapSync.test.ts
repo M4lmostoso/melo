@@ -86,6 +86,7 @@ vi.mock("../db/connection", () => ({
     select: vi.fn(async () => []),
     execute: vi.fn(async () => ({ rowsAffected: 0 })),
   })),
+  executeAtomicBatch: vi.fn(async () => {}),
 }));
 vi.mock("../db/folderSyncState", () => ({
   upsertFolderSyncState: vi.fn(),
@@ -99,7 +100,7 @@ vi.mock("@/services/ai/urgencyPipeline", () => ({
   processThreadUrgency: vi.fn(async () => {}),
 }));
 
-import { imapInitialSync, imapDeltaSync, formatImapDate, computeSinceDate, isConnectionError, isUnfetchableMessageError } from "./imapSync";
+import { imapInitialSync, imapDeltaSync, formatImapDate, computeSinceDate, isConnectionError, isUnfetchableMessageError, reconcileDeletedMessages } from "./imapSync";
 import {
   createMockImapAccount,
   createMockImapFolder,
@@ -120,6 +121,7 @@ import { getAccount } from "../db/accounts";
 import { getAllFolderSyncStates, upsertFolderSyncState } from "../db/folderSyncState";
 import { deleteMessagesForFolder, getStoredImapUidsForFolder } from "../db/messages";
 import { recordUnfetchableAttempts, recordDuplicateUids, getUnfetchableCountForAccount } from "../db/unfetchableUids";
+import { getDb, executeAtomicBatch } from "../db/connection";
 
 describe("imapInitialSync", () => {
   const mockGetAccount = vi.mocked(getAccount);
@@ -779,5 +781,60 @@ describe("imapDeltaSync — maintenance self-healing (DavMail range-miss quirk)"
     expect(mockImapFetchAndStore).toHaveBeenCalledWith(
       expect.anything(), "acc-heal", "INBOX", "INBOX", [51], expect.any(Number),
     );
+  });
+});
+
+describe("reconcileDeletedMessages — surviving-thread flag recompute", () => {
+  const config = {
+    host: "imap.example.com",
+    port: 993,
+    security: "ssl" as const,
+    username: "user@example.com",
+    password: "secret",
+    auth_method: "password" as const,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  // Regression: removing an orphaned message from a thread that still has other
+  // messages must recompute the thread's is_read flag, not just message_count.
+  // Otherwise, if the removed message was the unread one, is_read stays 0 on a
+  // thread whose survivors are all read → phantom Inbox/badge count that no
+  // message backs (the "unread" smart folder shows 0).
+  it("recomputes is_read (not just message_count) for threads that survive the delete", async () => {
+    vi.mocked(getStoredImapUidsForFolder).mockResolvedValue([
+      { id: "imap-acc-INBOX-1", uid: 1 },
+      { id: "imap-acc-INBOX-2", uid: 2 }, // uid 2 no longer on server → orphan
+    ]);
+    // Server still has uid 1 only.
+    vi.mocked(imapRawSearchAllUids).mockResolvedValue([1]);
+
+    // Affected thread query returns t1; surviving query ("NOT IN") returns t1 too.
+    vi.mocked(getDb).mockResolvedValue({
+      select: vi.fn(async (sql: string) =>
+        sql.includes("NOT IN")
+          ? [{ thread_id: "t1" }] // t1 survives the delete
+          : [{ thread_id: "t1" }], // t1 is affected
+      ),
+      execute: vi.fn(async () => ({ rowsAffected: 0 })),
+    } as never);
+
+    await reconcileDeletedMessages(config, "acc", "INBOX");
+
+    expect(executeAtomicBatch).toHaveBeenCalledTimes(1);
+    const statements = vi.mocked(executeAtomicBatch).mock.calls[0][0] as {
+      sql: string;
+    }[];
+    const survivingUpdate = statements.find(
+      (s) => s.sql.includes("UPDATE threads") && s.sql.includes("id IN"),
+    );
+    expect(survivingUpdate).toBeDefined();
+    // The whole point of the fix: is_read is recomputed from surviving messages.
+    expect(survivingUpdate!.sql).toContain("is_read = COALESCE");
+    expect(survivingUpdate!.sql).toContain("MIN(is_read)");
+    // ...alongside the message_count it already recomputed.
+    expect(survivingUpdate!.sql).toContain("message_count = (SELECT COUNT(*)");
   });
 });
