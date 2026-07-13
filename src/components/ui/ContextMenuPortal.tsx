@@ -226,7 +226,13 @@ function ThreadMenu({
   onSnooze: (target: { threadIds: string[]; accountId: string }) => void;
 }) {
   const threadId = data["threadId"] as string;
-  const threads = useThreadStore((s) => s.threads);
+  const storeThreads = useThreadStore((s) => s.threads);
+  const searchResults = useThreadStore((s) => s.searchResults);
+  // When a search is active the list renders `searchResults`, which can include
+  // threads that aren't in the label feed (`storeThreads`). Right-clicks target
+  // whatever is visible, so resolve the menu against the visible set — otherwise
+  // the menu can't find the thread and closes/renders empty (does nothing).
+  const threads = searchResults ?? storeThreads;
   const selectedThreadIds = useThreadStore((s) => s.selectedThreadIds);
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
   const activeLabel = getActiveLabel();
@@ -431,7 +437,8 @@ function ThreadMenu({
 
   const handleToggleLabel = async (labelId: string) => {
     for (const id of targetIds) {
-      const t = useThreadStore.getState().threads.find((th) => th.id === id);
+      const st = useThreadStore.getState();
+      const t = (st.searchResults ?? st.threads).find((th) => th.id === id);
       if (!t) continue;
       const hasLabel = t.labelIds.includes(labelId);
       if (hasLabel) {
