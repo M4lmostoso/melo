@@ -1,7 +1,7 @@
 import { searchMessages, type SearchResult } from "@/services/db/search";
 import { askInbox as callAskInbox } from "./aiService";
 import { getSetting } from "@/services/db/settings";
-import { getAccountRagEnabled } from "@/services/db/accounts";
+import { getAccountRagEnabled, getRagEnabledAccountIds } from "@/services/db/accounts";
 import {
   generateEmbedding,
   sanitizeForEmbedding,
@@ -21,7 +21,7 @@ interface RustSearchHit {
   score: number;
 }
 
-function extractSearchTerms(question: string): string {
+export function extractSearchTerms(question: string): string {
   const stopWords = new Set([
     "a", "an", "the", "is", "are", "was", "were", "be", "been", "being",
     "have", "has", "had", "do", "does", "did", "will", "would", "could",
@@ -47,10 +47,15 @@ function extractSearchTerms(question: string): string {
     "quando", "dove", "come", "cosa", "quale", "quali", "perché", "anche",
     "già", "ancora", "sempre", "mai", "fissata", "stato", "stata", "questo",
     "questa", "questi", "queste", "loro", "mio", "mia", "tuo", "tua",
+    // Italian elided forms — the apostrophe split below leaves these behind
+    "dell", "nell", "all", "sull", "dall", "quell", "quest", "un",
   ]);
 
   return question
-    .replace(/[?!.,;:'"]/g, "")
+    // Elisions ("l'ultima", "dell'auto") must split into two tokens, not
+    // collapse into a nonword ("lultima") that FTS will never match.
+    .replace(/['’]/g, " ")
+    .replace(/[?!.,;:"]/g, "")
     .split(/\s+/)
     .filter((word) => !stopWords.has(word.toLowerCase()) && word.length > 1)
     .join(" ");
@@ -91,30 +96,34 @@ function formatDate(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-function extractDateConstraint(question: string): string | null {
+// Returns the lower bound as a Unix-ms timestamp (midnight local time of the
+// matched day) so the hybrid Rust path can filter by message date directly.
+// The FTS fallback formats it back to an `after:YYYY-MM-DD` token.
+export function extractDateConstraint(question: string): number | null {
   const q = question.toLowerCase();
   const now = new Date();
 
   const daysAgo = (n: number) => {
     const d = new Date(now);
     d.setDate(d.getDate() - n);
-    return formatDate(d);
+    d.setHours(0, 0, 0, 0);
+    return d.getTime();
   };
 
-  if (/\boggi\b|\btoday\b/.test(q)) return `after:${daysAgo(0)}`;
-  if (/\bieri\b|\byesterday\b/.test(q)) return `after:${daysAgo(1)}`;
-  if (/ultime?\s+24\s+ore|last\s+24\s+hours?|past\s+24\s+hours?/.test(q)) return `after:${daysAgo(1)}`;
-  if (/ultime?\s+48\s+ore|last\s+48\s+hours?/.test(q)) return `after:${daysAgo(2)}`;
-  if (/questa\s+settimana|this\s+week/.test(q)) return `after:${daysAgo(7)}`;
-  if (/settimana\s+scorsa|last\s+week/.test(q)) return `after:${daysAgo(14)}`;
-  if (/questo\s+mese|this\s+month/.test(q)) return `after:${daysAgo(30)}`;
-  if (/mese\s+scorso|last\s+month/.test(q)) return `after:${daysAgo(60)}`;
+  if (/\boggi\b|\btoday\b/.test(q)) return daysAgo(0);
+  if (/\bieri\b|\byesterday\b/.test(q)) return daysAgo(1);
+  if (/ultime?\s+24\s+ore|last\s+24\s+hours?|past\s+24\s+hours?/.test(q)) return daysAgo(1);
+  if (/ultime?\s+48\s+ore|last\s+48\s+hours?/.test(q)) return daysAgo(2);
+  if (/questa\s+settimana|this\s+week/.test(q)) return daysAgo(7);
+  if (/settimana\s+scorsa|last\s+week/.test(q)) return daysAgo(14);
+  if (/questo\s+mese|this\s+month/.test(q)) return daysAgo(30);
+  if (/mese\s+scorso|last\s+month/.test(q)) return daysAgo(60);
 
   const nDays = q.match(/ultim[io]\s+(\d+)\s+giorn[io]i?|last\s+(\d+)\s+days?/);
-  if (nDays) return `after:${daysAgo(parseInt(nDays[1] ?? nDays[2] ?? "7", 10))}`;
+  if (nDays) return daysAgo(parseInt(nDays[1] ?? nDays[2] ?? "7", 10));
 
   const nWeeks = q.match(/ultime?\s+(\d+)\s+settimane?|last\s+(\d+)\s+weeks?/);
-  if (nWeeks) return `after:${daysAgo(parseInt(nWeeks[1] ?? nWeeks[2] ?? "2", 10) * 7)}`;
+  if (nWeeks) return daysAgo(parseInt(nWeeks[1] ?? nWeeks[2] ?? "2", 10) * 7);
 
   return null;
 }
@@ -124,9 +133,9 @@ export async function askMyInbox(
   accountId: string | null,
 ): Promise<AskInboxResult> {
   const terms = extractSearchTerms(question);
-  const dateConstraint = extractDateConstraint(question);
+  const afterMs = extractDateConstraint(question);
 
-  if (!terms.trim() && !dateConstraint) {
+  if (!terms.trim() && afterMs == null) {
     return {
       answer: "I couldn't understand the question. Please try rephrasing it.",
       sourceMessages: [],
@@ -134,16 +143,30 @@ export async function askMyInbox(
   }
 
   const textQuery = terms.trim() ? buildFtsQuery(terms) : "";
-  const ftsQuery = [textQuery, dateConstraint].filter(Boolean).join(" ");
+  const ftsQuery = [
+    textQuery,
+    afterMs != null ? `after:${formatDate(new Date(afterMs))}` : null,
+  ]
+    .filter(Boolean)
+    .join(" ");
 
+  // Semantic accounts: the active one (if RAG-enabled), or — in the unified
+  // "all accounts" view — every RAG-enabled account at once.
   const ragEnabled = await getSetting("rag_enabled");
-  const accountRagEnabled = ragEnabled === "true" && accountId != null ? await getAccountRagEnabled(accountId) : false;
-  const serverUrl = accountRagEnabled ? await getSetting("ollama_server_url") : null;
+  let ragAccountIds: string[] = [];
+  if (ragEnabled === "true") {
+    if (accountId != null) {
+      if (await getAccountRagEnabled(accountId)) ragAccountIds = [accountId];
+    } else {
+      ragAccountIds = await getRagEnabledAccountIds();
+    }
+  }
+  const serverUrl = ragAccountIds.length > 0 ? await getSetting("ollama_server_url") : null;
   const embeddingModel = (await getSetting("embedding_model")) ?? "nomic-embed-text";
 
   let results: SearchResult[];
 
-  if (accountRagEnabled && serverUrl && accountId != null) {
+  if (serverUrl && ragAccountIds.length > 0) {
     // Generate query embedding from Ollama (still JS-side, network call)
     const cleanQuery = sanitizeForEmbedding(question, 256);
     const { query: queryPrefix } = getEmbeddingPrefixes(embeddingModel);
@@ -151,15 +174,19 @@ export async function askMyInbox(
       ? queryPrefix ? `${queryPrefix}${cleanQuery}` : cleanQuery
       : cleanQuery;
 
-    const queryEmbedding = await generateEmbedding(prefixedQuery ?? "", serverUrl, embeddingModel);
+    const queryEmbedding = prefixedQuery
+      ? await generateEmbedding(prefixedQuery, serverUrl, embeddingModel)
+      : null;
 
     if (queryEmbedding) {
       // Hybrid FTS + vector retrieval with RRF fusion — fully in Rust
       const hits = await invoke<RustSearchHit[]>("ask_inbox_rust", {
         queryEmbedding,
-        accountId,
+        accountIds: ragAccountIds,
         ftsTerms: terms,
         limit: 20,
+        afterMs,
+        model: embeddingModel,
       });
       results = hits.map(rustHitToSearchResult);
     } else {

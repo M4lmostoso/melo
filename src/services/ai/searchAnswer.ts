@@ -22,8 +22,6 @@ const QUESTION_STARTERS = new Set([
   // Italian — single starters
   "cosa", "quando", "chi", "dove", "come", "perché", "perche", "quale",
   "quali", "hai", "ho", "trova", "mostra", "elenca", "dimmi", "sai",
-  // Italian — preposition + question word combos (first word only)
-  "per", "da", "entro", "in",
 ]);
 
 // Two-word Italian question openers: "per quando", "da quando", "entro quando", etc.

@@ -159,6 +159,17 @@ pub async fn store_embedding(
 //   3. RRF fusion of FTS and vector scores.
 //   4. Fetch full metadata for the top-N IDs in a single targeted JOIN query.
 //
+// Filters applied to BOTH retrieval arms:
+//   - `account_ids`: one id (single-account view) or all RAG-enabled ids
+//     (unified view).
+//   - SPAM/TRASH threads are excluded at query time — the backfill excludes
+//     them at index time, but messages trashed AFTER indexing keep their
+//     embedding row until permanent deletion.
+//   - `after_ms`: optional lower bound on message date ("today", "last week"
+//     questions).
+//   - `model`: optional embedding-model filter so vectors from a previous
+//     model (different dimensionality → cosine 0) never pollute ranking.
+//
 // Zero-embeddings safety:
 //   - The SQL WHERE clause (`IS NOT NULL AND length > 0`) means rusqlite never
 //     sees a NULL blob; the iterator simply yields zero rows when all
@@ -166,19 +177,37 @@ pub async fn store_embedding(
 //     through to FTS-only results without panicking.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const MAX_VECTOR_ROWS: usize = 10_000; // hard cap on in-memory blobs
+// Hard cap on in-memory blobs. Sized for the unified view (all accounts in
+// one scan): 20k × 768-dim f32 ≈ 60 MB transient.
+const MAX_VECTOR_ROWS: usize = 20_000;
+
+const NOT_TRASH_SPAM_SQL: &str = "NOT EXISTS (
+    SELECT 1 FROM thread_labels tl
+    WHERE tl.account_id = m.account_id
+      AND tl.thread_id = m.thread_id
+      AND tl.label_id IN ('SPAM', 'TRASH')
+)";
+
+fn in_placeholders(n: usize) -> String {
+    std::iter::repeat("?").take(n).collect::<Vec<_>>().join(", ")
+}
 
 #[allow(dead_code)]
 #[tauri::command]
 pub async fn ask_inbox_rust(
     app: tauri::AppHandle,
     query_embedding: Vec<f32>,
-    account_id: String,
+    account_ids: Vec<String>,
     fts_terms: Option<String>,
     limit: Option<usize>,
+    after_ms: Option<i64>,
+    model: Option<String>,
 ) -> Result<Vec<VectorSearchHit>, String> {
     let db_path = get_db_path(&app)?;
     let max_results = limit.unwrap_or(20).min(50);
+    if account_ids.is_empty() {
+        return Ok(vec![]);
+    }
 
     tokio::task::spawn_blocking(move || {
         let conn = Connection::open_with_flags(
@@ -202,17 +231,34 @@ pub async fn ask_inbox_rust(
         if let Some(ref terms) = fts_terms {
             let fts_query = build_fts_query(terms);
             if !fts_query.is_empty() {
-                if let Ok(mut stmt) = conn.prepare(
+                let fts_sql = format!(
                     "SELECT m.id, m.account_id, m.thread_id, m.subject,
                             m.from_name, m.from_address, m.snippet, m.date
                      FROM messages_fts
                      JOIN messages m ON m.rowid = messages_fts.rowid
-                     WHERE messages_fts MATCH ?1 AND m.account_id = ?2
+                     WHERE messages_fts MATCH ?
+                       AND m.account_id IN ({})
+                       {}
+                       AND {}
                      ORDER BY rank
                      LIMIT 50",
-                ) {
+                    in_placeholders(account_ids.len()),
+                    if after_ms.is_some() { "AND m.date >= ?" } else { "" },
+                    NOT_TRASH_SPAM_SQL,
+                );
+                let mut fts_params: Vec<rusqlite::types::Value> =
+                    vec![rusqlite::types::Value::Text(fts_query)];
+                fts_params.extend(
+                    account_ids
+                        .iter()
+                        .map(|id| rusqlite::types::Value::Text(id.clone())),
+                );
+                if let Some(after) = after_ms {
+                    fts_params.push(rusqlite::types::Value::Integer(after));
+                }
+                if let Ok(mut stmt) = conn.prepare(&fts_sql) {
                     if let Ok(rows) = stmt.query_map(
-                        rusqlite::params![fts_query, account_id],
+                        rusqlite::params_from_iter(fts_params),
                         |row| {
                             Ok((
                                 row.get::<_, String>(0)?,
@@ -241,7 +287,13 @@ pub async fn ask_inbox_rust(
         // Scored result: sorted Vec<(message_id, cosine_score)>, descending.
 
         let scored: Vec<(String, f32)> = if !query_embedding.is_empty() {
-            vector_score(&conn, &account_id, &query_embedding)?
+            vector_score(
+                &conn,
+                &account_ids,
+                &query_embedding,
+                model.as_deref(),
+                after_ms,
+            )?
         } else {
             vec![]
         };
@@ -279,36 +331,28 @@ pub async fn ask_inbox_rust(
         }
 
         // Build a lookup from the targeted metadata query
-        let placeholders: String = (1..=top_ids.len())
-            .map(|i| format!("?{}", i))
-            .collect::<Vec<_>>()
-            .join(", ");
-
         let meta_sql = format!(
             "SELECT m.id, m.account_id, m.thread_id, m.subject,
                     m.from_name, m.from_address, m.snippet, m.date
              FROM messages m
-             WHERE m.id IN ({}) AND m.account_id = ?{}",
-            placeholders,
-            top_ids.len() + 1
+             WHERE m.id IN ({}) AND m.account_id IN ({})",
+            in_placeholders(top_ids.len()),
+            in_placeholders(account_ids.len()),
         );
 
         let mut meta_stmt = conn.prepare(&meta_sql).map_err(|e| e.to_string())?;
 
-        let mut params: Vec<Box<dyn rusqlite::ToSql>> = top_ids
+        let meta_params: Vec<rusqlite::types::Value> = top_ids
             .iter()
-            .map(|id| -> Box<dyn rusqlite::ToSql> { Box::new(id.clone()) })
+            .chain(account_ids.iter())
+            .map(|s| rusqlite::types::Value::Text(s.clone()))
             .collect();
-        params.push(Box::new(account_id.clone()));
-
-        let params_refs: Vec<&dyn rusqlite::ToSql> =
-            params.iter().map(|p| p.as_ref()).collect();
 
         // message_id → (account_id, thread_id, subject, from_name, from_address, snippet, date)
         type MetaTuple = (String, String, Option<String>, Option<String>, Option<String>, Option<String>, i64);
         let mut meta_map: HashMap<String, MetaTuple> = HashMap::new();
 
-        if let Ok(rows) = meta_stmt.query_map(params_refs.as_slice(), |row| {
+        if let Ok(rows) = meta_stmt.query_map(rusqlite::params_from_iter(meta_params), |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
@@ -391,44 +435,78 @@ pub async fn ask_inbox_rust(
 
 fn vector_score(
     conn: &Connection,
-    account_id: &str,
+    account_ids: &[String],
     query_embedding: &[f32],
+    model: Option<&str>,
+    after_ms: Option<i64>,
 ) -> Result<Vec<(String, f32)>, String> {
-    // Quick count — decides which path to take
+    let acct_in = in_placeholders(account_ids.len());
+    let model_clause = if model.is_some() { "AND me.model = ?" } else { "" };
+
+    // Quick count — decides which path to take. Kept join-free (embeddings
+    // table only) since it's a heuristic, not a correctness gate.
+    let count_sql = format!(
+        "SELECT COUNT(*) FROM message_embeddings me
+         WHERE me.account_id IN ({acct_in})
+           AND me.embedding IS NOT NULL
+           AND length(me.embedding) > 0
+           {model_clause}",
+    );
+    let mut count_params: Vec<rusqlite::types::Value> = account_ids
+        .iter()
+        .map(|id| rusqlite::types::Value::Text(id.clone()))
+        .collect();
+    if let Some(m) = model {
+        count_params.push(rusqlite::types::Value::Text(m.to_string()));
+    }
     let count: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM message_embeddings
-             WHERE account_id = ?1
-               AND embedding IS NOT NULL
-               AND length(embedding) > 0",
-            rusqlite::params![account_id],
-            |row| row.get(0),
-        )
+        .query_row(&count_sql, rusqlite::params_from_iter(count_params), |row| {
+            row.get(0)
+        })
         .map_err(|e| e.to_string())?;
 
     if count == 0 {
         return Ok(vec![]);
     }
 
-    // The embed scan: ordered by recency, capped at MAX_VECTOR_ROWS
-    const EMBED_SQL: &str =
-        "SELECT message_id, embedding
-         FROM message_embeddings
-         WHERE account_id = ?1
-           AND embedding IS NOT NULL
-           AND length(embedding) > 0
-         ORDER BY created_at DESC
-         LIMIT ?2";
+    // The embed scan: joined to messages so SPAM/TRASH threads and messages
+    // outside the optional date window are excluded at query time.
+    // Ordered by recency, capped at MAX_VECTOR_ROWS.
+    let embed_sql = format!(
+        "SELECT me.message_id, me.embedding
+         FROM message_embeddings me
+         JOIN messages m ON m.id = me.message_id AND m.account_id = me.account_id
+         WHERE me.account_id IN ({acct_in})
+           AND me.embedding IS NOT NULL
+           AND length(me.embedding) > 0
+           {model_clause}
+           {date_clause}
+           AND {not_trash}
+         ORDER BY me.created_at DESC
+         LIMIT ?",
+        date_clause = if after_ms.is_some() { "AND m.date >= ?" } else { "" },
+        not_trash = NOT_TRASH_SPAM_SQL,
+    );
+    let mut embed_params: Vec<rusqlite::types::Value> = account_ids
+        .iter()
+        .map(|id| rusqlite::types::Value::Text(id.clone()))
+        .collect();
+    if let Some(m) = model {
+        embed_params.push(rusqlite::types::Value::Text(m.to_string()));
+    }
+    if let Some(after) = after_ms {
+        embed_params.push(rusqlite::types::Value::Integer(after));
+    }
+    embed_params.push(rusqlite::types::Value::Integer(MAX_VECTOR_ROWS as i64));
 
     let mut scored: Vec<(String, f32)> = if count as usize <= 1000 {
         // ── Sequential lazy path ──────────────────────────────────────────
         // Processes one row at a time without ever collecting all blobs.
-        let mut stmt = conn.prepare(EMBED_SQL).map_err(|e| e.to_string())?;
+        let mut stmt = conn.prepare(&embed_sql).map_err(|e| e.to_string())?;
         let rows = stmt
-            .query_map(
-                rusqlite::params![account_id, MAX_VECTOR_ROWS as i64],
-                |row| Ok((row.get::<_, String>(0)?, row.get::<_, Vec<u8>>(1)?)),
-            )
+            .query_map(rusqlite::params_from_iter(embed_params), |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, Vec<u8>>(1)?))
+            })
             .map_err(|e| e.to_string())?;
 
         let mut out = Vec::new();
@@ -444,12 +522,11 @@ fn vector_score(
     } else {
         // ── Rayon parallel path ───────────────────────────────────────────
         // Collect only (message_id, blob) — metadata stays out of RAM.
-        let mut stmt = conn.prepare(EMBED_SQL).map_err(|e| e.to_string())?;
+        let mut stmt = conn.prepare(&embed_sql).map_err(|e| e.to_string())?;
         let raw: Vec<(String, Vec<u8>)> = stmt
-            .query_map(
-                rusqlite::params![account_id, MAX_VECTOR_ROWS as i64],
-                |row| Ok((row.get::<_, String>(0)?, row.get::<_, Vec<u8>>(1)?)),
-            )
+            .query_map(rusqlite::params_from_iter(embed_params), |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, Vec<u8>>(1)?))
+            })
             .map_err(|e| e.to_string())?
             .flatten()
             .collect();

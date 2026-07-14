@@ -1,6 +1,7 @@
 import { fetch } from "@tauri-apps/plugin-http";
 import { invoke } from "@tauri-apps/api/core";
 import { getDb } from "@/services/db/connection";
+import { getSetting } from "@/services/db/settings";
 
 // Boilerplate patterns to strip before embedding.
 // Ordered longest-match first to avoid partial hits. All prose patterns are
@@ -68,7 +69,14 @@ export function sanitizeForEmbedding(text: string, chunkSize = 512): string {
   let clean = text.replace(/<[^>]+>/g, " ");
   clean = clean.replace(/&[a-z#0-9]+;/gi, " ");
   for (const pat of SIG_PATTERNS) {
-    clean = clean.replace(pat, "");
+    const m = pat.exec(clean);
+    if (!m) continue;
+    // Footer patterns must only strip footers. A match near the top of a long
+    // text (e.g. a newsletter with an "Unsubscribe" link in its header) would
+    // delete the whole body — skip it and keep the content instead.
+    const minKeep = Math.min(200, clean.length * 0.3);
+    if (m.index < minKeep) continue;
+    clean = clean.slice(0, m.index);
   }
   return clean.replace(/\s+/g, " ").trim().slice(0, chunkSize * 4);
 }
@@ -252,15 +260,22 @@ export interface SemanticResult {
   similarity: number;
 }
 
+// Progress counts are model-scoped: rows embedded with a previous model are
+// treated as not-yet-indexed, matching the backfill's re-embed eligibility.
+async function getCurrentEmbeddingModel(): Promise<string> {
+  return (await getSetting("embedding_model")) ?? "nomic-embed-text";
+}
+
 export async function getEmbeddingProgress(
   accountId: string,
 ): Promise<{ indexed: number; total: number }> {
   const db = await getDb();
   type CountRow = { cnt: number };
+  const model = await getCurrentEmbeddingModel();
 
   const [indexedRow] = await db.select<CountRow[]>(
-    `SELECT COUNT(*) as cnt FROM message_embeddings WHERE account_id = $1`,
-    [accountId],
+    `SELECT COUNT(*) as cnt FROM message_embeddings WHERE account_id = $1 AND model = $2`,
+    [accountId, model],
   );
   const [totalRow] = await db.select<CountRow[]>(
     `SELECT COUNT(*) as cnt FROM messages WHERE account_id = $1`,
@@ -284,19 +299,21 @@ export async function getEmbeddingProgressAll(
   }
 
   const placeholders = ragEnabledAccountIds.map(() => '?').join(',');
+  const model = await getCurrentEmbeddingModel();
 
   // Indexed: embeddings for eligible messages only (exclude SPAM/TRASH, same filter as total)
   const indexedRow = await db.select<CountRow[]>(
     `SELECT COUNT(*) as cnt FROM message_embeddings me
      JOIN messages m ON m.id = me.message_id
      WHERE me.account_id IN (${placeholders})
+       AND me.model = ?
        AND NOT EXISTS (
          SELECT 1 FROM thread_labels tl
          WHERE tl.account_id = m.account_id
            AND tl.thread_id = m.thread_id
            AND tl.label_id IN ('SPAM', 'TRASH')
        )`,
-    ragEnabledAccountIds,
+    [...ragEnabledAccountIds, model],
   );
   // Total: all messages eligible for indexing (rag_enabled=1 account, not spam/trash thread)
   const totalRow = await db.select<CountRow[]>(

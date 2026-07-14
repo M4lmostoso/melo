@@ -497,6 +497,14 @@ export async function getAccountRagEnabled(accountId: string): Promise<boolean> 
   return (row?.rag_enabled ?? 0) === 1;
 }
 
+export async function getRagEnabledAccountIds(): Promise<string[]> {
+  const db = await getDb();
+  const rows = await db.select<{ id: string }[]>(
+    "SELECT id FROM accounts WHERE rag_enabled = 1",
+  );
+  return rows.map((r) => r.id);
+}
+
 export async function setAccountRagEnabled(accountId: string, enabled: boolean): Promise<void> {
   const db = await getDb();
   await db.execute(

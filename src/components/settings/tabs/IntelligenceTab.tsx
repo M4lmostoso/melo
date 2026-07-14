@@ -205,6 +205,10 @@ export function IntelligenceTab() {
                 await setSetting("embedding_model", embeddingModel.trim() || "nomic-embed-text");
                 setRagSaved(true);
                 setTimeout(() => setRagSaved(false), 2000);
+                // If the model changed, the backfill re-embeds every message
+                // whose stored model no longer matches — kick it off now.
+                const { runEmbeddingBackfill } = await import("@/services/ai/embeddingBackfill");
+                runEmbeddingBackfill().catch(() => {});
               }}
             >
               {ragSaved ? t("settings.intelligence.saved") : t("settings.intelligence.save")}

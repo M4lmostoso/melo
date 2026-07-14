@@ -27,6 +27,9 @@ type MsgRow = {
 // Writes a NULL sentinel directly via the SQL plugin (no Rust invoke).
 // Used as a safe fallback when the Rust store_embedding command fails,
 // ensuring the message is excluded from future backfill batches.
+// OR REPLACE (not OR IGNORE): a leftover row from a previous embedding model
+// must be overwritten, or the model-mismatch eligibility check would reselect
+// the same message forever.
 async function writeSentinel(
   db: Awaited<ReturnType<typeof getDb>>,
   messageId: string,
@@ -34,7 +37,7 @@ async function writeSentinel(
   model: string,
 ): Promise<void> {
   await db.execute(
-    `INSERT OR IGNORE INTO message_embeddings (message_id, account_id, embedding, model)
+    `INSERT OR REPLACE INTO message_embeddings (message_id, account_id, embedding, model)
      VALUES ($1, $2, NULL, $3)`,
     [messageId, accountId, model],
   );
@@ -78,13 +81,16 @@ export async function runEmbeddingBackfill(): Promise<void> {
     const db = await getDb();
 
     while (!stopRequested) {
+      // Rows embedded with a DIFFERENT model are eligible again: switching
+      // embedding model must transparently re-index (old vectors have the
+      // wrong dimensionality and are filtered out at query time).
       const batch = await db.select<MsgRow[]>(
         `SELECT m.id, m.account_id, m.body_text, m.subject, m.snippet
          FROM messages m
          JOIN accounts a ON a.id = m.account_id
          LEFT JOIN message_embeddings me
            ON me.message_id = m.id AND me.account_id = m.account_id
-         WHERE me.message_id IS NULL
+         WHERE (me.message_id IS NULL OR me.model != $1)
            AND m.account_id IS NOT NULL
            AND a.rag_enabled = 1
            AND NOT EXISTS (
@@ -94,8 +100,8 @@ export async function runEmbeddingBackfill(): Promise<void> {
                AND tl.label_id IN ('SPAM', 'TRASH')
            )
          ORDER BY m.date DESC
-         LIMIT $1`,
-        [batchSize],
+         LIMIT $2`,
+        [model, batchSize],
       );
 
       if (batch.length === 0) {
@@ -191,12 +197,13 @@ export function isEmbeddingBackfillRunning(): boolean {
 
 export async function getPendingCount(): Promise<number> {
   const db = await getDb();
-  // Use exact same query as backfill eligibility
+  const model = (await getSetting("embedding_model")) ?? "nomic-embed-text";
+  // Use exact same query as backfill eligibility (incl. model mismatch)
   const result = await db.select<{ cnt: number }[]>(
     `SELECT COUNT(*) as cnt FROM messages m
      JOIN accounts a ON a.id = m.account_id
      LEFT JOIN message_embeddings me ON me.message_id = m.id AND me.account_id = m.account_id
-     WHERE me.message_id IS NULL
+     WHERE (me.message_id IS NULL OR me.model != $1)
        AND a.rag_enabled = 1
        AND m.account_id IS NOT NULL
        AND NOT EXISTS (
@@ -205,6 +212,7 @@ export async function getPendingCount(): Promise<number> {
            AND tl.thread_id = m.thread_id
            AND tl.label_id IN ('SPAM', 'TRASH')
        )`,
+    [model],
   );
   return result[0]?.cnt ?? 0;
 }
@@ -218,33 +226,39 @@ export async function getDiagnostics(): Promise<{
   sentinels: number;
 }> {
   const db = await getDb();
+  const model = (await getSetting("embedding_model")) ?? "nomic-embed-text";
   const [total] = await db.select<{ cnt: number }[]>(`SELECT COUNT(*) as cnt FROM messages`);
   const [ragAcc] = await db.select<{ cnt: number }[]>(`SELECT COUNT(*) as cnt FROM accounts WHERE rag_enabled = 1`);
 
-  // Count only embeddings for rag-enabled accounts, excluding SPAM/TRASH (consistent with progress bar)
+  // Count only current-model embeddings for rag-enabled accounts, excluding
+  // SPAM/TRASH (consistent with progress bar and backfill eligibility)
   const [indexed] = await db.select<{ cnt: number }[]>(
     `SELECT COUNT(*) as cnt FROM message_embeddings me
      JOIN accounts a ON a.id = me.account_id
      JOIN messages m ON m.id = me.message_id
      WHERE a.rag_enabled = 1 AND me.embedding IS NOT NULL AND length(me.embedding) > 0
+       AND me.model = $1
        AND NOT EXISTS (
          SELECT 1 FROM thread_labels tl
          WHERE tl.account_id = m.account_id
            AND tl.thread_id = m.thread_id
            AND tl.label_id IN ('SPAM', 'TRASH')
        )`,
+    [model],
   );
   const [sentinels] = await db.select<{ cnt: number }[]>(
     `SELECT COUNT(*) as cnt FROM message_embeddings me
      JOIN accounts a ON a.id = me.account_id
      JOIN messages m ON m.id = me.message_id
      WHERE a.rag_enabled = 1 AND me.embedding IS NULL
+       AND me.model = $1
        AND NOT EXISTS (
          SELECT 1 FROM thread_labels tl
          WHERE tl.account_id = m.account_id
            AND tl.thread_id = m.thread_id
            AND tl.label_id IN ('SPAM', 'TRASH')
        )`,
+    [model],
   );
 
   const pending = await getPendingCount();
