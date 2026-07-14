@@ -4,6 +4,30 @@
 
 ---
 
+## [0.1.5](https://github.com/M4lmostoso/melo/compare/v0.1.4...v0.1.5) (2026-07-14)
+
+
+### Features
+
+* add forward capability via full composer and include default account in search fallback logic ([3302212](https://github.com/M4lmostoso/melo/commit/3302212b6ef4303cea9e6c29086c0c05d1d7195b))
+* add Tiptap table extensions to QuoteEditor and verify with tests ([0620392](https://github.com/M4lmostoso/melo/commit/0620392053a2cda219c32e85beadf1b303d35e8b))
+* ensure sticky color applies to raw text insertions while respecting pastes and undo history ([a6c40b9](https://github.com/M4lmostoso/melo/commit/a6c40b97ee7ff2ada91bba95c6bc639cee588074))
+* implement calendar UI refresh event and filter Exchange busy-free ghost events ([3ab60e3](https://github.com/M4lmostoso/melo/commit/3ab60e326ae31c9491e1be6104847b6adf5031f1))
+* implement multi-account RAG search and initialize background embedding backfill on model changes ([47e057e](https://github.com/M4lmostoso/melo/commit/47e057e8e9ec4f27a1137403d5a62f86d50d6b21))
+* implement QuoteEditor component with sticky text color functionality and add quote editing toggle to Composer ([ba2ae61](https://github.com/M4lmostoso/melo/commit/ba2ae61cf291f6005dbf0edf931834ec9ec37400))
+* introduce default account support and implement mid-draft account switching with draft discarding to prevent ghost drafts ([e745ab7](https://github.com/M4lmostoso/melo/commit/e745ab7fa8ac8f8a1a5accd5e54296e2982d7861))
+* trigger urgency reputation backfill during sync to process replies from external clients ([15e0208](https://github.com/M4lmostoso/melo/commit/15e02082ab40799dcb82364d4cf6cc764223281d))
+
+
+### Bug Fixes
+
+* calculate label-specific unread counts based on message state rather than thread-level flags to prevent phantom counts in Trash ([d70488f](https://github.com/M4lmostoso/melo/commit/d70488f027fe0944594e02cf10a4c3a0acbc73be))
+* ensure thread flags are atomically reconciled upon message deletion and update unread count queries to be message-based instead of flag-based. ([bd2e295](https://github.com/M4lmostoso/melo/commit/bd2e2958752308faf6b373cec40b47238357eaa7))
+* improve thread scroll positioning by clamping to bottom for short content and adding a resize settle timer ([e36332c](https://github.com/M4lmostoso/melo/commit/e36332c569f4c4faa633d3c9fad013c10b644f05))
+* prevent duplicate message insertion by normalizing Message-IDs and tracking IDs across sync batches ([67d9539](https://github.com/M4lmostoso/melo/commit/67d95399a76b90f1c201783a5788b142adfba9c4))
+* resolve context menu targets against search results to ensure thread availability when searching ([99e2aed](https://github.com/M4lmostoso/melo/commit/99e2aede66aeb353a15a6711ea19cdc2de109a84))
+* resolve draft status synchronization and prevent search interruption during thread refreshes ([9807c6f](https://github.com/M4lmostoso/melo/commit/9807c6f3fc38a042db4ecd6f42d28d71f3ea2a0d))
+
 ## [0.1.4](https://github.com/M4lmostoso/melo/compare/v0.1.3...v0.1.4) (2026-07-08)
 
 
