@@ -100,7 +100,7 @@ vi.mock("@/services/ai/urgencyPipeline", () => ({
   processThreadUrgency: vi.fn(async () => {}),
 }));
 
-import { imapInitialSync, imapDeltaSync, formatImapDate, computeSinceDate, isConnectionError, isUnfetchableMessageError, reconcileDeletedMessages } from "./imapSync";
+import { imapInitialSync, imapDeltaSync, formatImapDate, computeSinceDate, isConnectionError, isUnfetchableMessageError, reconcileDeletedMessages, computeThreadLabels } from "./imapSync";
 import {
   createMockImapAccount,
   createMockImapFolder,
@@ -836,5 +836,63 @@ describe("reconcileDeletedMessages — surviving-thread flag recompute", () => {
     expect(survivingUpdate!.sql).toContain("MIN(is_read)");
     // ...alongside the message_count it already recomputed.
     expect(survivingUpdate!.sql).toContain("message_count = (SELECT COUNT(*)");
+  });
+});
+
+describe("computeThreadLabels — trashed unread must not flag the thread UNREAD", () => {
+  const header = (overrides: Partial<ImapSyncHeader>): ImapSyncHeader => ({
+    local_id: "m1",
+    uid: 1,
+    message_id: null,
+    in_reply_to: null,
+    references: null,
+    subject: "s",
+    date: 1000,
+    label_id: "INBOX",
+    is_read: true,
+    is_starred: false,
+    is_draft: false,
+    has_attachments: false,
+    snippet: "",
+    from_address: "other@example.com",
+    from_name: null,
+    stored: true,
+    ...overrides,
+  });
+
+  it("does not add UNREAD when the only unread message is in Trash", () => {
+    const labels = computeThreadLabels(
+      [
+        header({ local_id: "m1", date: 1000, is_read: true, label_id: "INBOX" }),
+        header({ local_id: "m2", date: 2000, is_read: false, label_id: "TRASH" }),
+      ],
+      new Map(),
+      "me@example.com",
+      false,
+    );
+    expect(labels).not.toContain("UNREAD");
+  });
+
+  it("does not add UNREAD when the only unread message is in Spam", () => {
+    const labels = computeThreadLabels(
+      [
+        header({ local_id: "m1", date: 1000, is_read: true, label_id: "INBOX" }),
+        header({ local_id: "m2", date: 2000, is_read: false, label_id: "SPAM" }),
+      ],
+      new Map(),
+      "me@example.com",
+      false,
+    );
+    expect(labels).not.toContain("UNREAD");
+  });
+
+  it("still adds UNREAD for a live unread message", () => {
+    const labels = computeThreadLabels(
+      [header({ local_id: "m1", is_read: false, label_id: "INBOX" })],
+      new Map(),
+      "me@example.com",
+      false,
+    );
+    expect(labels).toContain("UNREAD");
   });
 });

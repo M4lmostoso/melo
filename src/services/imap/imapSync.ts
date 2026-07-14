@@ -179,7 +179,7 @@ function headerToThreadable(h: ImapSyncHeader): ThreadableMessage {
  * senders in this thread (e.g. original inbox messages when syncing a sent reply).
  * Prevents the thread from losing its INBOX label after a reply is stored.
  */
-function computeThreadLabels(
+export function computeThreadLabels(
   messages: ImapSyncHeader[],
   labelsByRfcId: Map<string, Set<string>>,
   accountEmail: string,
@@ -193,8 +193,9 @@ function computeThreadLabels(
     if (msg.label_id !== "INBOX" && msg.label_id !== "SENT") {
       allLabels.add(msg.label_id);
     }
-    // Pseudo-labels
-    if (!msg.is_read) allLabels.add("UNREAD");
+    // Pseudo-labels. UNREAD only from live messages — an unread message in
+    // Trash/Spam must not flag the whole thread as unread.
+    if (!msg.is_read && msg.label_id !== "TRASH" && msg.label_id !== "SPAM") allLabels.add("UNREAD");
     if (msg.is_starred) allLabels.add("STARRED");
     if (msg.is_draft) allLabels.add("DRAFT");
     // Cross-folder labels — only non-INBOX/SENT system/user labels
@@ -485,7 +486,12 @@ function buildThreadUpdates(
     const first = messages[0]!;
     const last = messages[messages.length - 1]!;
 
-    const isRead = messages.every((m) => m.is_read);
+    // Read state only counts live messages: an unread message in Trash/Spam
+    // must not mark the thread unread in the Inbox (every() on an all-trashed
+    // group is vacuously true, matching recalculateThreadStats' COALESCE(…, 1)).
+    const isRead = messages
+      .filter((m) => m.label_id !== "TRASH" && m.label_id !== "SPAM")
+      .every((m) => m.is_read);
     const isStarred = messages.some((m) => m.is_starred);
     const hasAttachments = messages.some((m) => m.has_attachments);
     const labelIds = computeThreadLabels(messages, labelsByRfcId, accountEmail, threadsWithExternalSenders.has(group.threadId));
@@ -803,7 +809,8 @@ async function syncReadFlagsForFolder(
        WHERE account_id = $1 AND id IN (${tph})
          AND NOT EXISTS (
            SELECT 1 FROM messages
-           WHERE messages.account_id = $1 AND messages.thread_id = threads.id AND messages.is_read = 0
+           WHERE messages.account_id = $1 AND messages.thread_id = threads.id
+             AND messages.is_read = 0 AND messages.is_draft = 0 AND messages.is_trashed = 0
          )`,
       [accountId, ...chunk],
     );
@@ -1739,6 +1746,7 @@ async function reconcileOrphanMessages(accountId: string): Promise<void> {
     date: number;
     is_read: number;
     is_starred: number;
+    is_trashed: number;
     imap_folder: string | null;
     label_id: string | null;
   };
@@ -1752,6 +1760,7 @@ async function reconcileOrphanMessages(accountId: string): Promise<void> {
        m.date,
        m.is_read,
        m.is_starred,
+       m.is_trashed,
        m.imap_folder,
        l.id          AS label_id
      FROM messages m
@@ -1795,7 +1804,11 @@ async function reconcileOrphanMessages(accountId: string): Promise<void> {
     const first = msgs[0]!;
     const last = msgs[msgs.length - 1]!;
 
-    const isRead = msgs.every((m) => m.is_read === 1);
+    // Trashed messages don't count toward the thread read state (an unread
+    // message in Trash must not render the thread as unread in the Inbox).
+    const isRead = msgs
+      .filter((m) => m.is_trashed === 0)
+      .every((m) => m.is_read === 1);
     const isStarred = msgs.some((m) => m.is_starred === 1);
     const hasAttachments = threadsWithAttachments.has(threadId);
 
@@ -1803,7 +1816,7 @@ async function reconcileOrphanMessages(accountId: string): Promise<void> {
     const labelSet = new Set<string>();
     for (const m of msgs) {
       if (m.label_id) labelSet.add(m.label_id);
-      if (m.is_read === 0) labelSet.add("UNREAD");
+      if (m.is_read === 0 && m.is_trashed === 0) labelSet.add("UNREAD");
       if (m.is_starred === 1) labelSet.add("STARRED");
     }
 
@@ -1860,11 +1873,12 @@ async function reconcileFragmentedThreads(accountId: string): Promise<number> {
     snippet: string | null;
     is_read: number;
     is_starred: number;
+    is_trashed: number;
   };
 
   const rows = await db.select<MsgRow[]>(
     `SELECT id, message_id_header, in_reply_to_header, references_header,
-            subject, date, thread_id, snippet, is_read, is_starred
+            subject, date, thread_id, snippet, is_read, is_starred, is_trashed
      FROM messages
      WHERE account_id = $1
      ORDER BY date ASC`,
@@ -1977,7 +1991,11 @@ async function reconcileFragmentedThreads(accountId: string): Promise<number> {
       }
     }
 
-    const allRead = msgs.every((m) => m.is_read === 1);
+    // Trashed messages don't count: an unread message in Trash must not mark
+    // the merged thread unread in the Inbox.
+    const allRead = msgs
+      .filter((m) => m.is_trashed === 0)
+      .every((m) => m.is_read === 1);
     if (allRead) mergedLabels.delete("UNREAD");
     else mergedLabels.add("UNREAD");
 

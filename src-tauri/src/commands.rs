@@ -1722,6 +1722,40 @@ pub async fn imap_store_threads(
         )
         .map_err(|e| e.to_string())?;
 
+        // Recompute is_read authoritatively from the messages table, excluding
+        // drafts and trashed messages (same semantics as recalculateThreadStats).
+        // The MIN() in the upsert above is only a provisional value: update.is_read
+        // is computed by the caller from a possibly partial message set, and an
+        // unread message sitting in Trash must never mark the thread unread —
+        // that renders a trashed mail as "to read" in the Inbox list.
+        conn.execute(
+            "UPDATE threads SET is_read = COALESCE( \
+               (SELECT MIN(is_read) FROM messages \
+                WHERE account_id = ?1 AND thread_id = ?2 AND is_draft = 0 AND is_trashed = 0), 1) \
+             WHERE account_id = ?1 AND id = ?2",
+            rusqlite::params![account_id, update.thread_id],
+        )
+        .map_err(|e| e.to_string())?;
+
+        // Keep the UNREAD pseudo-label consistent with the recomputed state.
+        conn.execute(
+            "DELETE FROM thread_labels WHERE account_id = ?1 AND thread_id = ?2 AND label_id = 'UNREAD' \
+             AND NOT EXISTS (SELECT 1 FROM messages \
+                             WHERE account_id = ?1 AND thread_id = ?2 \
+                               AND is_read = 0 AND is_draft = 0 AND is_trashed = 0)",
+            rusqlite::params![account_id, update.thread_id],
+        )
+        .map_err(|e| e.to_string())?;
+        conn.execute(
+            "INSERT OR IGNORE INTO thread_labels (account_id, thread_id, label_id) \
+             SELECT ?1, ?2, 'UNREAD' \
+             WHERE EXISTS (SELECT 1 FROM messages \
+                           WHERE account_id = ?1 AND thread_id = ?2 \
+                             AND is_read = 0 AND is_draft = 0 AND is_trashed = 0)",
+            rusqlite::params![account_id, update.thread_id],
+        )
+        .map_err(|e| e.to_string())?;
+
         stored += 1;
     }
 
