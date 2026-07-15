@@ -217,7 +217,15 @@ export function Sidebar({ collapsed, onAddAccount }: SidebarProps) {
   const isSyncing = Object.values(accountSyncStatuses).some((s) => s.phase === "syncing");
   const handleCheckMail = useCallback(() => {
     const ids = accounts.map((a) => a.id);
-    if (ids.length > 0) triggerSync(ids);
+    if (ids.length === 0) return;
+    // Optimistic feedback: start the spinner on the click itself. syncAccountInternal
+    // only emits "syncing" after an async getAccount round-trip (and triggerSync may
+    // merge into an in-flight background cycle), so without this the spinner visibly
+    // lags the click — the app looks unresponsive. The real status callbacks overwrite
+    // this with done/error as each account finishes.
+    const { setAccountSyncPhase } = useUIStore.getState();
+    for (const id of ids) setAccountSyncPhase(id, "syncing");
+    triggerSync(ids);
   }, [accounts]);
   const toggleGlobalItem = useCallback(
     (id: string) => setExpandedGlobalItems((prev) => ({ ...prev, [id]: !prev[id] })),

@@ -258,6 +258,9 @@ export function AttachmentPreview({
   const [downloadProgress, setDownloadProgress] = useState<number | undefined>(undefined);
   const [downloadFailed, setDownloadFailed] = useState(false);
   const bytesRef = useRef<Uint8Array | null>(null);
+  // Arms the Space-to-close toggle only after the opening key is released,
+  // so the same press that opened the preview can't immediately close it.
+  const spaceArmedRef = useRef(false);
 
   // Listen to Rust byte-level progress events for this attachment
   useEffect(() => {
@@ -368,6 +371,29 @@ export function AttachmentPreview({
     if (blobUrl) URL.revokeObjectURL(blobUrl);
     onClose();
   };
+
+  // Quick Look-style toggle: a fresh Space press closes the preview. The
+  // attachment item keeps focus while the preview is open, so the *same* Space
+  // press that opened it (and its auto-repeats) would otherwise close it
+  // instantly. Arm only after the opening key is released, and ignore repeats.
+  useEffect(() => {
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.key === " ") spaceArmedRef.current = true;
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== " ") return;
+      e.preventDefault();
+      if (e.repeat || !spaceArmedRef.current) return;
+      handleClose();
+    };
+    document.addEventListener("keyup", onKeyUp);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keyup", onKeyUp);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blobUrl]);
 
   const dlPct = downloadProgress ?? 0;
   const header = (
