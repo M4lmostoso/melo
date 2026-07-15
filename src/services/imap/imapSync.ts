@@ -1588,8 +1588,11 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
   // Run fragmented-thread reconciliation on every cycle that stored new messages.
   // New messages can create new fragments (subject mismatches, missing parents arriving
   // later, etc.), and any normalization fixes only kick in once reconcile runs.
-  // Maintenance cycles already invoked it earlier; this catches the non-maintenance ones.
-  if (!isMaintenanceCycle) {
+  // Maintenance cycles invoke it at the top too, but that runs BEFORE this cycle's
+  // messages are fetched — a reply stored during a maintenance cycle would otherwise
+  // stay fragmented until the next cycle that stores mail (quiet delta cycles return
+  // early and never reconcile), so this must run unconditionally post-store.
+  {
     const fragmentCount = await reconcileFragmentedThreads(accountId).catch((err) =>
       (console.error(`[imapSync] reconcileFragmentedThreads (post-store) error:`, err), 0),
     );
@@ -1598,8 +1601,8 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
     // De-dupe right after storing new messages. A just-sent reply is saved locally with
     // the APPENDUID; when the server returns an inconsistent UID, this delta import creates
     // a second row for the same physical message (same Message-ID + folder, different UID).
-    // Without this, the duplicate lingered until the next maintenance cycle (~10 min) or a
-    // manual resync. Maintenance cycles already purged at the top; this covers the rest.
+    // Same pre-fetch caveat as above: the maintenance top-of-cycle purge can't see
+    // duplicates created by THIS cycle's import, so run here on every storing cycle.
     const dupeCount = await purgeImapDuplicates(accountId).catch(() => 0);
     if (dupeCount > 0) console.log(`[imapSync] Purged ${dupeCount} duplicate(s) for ${accountId} (post-store)`);
   }
