@@ -1461,11 +1461,18 @@ pub async fn imap_fetch_and_store(
             // ping-pong between the two UIDs, so the reconcile saw the "other" UID as missing
             // and re-downloaded the full body every cycle, forever. With the monotonic guard
             // the lower UID stays unstored and gets skip-listed as 'duplicate' instead.
+            //
+            // NULL-coords adoption: a sent message saved locally when the APPEND returned
+            // no APPENDUID (DavMail, uid=0) has imap_uid/imap_folder NULL. Adopt the real
+            // server coordinates from the first import of that Message-ID so the row stops
+            // being an orphan placeholder. Draft rows (stable-UUID local drafts, coords
+            // managed by draftAutoSave) are excluded via is_draft = 0.
             if let Some(ref rfc_id) = msg.message_id {
                 conn.execute(
                     "UPDATE messages SET imap_uid = ?1, imap_folder = ?2 \
                      WHERE account_id = ?3 AND message_id_header = ?4 \
-                       AND imap_folder = ?2 AND imap_uid < ?1",
+                       AND ((imap_uid IS NULL AND is_draft = 0) \
+                            OR (imap_folder = ?2 AND imap_uid < ?1))",
                     rusqlite::params![msg.uid, msg.folder, account_id, rfc_id],
                 )
                 .map_err(|e| format!("uid update for dup uid {}: {e}", msg.uid))?;

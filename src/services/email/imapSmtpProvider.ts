@@ -842,9 +842,10 @@ export class ImapSmtpProvider implements EmailProvider {
     // Append to server Sent folder. If we get the real IMAP UID back we can
     // build a stable message ID and save locally — the background sync will
     // upsert on the same ID so it's a no-op (no duplicate).
-    // If the append fails or returns uid=0 we skip the local save entirely so
-    // we don't create a random-ID row that duplicates the real one when the
-    // next delta sync imports it.
+    // If the server doesn't return a UID (uid=0, DavMail) we still save a
+    // placeholder row (NULL imap coords) so the sent message is visible
+    // immediately; the delta sync's Filter 2 adopts the real UID/folder into
+    // that row by Message-ID instead of inserting a duplicate.
     let messageId = `imap-${this.accountId}-sent-${Date.now()}`;
     let resolvedSentFolder: string | undefined;
     let resolvedUid: number | undefined;
@@ -870,8 +871,20 @@ export class ImapSmtpProvider implements EmailProvider {
         import("../db/messages").then(({ purgeImapDuplicates }) =>
           purgeImapDuplicates(this.accountId).catch(() => {}),
         );
+      } else {
+        // uid === 0: APPEND succeeded but the server returned no APPENDUID
+        // (DavMail/Exchange). Without a local save the sent message stays
+        // invisible until the next delta sync — save a placeholder row with
+        // NULL imap coords now. Do NOT queue an appendToSent retry: the copy
+        // IS on the server, re-appending would duplicate it there. The next
+        // delta sync imports the server copy and (via the Rust Filter 2
+        // NULL-coords adoption) stamps the real UID/folder onto this row.
+        try {
+          await this.saveSentMessageLocally(rawBase64Url, messageId, _threadId);
+        } catch (saveErr) {
+          console.warn("[IMAP] Failed to save placeholder sent message (uid=0):", saveErr);
+        }
       }
-      // uid === 0: server didn't return UID; let the next delta sync import it.
     } catch (err) {
       console.error(
         "[IMAP] Failed to copy sent message to Sent folder on server:",

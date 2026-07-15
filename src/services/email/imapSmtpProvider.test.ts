@@ -508,6 +508,26 @@ describe("ImapSmtpProvider", () => {
       );
     });
 
+    it("saves a placeholder row when APPEND returns no UID (uid=0, DavMail)", async () => {
+      vi.mocked(smtpSendEmail).mockResolvedValue({
+        success: true,
+        message: "OK",
+      });
+      vi.mocked(findSpecialFolder).mockResolvedValue("Sent");
+      // DavMail/Exchange: APPEND succeeds but no APPENDUID is returned.
+      vi.mocked(imapAppendMessage).mockResolvedValue(0);
+
+      const result = await provider.sendMessage(rawBase64Url);
+
+      // Synthetic Sent id — no server UID available.
+      expect(result.id).toMatch(/^imap-acc-1-sent-/);
+      // The message must still be saved locally (visible immediately); the delta
+      // sync adopts the real UID/folder into this row via Message-ID later.
+      expect(upsertMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ id: result.id, imapUid: null, imapFolder: null }),
+      );
+    });
+
     it("succeeds even if Sent folder copy fails", async () => {
       vi.mocked(smtpSendEmail).mockResolvedValue({
         success: true,
