@@ -1284,6 +1284,25 @@ export class ImapSmtpProvider implements EmailProvider {
       // the composer WebView is destroyed. This guarantees the draft is never
       // re-imported even if the subsequent IMAP delete is killed mid-flight.
       await recordDeletedImapUid(this.accountId, folder, uid).catch(() => {});
+      // Kill-list by Message-ID: if the server renumbered this copy's UID
+      // (DavMail/Exchange do this after APPEND), the tombstone + EXPUNGE below
+      // target the wrong UID and the copy resurfaces on the next sync as a
+      // phantom draft. The sweep removes it by Message-ID at its current UID.
+      try {
+        const killList = await import("@/services/db/draftKillList");
+        let msgId = killList.getAppendedDraftMsgId(draftId);
+        if (!msgId) {
+          const db = await getDb();
+          const rows = await db.select<{ message_id_header: string | null }[]>(
+            "SELECT message_id_header FROM messages WHERE account_id = $1 AND id = $2",
+            [this.accountId, draftId],
+          );
+          msgId = rows[0]?.message_id_header ?? null;
+        }
+        await killList.recordDraftKill(this.accountId, msgId);
+      } catch (err) {
+        console.warn("[IMAP] deleteDraft kill-list record failed:", err);
+      }
       // IMAP delete is best-effort — may be killed if window dies before it completes,
       // but the tombstone above already prevents re-import.
       const config = await this.getImapConfig();

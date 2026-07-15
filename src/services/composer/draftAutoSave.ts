@@ -243,6 +243,17 @@ async function saveServer(): Promise<void> {
     const effectiveThreadId = state.threadId ?? localId;
     const currentSrvId = getServerDraftId();
 
+    // Remember the Message-ID embedded in the raw we're about to APPEND, keyed by
+    // the resulting draftId. When this copy is later deleted (send, discard, or
+    // replacement by the next autosave), tombstoneImapDraft/deleteDraft write it to
+    // the draft kill-list — so if the server renumbered the copy's UID (DavMail)
+    // and the UID-targeted EXPUNGE missed it, the sync sweep still removes the
+    // re-imported phantom by Message-ID.
+    const { registerAppendedDraftMsgId, extractRfcMessageId } = await import(
+      "@/services/db/draftKillList"
+    );
+    const appendedMsgId = extractRfcMessageId(raw);
+
     let newDraftId: string;
     if (currentSrvId === null) {
       const result = await provider.createDraft(raw, effectiveThreadId);
@@ -251,6 +262,7 @@ async function saveServer(): Promise<void> {
       const result = await provider.updateDraft(currentSrvId, raw, effectiveThreadId);
       newDraftId = result.draftId;
     }
+    registerAppendedDraftMsgId(newDraftId, appendedMsgId);
 
     // If a discard arrived while the IMAP APPEND was in-flight, pre-tombstone the new UID.
     // Record the draft ID so Composer can EXPUNGE it from the server after waitForSave().

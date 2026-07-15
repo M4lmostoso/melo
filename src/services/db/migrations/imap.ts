@@ -342,4 +342,16 @@ export const MIGRATIONS_IMAP = [
         );
     `,
   },
+  {
+    version: 71,
+    description: "Draft kill-list: RFC Message-IDs of server drafts the app deliberately deleted. DavMail/Exchange renumber draft UIDs after APPEND, so the send/discard-time EXPUNGE (which targets the APPENDUID) can miss the real copy; the leftover then re-imports as a phantom draft. The sync sweeps any is_draft row whose Message-ID is in this list, deleting it locally AND from the server at its current UID",
+    sql: `
+      CREATE TABLE IF NOT EXISTS draft_kill_list (
+        account_id TEXT NOT NULL,
+        message_id_header TEXT NOT NULL,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+        PRIMARY KEY (account_id, message_id_header)
+      );
+    `,
+  },
 ];

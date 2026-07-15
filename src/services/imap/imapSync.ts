@@ -1189,6 +1189,15 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
       (console.error(`[imapSync] reconcileFragmentedThreads error:`, err), 0),
     );
     if (fragmentCount > 0) console.log(`[imapSync] Repaired ${fragmentCount} fragmented thread(s) for ${accountId}`);
+    // Phantom drafts: delete re-imported copies of drafts the app already killed
+    // (DavMail UID renumber defeated the send/discard-time EXPUNGE). Dynamic
+    // import — draftActions reaches this module via providerFactory.
+    {
+      const { sweepKilledDrafts } = await import("../draftActions");
+      await sweepKilledDrafts(accountId).catch((err) =>
+        console.error(`[imapSync] sweepKilledDrafts error:`, err),
+      );
+    }
     await pruneDeletedImapUids().catch(() => {});
   }
 
@@ -1605,6 +1614,16 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
     // duplicates created by THIS cycle's import, so run here on every storing cycle.
     const dupeCount = await purgeImapDuplicates(accountId).catch(() => 0);
     if (dupeCount > 0) console.log(`[imapSync] Purged ${dupeCount} duplicate(s) for ${accountId} (post-store)`);
+
+    // Phantom drafts: this cycle may have just re-imported a draft copy the app
+    // already deleted (DavMail renumbered its UID, so the send/discard EXPUNGE
+    // missed it). Kill it by Message-ID before the UI refresh shows it.
+    {
+      const { sweepKilledDrafts } = await import("../draftActions");
+      await sweepKilledDrafts(accountId).catch((err) =>
+        console.error(`[imapSync] sweepKilledDrafts error:`, err),
+      );
+    }
   }
 
   for (const params of urgencyQueue) {
