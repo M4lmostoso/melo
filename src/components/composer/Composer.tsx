@@ -65,6 +65,7 @@ import {
   getActiveDraftId,
   getServerDraftId,
   getPreTombstonedDraftId,
+  killInFlightServerAppend,
   discardCurrentAccountDraft,
 } from "@/services/composer/draftAutoSave";
 import {
@@ -606,6 +607,12 @@ const getFullHtml = useCallback(() => {
     // isDiscarding=true so the save will tombstone itself on completion.
     startDiscard();
     await Promise.race([waitForSave(), new Promise<void>((r) => setTimeout(r, 2000))]);
+    // If a large server APPEND outlived the 2s cap it is still uploading — this
+    // window will close before its continuation can tombstone the new UID, but the
+    // Rust APPEND completes regardless. Persist the copy's Message-ID to the draft
+    // kill-list NOW (fast SQLite write) so the sync sweep removes the phantom draft
+    // when the server copy resurfaces. No-op when nothing is in flight.
+    await killInFlightServerAppend(effectiveAccountId).catch(() => {});
     // For IMAP: server UID-based ID (tracked in draftAutoSave module vars).
     // For Gmail: composerStore.draftId (the Gmail draft API ID).
     // Must be captured BEFORE closeComposer() resets the store.
@@ -676,7 +683,12 @@ const getFullHtml = useCallback(() => {
             subject: state.subject,
             bodyHtml: html,
             inReplyToMessageId: state.inReplyToMessageId ?? null,
-            preTombstonedDraftId: preTombstonedDraftId ?? null,
+            // Re-read at fire time: the in-flight APPEND may have completed (and
+            // pre-tombstoned its UID) during the undo delay, AFTER the stale
+            // capture above — without the fresh read the main window would never
+            // learn the UID to EXPUNGE.
+            preTombstonedDraftId:
+              getPreTombstonedDraftId() ?? preTombstonedDraftId ?? null,
           });
           handedOff = true;
         } catch {
@@ -831,6 +843,9 @@ const getFullHtml = useCallback(() => {
       // getActiveDraftId() to miss the server UID and leaving the draft on IMAP.
       startDiscard();
       await Promise.race([waitForSave(), new Promise<void>((r) => setTimeout(r, 2000))]);
+      // Large APPEND still uploading past the 2s cap: persist its Message-ID to
+      // the kill-list before this window closes (see handleSend for rationale).
+      await killInFlightServerAppend(effectiveAccountId).catch(() => {});
       const serverDraftId = getServerDraftId();
       const activeDraftId = getActiveDraftId();
       // If saveServer() was in-flight during startDiscard(), it pre-tombstoned the
@@ -905,6 +920,9 @@ const getFullHtml = useCallback(() => {
       // 3. Let any in-flight server APPEND finish so it self-tombstones its new UID and
       //    getServerDraftId() returns the final coordinates. Usually resolves instantly.
       await Promise.race([waitForSave(), new Promise<void>((r) => setTimeout(r, 2000))]);
+      // Large APPEND still uploading past the 2s cap: persist its Message-ID to
+      // the kill-list before this window closes (see handleSend for rationale).
+      await killInFlightServerAppend(accountId).catch(() => {});
       const serverDraftId = getServerDraftId(); // IMAP UID-based (or null)
       // If saveServer() was in-flight and pre-tombstoned its UID (local DB already
       // cleaned) but never EXPUNGEd the server, capture it here so we still EXPUNGE.

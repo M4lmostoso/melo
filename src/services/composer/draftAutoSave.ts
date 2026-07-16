@@ -33,6 +33,16 @@ let isImap = false;
 // Composer reads this after waitForSave() and schedules the server EXPUNGE.
 let preTombstonedDraftId: string | null = null;
 
+// RFC Message-ID of the raw an in-flight saveServer() is currently APPENDing.
+// Set right before the network call, cleared when it settles. Needed because a
+// large APPEND (big attachments) outlives both the composer's 2s waitForSave cap
+// and the undo window: the composer window closes with the promise still pending,
+// but the Rust-side APPEND completes anyway — the copy lands in the server Drafts
+// folder with no tombstone and no kill entry, and the next sync re-imports it as
+// a phantom draft. killInFlightServerAppend() records it in the kill-list while
+// this window is still alive so the sync sweep removes it when it resurfaces.
+let inFlightAppendMsgId: string | null = null;
+
 const LOCAL_DEBOUNCE_MS = 3000;
 const SERVER_DEBOUNCE_MS = 18000; // 18 seconds
 const OPEN_COOLDOWN_MS = 2000;
@@ -253,6 +263,7 @@ async function saveServer(): Promise<void> {
       "@/services/db/draftKillList"
     );
     const appendedMsgId = extractRfcMessageId(raw);
+    inFlightAppendMsgId = appendedMsgId;
 
     let newDraftId: string;
     if (currentSrvId === null) {
@@ -310,6 +321,7 @@ async function saveServer(): Promise<void> {
     console.error("[draftAutoSave] Server save failed:", err);
   } finally {
     isSaveServerInFlight = false;
+    inFlightAppendMsgId = null;
   }
 }
 
@@ -529,6 +541,31 @@ export function startDiscard(): void {
  */
 export async function waitForSave(): Promise<void> {
   if (serverSavePromise) await serverSavePromise;
+}
+
+/**
+ * If a server APPEND is still in-flight after the capped waitForSave race
+ * (large draft — the upload outlived the 2s cap), record its Message-ID in the
+ * draft kill-list NOW, while this window's JS context is still alive. The window
+ * may close before the APPEND's continuation can pre-tombstone the new UID, but
+ * the Rust-side APPEND completes regardless, leaving an untracked copy in the
+ * server Drafts folder. With the kill entry persisted up-front, sweepKilledDrafts
+ * removes the phantom (locally and from the server at its then-current UID) as
+ * soon as a sync re-imports it.
+ *
+ * Only call after startDiscard(): the entry marks a copy this session has
+ * deliberately doomed. Idempotent with the pre-tombstone path — if the APPEND
+ * completes while this window is still alive, tombstoneImapDraft records the
+ * same Message-ID again (INSERT OR REPLACE). No-op when nothing is in flight.
+ */
+export async function killInFlightServerAppend(accountId: string): Promise<void> {
+  if (!isSaveServerInFlight || !inFlightAppendMsgId) return;
+  try {
+    const { recordDraftKill } = await import("@/services/db/draftKillList");
+    await recordDraftKill(accountId, inFlightAppendMsgId);
+  } catch (err) {
+    console.warn("[draftAutoSave] in-flight append kill record failed:", err);
+  }
 }
 
 /**
