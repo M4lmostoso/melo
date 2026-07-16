@@ -118,7 +118,7 @@ The locale is bundled at build time via a static Vite import — no async loadin
 ## Key Gotchas
 
 - **Tauri SQL plugin config**: `preload` in tauri.conf.json must be an array `["sqlite:melo.db"]` — NOT an object
-- **Tauri capabilities**: Any new plugin needs explicit permissions in `src-tauri/capabilities/default.json`. Windows allow `"main"`, `"splashscreen"`, `"thread-*"` wildcard
+- **Tauri capabilities**: Any new plugin needs explicit permissions in `src-tauri/capabilities/default.json`. Windows allow `"main"`, `"splashscreen"`, and the `"thread-*"`, `"compose-*"`, `"preview-*"` wildcards (attachment previews open in a dedicated `preview-*` window — entry `PreviewWindow.tsx` via `?preview={attachmentDbId}`, Space/Esc closes it; non-Tauri contexts fall back to the in-page modal)
 - **Tauri window config**: macOS uses `titleBarStyle: "Overlay"`, Windows/Linux removes decorations in Rust. 1200x800 default, 800x600 min
 - **Single instance**: `tauri-plugin-single-instance` must be first plugin registered
 - **Minimize-to-tray**: Use `.on_window_event()` on the Builder, not `window.on_window_event()`

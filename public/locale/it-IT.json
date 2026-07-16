@@ -738,7 +738,9 @@
       "attachment": "Allegato",
       "itemHint": "Clic per selezionare · Spazio per l'anteprima · doppio clic per aprire · trascina in una cartella",
       "preparing": "Preparazione per il trascinamento…",
-      "readyToDrag": "Pronto — trascina in una cartella"
+      "readyToDrag": "Pronto — trascina in una cartella",
+      "previewNotFound": "Allegato non trovato",
+      "previewLoadFailed": "Impossibile caricare l’anteprima"
     },
     "authWarning": {
       "failedAuthentication": "Autenticazione fallita",

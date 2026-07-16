@@ -22,6 +22,7 @@ import { navigateToLabel } from "@/router/navigate";
 import { useMultiSelect } from "@/hooks/useMultiSelect";
 import { useDragOut } from "@/hooks/useDragOut";
 import { toAttachmentRef, openAttachmentWithDefaultApp } from "@/services/attachments/attachmentActions";
+import { openAttachmentPreviewWindow } from "@/services/attachments/previewWindow";
 
 type TypeFilter = "all" | "images" | "pdfs" | "documents" | "spreadsheets" | "archives" | "other";
 type DateFilter = "all" | "today" | "week" | "month" | "year";
@@ -415,7 +416,7 @@ export function AttachmentLibrary() {
                 onItemMouseDown={(e) => drag.onItemMouseDown(att.id, e)}
                 onItemDragStart={(e) => drag.onItemDragStart(att.id, e)}
                 onItemPointerEnter={() => drag.onItemPointerEnter(att.id)}
-                onPreview={() => setPreviewAttachment(att)}
+                onPreview={() => { if (!openAttachmentPreviewWindow(att)) setPreviewAttachment(att); }}
                 onDownload={() => handleDownload(att)}
                 onJumpToEmail={() => handleJumpToEmail(att)}
               />
@@ -437,7 +438,7 @@ export function AttachmentLibrary() {
                 onItemMouseDown={(e) => drag.onItemMouseDown(att.id, e)}
                 onItemDragStart={(e) => drag.onItemDragStart(att.id, e)}
                 onItemPointerEnter={() => drag.onItemPointerEnter(att.id)}
-                onPreview={() => setPreviewAttachment(att)}
+                onPreview={() => { if (!openAttachmentPreviewWindow(att)) setPreviewAttachment(att); }}
                 onDownload={() => handleDownload(att)}
                 onJumpToEmail={() => handleJumpToEmail(att)}
               />

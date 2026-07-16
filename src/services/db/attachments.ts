@@ -160,3 +160,12 @@ export async function getAttachmentsForMessage(
     [accountId, messageId],
   );
 }
+
+export async function getAttachmentById(id: string): Promise<DbAttachment | null> {
+  const db = await getDb();
+  const rows = await db.select<DbAttachment[]>(
+    "SELECT * FROM attachments WHERE id = $1 LIMIT 1",
+    [id],
+  );
+  return rows[0] ?? null;
+}

@@ -6,7 +6,8 @@
     "main",
     "splashscreen",
     "thread-*",
-    "compose-*"
+    "compose-*",
+    "preview-*"
   ],
   "permissions": [
     "core:default",

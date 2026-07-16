@@ -138,6 +138,23 @@ describe("AttachmentList", () => {
     });
   });
 
+  it("opens a dedicated preview window (no modal) when a Tauri context is present", async () => {
+    (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {};
+    try {
+      render(<AttachmentList attachments={[makeAttachment()]} />);
+
+      fireEvent.keyDown(screen.getByText("photo.png"), { key: " " });
+
+      // The preview is handed to the preview-* WebviewWindow: the in-page
+      // modal must not open, so nothing is materialized in this window.
+      await new Promise((r) => setTimeout(r, 0));
+      expect(screen.queryByText("Download")).not.toBeInTheDocument();
+      expect(materializeAttachment).not.toHaveBeenCalled();
+    } finally {
+      delete (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__;
+    }
+  });
+
   it("materializes IMAP part ids through the same cache path", async () => {
     render(
       <AttachmentList

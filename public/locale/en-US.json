@@ -738,7 +738,9 @@
       "attachment": "Attachment",
       "itemHint": "Click to select · Space to preview · double-click to open · drag to a folder",
       "preparing": "Preparing for drag…",
-      "readyToDrag": "Ready — drag to a folder"
+      "readyToDrag": "Ready — drag to a folder",
+      "previewNotFound": "Attachment not found",
+      "previewLoadFailed": "Failed to load preview"
     },
     "authWarning": {
       "failedAuthentication": "Authentication failed",

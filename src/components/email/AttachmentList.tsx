@@ -10,6 +10,7 @@ import { OfficeDocPreview } from "@/components/ui/OfficeDocPreview";
 import { useMultiSelect } from "@/hooks/useMultiSelect";
 import { useDragOut } from "@/hooks/useDragOut";
 import { toAttachmentRef, openAttachmentWithDefaultApp, downloadAttachmentsToFolder, materializeAttachment } from "@/services/attachments/attachmentActions";
+import { openAttachmentPreviewWindow } from "@/services/attachments/previewWindow";
 import { ContextMenu, type ContextMenuItem } from "@/components/ui/ContextMenu";
 
 /** Dedup attachments by filename+size (content-based) */
@@ -57,7 +58,9 @@ export function AttachmentList({ attachments, referencedCids }: AttachmentListPr
   const handleKeyDown = (e: React.KeyboardEvent, att: DbAttachment) => {
     if (e.key === " ") {
       e.preventDefault();
-      setPreview(att);
+      // Dedicated preview window in Tauri; in-page modal fallback elsewhere
+      // (tests / browser dev).
+      if (!openAttachmentPreviewWindow(att)) setPreview(att);
     } else if (e.key === "Enter") {
       e.preventDefault();
       openAttachmentWithDefaultApp(toAttachmentRef(att)).catch((err) => console.error("Open attachment failed:", err));
@@ -243,9 +246,17 @@ export function AttachmentList({ attachments, referencedCids }: AttachmentListPr
 export function AttachmentPreview({
   attachment,
   onClose,
+  windowed = false,
 }: {
   attachment: DbAttachment;
   onClose: () => void;
+  /**
+   * true when rendered as the content of a dedicated preview WebviewWindow
+   * (PreviewWindow.tsx): no Modal shell, content fills the window, and the
+   * keyboard (Space/Esc closes the window) is owned by the window entry —
+   * not by this component.
+   */
+  windowed?: boolean;
 }) {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -376,7 +387,10 @@ export function AttachmentPreview({
   // attachment item keeps focus while the preview is open, so the *same* Space
   // press that opened it (and its auto-repeats) would otherwise close it
   // instantly. Arm only after the opening key is released, and ignore repeats.
+  // Windowed mode: PreviewWindow owns the keyboard (the opening keypress
+  // happened in another window), so this toggle must not run there.
   useEffect(() => {
+    if (windowed) return;
     const onKeyUp = (e: KeyboardEvent) => {
       if (e.key === " ") spaceArmedRef.current = true;
     };
@@ -450,6 +464,54 @@ export function AttachmentPreview({
     </div>
   );
 
+  const content = (
+    /* Allow native right-click in preview (save image, copy, etc.) */
+    <div className="flex-1 overflow-auto min-h-[200px] flex items-center justify-center p-4" data-native-context-menu>
+      {loading && (
+        <p className="text-sm text-text-tertiary">{t("email.attachmentList.loadingPreview")}</p>
+      )}
+      {error && (
+        <p className="text-sm text-text-tertiary">{error}</p>
+      )}
+      {!loading && !error && blobUrl && isImage(attachment.mime_type) && (
+        <img
+          src={blobUrl}
+          alt={attachment.filename ?? "Attachment"}
+          className={`max-w-full object-contain rounded ${windowed ? "max-h-full" : "max-h-[70vh]"}`}
+        />
+      )}
+      {!loading && !error && blobUrl && isPdf(attachment.mime_type, attachment.filename) && (
+        <iframe
+          src={blobUrl}
+          title={attachment.filename ?? "PDF preview"}
+          className={`w-full border-0 rounded ${windowed ? "h-full" : "h-[70vh]"}`}
+        />
+      )}
+      {!loading && !error && blobUrl && isText(attachment.mime_type) && (
+        <TextPreview url={blobUrl} fill={windowed} />
+      )}
+      {!loading && !error && previewBytes && (
+        <OfficeDocPreview bytes={previewBytes} mimeType={attachment.mime_type} filename={attachment.filename ?? null} />
+      )}
+      {!isPreviewable && !loading && (
+        <div className="flex flex-col items-center gap-3 text-text-tertiary">
+          <Eye size={40} strokeWidth={1} />
+          <p className="text-sm">{t("email.attachmentList.previewNotAvailable")}</p>
+          <p className="text-xs">{attachment.mime_type ?? t("email.attachmentList.unknownType")}</p>
+        </div>
+      )}
+    </div>
+  );
+
+  if (windowed) {
+    return (
+      <div className="flex flex-col h-full min-h-0 bg-bg-primary">
+        {header}
+        {content}
+      </div>
+    );
+  }
+
   return (
     <Modal
       isOpen={true}
@@ -459,47 +521,12 @@ export function AttachmentPreview({
       panelClassName="max-w-[90vw] max-h-[85vh] flex flex-col"
       renderHeader={header}
     >
-      {/* Allow native right-click in preview (save image, copy, etc.) */}
-      <div className="flex-1 overflow-auto min-h-[200px] flex items-center justify-center p-4" data-native-context-menu>
-        {loading && (
-          <p className="text-sm text-text-tertiary">{t("email.attachmentList.loadingPreview")}</p>
-        )}
-        {error && (
-          <p className="text-sm text-text-tertiary">{error}</p>
-        )}
-        {!loading && !error && blobUrl && isImage(attachment.mime_type) && (
-          <img
-            src={blobUrl}
-            alt={attachment.filename ?? "Attachment"}
-            className="max-w-full max-h-[70vh] object-contain rounded"
-          />
-        )}
-        {!loading && !error && blobUrl && isPdf(attachment.mime_type, attachment.filename) && (
-          <iframe
-            src={blobUrl}
-            title={attachment.filename ?? "PDF preview"}
-            className="w-full h-[70vh] border-0 rounded"
-          />
-        )}
-        {!loading && !error && blobUrl && isText(attachment.mime_type) && (
-          <TextPreview url={blobUrl} />
-        )}
-        {!loading && !error && previewBytes && (
-          <OfficeDocPreview bytes={previewBytes} mimeType={attachment.mime_type} filename={attachment.filename ?? null} />
-        )}
-        {!isPreviewable && !loading && (
-          <div className="flex flex-col items-center gap-3 text-text-tertiary">
-            <Eye size={40} strokeWidth={1} />
-            <p className="text-sm">{t("email.attachmentList.previewNotAvailable")}</p>
-            <p className="text-xs">{attachment.mime_type ?? t("email.attachmentList.unknownType")}</p>
-          </div>
-        )}
-      </div>
+      {content}
     </Modal>
   );
 }
 
-function TextPreview({ url }: { url: string }) {
+function TextPreview({ url, fill = false }: { url: string; fill?: boolean }) {
   const [text, setText] = useState<string | null>(null);
 
   useEffect(() => {
@@ -507,7 +534,7 @@ function TextPreview({ url }: { url: string }) {
   }, [url]);
 
   return (
-    <pre className="text-xs text-text-secondary whitespace-pre-wrap font-mono w-full max-h-[70vh] overflow-auto bg-bg-tertiary rounded p-4">
+    <pre className={`text-xs text-text-secondary whitespace-pre-wrap font-mono w-full overflow-auto bg-bg-tertiary rounded p-4 ${fill ? "max-h-full self-stretch" : "max-h-[70vh]"}`}>
       {text ?? "Loading..."}
     </pre>
   );
