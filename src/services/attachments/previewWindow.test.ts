@@ -28,9 +28,6 @@ const makeAttachment = (overrides: Partial<DbAttachment> = {}): DbAttachment => 
   ...overrides,
 });
 
-// Flush the fire-and-forget async window creation inside the helper.
-const flush = () => new Promise((r) => setTimeout(r, 0));
-
 describe("openAttachmentPreviewWindow", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -50,9 +47,10 @@ describe("openAttachmentPreviewWindow", () => {
     (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {};
 
     expect(openAttachmentPreviewWindow(makeAttachment())).toBe(true);
-    await flush();
 
-    expect(ctor).toHaveBeenCalledTimes(1);
+    // The helper creates the window fire-and-forget, starting with a dynamic
+    // import — poll instead of a single-tick flush so slow CI runners pass.
+    await vi.waitFor(() => expect(ctor).toHaveBeenCalledTimes(1));
     const [label, opts] = ctor.mock.calls[0] as [string, { url: string; title: string }];
     // Label sanitized to Tauri's allowed charset; URL carries the raw id.
     expect(label).toBe("preview-msg-1:att_1");
@@ -66,9 +64,8 @@ describe("openAttachmentPreviewWindow", () => {
     getByLabel.mockResolvedValue({ setFocus });
 
     expect(openAttachmentPreviewWindow(makeAttachment())).toBe(true);
-    await flush();
 
-    expect(setFocus).toHaveBeenCalled();
+    await vi.waitFor(() => expect(setFocus).toHaveBeenCalled());
     expect(ctor).not.toHaveBeenCalled();
   });
 });
