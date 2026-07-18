@@ -23,6 +23,8 @@ import {
   retryFailedOperations,
   enqueueUndoSend,
   updateOperationParams,
+  patchOperationParams,
+  cancelUndoOperation,
   claimUndoOperation,
   promoteExpiredUndoOperations,
 } from "./pendingOperations";
@@ -151,6 +153,27 @@ describe("pendingOperations DB service", () => {
         expect.stringContaining("SET params = $1"),
         [JSON.stringify({ rawBase64Url: "abc", cleanupDraftId: "d1" }), "op-1"],
       );
+    });
+
+    it("patchOperationParams merges keys via json_patch without rewriting the payload", async () => {
+      await patchOperationParams("op-1", { cleanupDraftId: "d1" });
+      expect(mockDb.execute).toHaveBeenCalledWith(
+        expect.stringContaining("json_patch(params, $1)"),
+        [JSON.stringify({ cleanupDraftId: "d1" }), "op-1"],
+      );
+    });
+
+    it("cancelUndoOperation deletes only rows still in status undo", async () => {
+      mockDb.execute.mockResolvedValueOnce({ rowsAffected: 1 } as never);
+      await expect(cancelUndoOperation("op-1")).resolves.toBe(true);
+      const call = vi.mocked(mockDb.execute).mock.calls[0]!;
+      expect(String(call[0])).toContain("DELETE FROM pending_operations");
+      expect(String(call[0])).toContain("status = 'undo'");
+    });
+
+    it("cancelUndoOperation returns false when the send was already claimed", async () => {
+      mockDb.execute.mockResolvedValueOnce({ rowsAffected: 0 } as never);
+      await expect(cancelUndoOperation("op-1")).resolves.toBe(false);
     });
 
     it("claimUndoOperation returns true when the CAS update wins", async () => {

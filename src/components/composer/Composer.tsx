@@ -42,7 +42,7 @@ import { upsertContact } from "@/services/db/contacts";
 import { getSetting } from "@/services/db/settings";
 import {
   enqueueUndoSend,
-  updateOperationParams,
+  patchOperationParams,
   updateOperationStatus,
   deleteOperation,
 } from "@/services/db/pendingOperations";
@@ -582,6 +582,13 @@ const getFullHtml = useCallback(() => {
     const delaySetting = await getSetting("undo_send_delay_seconds");
     const delay = parseInt(delaySetting ?? "5", 10) * 1000;
 
+    // Stop the autosave debounce timers NOW, before the undo-send persist below.
+    // For attachment-heavy mail that persist pushes many MB through the SQL
+    // plugin and can take long enough for the 18s server-autosave debounce to
+    // fire mid-send — APPENDing a fresh draft copy that outlives the composer
+    // and resurfaces as a phantom draft next to the sent message.
+    startDiscard();
+
     // Persist the outgoing email to SQLite BEFORE tombstoning the draft. From this
     // point on, a composer-window close / app quit / crash during the undo window can
     // never lose the message: the row is promoted to 'pending' and sent by the queue
@@ -600,12 +607,10 @@ const getFullHtml = useCallback(() => {
     }
     state.setUndoSendOpId(undoOpId);
 
-    // Use startDiscard+waitForSave (not stopAutoSave) so any in-flight IMAP autosave
-    // completes before we capture currentDraftId — stopAutoSave nullifies savePromise,
-    // causing waitForSave to return early and leaving the new UID uncleaned.
-    // Cap at 2s: if the IMAP save is still running, startDiscard() already set
-    // isDiscarding=true so the save will tombstone itself on completion.
-    startDiscard();
+    // Wait for any in-flight IMAP autosave (startDiscard above set isDiscarding,
+    // so stopAutoSave-style early return can't leave the new UID uncleaned).
+    // Cap at 2s: if the IMAP save is still running, isDiscarding=true makes the
+    // save tombstone itself on completion.
     await Promise.race([waitForSave(), new Promise<void>((r) => setTimeout(r, 2000))]);
     // If a large server APPEND outlived the 2s cap it is still uploading — this
     // window will close before its continuation can tombstone the new UID, but the
@@ -624,11 +629,11 @@ const getFullHtml = useCallback(() => {
 
     // Carry the draft-cleanup hints on the persisted row so a send executed by the
     // queue processor (composer died mid-undo) or retried after a failure still
-    // removes the draft instead of leaving it stranded.
+    // removes the draft instead of leaving it stranded. json_patch: the raw is
+    // already in the row from enqueueUndoSend — re-writing it here pushed the
+    // full MIME payload (MBs with attachments) through IPC a second time.
     if (undoOpId) {
-      await updateOperationParams(undoOpId, {
-        rawBase64Url: raw,
-        threadId: state.threadId ?? undefined,
+      await patchOperationParams(undoOpId, {
         cleanupDraftId: currentDraftId ?? preTombstonedDraftId ?? undefined,
         cleanupLocalDraftId: state.localDraftId ?? undefined,
       }).catch((err) => console.error("[Composer] Failed to update undo-send params:", err));
@@ -651,11 +656,16 @@ const getFullHtml = useCallback(() => {
       timerId: null,
     });
 
+    state.setUndoSendDelaySeconds(Math.round(delay / 1000));
     state.setUndoSendVisible(true);
     const timer = setTimeout(() => {
       void (async () => {
         useOutgoingStore.getState().updateStatus(outgoingId, "sending");
         useComposerStore.getState().setUndoSendVisible(false);
+        // Let the toast actually disappear from screen before the emit below:
+        // serializing a large raw across IPC blocks this thread for seconds, and
+        // a still-painted toast invites an Undo click that can no longer work.
+        await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
 
         // Hand off the actual SMTP send to the main window via Tauri event.
         // The main window's JS context is persistent — it handles SMTP, draft

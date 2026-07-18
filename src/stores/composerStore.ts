@@ -31,6 +31,8 @@ export interface ComposerState {
   undoSendVisible: boolean;
   /** pending_operations row (status 'undo') persisting the outgoing email during the undo window. */
   undoSendOpId: string | null;
+  /** Actual undo window length (settings-driven) so the toast countdown bar matches reality. */
+  undoSendDelaySeconds: number;
   attachments: ComposerAttachment[];
   /** Local DB message ID of the message being forwarded — used to lazy-fetch its attachments inside the composer window. */
   forwardSourceMessageId: string | null;
@@ -74,6 +76,7 @@ export interface ComposerState {
   setUndoSendTimer: (timer: ReturnType<typeof setTimeout> | null) => void;
   setUndoSendVisible: (visible: boolean) => void;
   setUndoSendOpId: (id: string | null) => void;
+  setUndoSendDelaySeconds: (seconds: number) => void;
   addAttachment: (attachment: ComposerAttachment) => void;
   removeAttachment: (id: string) => void;
   clearAttachments: () => void;
@@ -108,6 +111,7 @@ export const useComposerStore = create<ComposerState>()((set) => ({
   undoSendTimer: null,
   undoSendVisible: false,
   undoSendOpId: null,
+  undoSendDelaySeconds: 5,
   attachments: [],
   forwardSourceMessageId: null,
   viewMode: "modal",
@@ -258,6 +262,7 @@ openComposer: (opts) => {
   setUndoSendTimer: (undoSendTimer) => set({ undoSendTimer }),
   setUndoSendVisible: (undoSendVisible) => set({ undoSendVisible }),
   setUndoSendOpId: (undoSendOpId) => set({ undoSendOpId }),
+  setUndoSendDelaySeconds: (undoSendDelaySeconds) => set({ undoSendDelaySeconds }),
   addAttachment: (attachment) =>
     set((state) => ({ attachments: [...state.attachments, attachment] })),
   removeAttachment: (id) =>

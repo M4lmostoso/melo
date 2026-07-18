@@ -813,7 +813,8 @@
     },
     "undoSend": {
       "sending": "Invio email...",
-      "undo": "Annulla"
+      "undo": "Annulla",
+      "tooLate": "Troppo tardi — l'email è già in uscita"
     },
     "attachmentPicker": {
       "attachFiles": "Allega file",

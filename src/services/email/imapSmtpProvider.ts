@@ -1002,7 +1002,10 @@ export class ImapSmtpProvider implements EmailProvider {
     // Strip angle brackets to match the format stored by Rust's mail-parser during
     // IMAP sync. Otherwise existing_rfc_ids lookups fail and the same message gets
     // re-imported into a new placeholder thread, splitting the conversation.
-    const stripBrackets = (v: string | null) => v?.replace(/^<|>$/g, "") ?? null;
+    // Strip ALL leading/trailing brackets (like Rust's normalize_message_id) —
+    // a malformed "<id>>" must collapse to "id", or sync dedup fails on mismatch.
+    const stripBrackets = (v: string | null) =>
+      v?.trim().replace(/^<+/, "").replace(/>+$/, "").trim() ?? null;
     const messageIdHeader = stripBrackets(headers.get("message-id") ?? null);
     const inReplyTo = stripBrackets(headers.get("in-reply-to") ?? null);
     const references = headers.get("references") ?? null;
@@ -1134,7 +1137,10 @@ export class ImapSmtpProvider implements EmailProvider {
     const cc = headers.get("cc") ?? null;
     const subject = headers.get("subject") ?? null;
     // Strip angle brackets to match the format stored by Rust's mail-parser during IMAP sync.
-    const stripBrackets = (v: string | null) => v?.replace(/^<|>$/g, "") ?? null;
+    // Strip ALL leading/trailing brackets (like Rust's normalize_message_id) —
+    // a malformed "<id>>" must collapse to "id", or sync dedup fails on mismatch.
+    const stripBrackets = (v: string | null) =>
+      v?.trim().replace(/^<+/, "").replace(/>+$/, "").trim() ?? null;
     const messageIdHeader = stripBrackets(headers.get("message-id") ?? null);
     const inReplyTo = stripBrackets(headers.get("in-reply-to") ?? null);
     const references = headers.get("references") ?? null;

@@ -39,6 +39,21 @@ describe("emailBuilder", () => {
     expect(decoded).toMatch(/Message-ID: <.+@example\.com>/);
   });
 
+  it("builds a well-formed Message-ID when From has a display name", () => {
+    const raw = buildRawEmail({
+      from: "Mario Rossi <sender@example.com>",
+      to: ["to@example.com"],
+      subject: "Test",
+      htmlBody: "<p>Hi</p>",
+    });
+
+    const decoded = decodeBase64Url(raw);
+    const msgId = decoded.match(/^Message-ID: (.+)$/m)?.[1];
+    // The domain must come from the addr-spec, not the raw mailbox — a
+    // "<id@example.com>>" double bracket defeats sent-message dedup.
+    expect(msgId).toMatch(/^<[^<>]+@example\.com>$/);
+  });
+
   it("includes CC and BCC headers", () => {
     const raw = buildRawEmail({
       from: "sender@example.com",

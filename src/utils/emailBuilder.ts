@@ -93,7 +93,11 @@ function extractInlineImages(html: string): { html: string; images: InlineImage[
 function generateMessageId(from: string): string {
   const timestamp = Date.now();
   const random = Math.random().toString(36).slice(2, 10);
-  const domain = from.includes("@") ? from.split("@")[1] : "melomail.local";
+  // `from` may be a full mailbox ("Name <addr@domain>") — extract the addr-spec
+  // first, or the domain captures the closing ">" and every outgoing Message-ID
+  // becomes "<id@domain>>" (double bracket), defeating sent-message dedup.
+  const addr = from.match(/<([^>]+)>/)?.[1] ?? from;
+  const domain = addr.includes("@") ? addr.split("@")[1]!.trim() : "melomail.local";
   return `<${timestamp}.${random}@${domain}>`;
 }
 

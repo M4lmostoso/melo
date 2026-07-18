@@ -70,6 +70,38 @@ export async function updateOperationParams(
 }
 
 /**
+ * Merge additional keys into an operation's params without rewriting the whole
+ * payload. For undo-send rows the params carry the full raw email (many MB for
+ * attachment-heavy mail) — re-sending it over IPC just to add cleanup hints
+ * froze the composer for seconds. json_patch touches only the given keys.
+ */
+export async function patchOperationParams(
+  id: string,
+  patch: Record<string, unknown>,
+): Promise<void> {
+  const db = await getDb();
+  await db.execute(
+    `UPDATE pending_operations SET params = json_patch(params, $1) WHERE id = $2`,
+    [JSON.stringify(patch), id],
+  );
+}
+
+/**
+ * Cancel an undo-send: delete the row ONLY while it still sits in status 'undo'.
+ * Returns false when the row was already claimed/promoted (the send is in
+ * flight or done) — deleting it then would break the anti-loss invariant and
+ * silently lie to the user about the send being cancelled.
+ */
+export async function cancelUndoOperation(id: string): Promise<boolean> {
+  const db = await getDb();
+  const result = await db.execute(
+    `DELETE FROM pending_operations WHERE id = $1 AND status = 'undo'`,
+    [id],
+  );
+  return result.rowsAffected > 0;
+}
+
+/**
  * Compare-and-swap claim of an undo-send row. Returns true when this caller now
  * owns the send. Returns false when another owner (the queue processor, after
  * promotion) already took it — the caller must NOT send, or the mail goes out twice.
