@@ -176,6 +176,53 @@ export function buildReplyAllRecipients(opts: {
 }
 
 /**
+ * Build the To recipient list for a single-sender "reply".
+ *
+ * Normally the reply goes back to the message's sender (`reply_to ?? from`).
+ * But when replying to a message the user themselves sent (e.g. opened from the
+ * Sent folder), replying to the sender would just email yourself — so instead
+ * the reply targets the message's original recipients (its To header), matching
+ * Gmail / Apple Mail behaviour. Self addresses are excluded and results are
+ * de-duplicated by email. Uses {@link parseAddressList} so display names with
+ * unquoted commas stay intact.
+ */
+export function buildReplyRecipients(opts: {
+  replyTo: string | null | undefined;
+  fromAddress: string | null | undefined;
+  toHeader: string | null | undefined;
+  selfEmails: Iterable<string>;
+}): { to: string[] } {
+  const self = new Set<string>();
+  for (const e of opts.selfEmails) {
+    const n = normalizeEmail(e);
+    if (n) self.add(n);
+  }
+
+  const fromKey = normalizeEmail(opts.fromAddress);
+  const sentBySelf = !!fromKey && self.has(fromKey);
+
+  if (!sentBySelf) {
+    // Normal reply — back to the sender.
+    const replyTo = opts.replyTo ?? opts.fromAddress;
+    return { to: replyTo ? [replyTo] : [] };
+  }
+
+  // Reply to a message I sent — continue the conversation with the original
+  // recipients, not myself.
+  const format = (addr: ParsedAddress): string =>
+    addr.name ? `${addr.name} <${addr.email}>` : addr.email;
+  const seen = new Set<string>();
+  const to: string[] = [];
+  for (const addr of parseAddressList(opts.toHeader)) {
+    const key = normalizeEmail(addr.email);
+    if (!key || self.has(key) || seen.has(key)) continue;
+    seen.add(key);
+    to.push(format(addr));
+  }
+  return { to };
+}
+
+/**
  * Resolve the best display label for a recipient, using the priority:
  * 1) stored contact name (DB), 2) name associated with the email in the header,
  * 3) the raw email address.

@@ -9,7 +9,7 @@ import { useComposerStore } from "@/stores/composerStore";
 import { useUIStore } from "@/stores/uiStore";
 import { sendEmail, archiveThread } from "@/services/emailActions";
 import { buildRawEmail } from "@/utils/emailBuilder";
-import { buildReplyAllRecipients } from "@/utils/emailUtils";
+import { buildReplyAllRecipients, buildReplyRecipients } from "@/utils/emailUtils";
 import { upsertContact } from "@/services/db/contacts";
 import { getSetting } from "@/services/db/settings";
 import { getDefaultSignature } from "@/services/db/signatures";
@@ -148,9 +148,17 @@ export function InlineReply({ thread, messages, accountId, noReply, onSent, onFo
     if (mode === "forward") return { to: [], cc: [] };
 
     const replyTo = lastMessage.reply_to ?? lastMessage.from_address;
+    const selfEmails = accounts.map((a) => a.email);
 
     if (mode === "reply") {
-      return { to: replyTo ? [replyTo] : [], cc: [] };
+      // Replying to a message I sent targets its original recipients, not me.
+      const { to } = buildReplyRecipients({
+        replyTo,
+        fromAddress: lastMessage.from_address,
+        toHeader: lastMessage.to_addresses,
+        selfEmails,
+      });
+      return { to, cc: [] };
     }
 
     // replyAll — parse address-list headers (not a naive split) so display
@@ -159,9 +167,9 @@ export function InlineReply({ thread, messages, accountId, noReply, onSent, onFo
       replyTo,
       toHeader: lastMessage.to_addresses,
       ccHeader: lastMessage.cc_addresses,
-      selfEmails: activeAccount?.email ? [activeAccount.email] : [],
+      selfEmails,
     });
-  }, [lastMessage, mode, activeAccount?.email]);
+  }, [lastMessage, mode, accounts]);
 
   const getSubject = useCallback((): string => {
     const sub = lastMessage?.subject ?? thread.subject ?? "";

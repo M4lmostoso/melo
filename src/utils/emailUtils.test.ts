@@ -1,5 +1,6 @@
 import {
   buildReplyAllRecipients,
+  buildReplyRecipients,
   normalizeEmail,
   parseAddressList,
   resolveRecipientLabel,
@@ -138,6 +139,68 @@ describe("buildReplyAllRecipients", () => {
       selfEmails: [],
     });
     expect(to).toEqual(["Jane Doe <jane@x.com>"]);
+  });
+});
+
+describe("buildReplyRecipients", () => {
+  it("replies to the sender for a message from someone else", () => {
+    const { to } = buildReplyRecipients({
+      replyTo: null,
+      fromAddress: "sender@x.com",
+      toHeader: "me@gmail.com",
+      selfEmails: ["me@gmail.com"],
+    });
+    expect(to).toEqual(["sender@x.com"]);
+  });
+
+  it("prefers reply-to over from for a normal reply", () => {
+    const { to } = buildReplyRecipients({
+      replyTo: "list@x.com",
+      fromAddress: "sender@x.com",
+      toHeader: "me@gmail.com",
+      selfEmails: ["me@gmail.com"],
+    });
+    expect(to).toEqual(["list@x.com"]);
+  });
+
+  it("targets the original recipients when replying to a message I sent", () => {
+    const { to } = buildReplyRecipients({
+      replyTo: null,
+      fromAddress: "ME@gmail.com",
+      toHeader: "Ann <ann@y.com>, carl@z.com",
+      selfEmails: ["me@gmail.com"],
+    });
+    expect(to).toEqual(["Ann <ann@y.com>", "carl@z.com"]);
+  });
+
+  it("excludes self and de-dupes when replying to my own message", () => {
+    const { to } = buildReplyRecipients({
+      replyTo: null,
+      fromAddress: "me@gmail.com",
+      toHeader: "ann@y.com, me@gmail.com, Ann <ann@y.com>",
+      selfEmails: ["me@gmail.com"],
+    });
+    expect(to).toEqual(["ann@y.com"]);
+  });
+
+  it("keeps 'Lastname, Firstname <email>' intact for a self-sent reply", () => {
+    const { to } = buildReplyRecipients({
+      replyTo: null,
+      fromAddress: "me@gmail.com",
+      toHeader: "Chevalier, Francois <francois.chevalier@suez.com>",
+      selfEmails: ["me@gmail.com"],
+    });
+    expect(to).toEqual(["Chevalier, Francois <francois.chevalier@suez.com>"]);
+  });
+
+  it("returns an empty To when a self-sent message has no other recipients", () => {
+    const { to } = buildReplyRecipients({
+      replyTo: null,
+      fromAddress: "me@gmail.com",
+      toHeader: "me@gmail.com",
+      selfEmails: ["me@gmail.com"],
+    });
+    expect(to).toEqual([]);
   });
 });
 

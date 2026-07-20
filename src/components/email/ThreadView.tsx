@@ -16,7 +16,7 @@ import { markThreadRead, deleteSingleMessage } from "@/services/emailActions";
 import { useActiveLabel } from "@/hooks/useRouteNavigation";
 import { getSetting } from "@/services/db/settings";
 import { getAllowlistedSenders } from "@/services/db/imageAllowlist";
-import { normalizeEmail, buildReplyAllRecipients } from "@/utils/emailUtils";
+import { normalizeEmail, buildReplyAllRecipients, buildReplyRecipients } from "@/utils/emailUtils";
 import { VolumeX, LockKeyhole } from "lucide-react";
 import { escapeHtml, sanitizeHtml } from "@/utils/sanitize";
 import { restoreRemoteImages } from "@/utils/imageBlocker";
@@ -193,7 +193,13 @@ export function ThreadView({ thread }: ThreadViewProps) {
   const handleReply = useCallback(async (msgOverride?: DbMessage) => {
     const msg = msgOverride ?? selectedMessage;
     if (!msg) return;
-    const replyTo = msg.reply_to ?? msg.from_address;
+    // Replying to a message I sent targets its original recipients, not me.
+    const { to: replyToList } = buildReplyRecipients({
+      replyTo: msg.reply_to,
+      fromAddress: msg.from_address,
+      toHeader: msg.to_addresses,
+      selfEmails: accounts.map((a) => a.email),
+    });
     const msgIndex = messages.findIndex(m => m.id === msg.id);
     const quotedMessages = msgIndex >= 0 ? messages.slice(0, msgIndex + 1) : messages;
     const rfcMsgId = msg.message_id_header ?? null;
@@ -202,7 +208,7 @@ export function ThreadView({ thread }: ThreadViewProps) {
       : null;
     openComposer({
       mode: "reply",
-      to: replyTo ? [replyTo] : [],
+      to: replyToList,
       subject: `Re: ${msg.subject ?? ""}`,
       quotedHtml: buildThreadQuote(quotedMessages),
       threadId: msg.thread_id,
@@ -210,7 +216,7 @@ export function ThreadView({ thread }: ThreadViewProps) {
       references: refs,
       accountId: thread.accountId,
     });
-  }, [selectedMessage, openComposer, messages, thread.accountId]);
+  }, [selectedMessage, openComposer, messages, thread.accountId, accounts]);
 
   const handleReplyAll = useCallback(async (msgOverride?: DbMessage) => {
     const msg = msgOverride ?? selectedMessage;
