@@ -253,4 +253,91 @@ describe("transformHtml — quote collapsing", () => {
     expect(fwBlocks(out)).toBe(1);
     expect(out).toContain("Mirko Landenna");
   });
+
+  it("boxes an attribution <p> preceded by an Outlook spacer <p> (Case 4 must not bridge </p>)", () => {
+    // The spacer paragraph is shorter than the {15,…} minimum, so an untempered lazy
+    // quantifier ran past its own </p> and swallowed the attribution paragraph — the
+    // merged inner tripped the nested-block guard and the fw-blk was never built.
+    const html =
+      "<p>Ti confermo il bonifico</p>" +
+      '<p class="MsoNormal" style="margin-bottom:12.0pt">&nbsp;</p>' +
+      '<div style="border:none;border-left:solid #CCCCCC 1.5pt;padding:0cm 0cm 0cm 9.0pt">' +
+      '<p class="MsoNormal"><span style="color:#666666">On 23/07/2026, 13:19:06, ' +
+      'Studio Legale Dorsa Mazzon &lt;<a href="mailto:s@dorsamazzon.it">s@dorsamazzon.it</a>&gt;' +
+      " wrote:</span></p>" +
+      '<p class="MsoNormal">Ciao Mirko,</p>' +
+      "</div>";
+    const out = transformHtml(html);
+    expect(fwBlocks(out)).toBe(1);
+    expect(out).toContain("Studio Legale Dorsa Mazzon");
+    expect(out).toContain("23/07/2026, 13:19:06");
+    expect(out).not.toContain("wrote:");
+  });
+
+  it("boxes attribution + header run that live as plain-text lines inside ONE text node", () => {
+    // Shape our composer produces when quoting a text-only message: the whole quoted
+    // conversation is a single text node with \n separators, no markup at all.
+    const html =
+      "<p>La mia risposta</p>" +
+      '<div style="border-left:2px solid #ccc;padding-left:12px;color:#666">' +
+      "On 23/07/2026, 15:46:16, Studio Legale &lt;s@dorsamazzon.it&gt; wrote:<br>" +
+      "Ciao Mirko,\nnon è questione di urgenza.\nSimona\n\n" +
+      "Da: Mirko Landenna &lt;m@gmail.com&lt;mailto:m@gmail.com&gt;&gt;\n" +
+      "Inviato: giovedì 23 luglio 2026 13:33\n" +
+      "A: Studio Legale &lt;s@dorsamazzon.it&gt;\n" +
+      "Oggetto: Re: Pignoramento\n\n" +
+      "Ciao Simona,\n\n" +
+      "On 23/07/2026, 13:19:06, Studio Legale &lt;s@dorsamazzon.it" +
+      "&lt;mailto:s@dorsamazzon.it&gt;&gt; wrote:\nsalvo mio errore ancora non ho visto l’accredito." +
+      "</div>";
+    const out = transformHtml(html);
+    // Three boxes: the markup attribution + the plain-text header run + the
+    // plain-text attribution that the earlier passes could not reach.
+    expect(fwBlocks(out)).toBe(3);
+    expect(out).toContain("23/07/2026, 13:19:06");
+    expect(out).toContain("giovedì 23 luglio 2026 13:33");
+    expect(out).not.toContain("wrote:");
+    expect(out).not.toContain("Inviato:");
+    expect(out).not.toContain("mailto:m@gmail.com");
+    // Ordinary prose lines survive untouched.
+    expect(out).toContain("non è questione di urgenza.");
+    expect(out).toContain("salvo mio errore ancora non ho visto l’accredito.");
+  });
+
+  it("boxes a plain-text header run with blank lines and hanging values", () => {
+    const html =
+      "<p>Risposta</p>" +
+      "<div>Testo citato\n\nDa:\nStudio Legale Dorsa Mazzon\n\n" +
+      "Inviato:\nlunedì 14 luglio 2026 11:23\n\n" +
+      "Oggetto:\nRe: Pignoramento\n\nCorpo del messaggio citato</div>";
+    const out = transformHtml(html);
+    expect(fwBlocks(out)).toBe(1);
+    expect(out).toContain("Studio Legale Dorsa Mazzon");
+    expect(out).toContain("lunedì 14 luglio 2026 11:23");
+    expect(out).not.toContain("Inviato:");
+    expect(out).toContain("Corpo del messaggio citato");
+  });
+
+  it("leaves a multi-line text node without headers or attributions untouched", () => {
+    const html =
+      "<p>Ciao</p>" +
+      "<div>Prima riga\nSeconda riga: con due punti\nDa domani sono in ferie</div>";
+    const out = transformHtml(html);
+    expect(fwBlocks(out)).toBe(0);
+    expect(out).toContain("Da domani sono in ferie");
+  });
+
+  it("boxes an attribution whose address carries Outlook's <mailto:…> artifact", () => {
+    // Outlook's HTML→text conversion emits "Name <addr@x.it<mailto:addr@x.it>>".
+    const html =
+      "<p>Reply above</p>" +
+      "<p>On 23/07/2026, 13:19:06, Studio Legale &lt;s@dorsamazzon.it" +
+      "&lt;mailto:s@dorsamazzon.it&gt;&gt; wrote:</p>" +
+      "<p>quoted body</p>";
+    const out = transformHtml(html);
+    expect(fwBlocks(out)).toBe(1);
+    expect(out).toContain("Studio Legale");
+    expect(out).not.toContain("mailto:s@dorsamazzon.it");
+    expect(out).not.toContain("wrote:");
+  });
 });

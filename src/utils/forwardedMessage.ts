@@ -200,7 +200,10 @@ const ATTRIB_RE =
   /^(?:on|il|le|am|el|em)\s+(.+),\s+(?:(.+?)\s+<([^>@\s]+@[^>\s]+)>|([^@\s<>]+@[^@\s<>,]+))\s*,?\s*(?:wrote|ha scritto|a [eé]crit|schrieb|escribi[oó]|escreveu)\s*:[ \t]*$/i;
 
 function parseAttribution(text: string): Attribution | null {
-  const m = text.trim().match(ATTRIB_RE);
+  // Outlook's HTML→text conversion appends the link target after the address:
+  // "Name <addr@x.it<mailto:addr@x.it>>". The trailing ">" left over from the inner
+  // angle brackets breaks the sender group, so drop the "<mailto:…>" artifact first.
+  const m = text.trim().replace(/<mailto:[^<>]*>/gi, "").match(ATTRIB_RE);
   if (!m) return null;
   // m[2]+m[3] = Name <email>; m[4] = bare email (no name)
   const email = (m[3] ?? m[4] ?? "").trim();
@@ -659,6 +662,135 @@ function boxReplyAttributions(html: string): string {
   }
 }
 
+// Cheap pre-filter for a text node that may hold a plain-text Outlook header run
+// ("Da: … / Inviato: … / A: …"). Only the From-equivalent key is checked here; the
+// per-line scan does the real validation.
+const PLAIN_HEADER_HINT_RE = /(?:^|\n)[ \t]*(?:from|da|de|von)[ \t]*:/i;
+
+/**
+ * Builds the replacement for one multi-line plain-text node: the attribution lines
+ * ("On … wrote:") and Outlook header runs ("Da:/Inviato:/A:/Oggetto:") inside it become
+ * fw-blk boxes, every other line survives verbatim as text. Returns null when the node
+ * holds nothing to box, so the caller can leave it untouched.
+ */
+function fragmentFromPlainLines(doc: Document, text: string): DocumentFragment | null {
+  const lines = text.split("\n");
+  const frag = doc.createDocumentFragment();
+  let pending: string[] = [];
+  let blocks = 0;
+
+  const flush = () => {
+    if (!pending.length) return;
+    frag.appendChild(doc.createTextNode(pending.join("\n")));
+    pending = [];
+  };
+  const appendBlock = (blockHtml: string) => {
+    const holder = doc.createElement("div");
+    holder.innerHTML = blockHtml;
+    while (holder.firstChild) frag.appendChild(holder.firstChild);
+    blocks++;
+  };
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]!;
+    const trimmed = line.trim();
+
+    // No cap on how many boxes one node may yield: a partial pass would box the first
+    // N headers of a long chain and leave the rest as raw text, which reads as a bug.
+    if (trimmed) {
+      if (WROTE_RE.test(trimmed)) {
+        const attr = parseAttribution(trimmed);
+        if (attr) {
+          flush();
+          appendBlock(buildAttributionBlock(attr));
+          continue;
+        }
+      }
+
+      // Outlook header run: a From-equivalent key followed by more header lines,
+      // each on its own line. Same two-keys-in-a-row heuristic the HTML passes use.
+      // Blank lines between fields are tolerated, and a key whose value hangs on the
+      // next line ("Da:" alone, sender below) is joined — both shapes appear in the
+      // text/plain rendering of an Outlook forward, exactly as parseHtmlHeaders
+      // already handles them for the markup version.
+      if (headerKeyOf(trimmed) === "from") {
+        const headers: Array<[string, string]> = [];
+        let j = i;
+        for (; j < lines.length; j++) {
+          const l = lines[j]!.trim();
+          if (!l) continue;
+          const key = headerKeyOf(l);
+          if (!key) break;
+          let val = l.slice(l.indexOf(":") + 1).trim();
+          if (!val) {
+            let k = j + 1;
+            while (k < lines.length && !lines[k]!.trim()) k++;
+            const hanging = k < lines.length ? lines[k]!.trim() : "";
+            if (hanging && !headerKeyOf(hanging)) {
+              val = hanging;
+              j = k;
+            }
+          }
+          val = val.replace(/<mailto:[^<>]*>/gi, "");
+          if (val) headers.push([key.charAt(0).toUpperCase() + key.slice(1), esc(val)]);
+        }
+        if (headers.length >= 2) {
+          flush();
+          appendBlock(buildBlock(headers, "Forwarded message"));
+          i = j - 1;
+          continue;
+        }
+      }
+    }
+
+    pending.push(line);
+  }
+
+  flush();
+  return blocks ? frag : null;
+}
+
+/**
+ * DOM pass for quoted history that arrives as PLAIN TEXT inside a single HTML text node —
+ * the shape our own composer produces when replying to a text-only message, and the shape
+ * Outlook's HTML→text conversion leaves behind (`addr@x.it<mailto:addr@x.it>` artifacts and
+ * "Da:/Inviato:" runs separated by newlines rather than markup).
+ *
+ * boxReplyAttributions can't touch these: it requires the WHOLE text node to be one
+ * attribution, whereas here a single ~1 MB node holds an entire nested conversation. This
+ * pass scans such nodes line by line and splits them, so every attribution and header run
+ * gets the same styled box as its markup-based equivalent.
+ */
+function boxPlainTextQuoteLines(html: string): string {
+  if (!WROTE_RE.test(html) && !PLAIN_HEADER_HINT_RE.test(html)) return html;
+  try {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
+    const targets: Text[] = [];
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      const txt = n.textContent ?? "";
+      // Single-line nodes are boxReplyAttributions' job; only multi-line ones land here.
+      if (!txt.includes("\n")) continue;
+      if (!WROTE_RE.test(txt) && !PLAIN_HEADER_HINT_RE.test(txt)) continue;
+      // Leave table-structured layouts alone, as the other passes do.
+      if ((n as Text).parentElement?.closest("table")) continue;
+      targets.push(n as Text);
+    }
+    if (!targets.length) return html;
+
+    let changed = false;
+    for (const node of targets) {
+      const frag = fragmentFromPlainLines(doc, node.textContent ?? "");
+      if (!frag) continue;
+      node.replaceWith(frag);
+      changed = true;
+    }
+    return changed ? doc.body.innerHTML : html;
+  } catch {
+    return html; // never let a parsing hiccup blank out the message body
+  }
+}
+
 function collapseQuotes(html: string): string {
   // Cheap guard: skip the DOM round-trip for emails with no quote/forward markers.
   if (!QUOTE_MARKER_RE.test(html)) return html;
@@ -950,8 +1082,23 @@ export function transformHtml(html: string): string {
   // Covers Apple Mail (<div>), webmail, and clients that don't use gmail_attr.
   // Guards: must contain "ha scritto:" / "wrote:" etc., must NOT contain nested block
   // elements (to avoid matching large container divs), and must be ≤ 500 chars.
+  //
+  // Like Case 5, the inner uses a TEMPERED token — here one that can never cross ANY
+  // block-level closing tag, so the match is structurally guaranteed to be a leaf
+  // element. Both failure modes below ended with the attribution swallowed by a
+  // *containing* match that the nested-block guard then rejected — and because the
+  // regex is global, lastIndex had already moved past the attribution, so it was
+  // never reconsidered:
+  //   • an Outlook spacer paragraph (`<p class="MsoNormal">&nbsp;</p>`) is shorter
+  //     than the {15,…} minimum, so the lazy quantifier ran past its own </p> and
+  //     absorbed the attribution <p> that followed;
+  //   • a short quote wrapper (`<div style="border-left:…">` around the attribution
+  //     <p> plus a line or two of quoted text) matched as a whole before the inner
+  //     <p> was ever tried.
+  // With the tempered token neither container can match, and the scan reaches the
+  // attribution paragraph itself.
   html = html.replace(
-    /<(p|div)[^>]*>([\s\S]{15,500}?)<\/\1>/gi,
+    /<(p|div)[^>]*>((?:(?!<\/(?:p|div|table|ul|ol|li|blockquote|h[1-6])\b)[\s\S]){15,500}?)<\/\1>/gi,
     (full, _tag, inner) => {
       if (!WROTE_RE.test(inner)) return full;
       // Skip if inner contains nested block elements — this is a container, not a leaf
@@ -989,6 +1136,11 @@ export function transformHtml(html: string): string {
   // DOM pass: box reply-attribution lines ("Il … ha scritto:") that sit as a bare text
   // node next to their quote (Apple Mail / messageReplySection), which the regex missed.
   html = boxReplyAttributions(html);
+
+  // DOM pass: box attributions and header runs that live as PLAIN TEXT lines inside a
+  // single text node (plain-text quote embedded in HTML), which the passes above skip
+  // because they expect one attribution per node / per element.
+  html = boxPlainTextQuoteLines(html);
 
   // DOM pass: absorb the content that follows each fw-blk (up to the next fw-blk)
   // into a .fw-body div inside the block, so header + body share the same background.
