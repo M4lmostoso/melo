@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { parseGmailMessage } from "./messageParser";
+import { describe, it, expect, vi } from "vitest";
+import { parseGmailMessage, completeOversizedBodies } from "./messageParser";
 import { createMockGmailMessage } from "@/test/mocks";
 
 describe("parseGmailMessage", () => {
@@ -76,6 +76,44 @@ describe("parseGmailMessage", () => {
   it("should not treat text body parts (data, no filename) as attachments", () => {
     const parsed = parseGmailMessage(createMockGmailMessage());
     expect(parsed.attachments).toHaveLength(0);
+  });
+
+  it("records attachmentId for a text/html body too large for Gmail to inline", () => {
+    // Gmail omits body.data and serves the part via attachmentId once the part
+    // exceeds its format=full inline limit (large accumulated reply chains).
+    const msg = createMockGmailMessage();
+    msg.payload.parts![1]!.body = { size: 5_000_000, attachmentId: "att-html-big" };
+
+    const parsed = parseGmailMessage(msg);
+    // No inline data → bodyHtml is null but the fetch id is captured.
+    expect(parsed.bodyHtml).toBeNull();
+    expect(parsed.bodyHtmlAttachmentId).toBe("att-html-big");
+    // The oversized body part must NOT be misclassified as a file attachment.
+    expect(parsed.attachments).toHaveLength(0);
+  });
+
+  it("completeOversizedBodies fetches and fills a body served via attachmentId", async () => {
+    const msg = createMockGmailMessage();
+    msg.payload.parts![1]!.body = { size: 5_000_000, attachmentId: "att-html-big" };
+    const parsed = parseGmailMessage(msg);
+    expect(parsed.bodyHtml).toBeNull();
+
+    // "<b>Hi</b>" as URL-safe base64 (the same decode path as inline bodies).
+    const fetchAttachment = vi.fn().mockResolvedValue({ data: "PGI-SGk8L2I-" });
+    await completeOversizedBodies([parsed], fetchAttachment);
+
+    expect(fetchAttachment).toHaveBeenCalledWith("msg-1", "att-html-big");
+    expect(parsed.bodyHtml).toBe("<b>Hi</b>");
+  });
+
+  it("completeOversizedBodies leaves body null and does not throw when the fetch fails", async () => {
+    const msg = createMockGmailMessage();
+    msg.payload.parts![1]!.body = { size: 5_000_000, attachmentId: "att-html-big" };
+    const parsed = parseGmailMessage(msg);
+
+    const fetchAttachment = vi.fn().mockRejectedValue(new Error("network"));
+    await expect(completeOversizedBodies([parsed], fetchAttachment)).resolves.toBeUndefined();
+    expect(parsed.bodyHtml).toBeNull();
   });
 
   it("should handle plain email address without name", () => {

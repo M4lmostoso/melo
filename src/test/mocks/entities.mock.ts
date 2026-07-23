@@ -31,6 +31,8 @@ export function createMockParsedMessage(
     isStarred: false,
     bodyHtml: "<p>Hello from the project</p>",
     bodyText: "Hello from the project",
+    bodyHtmlAttachmentId: null,
+    bodyTextAttachmentId: null,
     rawSize: 1024,
     internalDate: Date.now(),
     labelIds: ["INBOX", "UNREAD"],

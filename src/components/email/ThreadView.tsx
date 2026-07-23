@@ -169,6 +169,33 @@ export function ThreadView({ thread }: ThreadViewProps) {
     }
   }, [storeSelectedMessageId, messages]);
 
+  // On-demand body load for messages stored without a body. This happens when a
+  // message exceeded Gmail's format=full inline limit at sync time (body served via
+  // attachmentId, not body.data) — provider.fetchMessage now completes those. Fires
+  // from MessageItem only when both body_html and body_text are null (a truly empty
+  // row), so ordinary text-only emails never trigger a needless re-fetch.
+  const loadMissingBody = useCallback(async (msg: DbMessage) => {
+    try {
+      const { getEmailProvider } = await import("@/services/email/providerFactory");
+      const provider = await getEmailProvider(msg.account_id);
+      const parsed = await provider.fetchMessage(msg.id);
+      if (parsed.bodyHtml == null && parsed.bodyText == null) return;
+      const { getDb } = await import("@/services/db/connection");
+      const db = await getDb();
+      await db.execute(
+        "UPDATE messages SET body_html = $1, body_text = $2, body_cached = $3 WHERE id = $4 AND account_id = $5",
+        [parsed.bodyHtml, parsed.bodyText, parsed.bodyHtml != null ? 1 : 0, msg.id, msg.account_id],
+      );
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === msg.id ? { ...m, body_html: parsed.bodyHtml, body_text: parsed.bodyText } : m,
+        ),
+      );
+    } catch (err) {
+      console.error("Failed to load message body on demand:", err);
+    }
+  }, []);
+
   const openComposer = useComposerStore((s) => s.openComposer);
   const openMenu = useContextMenuStore((s) => s.openMenu);
   const defaultReplyMode = useUIStore((s) => s.defaultReplyMode);
@@ -769,7 +796,7 @@ const handlePrint = useCallback(async () => {
                   isLast={globalIdx === messages.length - 1}
                   focused={globalIdx === focusedMsgIdx}
                   onSelect={setSelectedMessageId}
-                  onNeedBody={async () => {}}
+                  onNeedBody={() => loadMissingBody(msg)}
                   blockImages={blockImages}
                   senderAllowlisted={msg.from_address ? allowlistedSenders.has(normalizeEmail(msg.from_address)) : false}
                   isSpam={thread.labelIds.includes("SPAM")}

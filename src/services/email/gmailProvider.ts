@@ -1,6 +1,6 @@
 import type { EmailProvider, EmailFolder, SyncResult } from "./types";
 import type { GmailClient, GmailMessagePart } from "../gmail/client";
-import { parseGmailMessage, type ParsedMessage } from "../gmail/messageParser";
+import { parseGmailMessage, completeOversizedBodies, type ParsedMessage } from "../gmail/messageParser";
 import { base64ToBytes } from "@/utils/fileUtils";
 
 /** Sentinel prefix for attachments whose bytes are inline in body.data (no Gmail attachmentId). */
@@ -140,7 +140,14 @@ export class GmailApiProvider implements EmailProvider {
 
   async fetchMessage(messageId: string): Promise<ParsedMessage> {
     const msg = await this.client.getMessage(messageId);
-    return parseGmailMessage(msg);
+    const parsed = parseGmailMessage(msg);
+    // Large messages exceed Gmail's format=full inline limit — their body is served
+    // via attachmentId, not body.data. Fetch it so on-demand loads return a real body
+    // (otherwise big accumulated reply chains come back with a NULL/plain-text body).
+    await completeOversizedBodies([parsed], (id, attId) =>
+      this.client.getAttachment(id, attId),
+    );
+    return parsed;
   }
 
   async fetchAttachment(

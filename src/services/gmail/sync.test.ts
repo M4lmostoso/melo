@@ -92,7 +92,12 @@ vi.mock("./messageParser", () => ({
     internalDate: "1704067200000",
     hasAttachments: false,
     attachments: [],
+    bodyHtmlAttachmentId: null,
+    bodyTextAttachmentId: null,
   }),
+  // No-op in tests: the mock messages always have inline bodies, so there is nothing
+  // to complete. Present so sync.ts's import resolves against the mock.
+  completeOversizedBodies: async () => {},
 }));
 
 function createMockClient(historyItems: unknown[]): GmailClient {

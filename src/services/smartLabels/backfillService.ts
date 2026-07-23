@@ -63,6 +63,8 @@ export async function backfillSmartLabels(
       isStarred: false,
       bodyHtml: row.body_html,
       bodyText: row.body_text,
+      bodyHtmlAttachmentId: null,
+      bodyTextAttachmentId: null,
       rawSize: 0,
       internalDate: 0,
       labelIds: [],

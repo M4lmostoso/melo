@@ -28,6 +28,13 @@ export interface ParsedMessage {
   isStarred: boolean;
   bodyHtml: string | null;
   bodyText: string | null;
+  // When a text body part exceeds Gmail's inline size limit, `format=full` omits
+  // `body.data` and serves the part via `body.attachmentId` instead. We record those
+  // ids here so the sync can fetch the part separately and complete the body
+  // (see `completeOversizedBodies`). Without this, large accumulated reply chains
+  // lose their HTML body and fall back to plain-text rendering (or render empty).
+  bodyHtmlAttachmentId: string | null;
+  bodyTextAttachmentId: string | null;
   rawSize: number;
   internalDate: number;
   labelIds: string[];
@@ -43,8 +50,8 @@ export function parseGmailMessage(msg: GmailMessage): ParsedMessage {
   const from = getHeader(headers, "From");
   const { name: fromName, address: fromAddress } = parseEmailAddress(from);
 
-  const bodyHtml = extractBody(msg.payload, "text/html");
-  const bodyText = extractBody(msg.payload, "text/plain");
+  const htmlPart = findBodyPart(msg.payload, "text/html");
+  const textPart = findBodyPart(msg.payload, "text/plain");
   const attachments = extractAttachments(msg.payload);
   const authResult = parseAuthenticationResults(headers);
 
@@ -62,8 +69,12 @@ export function parseGmailMessage(msg: GmailMessage): ParsedMessage {
     date: parseInt(msg.internalDate, 10),
     isRead: !msg.labelIds.includes("UNREAD"),
     isStarred: msg.labelIds.includes("STARRED"),
-    bodyHtml: bodyHtml ? decodeBase64Url(bodyHtml) : null,
-    bodyText: bodyText ? decodeBase64Url(bodyText) : null,
+    bodyHtml: htmlPart?.body.data ? decodeBase64Url(htmlPart.body.data) : null,
+    bodyText: textPart?.body.data ? decodeBase64Url(textPart.body.data) : null,
+    // Record the attachmentId only when the inline data is absent — the signal that
+    // this part was too big for Gmail to inline and must be fetched separately.
+    bodyHtmlAttachmentId: htmlPart && !htmlPart.body.data ? (htmlPart.body.attachmentId ?? null) : null,
+    bodyTextAttachmentId: textPart && !textPart.body.data ? (textPart.body.attachmentId ?? null) : null,
     rawSize: msg.sizeEstimate,
     internalDate: parseInt(msg.internalDate, 10),
     labelIds: msg.labelIds,
@@ -104,14 +115,18 @@ function parseEmailAddress(raw: string | null): {
   return { name: null, address: raw.trim() };
 }
 
-function extractBody(part: GmailMessagePart, mimeType: string): string | null {
-  if (part.mimeType === mimeType && part.body.data) {
-    return part.body.data;
+// Finds the first part matching `mimeType` that carries body bytes — either inline
+// (`body.data`) or, for parts too large to inline, via `body.attachmentId`. Returning
+// the part (not just the data) lets the caller detect the attachmentId case, which the
+// old data-only `extractBody` silently dropped → NULL body_html for big messages.
+function findBodyPart(part: GmailMessagePart, mimeType: string): GmailMessagePart | null {
+  if (part.mimeType === mimeType && (part.body.data || part.body.attachmentId)) {
+    return part;
   }
 
   if (part.parts) {
     for (const child of part.parts) {
-      const result = extractBody(child, mimeType);
+      const result = findBodyPart(child, mimeType);
       if (result) return result;
     }
   }
@@ -169,6 +184,35 @@ function collectAttachments(
   if (part.parts) {
     for (const child of part.parts) {
       collectAttachments(child, results);
+    }
+  }
+}
+
+/**
+ * Completes bodies that Gmail did not inline. When a message's text/html (or
+ * text/plain) part exceeds Gmail's `format=full` inline limit, `body.data` is empty
+ * and the part is exposed only via `body.attachmentId`. `parseGmailMessage` records
+ * those ids on `bodyHtmlAttachmentId` / `bodyTextAttachmentId`; this fetches them and
+ * fills in `bodyHtml` / `bodyText` in place. Best-effort and serial (these messages
+ * are rare — heavily accumulated reply chains) so it never floods the Gmail API.
+ */
+export async function completeOversizedBodies(
+  messages: ParsedMessage[],
+  fetchAttachment: (messageId: string, attachmentId: string) => Promise<{ data: string }>,
+): Promise<void> {
+  for (const msg of messages) {
+    try {
+      if (!msg.bodyHtml && msg.bodyHtmlAttachmentId) {
+        const { data } = await fetchAttachment(msg.id, msg.bodyHtmlAttachmentId);
+        if (data) msg.bodyHtml = decodeBase64Url(data);
+      }
+      if (!msg.bodyText && msg.bodyTextAttachmentId) {
+        const { data } = await fetchAttachment(msg.id, msg.bodyTextAttachmentId);
+        if (data) msg.bodyText = decodeBase64Url(data);
+      }
+    } catch {
+      // Best-effort: leave the body null. The message still shows its snippet and any
+      // other part that was inlined; a later sync can retry.
     }
   }
 }

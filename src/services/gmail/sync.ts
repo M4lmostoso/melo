@@ -1,5 +1,5 @@
 import { GmailClient } from "./client";
-import { parseGmailMessage, type ParsedMessage } from "./messageParser";
+import { parseGmailMessage, completeOversizedBodies, type ParsedMessage } from "./messageParser";
 import { gmailStoreThread, type GmailAttachment } from "./tauriCommands";
 import { upsertLabel } from "../db/labels";
 import { upsertUserLabel } from "../db/userLabels";
@@ -48,6 +48,16 @@ async function processAndStoreThread(
     for (const lid of msg.labelIds) {
       allLabelIds.add(lid);
     }
+  }
+
+  // Complete any bodies Gmail didn't inline because the part exceeded its size limit
+  // (served via attachmentId instead of body.data). Without this, large accumulated
+  // reply chains store a NULL body_html and render as plain text / empty. Best-effort;
+  // needs the client (delta/full sync pass it — history-only refreshes may not).
+  if (client) {
+    await completeOversizedBodies(parsedMessages, (messageId, attachmentId) =>
+      client.getAttachment(messageId, attachmentId),
+    );
   }
 
   const nonDraftMessages = parsedMessages.filter((m) => !m.labelIds.includes("DRAFT"));

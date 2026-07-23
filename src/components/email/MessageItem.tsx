@@ -288,10 +288,13 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
     }
   };
 
-  // Load attachments for initially-expanded (last) message on mount
+  // Load attachments for initially-expanded (last) message on mount. Also trigger an
+  // on-demand body fetch when this auto-expanded message was stored without a usable
+  // body (oversized-body case) — handleToggle never runs for the initially-open one.
   useEffect(() => {
     if (isLast) {
       loadAttachments();
+      if (needsBodyFetch(message)) onNeedBody?.();
     }
   }, [isLast]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -341,7 +344,7 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
 
   const handleToggle = async () => {
     const willExpand = !expanded;
-    if (willExpand && (message.body_html === null && message.body_text === null)) {
+    if (willExpand && needsBodyFetch(message)) {
       await onNeedBody?.();
     }
     setExpanded(willExpand);
@@ -554,6 +557,25 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
 
 function escapeCid(cid: string): string {
   return cid.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Above this raw message size, Gmail's format=full stops inlining the body in
+// body.data and serves it via attachmentId instead, so the sync stored a NULL
+// body_html (the message renders as plain text or, if text was dropped too, empty).
+// The 13:19 message in the reference thread was 1.43 MB and inlined fine; everything
+// above ~1.5 MB lost its HTML — hence a conservative 1.5 MB gate.
+const OVERSIZED_BODY_RAW_SIZE = 1_500_000;
+
+/**
+ * Whether expanding this message should trigger an on-demand body fetch. Fires when:
+ *   • the row has no body at all (body_html AND body_text null), or
+ *   • the HTML body is missing on a large message — the oversized-body case where
+ *     Gmail served the part via attachmentId and the sync couldn't inline it.
+ * A genuinely small text-only email (body_html null, modest raw_size) is NOT re-fetched.
+ */
+function needsBodyFetch(message: DbMessage): boolean {
+  if (message.body_html === null && message.body_text === null) return true;
+  return message.body_html === null && (message.raw_size ?? 0) > OVERSIZED_BODY_RAW_SIZE;
 }
 
 export function parseUnsubscribeUrl(header: string): string | null {

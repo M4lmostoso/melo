@@ -522,15 +522,32 @@ function promoteAnchor(anchor: Node, body: Element): ChildNode {
   return n as ChildNode;
 }
 
-/** Visible text of everything before `anchor` in document order, collapsed to one line. */
-function textBefore(doc: Document, anchor: Node): string {
+// Whether ≥`min` non-whitespace characters of visible text appear BEFORE `anchor`
+// within `root`. This is the guard that stops collapseQuotes from folding a message
+// to nothing (a top-posted quote with no reply above it).
+//
+// It replaces an earlier `range.toString()` approach: jsdom's Range.toString() is
+// pathologically slow (~hundreds of ms) on a large container even when the range is
+// short, and it was called once per quote-start candidate — the single dominant cost
+// of collapseQuotes on big reply chains (seconds of main-thread jank per message).
+// A TreeWalker over text nodes short-circuits the instant it has counted `min` chars;
+// because the reply body precedes the quote in document order, that is almost always
+// the very first text node.
+function hasVisibleTextBefore(root: Element, anchor: Node, min = 2): boolean {
   try {
-    const range = doc.createRange();
-    range.selectNodeContents(doc.body);
-    range.setEndBefore(anchor);
-    return range.toString().replace(/\s+/g, " ").trim();
+    const doc = root.ownerDocument;
+    const walker = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let count = 0;
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+      // TreeWalker yields document order; once a node is no longer strictly before the
+      // anchor, nothing after it is either — stop.
+      if ((anchor.compareDocumentPosition(n) & Node.DOCUMENT_POSITION_PRECEDING) === 0) break;
+      count += (n.textContent ?? "").replace(/\s/g, "").length;
+      if (count >= min) return true;
+    }
+    return count >= min;
   } catch {
-    return "";
+    return false;
   }
 }
 
@@ -642,94 +659,114 @@ function boxReplyAttributions(html: string): string {
   }
 }
 
-function collapseQuotes(html: string, depth = 0): string {
+function collapseQuotes(html: string): string {
   // Cheap guard: skip the DOM round-trip for emails with no quote/forward markers.
   if (!QUOTE_MARKER_RE.test(html)) return html;
 
   try {
+    // Parse ONCE and serialize ONCE. Nested collapsing recurses on the live wrapper
+    // node (collapseInContainer), NOT by re-serializing + re-parsing wrapper.innerHTML
+    // at each level. The old string round-trip was pathologically slow on deeply
+    // nested reply chains (100+ blockquotes): DOM parse/serialize is super-linear in
+    // nesting depth, and it ran 3 extra times over a near-full-body payload — seconds
+    // of main-thread jank per message. Working on the live DOM keeps it to one pass.
     const doc = new DOMParser().parseFromString(html, "text/html");
-
-    // Walk the tree looking for the first quote-start node that has real visible
-    // content BEFORE it (so we never fold to nothing). When promoteAnchor bubbles
-    // a candidate up to an ancestor that has no textBefore (e.g. the anchor is the
-    // very first element in a wrapper), we skip it and keep scanning — this lets us
-    // reach a later quote-start that does have content above it.
-    let anchor: ChildNode | null = null;
-    const walker = doc.createTreeWalker(
-      doc.body,
-      NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT,
-    );
-    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
-      if (!isQuoteStart(n)) continue;
-      const promoted = promoteAnchor(n, doc.body);
-      if (!promoted.parentNode) continue;
-      if (textBefore(doc, promoted).length < 2) continue;  // no visible content above — keep scanning
-      const candidateParent = promoted.parentNode as Element;
-      if (["TABLE", "TBODY", "THEAD", "TFOOT", "TR"].includes(candidateParent.tagName)) continue;
-      anchor = promoted;
-      break;
-    }
-    if (!anchor || !anchor.parentNode) return html;
-
-    const parent = anchor.parentNode as Element;
-
-    // Move the anchor + every following sibling into one hidden wrapper, toggle in front.
-    const toMove: ChildNode[] = [];
-    for (let n: ChildNode | null = anchor as ChildNode; n; n = n.nextSibling) {
-      toMove.push(n);
-    }
-
-    // At depth > 0 (inside an already-hidden wrapper), skip a collapse that would
-    // wrap only a single fw-blk header with no body content after it. The fw-blk
-    // already has its own internal toggle; adding an outer one is redundant and
-    // visually confusing.  Depth-0 always collapses regardless.
-    if (depth > 0) {
-      const hasBodyAfter = toMove.slice(1).some(
-        (nd) => (nd.textContent ?? "").trim().length > 0
-      );
-      if (!hasBodyAfter) return html;
-    }
-    const lineCount = toMove.reduce((acc, n) => {
-      return acc + (n.nodeType === Node.ELEMENT_NODE
-        ? (n as Element).querySelectorAll("p,div,li,br,pre").length + 1
-        : ((n.textContent ?? "").trim() ? 1 : 0));
-    }, 0);
-    const btn = makeToggle(doc, t("email.renderer.showQuotedText"), lineCount);
-    const wrapper = doc.createElement("div");
-    wrapper.className = "q-quote q-hidden";
-    parent.insertBefore(btn, anchor);
-    parent.insertBefore(wrapper, anchor);
-    for (const n of toMove) wrapper.appendChild(n);
-
-    // At depth 0, also sweep up body-level trailing nodes that live outside the
-    // anchor's immediate container (footers, disclaimers in a sibling div).
-    // We stop as soon as a node triggers isQuoteStart — that would be a NEW message.
-    if (depth === 0 && parent !== doc.body) {
-      let topAncestor: Node = parent;
-      while (topAncestor.parentNode && topAncestor.parentNode !== doc.body) {
-        topAncestor = topAncestor.parentNode;
-      }
-      if (topAncestor.parentNode === doc.body) {
-        let n: ChildNode | null = (topAncestor as ChildNode).nextSibling;
-        while (n) {
-          if (isQuoteStart(n)) break;
-          const next = n.nextSibling;
-          wrapper.appendChild(n);
-          n = next;
-        }
-      }
-    }
-
-    // Recursively collapse nested quotes inside the hidden wrapper (up to 3 levels).
-    if (depth < 3) {
-      const innerCollapsed = collapseQuotes(wrapper.innerHTML, depth + 1);
-      if (innerCollapsed !== wrapper.innerHTML) wrapper.innerHTML = innerCollapsed;
-    }
-
-    return doc.body.innerHTML;
+    // Return the ORIGINAL string when nothing collapsed, so we never leak the parser's
+    // normalization (e.g. injected <tbody>) into an otherwise-untouched body.
+    return collapseInContainer(doc.body, 0) ? doc.body.innerHTML : html;
   } catch {
     return html; // never let a quote-collapse failure blank out the message body
   }
+}
+
+/**
+ * Collapses the first quoted/forwarded section found within `container` behind a
+ * three-dots toggle, then recurses into the hidden wrapper for nested quotes (up to
+ * 3 levels). Mutates the live DOM in place — no HTML round-trips. Scoping every check
+ * (walker root, hasVisibleTextBefore, promoteAnchor) to `container` reproduces exactly what the
+ * old `collapseQuotes(wrapper.innerHTML, depth+1)` recursion did, where each wrapper's
+ * innerHTML became its own document body.
+ */
+function collapseInContainer(container: Element, depth: number): boolean {
+  const doc = container.ownerDocument;
+
+  // Walk the tree looking for the first quote-start node that has real visible
+  // content BEFORE it (so we never fold to nothing). When promoteAnchor bubbles
+  // a candidate up to an ancestor that has no visible text before it (e.g. the anchor is the
+  // very first element in a wrapper), we skip it and keep scanning — this lets us
+  // reach a later quote-start that does have content above it.
+  let anchor: ChildNode | null = null;
+  const walker = doc.createTreeWalker(
+    container,
+    NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT,
+  );
+  for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+    if (!isQuoteStart(n)) continue;
+    const promoted = promoteAnchor(n, container);
+    if (!promoted.parentNode) continue;
+    if (!hasVisibleTextBefore(container, promoted)) continue;  // no visible content above — keep scanning
+    const candidateParent = promoted.parentNode as Element;
+    if (["TABLE", "TBODY", "THEAD", "TFOOT", "TR"].includes(candidateParent.tagName)) continue;
+    anchor = promoted;
+    break;
+  }
+  if (!anchor || !anchor.parentNode) return false;
+
+  const parent = anchor.parentNode as Element;
+
+  // Move the anchor + every following sibling into one hidden wrapper, toggle in front.
+  const toMove: ChildNode[] = [];
+  for (let n: ChildNode | null = anchor as ChildNode; n; n = n.nextSibling) {
+    toMove.push(n);
+  }
+
+  // At depth > 0 (inside an already-hidden wrapper), skip a collapse that would
+  // wrap only a single fw-blk header with no body content after it. The fw-blk
+  // already has its own internal toggle; adding an outer one is redundant and
+  // visually confusing.  Depth-0 always collapses regardless.
+  if (depth > 0) {
+    const hasBodyAfter = toMove.slice(1).some(
+      (nd) => (nd.textContent ?? "").trim().length > 0
+    );
+    if (!hasBodyAfter) return false;
+  }
+  const lineCount = toMove.reduce((acc, n) => {
+    return acc + (n.nodeType === Node.ELEMENT_NODE
+      ? (n as Element).querySelectorAll("p,div,li,br,pre").length + 1
+      : ((n.textContent ?? "").trim() ? 1 : 0));
+  }, 0);
+  const btn = makeToggle(doc, t("email.renderer.showQuotedText"), lineCount);
+  const wrapper = doc.createElement("div");
+  wrapper.className = "q-quote q-hidden";
+  parent.insertBefore(btn, anchor);
+  parent.insertBefore(wrapper, anchor);
+  for (const n of toMove) wrapper.appendChild(n);
+
+  // At depth 0, also sweep up body-level trailing nodes that live outside the
+  // anchor's immediate container (footers, disclaimers in a sibling div).
+  // We stop as soon as a node triggers isQuoteStart — that would be a NEW message.
+  if (depth === 0 && parent !== container) {
+    let topAncestor: Node = parent;
+    while (topAncestor.parentNode && topAncestor.parentNode !== container) {
+      topAncestor = topAncestor.parentNode;
+    }
+    if (topAncestor.parentNode === container) {
+      let n: ChildNode | null = (topAncestor as ChildNode).nextSibling;
+      while (n) {
+        if (isQuoteStart(n)) break;
+        const next = n.nextSibling;
+        wrapper.appendChild(n);
+        n = next;
+      }
+    }
+  }
+
+  // Recursively collapse nested quotes inside the hidden wrapper (up to 3 levels),
+  // operating on the live wrapper node — no re-parse.
+  if (depth < 3) {
+    collapseInContainer(wrapper, depth + 1);
+  }
+  return true;
 }
 
 /**

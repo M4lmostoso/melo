@@ -444,6 +444,9 @@ export class ImapSmtpProvider implements EmailProvider {
       isStarred: imapMsg.is_starred,
       bodyHtml: imapMsg.body_html,
       bodyText: imapMsg.body_text,
+      // IMAP fetches the full body directly — no Gmail-style oversized-part indirection.
+      bodyHtmlAttachmentId: null,
+      bodyTextAttachmentId: null,
       rawSize: imapMsg.raw_size,
       internalDate: imapMsg.date,
       labelIds,
