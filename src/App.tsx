@@ -1054,14 +1054,26 @@ export default function App() {
           unfetchableCount: unfetchableCount ?? 0,
           isStale: false,
         });
-        // Only show the "Sync complete" toast when something actually changed.
-        // storedCount === undefined means Gmail or initial sync — always show it.
-        // storedCount === 0 means idle delta sync — skip the toast to avoid noise every 60s.
-        if (storedCount === undefined || storedCount > 0) {
-          setSyncStatus("Sync complete");
-          setTimeout(() => setSyncStatus(null), 2_000);
-        } else {
-          setSyncStatus(null);
+        // The sync pill is a single shared status shared by ALL accounts. With
+        // several accounts on the 60s scheduler, a fast delta 'done' here must NOT
+        // wipe the in-progress "Syncing: N/total" of a SLOW initial/full sync still
+        // running on another account (e.g. a DavMail resync that fetches 25 msgs
+        // every 10-20s) — that clobber left the progress counter invisible in the
+        // gaps between its batches. Only touch the pill when no other account is
+        // still syncing. (setAccountSyncPhase above already marked THIS one idle.)
+        const anotherAccountSyncing = Object.entries(
+          useUIStore.getState().accountSyncStatuses,
+        ).some(([id, s]) => id !== accountId && s.phase === "syncing");
+        if (!anotherAccountSyncing) {
+          // Only show the "Sync complete" toast when something actually changed.
+          // storedCount === undefined means Gmail or initial sync — always show it.
+          // storedCount === 0 means idle delta sync — skip the toast to avoid noise every 60s.
+          if (storedCount === undefined || storedCount > 0) {
+            setSyncStatus("Sync complete");
+            setTimeout(() => setSyncStatus(null), 2_000);
+          } else {
+            setSyncStatus(null);
+          }
         }
         // Always dispatch, regardless of storedCount/flagChangedCount: those counters
         // are sync-provider heuristics and can undercount (e.g. a message stored via a
