@@ -77,6 +77,10 @@ vi.mock("../db/attachments", () => ({
 vi.mock("../db/accounts", () => ({
   getAccount: vi.fn(),
   updateAccountSyncState: vi.fn(),
+  // reconcilePecReceipts (run at the end of imapDeltaSync) calls this; without it the
+  // mock throws "No getAccountPecEnabled export", producing noisy stderr in unrelated
+  // tests. Default undefined → falsy → reconcilePecReceipts no-ops, which is correct here.
+  getAccountPecEnabled: vi.fn(),
 }));
 vi.mock("../db/connection", () => ({
   withTransaction: vi.fn(async (fn: () => Promise<void>) => fn()),
@@ -836,6 +840,49 @@ describe("reconcileDeletedMessages — surviving-thread flag recompute", () => {
     expect(survivingUpdate!.sql).toContain("MIN(is_read)");
     // ...alongside the message_count it already recomputed.
     expect(survivingUpdate!.sql).toContain("message_count = (SELECT COUNT(*)");
+  });
+
+  // Regression (imap_mass_delete_uidvalidity): DavMail renumbers UIDs WITHOUT bumping
+  // UIDVALIDITY, so every stored UID looks "deleted" while the same messages are still
+  // on the server under new UIDs. reconcile must NOT wipe them (that orphaned
+  // email-linked tasks and caused runaway re-download bandwidth).
+  it("skips deletion when most stored UIDs vanished but the server folder is still full (UID renumber)", async () => {
+    // 20 stored UIDs 1..20; server now lists 20 *different* UIDs 1001..1020.
+    const stored = Array.from({ length: 20 }, (_, i) => ({ id: `imap-acc-INBOX-${i + 1}`, uid: i + 1 }));
+    vi.mocked(getStoredImapUidsForFolder).mockResolvedValue(stored);
+    vi.mocked(imapRawSearchAllUids).mockResolvedValue(
+      Array.from({ length: 20 }, (_, i) => 1001 + i),
+    );
+    const selectSpy = vi.fn(async () => []);
+    vi.mocked(getDb).mockResolvedValue({
+      select: selectSpy,
+      execute: vi.fn(async () => ({ rowsAffected: 0 })),
+    } as never);
+
+    await reconcileDeletedMessages(config, "acc", "INBOX");
+
+    // Nothing deleted, and we bail out before even querying affected threads.
+    expect(executeAtomicBatch).not.toHaveBeenCalled();
+    expect(selectSpy).not.toHaveBeenCalled();
+  });
+
+  // The guard must NOT block a genuine bulk delete: there the folder actually SHRINKS,
+  // so the server UID count drops well below the stored count.
+  it("still deletes when the server folder genuinely shrank (real bulk delete)", async () => {
+    const stored = Array.from({ length: 20 }, (_, i) => ({ id: `imap-acc-INBOX-${i + 1}`, uid: i + 1 }));
+    vi.mocked(getStoredImapUidsForFolder).mockResolvedValue(stored);
+    // Only 5 of the 20 remain on the server → 15 real orphans, folder shrank.
+    vi.mocked(imapRawSearchAllUids).mockResolvedValue([1, 2, 3, 4, 5]);
+    vi.mocked(getDb).mockResolvedValue({
+      select: vi.fn(async (sql: string) =>
+        sql.includes("NOT IN") ? [{ thread_id: "t1" }] : [{ thread_id: "t1" }],
+      ),
+      execute: vi.fn(async () => ({ rowsAffected: 0 })),
+    } as never);
+
+    await reconcileDeletedMessages(config, "acc", "INBOX");
+
+    expect(executeAtomicBatch).toHaveBeenCalledTimes(1);
   });
 });
 

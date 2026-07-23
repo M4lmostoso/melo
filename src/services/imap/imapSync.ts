@@ -662,6 +662,33 @@ export async function reconcileDeletedMessages(
   const orphans = stored.filter((row) => !serverSet.has(row.uid));
   if (orphans.length === 0) return;
 
+  // SAFETY GUARD 2: suspected UID renumber (DavMail/Exchange), NOT a real deletion.
+  // DavMail renumbers a folder's UIDs WITHOUT bumping UIDVALIDITY (it reports a
+  // constant UIDVALIDITY of 1), so every previously-stored UID suddenly looks
+  // "deleted" even though the same messages are still on the server under new UIDs.
+  // The tell-tale: most of the folder's stored UIDs vanished at once while the server
+  // folder is still roughly as full as before — a genuine bulk delete SHRINKS the
+  // folder, so serverUids would be small too. Deleting here wipes live INBOX mail and
+  // orphans email-linked tasks (regressed twice), and the delta pass then re-downloads
+  // the same messages under their new UIDs every maintenance cycle (the runaway-
+  // bandwidth symptom). Skip and let the UIDVALIDITY/full-resync path — or a later,
+  // smaller reconcile — handle real deletions. A false positive here is non-destructive
+  // (a truly-deleted message merely lingers locally until a smaller cycle removes it),
+  // whereas a false negative is catastrophic (mass mail loss), so we bias hard to skip.
+  const MASS_DISAPPEAR_MIN_STORED = 15; // too few to distinguish renumber from real churn
+  const MASS_DISAPPEAR_RATIO = 0.7; // >70% of stored UIDs gone at once
+  const serverStillRoughlyFull = serverUids.length >= stored.length * 0.5;
+  if (
+    stored.length >= MASS_DISAPPEAR_MIN_STORED &&
+    orphans.length >= stored.length * MASS_DISAPPEAR_RATIO &&
+    serverStillRoughlyFull
+  ) {
+    console.warn(
+      `[imapSync] Reconciliation: ${orphans.length}/${stored.length} stored UID(s) missing from ${folderPath} while the server still lists ${serverUids.length} — suspected UID renumber (not a real bulk delete). Skipping deletion to avoid wiping live mail.`,
+    );
+    return;
+  }
+
   console.log(`[imapSync] Reconciliation: removing ${orphans.length} message(s) deleted externally in ${folderPath}`);
 
   const orphanIds = orphans.map((o) => o.id);
