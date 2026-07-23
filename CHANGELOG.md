@@ -4,6 +4,34 @@
 
 ---
 
+## [0.1.6](https://github.com/M4lmostoso/melo/compare/v0.1.5...v0.1.6) (2026-07-23)
+
+
+### Features
+
+* add debounce to preview closure and implement optimistic sync state for mail refresh ([bb58303](https://github.com/M4lmostoso/melo/commit/bb58303e14febd8074ff63897993c3e5f4cfdd0c))
+* allow opening paths in attachment_cache directory ([6c40b8b](https://github.com/M4lmostoso/melo/commit/6c40b8bda4c7d3e74223a7521e28729cf29f86af))
+* implement draft kill-list to prevent phantom re-import of deleted drafts on servers renumbering UIDs ([edc337a](https://github.com/M4lmostoso/melo/commit/edc337ac8ca70ee27b01a5747e2cf1de10619183))
+* implement NULL-coords adoption to allow immediate local storage of sent messages when IMAP APPEND returns no UID ([c9b4af6](https://github.com/M4lmostoso/melo/commit/c9b4af6eb6297763f3d752e472ae8bf2e7b96d2f))
+* implement plain-text quote parsing and refine attribution regex to prevent over-matching container elements. ([9fc1f02](https://github.com/M4lmostoso/melo/commit/9fc1f02a249e0a2df4588d2fec9f68d20aa11fcc))
+* improve reply recipient logic to target original participants when replying to self-sent messages ([41dcde6](https://github.com/M4lmostoso/melo/commit/41dcde6c6def92109fcc4a0f627a86a99bf60118))
+* improve undo-send reliability with status-aware cancellation, dynamic countdowns, and robust Message-ID sanitization. ([9db9eed](https://github.com/M4lmostoso/melo/commit/9db9eed626fba8810224844967653b09e61d5e18))
+* introduce dedicated WebviewWindow for attachment previews with Quick Look-style keyboard interaction ([0f322b8](https://github.com/M4lmostoso/melo/commit/0f322b88010a8bc9c564d0f06854da742ccc237c))
+* prevent phantom drafts by pre-killing in-flight IMAP APPEND operations during composer closure ([2cdbfbb](https://github.com/M4lmostoso/melo/commit/2cdbfbb0827de4a4f099a92456a9eee0aceeb961))
+
+
+### Bug Fixes
+
+* exclude trashed and spam messages from thread read state and UNREAD label calculation ([41b7aaf](https://github.com/M4lmostoso/melo/commit/41b7aaf31c7e44571336b3012684e3e37e4a77f2))
+* prevent mass mail deletion during suspected UID renumbering events in imapSync ([de490a7](https://github.com/M4lmostoso/melo/commit/de490a752ea5308fecb9b4afb07746b9041f5f57))
+* prevent sync status clobbering by checking for other active account syncs before updating UI ([0527ef9](https://github.com/M4lmostoso/melo/commit/0527ef94e5d414fa095eb177b06c0f0f4ae548c2))
+* recompute source thread stats and update unread status after merging messages ([7c2edfe](https://github.com/M4lmostoso/melo/commit/7c2edfe7fec8e929b635ca04da1e4a4f9a9071ee))
+
+
+### Performance Improvements
+
+* optimize email body parsing by replacing range-based DOM text scanning with a TreeWalker and eliminating recursive HTML serialization during quote collapsing. ([003d51e](https://github.com/M4lmostoso/melo/commit/003d51e5f32a5b97d4e0d5639f7bde3a5dfe4e45))
+
 ## [0.1.5](https://github.com/M4lmostoso/melo/compare/v0.1.4...v0.1.5) (2026-07-14)
 
 
