@@ -1788,6 +1788,49 @@ pub async fn imap_store_threads(
                     rusqlite::params![account_id, local_id],
                 )
                 .map_err(|e| e.to_string())?;
+            } else {
+                // The source thread survives: it lost SOME messages to the merge target
+                // but still owns others. Its aggregates were computed when it still held
+                // the moved messages, so without this recompute it keeps their
+                // last_message_at/snippet/message_count — the thread list then shows two
+                // rows with the same date and the same preview text, as if one message
+                // had been filed into two conversations. Same semantics as
+                // recalculateThreadStats (drafts/trashed excluded), except `subject`,
+                // which follows buildThreadUpdates and comes from the oldest message.
+                conn.execute(
+                    "UPDATE threads SET \
+                       message_count = (SELECT COUNT(*) FROM messages \
+                         WHERE account_id = ?1 AND thread_id = ?2 AND is_draft = 0 AND is_trashed = 0), \
+                       last_message_at = COALESCE((SELECT MAX(date) FROM messages \
+                         WHERE account_id = ?1 AND thread_id = ?2 AND is_trashed = 0), last_message_at), \
+                       snippet = COALESCE((SELECT snippet FROM messages \
+                         WHERE account_id = ?1 AND thread_id = ?2 AND is_draft = 0 AND is_trashed = 0 \
+                         ORDER BY date DESC LIMIT 1), snippet), \
+                       subject = COALESCE((SELECT subject FROM messages \
+                         WHERE account_id = ?1 AND thread_id = ?2 AND is_draft = 0 AND is_trashed = 0 \
+                         ORDER BY date ASC LIMIT 1), subject), \
+                       is_read = COALESCE((SELECT MIN(is_read) FROM messages \
+                         WHERE account_id = ?1 AND thread_id = ?2 AND is_draft = 0 AND is_trashed = 0), 1), \
+                       is_starred = COALESCE((SELECT MAX(is_starred) FROM messages \
+                         WHERE account_id = ?1 AND thread_id = ?2 AND is_trashed = 0), 0), \
+                       has_attachments = CASE WHEN EXISTS (SELECT 1 FROM attachments a \
+                         JOIN messages m ON m.account_id = a.account_id AND m.id = a.message_id \
+                         WHERE m.account_id = ?1 AND m.thread_id = ?2 AND m.is_trashed = 0 \
+                           AND a.is_inline = 0 AND a.content_id IS NULL) THEN 1 ELSE 0 END \
+                     WHERE account_id = ?1 AND id = ?2",
+                    rusqlite::params![account_id, local_id],
+                )
+                .map_err(|e| e.to_string())?;
+
+                // Keep the UNREAD pseudo-label in step with the recomputed is_read.
+                conn.execute(
+                    "DELETE FROM thread_labels WHERE account_id = ?1 AND thread_id = ?2 AND label_id = 'UNREAD' \
+                     AND NOT EXISTS (SELECT 1 FROM messages \
+                                     WHERE account_id = ?1 AND thread_id = ?2 \
+                                       AND is_read = 0 AND is_draft = 0 AND is_trashed = 0)",
+                    rusqlite::params![account_id, local_id],
+                )
+                .map_err(|e| e.to_string())?;
             }
         }
     }
