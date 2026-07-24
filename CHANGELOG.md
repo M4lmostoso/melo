@@ -4,6 +4,13 @@
 
 ---
 
+## [0.1.7](https://github.com/M4lmostoso/melo/compare/v0.1.6...v0.1.7) (2026-07-24)
+
+
+### Bug Fixes
+
+* improve folder reconciliation safety with STATUS confirmation and implement trash restoration logic for synced messages ([cce1d63](https://github.com/M4lmostoso/melo/commit/cce1d63fd7d0535751e991fb0fd479023bbf47e0))
+
 ## [0.1.6](https://github.com/M4lmostoso/melo/compare/v0.1.5...v0.1.6) (2026-07-23)
 
 
