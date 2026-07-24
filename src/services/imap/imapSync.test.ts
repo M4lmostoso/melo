@@ -884,6 +884,66 @@ describe("reconcileDeletedMessages — surviving-thread flag recompute", () => {
 
     expect(executeAtomicBatch).toHaveBeenCalledTimes(1);
   });
+
+  // Regression (imap_trash_restore_dedup_sticky): a genuinely emptied folder returns
+  // an empty SEARCH on EVERY cycle, so the old "skip unconditionally on empty" guard
+  // left the local rows forever (e.g. an emptied Trash stayed full in the app). Now
+  // an empty SEARCH is confirmed against STATUS: EXISTS=0 means really empty → the
+  // stale local rows are reconciled away.
+  it("removes local rows when SEARCH is empty AND STATUS confirms the folder is empty (EXISTS=0)", async () => {
+    const stored = Array.from({ length: 20 }, (_, i) => ({ id: `imap-acc-Trash-${i + 1}`, uid: i + 1 }));
+    vi.mocked(getStoredImapUidsForFolder).mockResolvedValue(stored);
+    vi.mocked(imapRawSearchAllUids).mockResolvedValue([]); // emptied folder
+    vi.mocked(imapGetFolderStatus).mockResolvedValue(createMockImapFolderStatus({ exists: 0 }));
+    vi.mocked(getDb).mockResolvedValue({
+      select: vi.fn(async (sql: string) =>
+        sql.includes("NOT IN") ? [] : [{ thread_id: "t1" }],
+      ),
+      execute: vi.fn(async () => ({ rowsAffected: 0 })),
+    } as never);
+
+    await reconcileDeletedMessages(config, "acc", "Trash");
+
+    expect(executeAtomicBatch).toHaveBeenCalledTimes(1);
+  });
+
+  // The STATUS confirmation must still block the flaky-empty-SEARCH quirk that once
+  // nuked thousands of messages: SEARCH empty but STATUS still reports messages → skip.
+  it("skips deletion when SEARCH is empty but STATUS reports the folder still has messages", async () => {
+    const stored = Array.from({ length: 20 }, (_, i) => ({ id: `imap-acc-INBOX-${i + 1}`, uid: i + 1 }));
+    vi.mocked(getStoredImapUidsForFolder).mockResolvedValue(stored);
+    vi.mocked(imapRawSearchAllUids).mockResolvedValue([]); // flaky empty search
+    vi.mocked(imapGetFolderStatus).mockResolvedValue(createMockImapFolderStatus({ exists: 20 }));
+    const selectSpy = vi.fn(async () => []);
+    vi.mocked(getDb).mockResolvedValue({
+      select: selectSpy,
+      execute: vi.fn(async () => ({ rowsAffected: 0 })),
+    } as never);
+
+    await reconcileDeletedMessages(config, "acc", "INBOX");
+
+    expect(executeAtomicBatch).not.toHaveBeenCalled();
+    expect(selectSpy).not.toHaveBeenCalled();
+  });
+
+  // If STATUS itself can't confirm (timeout/error), bias to skip — a lingering stale
+  // row is harmless, a mass purge on an unconfirmed empty is catastrophic.
+  it("skips deletion when SEARCH is empty and the STATUS confirmation fails", async () => {
+    const stored = Array.from({ length: 20 }, (_, i) => ({ id: `imap-acc-INBOX-${i + 1}`, uid: i + 1 }));
+    vi.mocked(getStoredImapUidsForFolder).mockResolvedValue(stored);
+    vi.mocked(imapRawSearchAllUids).mockResolvedValue([]);
+    vi.mocked(imapGetFolderStatus).mockRejectedValue(new Error("STATUS timed out"));
+    const selectSpy = vi.fn(async () => []);
+    vi.mocked(getDb).mockResolvedValue({
+      select: selectSpy,
+      execute: vi.fn(async () => ({ rowsAffected: 0 })),
+    } as never);
+
+    await reconcileDeletedMessages(config, "acc", "INBOX");
+
+    expect(executeAtomicBatch).not.toHaveBeenCalled();
+    expect(selectSpy).not.toHaveBeenCalled();
+  });
 });
 
 describe("computeThreadLabels — trashed unread must not flag the thread UNREAD", () => {

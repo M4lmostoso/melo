@@ -643,19 +643,41 @@ export async function reconcileDeletedMessages(
     }
   }
 
-  // SAFETY GUARD: never mass-delete on an empty server result.
-  // Some servers (and flaky/rate-limited connections) return an empty UID SEARCH
-  // even though the folder is full — the same "returns empty despite valid UIDs"
-  // quirk documented for UID FETCH in the Rust client. Without this guard, an empty
-  // result makes EVERY locally stored message look "deleted on the server" and wipes
-  // the whole folder from the DB (this is what nuked thousands of messages). A real
-  // empty folder is harmless to skip: there is nothing new to reconcile, and any
-  // genuine deletions are caught on a later cycle once the search returns properly.
+  // SAFETY GUARD: an empty UID SEARCH is ambiguous. It can mean the folder is
+  // genuinely empty (e.g. the user emptied Trash) OR that a flaky/rate-limited
+  // connection returned nothing for a folder that is actually full — the same
+  // "returns empty despite valid UIDs" quirk documented for UID FETCH in the Rust
+  // client, which once nuked thousands of messages. Blindly skipping on empty is
+  // safe against the flaky case but leaves a genuinely-emptied folder full forever
+  // (its SEARCH is empty on EVERY cycle, so "a later cycle catches it" never comes).
+  // Disambiguate with an authoritative STATUS (MESSAGES) count: only reconcile the
+  // local rows away when the server CONFIRMS the folder is empty (EXISTS = 0). If
+  // STATUS still reports messages (flaky SEARCH) or STATUS itself fails, skip — a
+  // false negative (stale rows linger one more cycle) is harmless, a false positive
+  // (mass mail loss) is catastrophic, so we only delete on a positive confirmation.
   if (serverUids.length === 0) {
-    console.warn(
-      `[imapSync] Reconciliation: server returned 0 UIDs for ${folderPath} but ${stored.length} message(s) are stored locally — skipping deletion (treating as a failed/empty search, not a mass purge).`,
+    let serverExists: number;
+    try {
+      serverExists = (await imapGetFolderStatus(config, folderPath)).exists;
+    } catch (err) {
+      console.warn(
+        `[imapSync] Reconciliation: SEARCH returned 0 UIDs for ${folderPath} and the STATUS confirmation failed — skipping deletion to avoid a false mass purge:`,
+        err,
+      );
+      return;
+    }
+    if (serverExists !== 0) {
+      console.warn(
+        `[imapSync] Reconciliation: SEARCH returned 0 UIDs for ${folderPath} but STATUS reports ${serverExists} message(s) still present — treating as a failed/empty search, not a mass purge. Skipping deletion.`,
+      );
+      return;
+    }
+    console.log(
+      `[imapSync] Reconciliation: ${folderPath} is genuinely empty on the server (STATUS EXISTS=0) — removing ${stored.length} stale local message(s).`,
     );
-    return;
+    // Fall through: serverUids is empty, so every stored row is an orphan and gets
+    // removed below with the normal thread-stat/label cleanup. Guard 2 cannot fire
+    // here (serverStillRoughlyFull is false when serverUids.length === 0).
   }
 
   const serverSet = new Set(serverUids);

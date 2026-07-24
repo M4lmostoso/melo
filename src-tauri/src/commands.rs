@@ -1476,6 +1476,25 @@ pub async fn imap_fetch_and_store(
                     rusqlite::params![msg.uid, msg.folder, account_id, rfc_id],
                 )
                 .map_err(|e| format!("uid update for dup uid {}: {e}", msg.uid))?;
+
+                // Trash restore: the incoming copy is a live (non-trash) folder copy for a
+                // Message-ID currently stored ONLY as a trashed row — e.g. the user restored
+                // the mail from Trash → INBOX in another client, or emptied Trash and the
+                // message resurfaced in a live folder. Without this, Filter 2 keeps the stale
+                // trashed row and skip-lists the live copy as a 'duplicate' forever, so the
+                // restore never becomes visible in Melo (is_trashed stays 1, no INBOX label).
+                // Adopt the live coordinates and clear is_trashed so the row moves back into
+                // the live folder. Guarded on is_trashed = 1 (existing row) so a Trash copy
+                // that arrives AFTER a live copy within the same batch can never re-trash it.
+                if !is_trashed {
+                    conn.execute(
+                        "UPDATE messages SET imap_uid = ?1, imap_folder = ?2, is_trashed = 0 \
+                         WHERE account_id = ?3 AND message_id_header = ?4 \
+                           AND is_trashed = 1 AND is_draft = 0",
+                        rusqlite::params![msg.uid, msg.folder, account_id, rfc_id],
+                    )
+                    .map_err(|e| format!("trash-restore adopt for uid {}: {e}", msg.uid))?;
+                }
             }
             false // duplicate — return header so TypeScript can accumulate cross-folder labels
         } else {
