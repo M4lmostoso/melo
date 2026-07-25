@@ -140,6 +140,45 @@ function useRouterSyncBridge() {
 import { useThreadStore } from "./stores/threadStore";
 import { playSound } from "./services/soundService";
 
+/**
+ * Prompt phantom-draft cleanup after an IMAP send.
+ *
+ * The composer's 18s-debounce autosave APPEND to the server Drafts folder can
+ * still be uploading when the user hits Send: the send-time EXPUNGE targets the
+ * UID the app knew, but the in-flight copy lands afterwards with a FRESH UID that
+ * escaped it (so `currentDraftId`/`preTombstonedDraftId` were captured as null).
+ * `killInFlightServerAppend` (composer) already recorded that copy's Message-ID in
+ * the draft_kill_list; this schedules a couple of prompt passes so the re-imported
+ * phantom is removed within seconds instead of lingering until the next ~10-min
+ * maintenance sweep:
+ *   - syncAccount() imports the phantom from Drafts → imapSync's post-store
+ *     sweepKilledDrafts deletes it (server + local) in the same cycle;
+ *   - a direct sweepKilledDrafts() covers the case where an earlier cycle already
+ *     imported it (is_draft row present, kill entry just written).
+ * Both are idempotent no-ops when there is no phantom. Gmail is exempt (server-side
+ * drafts, no APPEND race).
+ */
+function schedulePostSendPhantomSweep(accountId: string): void {
+  const provider = useAccountStore
+    .getState()
+    .accounts.find((a) => a.id === accountId)?.provider;
+  if (provider === "gmail_api") return;
+  const passDelaysMs = [8000, 25000];
+  for (const delayMs of passDelaysMs) {
+    setTimeout(() => {
+      void (async () => {
+        try {
+          await syncAccount(accountId);
+          const { sweepKilledDrafts } = await import("./services/draftActions");
+          await sweepKilledDrafts(accountId);
+        } catch (err) {
+          console.warn("[postSendPhantomSweep] pass failed:", err);
+        }
+      })();
+    }, delayMs);
+  }
+}
+
 export default function App() {
   const theme = useUIStore((s) => s.theme);
   const fontScale = useUIStore((s) => s.fontScale);
@@ -563,6 +602,13 @@ export default function App() {
               p.threadId ?? undefined,
             ).catch(() => {});
           }
+          // A large/slow autosave APPEND may still be uploading and land on the
+          // server AFTER this handler ran, with a fresh UID the send-time EXPUNGE
+          // never saw — the next sync would re-import it as a phantom draft that
+          // sits next to the sent mail until the ~10-min maintenance sweep. Its
+          // Message-ID is already in the kill-list (killInFlightServerAppend), so
+          // schedule prompt sync+sweep passes to clear it within seconds.
+          schedulePostSendPhantomSweep(p.accountId);
           // Remove the SQLite persistence key so the composer doesn't restore a stale
           // draft on the next open. The key encodes threadId (for replies) or "new".
           const persistKey = `v_draft_${p.accountId}_${p.threadId ?? "new"}`;
