@@ -806,7 +806,9 @@
       "submitLabel": "Schedule",
       "tomorrowMorning": "Tomorrow morning",
       "tomorrowAfternoon": "Tomorrow afternoon",
-      "mondayMorning": "Monday morning"
+      "mondayMorning": "Monday morning",
+      "scheduling": "Scheduling...",
+      "error": "Could not schedule the message. Try again."
     },
     "templatePicker": {
       "label": "Templates"

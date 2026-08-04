@@ -201,6 +201,7 @@ export function Composer() {
   const [unusualAccountWarning, setUnusualAccountWarning] = useState<UnusualAccountWarning | null>(null);
   const pendingSendRef = useRef<(() => void) | null>(null);
   const [pendingScheduledAt, setPendingScheduledAt] = useState<number | null>(null);
+  const [scheduleError, setScheduleError] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [aliases, setAliases] = useState<SendAsAlias[]>([]);
   const [aiThreadMessages, setAiThreadMessages] = useState<string[]>([]);
@@ -818,6 +819,13 @@ const getFullHtml = useCallback(() => {
     if (!effectiveAccountId || !activeAccount || !pendingScheduledAt) return;
     const state = useComposerStore.getState();
     if (state.to.length === 0) return;
+    if (sendingRef.current) return;
+    // Mark the composer busy up-front: persisting the row (MBs of attachments through
+    // the SQL plugin) and flushing the autosave can take seconds, and without this the
+    // button stayed idle — the window just sat there with no sign anything happened.
+    sendingRef.current = true;
+    state.setIsSending(true);
+    setScheduleError(null);
     try {
       const html = getFullHtml();
       const scheduledId = await insertScheduledEmail({
@@ -860,31 +868,45 @@ const getFullHtml = useCallback(() => {
       const activeDraftId = getActiveDraftId();
       // If saveServer() was in-flight during startDiscard(), it pre-tombstoned the
       // newly APPENDed UID (local DB already cleaned) but never EXPUNGEd the server.
-      // deleteDraftAction below will issue the EXPUNGE so the draft doesn't linger.
+      // The handoff below issues the EXPUNGE so the draft doesn't linger.
       const preTombstonedId = getPreTombstonedDraftId();
       const localDraftId = useComposerStore.getState().localDraftId;
       const account = useAccountStore.getState().accounts.find((a) => a.id === effectiveAccountId);
       const isImapAccount = !!account && account.provider !== "gmail_api";
-      const draftToDelete = activeDraftId ?? preTombstonedId;
-      if (draftToDelete) {
-        try {
-          await deleteDraftAction(
-            effectiveAccountId,
-            draftToDelete,
-            state.threadId ?? undefined,
-          );
-        } catch {
-          /* ignore */
-        }
-      } else if (isImapAccount && !serverDraftId && localDraftId) {
-        // No server draft at all (APPEND debounce never fired): purge local UUID row only.
-        await purgeDraftFromDb(effectiveAccountId, null, state.threadId ?? null, localDraftId).catch(() => {});
+
+      // Same split as performDelete: the local SQLite purge runs here (fast, always
+      // finishes before the window dies), while the server-side EXPUNGE/draft delete is
+      // handed to the main window. Awaiting deleteDraft() inline meant an IMAP round
+      // trip — on a slow/hung server (DavMail) the composer stayed open for as long as
+      // the connection took, with no indication of why.
+      if (serverDraftId) {
+        await tombstoneImapDraft(effectiveAccountId, serverDraftId).catch(() => {});
+      }
+      await purgeDraftFromDb(
+        effectiveAccountId,
+        serverDraftId,
+        state.threadId ?? null,
+        localDraftId,
+      ).catch(() => {});
+
+      const serverTarget =
+        serverDraftId ?? preTombstonedId ?? (!isImapAccount ? activeDraftId : null);
+      if (serverTarget || (!isImapAccount && state.threadId)) {
+        void deleteDraftOnServer({
+          accountId: effectiveAccountId,
+          draftId: serverTarget,
+          threadId: state.threadId ?? null,
+        });
       }
       stopAutoSave();
     } catch (err) {
       console.error("Failed to schedule email:", err);
+      sendingRef.current = false;
+      useComposerStore.getState().setIsSending(false);
+      setScheduleError(t("composer.scheduleSend.error"));
       return;
     }
+    notifyDraftChanged();
     setPendingScheduledAt(null);
     closeComposer();
     // Emit a Tauri event so the main window (separate WebviewWindow) can react.
@@ -1254,13 +1276,22 @@ const getFullHtml = useCallback(() => {
             {t("composer.discard")}
           </Button>
           <div className="flex flex-col items-end gap-1">
+            {scheduleError && (
+              <span className="text-xs text-red-500">{scheduleError}</span>
+            )}
             <div className="flex items-center">
               <button
                 onClick={() => void guardedSend(pendingScheduledAt ? handleConfirmSchedule : handleSend)}
                 disabled={to.length === 0 || isSending}
                 className="px-4 py-1.5 text-xs font-medium text-white bg-accent hover:bg-accent-hover rounded-l-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isSending ? t("composer.sending") : pendingScheduledAt ? t("composer.scheduleSend.submitLabel") : t("composer.send")}
+                {isSending
+                  ? pendingScheduledAt
+                    ? t("composer.scheduleSend.scheduling")
+                    : t("composer.sending")
+                  : pendingScheduledAt
+                    ? t("composer.scheduleSend.submitLabel")
+                    : t("composer.send")}
               </button>
               <button
                 onClick={pendingScheduledAt ? () => setPendingScheduledAt(null) : () => setShowSchedule(true)}

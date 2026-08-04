@@ -806,7 +806,9 @@
       "submitLabel": "Programma",
       "tomorrowMorning": "Domani mattina",
       "tomorrowAfternoon": "Domani pomeriggio",
-      "mondayMorning": "Lunedì mattina"
+      "mondayMorning": "Lunedì mattina",
+      "scheduling": "Programmazione...",
+      "error": "Impossibile programmare il messaggio. Riprova."
     },
     "templatePicker": {
       "label": "Modelli"
