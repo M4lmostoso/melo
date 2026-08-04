@@ -414,6 +414,24 @@ export function expandVEvents(
   rangeStart: number,
   rangeEnd: number,
 ): CalendarEventData[] {
+  // STATUS:CANCELLED means the organizer called the meeting off — the occurrence
+  // must disappear from the calendar, not linger as an "Annulé:/Cancelled:" entry.
+  // Filtering here covers every return path below, and dropping them from the
+  // sync's `created` list also lets the deletion reconciliation sweep away any
+  // row stored before the cancellation arrived. A cancelled RECURRENCE-ID
+  // override still lands in `exDates` inside expandVEventsRaw, so the original
+  // occurrence it replaces stays suppressed too.
+  return expandVEventsRaw(icalData, href, rangeStart, rangeEnd).filter(
+    (e) => e.status !== "cancelled",
+  );
+}
+
+function expandVEventsRaw(
+  icalData: string,
+  href: string | undefined,
+  rangeStart: number,
+  rangeEnd: number,
+): CalendarEventData[] {
   const events = parseVEvents(icalData, href);
   const debug = (globalThis as { __MELO_CALDAV_DEBUG__?: boolean }).__MELO_CALDAV_DEBUG__;
 

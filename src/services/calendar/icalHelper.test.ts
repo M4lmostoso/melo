@@ -1,4 +1,4 @@
-import { generateVEvent, parseVEvent, generateRsvpReply } from "./icalHelper";
+import { generateVEvent, parseVEvent, generateRsvpReply, expandVEvents } from "./icalHelper";
 import type { CreateEventInput } from "./types";
 
 beforeEach(() => {
@@ -638,5 +638,58 @@ describe("generateRsvpReply", () => {
     });
 
     expect(reply).toContain("RECURRENCE-ID;TZID=W. Europe Standard Time:20260622T100000");
+  });
+});
+
+describe("expandVEvents — cancelled occurrences", () => {
+  const RANGE_START = Math.floor(new Date("2026-08-01T00:00:00Z").getTime() / 1000);
+  const RANGE_END = Math.floor(new Date("2026-09-01T00:00:00Z").getTime() / 1000);
+
+  it("drops a cancelled RECURRENCE-ID override and the occurrence it replaces", () => {
+    const ics = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "BEGIN:VEVENT",
+      "UID:series-1",
+      "SUMMARY:Point Hebdo",
+      "DTSTART:20260804T073000Z",
+      "DTEND:20260804T083000Z",
+      "RRULE:FREQ=WEEKLY;COUNT=4",
+      "END:VEVENT",
+      "BEGIN:VEVENT",
+      "UID:series-1",
+      "RECURRENCE-ID:20260811T073000Z",
+      "SUMMARY:Annulé: Point Hebdo",
+      "DTSTART:20260811T073000Z",
+      "DTEND:20260811T083000Z",
+      "STATUS:CANCELLED",
+      "END:VEVENT",
+      "END:VCALENDAR",
+    ].join("\r\n");
+
+    const events = expandVEvents(ics, "/cal/series-1.ics", RANGE_START, RANGE_END);
+    const starts = events.map((e) => new Date(e.startTime * 1000).toISOString());
+
+    expect(events.every((e) => e.status !== "cancelled")).toBe(true);
+    expect(starts).not.toContain("2026-08-11T07:30:00.000Z");
+    expect(starts).toContain("2026-08-04T07:30:00.000Z");
+    expect(starts).toContain("2026-08-18T07:30:00.000Z");
+  });
+
+  it("drops a cancelled single event entirely", () => {
+    const ics = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "BEGIN:VEVENT",
+      "UID:one-off",
+      "SUMMARY:Cancelled: Kick Off",
+      "DTSTART:20260805T120000Z",
+      "DTEND:20260805T130000Z",
+      "STATUS:CANCELLED",
+      "END:VEVENT",
+      "END:VCALENDAR",
+    ].join("\r\n");
+
+    expect(expandVEvents(ics, "/cal/one-off.ics", RANGE_START, RANGE_END)).toEqual([]);
   });
 });

@@ -19,6 +19,8 @@ import {
   deleteEventByRemoteId,
   deleteCalendarEvent,
   dedupeCalendarEvents,
+  deleteCancelledInviteEvents,
+  getCalendarEventsInRangeForCalendars,
   type DbCalendarEvent,
 } from "./calendarEvents";
 import { createMockDb } from "@/test/mocks";
@@ -350,6 +352,60 @@ describe("calendarEvents service", () => {
       const [sql, params] = mockDb.execute.mock.calls[0] as [string, unknown[]];
       expect(sql).toBe("DELETE FROM calendar_events WHERE id = $1");
       expect(params).toEqual(["evt-1"]);
+    });
+  });
+
+  describe("cancelled events", () => {
+    it("excludes cancelled rows from the UI range queries", async () => {
+      mockDb.select.mockResolvedValueOnce([]);
+      await getCalendarEventsInRange("acc-1", 500, 2500);
+      const [rangeSql] = mockDb.select.mock.calls[0] as [string, unknown[]];
+      expect(rangeSql).toContain("status != 'cancelled'");
+
+      mockDb.select.mockResolvedValueOnce([]);
+      await getCalendarEventsInRangeForCalendars(["cal-1"], 500, 2500);
+      const [calSql] = mockDb.select.mock.calls[1] as [string, unknown[]];
+      expect(calSql).toContain("status != 'cancelled'");
+    });
+
+    it("keeps cancelled rows visible to the sync reconciliation", async () => {
+      mockDb.select.mockResolvedValueOnce([]);
+      await getCalendarEventsInRangeForCalendars(["cal-1"], 500, 2500, true);
+      const [sql] = mockDb.select.mock.calls[0] as [string, unknown[]];
+      expect(sql).not.toContain("status != 'cancelled'");
+    });
+
+    it("deletes only the cancelled occurrence slot when the CANCEL has a RECURRENCE-ID", async () => {
+      await deleteCancelledInviteEvents({
+        accountId: "acc-1",
+        uid: "series-1",
+        recurrenceId: 1786433400,
+        startTime: 1786433400,
+        endTime: 1786437000,
+        isAllDay: false,
+      });
+
+      const [sql, params] = mockDb.execute.mock.calls[0] as [string, unknown[]];
+      expect(sql).toContain("google_event_id IN ($6, $7, $8)");
+      expect(params).toEqual([
+        "acc-1", "series-1", 1786433400, 1786437000, 0,
+        "series-1_1786433400", "series-1_override_1786433400", "series-1_1786433400",
+      ]);
+    });
+
+    it("deletes the whole series when the CANCEL has no RECURRENCE-ID", async () => {
+      await deleteCancelledInviteEvents({
+        accountId: "acc-1",
+        uid: "one-off",
+        recurrenceId: null,
+        startTime: 1000,
+        endTime: 2000,
+        isAllDay: false,
+      });
+
+      const [sql, params] = mockDb.execute.mock.calls[0] as [string, unknown[]];
+      expect(sql).not.toContain("google_event_id IN");
+      expect(params).toEqual(["acc-1", "one-off", 1000, 2000, 0]);
     });
   });
 });

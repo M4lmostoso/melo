@@ -135,6 +135,7 @@ export async function getCalendarEventsInRange(
     `SELECT * FROM calendar_events
      WHERE account_id = $1 AND start_time < $3 AND end_time > $2
        AND (rsvp_status IS NULL OR rsvp_status != 'declined')
+       AND status != 'cancelled'
      ORDER BY start_time ASC`,
     [accountId, startTime, endTime],
   );
@@ -157,16 +158,23 @@ export async function getCalendarEventsInRangeMulti(
      WHERE account_id = $1 AND start_time < $3 AND end_time > $2
        AND (calendar_id IN (${placeholders}) OR calendar_id IS NULL)
        AND (rsvp_status IS NULL OR rsvp_status != 'declined')
+       AND status != 'cancelled'
      ORDER BY start_time ASC`,
     [accountId, startTime, endTime, ...calendarIds],
   );
   return dedupeCalendarEvents(rows);
 }
 
+/**
+ * @param includeCancelled Sync-only escape hatch: the CalDAV deletion reconciliation
+ * must still SEE locally stored STATUS:CANCELLED rows so it can delete them. UI
+ * callers leave it false — a cancelled meeting is gone, not shown struck through.
+ */
 export async function getCalendarEventsInRangeForCalendars(
   calendarIds: string[],
   startTime: number,
   endTime: number,
+  includeCancelled = false,
 ): Promise<DbCalendarEvent[]> {
   if (calendarIds.length === 0) return [];
   const db = await getDb();
@@ -176,6 +184,7 @@ export async function getCalendarEventsInRangeForCalendars(
      WHERE start_time < $2 AND end_time > $1
        AND calendar_id IN (${placeholders})
        AND (rsvp_status IS NULL OR rsvp_status != 'declined')
+       ${includeCancelled ? "" : "AND status != 'cancelled'"}
      ORDER BY start_time ASC`,
     [startTime, endTime, ...calendarIds],
   );
@@ -192,6 +201,48 @@ export async function deleteEventsByUid(accountId: string, uid: string): Promise
   await db.execute(
     "DELETE FROM calendar_events WHERE account_id = $1 AND uid = $2",
     [accountId, uid],
+  );
+}
+
+/**
+ * Remove the calendar rows for a meeting the organizer cancelled by email
+ * (METHOD:CANCEL). Matches the same two ways as the invite/CalDAV dedup, because
+ * Outlook/Exchange via DavMail hands out a different uid per source (CalDAV
+ * GlobalObjectId vs the invite's CleanGlobalObjectId):
+ *   1. by uid — the whole series when the CANCEL has no RECURRENCE-ID, or just the
+ *      one occurrence slot (`uid_<recurrenceId>` / `uid_override_<recurrenceId>`
+ *      / the generated `uid_<startTs>` instance) when it has one;
+ *   2. by event identity (exact start/end + all-day flag) for the rows whose uid
+ *      representation differs.
+ */
+export async function deleteCancelledInviteEvents(params: {
+  accountId: string;
+  uid: string | null;
+  recurrenceId: number | null;
+  startTime: number;
+  endTime: number;
+  isAllDay: boolean;
+}): Promise<void> {
+  const db = await getDb();
+  const { accountId, uid, recurrenceId, startTime, endTime, isAllDay } = params;
+
+  const uidClause = recurrenceId != null
+    ? `($2 IS NOT NULL AND uid = $2 AND google_event_id IN ($6, $7, $8))`
+    : `($2 IS NOT NULL AND uid = $2)`;
+
+  await db.execute(
+    `DELETE FROM calendar_events
+     WHERE account_id = $1
+       AND (
+         ${uidClause}
+         OR (start_time = $3 AND end_time = $4 AND is_all_day = $5)
+       )`,
+    recurrenceId != null
+      ? [
+          accountId, uid, startTime, endTime, isAllDay ? 1 : 0,
+          `${uid}_${recurrenceId}`, `${uid}_override_${recurrenceId}`, `${uid}_${startTime}`,
+        ]
+      : [accountId, uid, startTime, endTime, isAllDay ? 1 : 0],
   );
 }
 

@@ -7,6 +7,7 @@ import {
   upsertEmailInviteEvent,
   updateCalendarEventRsvp,
   setEmailInviteServerEvent,
+  deleteCancelledInviteEvents,
 } from "../db/calendarEvents";
 import { getCalendarById, getCalendarByRemoteId } from "../db/calendars";
 import { getEmailProvider } from "../email/providerFactory";
@@ -91,6 +92,25 @@ export async function loadInvite(
   // Auto-register a received invite on the local calendar so it shows up without
   // requiring an RSVP. Idempotent: only inserts when there's no row yet, so an
   // existing 'declined' tombstone (or a prior response) is never resurrected.
+  // A cancellation removes the meeting from the calendar — both the row this
+  // invite created and any CalDAV-synced row for the same slot. The widget still
+  // renders its "event cancelled" notice from the email itself.
+  if (method === "CANCEL" && event.startTime && event.endTime) {
+    try {
+      await deleteCancelledInviteEvents({
+        accountId: attachment.account_id,
+        uid: event.uid ?? null,
+        recurrenceId: event.recurrenceId ?? null,
+        startTime: event.startTime,
+        endTime: event.endTime,
+        isAllDay: event.isAllDay,
+      });
+      notifyCalendarChanged();
+    } catch (err) {
+      console.warn("[calendarInvite] failed to remove cancelled event:", err);
+    }
+  }
+
   if (method === "REQUEST" && !stored && event.startTime && event.endTime) {
     try {
       await upsertEmailInviteEvent(

@@ -288,7 +288,12 @@ describe("CalDAVProvider", () => {
 
       const result = await provider.syncEvents("/cal/personal/");
 
-      expect(mockGetEventsInRange).toHaveBeenCalledWith(["cal-local"], expect.any(Number), expect.any(Number));
+      expect(mockGetEventsInRange).toHaveBeenCalledWith(
+        ["cal-local"],
+        expect.any(Number),
+        expect.any(Number),
+        true, // cancelled rows must be visible to the deletion reconciliation
+      );
       expect(result.created).toHaveLength(1);
       expect(result.deletedRemoteIds).toEqual(["/cal/personal/gone.ics"]);
     });

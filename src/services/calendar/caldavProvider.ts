@@ -192,6 +192,7 @@ export class CalDAVProvider implements CalendarProvider {
         [storedCal.id],
         rangeStartTs,
         rangeEndTs,
+        true, // include cancelled rows so they get deleted, not just hidden
       );
       for (const row of localEvents) {
         if (row.remote_event_id && !serverIds.has(row.remote_event_id)) {
