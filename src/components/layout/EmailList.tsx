@@ -318,6 +318,31 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     });
   }, [filteredThreads, activeLabel, activeCategory, isSearchActive, categoryMap, bundledCategorySet, heldThreadIds]);
 
+  // Publish what is actually on screen, in render order (expanded bundle rows come
+  // first), so shift-click ranges and select-all never reach rows the current
+  // search/filter is hiding.
+  const renderedThreadIds = useMemo(() => {
+    const ids: string[] = [];
+    if (activeLabel === "inbox" && activeCategory === "All") {
+      for (const rule of bundleRules) {
+        if (!expandedBundles.has(rule.category)) continue;
+        for (const th of filteredThreads) {
+          if (categoryMap.get(th.id) === rule.category) ids.push(th.id);
+        }
+      }
+    }
+    for (const th of visibleThreads) ids.push(th.id);
+    return [...new Set(ids)];
+  }, [activeLabel, activeCategory, bundleRules, expandedBundles, filteredThreads, categoryMap, visibleThreads]);
+
+  useEffect(() => {
+    useThreadStore.getState().setVisibleThreadIds(renderedThreadIds);
+  }, [renderedThreadIds]);
+
+  // Leaving the list (special views, unmount) must not leave a stale visible set
+  // behind — selection would then span rows from a list that is no longer shown.
+  useEffect(() => () => useThreadStore.getState().setVisibleThreadIds([]), []);
+
   const mapDbThreads = useCallback(async (dbThreads: Awaited<ReturnType<typeof getThreadsForAccount>>, isDrafts = false): Promise<Thread[]> => {
     const decay = await getDecaySettings();
     return Promise.all(

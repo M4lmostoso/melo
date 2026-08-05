@@ -201,6 +201,20 @@ pub async fn imap_fetch_raw_message(
     Ok(raw)
 }
 
+/// Raw RFC822 source of one message, base64url-encoded, fetched over raw TCP.
+///
+/// Preferred over `imap_fetch_raw_message` for the cross-account move: it never
+/// goes through the async-imap response parser (which loops and exhausts RAM on
+/// DavMail) and the bytes stay intact instead of being lossily decoded to UTF-8.
+#[tauri::command]
+pub async fn imap_fetch_raw_message_base64(
+    config: ImapConfig,
+    folder: String,
+    uid: u32,
+) -> Result<String, String> {
+    imap_client::raw_fetch_message_base64(&config, &folder, uid).await
+}
+
 #[tauri::command]
 pub async fn imap_set_flags(
     config: ImapConfig,

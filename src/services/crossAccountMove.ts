@@ -3,7 +3,7 @@ import { getMessagesForThread } from "./db/messages";
 import { getDb } from "./db/connection";
 import { addPendingLabelAssignments } from "./db/pendingLabelAssignments";
 import { buildImapConfig } from "./imap/imapConfigBuilder";
-import { imapFetchRawMessage, imapAppendMessage, imapDeleteMessages } from "./imap/tauriCommands";
+import { imapFetchRawMessageBase64, imapAppendMessage, imapDeleteMessages } from "./imap/tauriCommands";
 import { getGmailClient } from "./gmail/tokenManager";
 import { triggerSync } from "./gmail/syncManager";
 
@@ -126,6 +126,21 @@ export async function crossAccountMoveThreads(
   const targetImapFolder = FOLDER_KEY_TO_IMAP[targetFolderKey] ?? "INBOX";
   const targetGmailLabels = FOLDER_KEY_TO_GMAIL[targetFolderKey] ?? ["INBOX"];
 
+  // A drop onto one of the target account's custom labels arrives here with the
+  // label id in place of a folder key. Without this the key just fell back to
+  // INBOX and the label the user actually aimed at was silently dropped.
+  const dropTargetLabelId =
+    targetFolderKey in FOLDER_KEY_TO_IMAP
+      ? null
+      : await (async () => {
+          const db = await getDb();
+          const rows = await db.select<{ id: string }[]>(
+            "SELECT id FROM user_labels WHERE account_id = $1 AND id = $2",
+            [targetAccountId, targetFolderKey],
+          );
+          return rows[0]?.id ?? null;
+        })();
+
   // Resolve every message up-front so the caller can show a real total: a move
   // is a raw fetch + APPEND + delete per message and can take minutes on a slow
   // server, so it must never run without visible progress.
@@ -145,9 +160,12 @@ export async function crossAccountMoveThreads(
     // preserved on the moved thread; labels with no match are dropped. Gmail
     // applies them server-side on insert; IMAP records a deferred assignment
     // (keyed by the message's RFC Message-ID) applied once the move is synced.
-    const carryOverLabelIds = await resolveCarryOverTargetLabelIds(
-      sourceAccountId, threadId, targetAccountId,
-    );
+    const carryOverLabelIds = [
+      ...new Set([
+        ...(await resolveCarryOverTargetLabelIds(sourceAccountId, threadId, targetAccountId)),
+        ...(dropTargetLabelId ? [dropTargetLabelId] : []),
+      ]),
+    ];
     const insertGmailLabels = [...new Set([...targetGmailLabels, ...carryOverLabelIds])];
 
     for (const msg of messages) {
@@ -157,12 +175,13 @@ export async function crossAccountMoveThreads(
       // ── 1. Fetch raw from source ──────────────────────────────────────────
       if (sourceIsImap) {
         if (!sourceConfig || msg.imap_uid == null || !msg.imap_folder) continue;
-        const rawString = await imapFetchRawMessage(sourceConfig, msg.imap_folder, msg.imap_uid);
-        // Encode as base64url safely handling non-ASCII bytes
-        const bytes = new TextEncoder().encode(rawString);
-        let binary = "";
-        bytes.forEach((b) => { binary += String.fromCharCode(b); });
-        rawBase64url = btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+        // Base64url straight from Rust over raw TCP. The previous path fetched the
+        // message through async-imap and re-encoded it here with TextEncoder/btoa:
+        // that parser loops on DavMail's BODY[] framing and ate all RAM+swap on a
+        // move, and the UTF-8 round-trip corrupted every non-UTF-8 message.
+        rawBase64url = await imapFetchRawMessageBase64(
+          sourceConfig, msg.imap_folder, msg.imap_uid,
+        );
       } else {
         if (!sourceGmail) continue;
         const raw = await sourceGmail.getMessage(msg.id, "raw") as { raw?: string };

@@ -1328,6 +1328,130 @@ pub async fn raw_fetch_attachment_base64(
     Ok(base64_str)
 }
 
+/// Hard ceiling for a single raw-message fetch (bytes). A literal larger than this
+/// is refused instead of allocated: the announced size is server-controlled, and
+/// on a misbehaving server (DavMail) a bogus value would otherwise be turned
+/// straight into a multi-gigabyte allocation.
+const MAX_RAW_MESSAGE_BYTES: usize = 256 * 1024 * 1024;
+
+/// Fetch the raw RFC822 source of a single message by UID via RAW TCP, returned
+/// base64url-encoded (no padding) — ready to hand straight back to APPEND.
+///
+/// Same rationale as [`raw_fetch_attachment_base64`]: the async-imap based
+/// [`fetch_raw_message`] blows up on DavMail (Exchange/EWS → IMAP) because its
+/// response parser loops on DavMail's `BODY[]` framing, growing the response
+/// buffer without bound — a cross-account move of a few messages could eat all
+/// RAM and swap. The raw-TCP path reads exactly the announced literal size and
+/// stops.
+///
+/// Returning base64 from Rust also keeps the bytes intact end to end: the old
+/// path went through `String::from_utf8_lossy` and was re-encoded in JS with
+/// `TextEncoder`, which silently corrupts every non-UTF-8 (8bit/binary) message.
+pub async fn raw_fetch_message_base64(
+    config: &ImapConfig,
+    folder: &str,
+    uid: u32,
+) -> Result<String, String> {
+    log::debug!("[raw_fetch_message_base64] folder={folder} uid={uid}");
+
+    let stream = if config.security == "starttls" {
+        raw_connect_starttls(config).await?
+    } else {
+        connect_stream(config).await?
+    };
+    let mut reader = BufReader::new(stream);
+
+    if config.security != "starttls" {
+        let mut line = String::new();
+        reader.read_line(&mut line).await.map_err(|e| format!("greeting: {e}"))?;
+    }
+
+    let login_cmd = if config.auth_method == "oauth2" {
+        let xoauth2 = format!("user={}\x01auth=Bearer {}\x01\x01", config.username, config.password);
+        let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, xoauth2.as_bytes());
+        format!("a1 AUTHENTICATE XOAUTH2 {b64}\r\n")
+    } else {
+        let esc_user = config.username.replace('\\', "\\\\").replace('"', "\\\"");
+        let esc_pass = config.password.replace('\\', "\\\\").replace('"', "\\\"");
+        format!("a1 LOGIN \"{esc_user}\" \"{esc_pass}\"\r\n")
+    };
+    raw_send_and_wait(&mut reader, login_cmd.as_bytes(), "a1").await?;
+
+    let select_cmd = format!("a2 SELECT \"{folder}\"\r\n");
+    raw_send_and_wait(&mut reader, select_cmd.as_bytes(), "a2").await?;
+
+    let fetch_cmd = format!("a3 UID FETCH {uid} BODY.PEEK[]\r\n");
+    reader
+        .get_mut()
+        .write_all(fetch_cmd.as_bytes())
+        .await
+        .map_err(|e| format!("FETCH write: {e}"))?;
+
+    let literal_size = loop {
+        let mut line = String::new();
+        match tokio::time::timeout(IMAP_FETCH_TIMEOUT, reader.read_line(&mut line)).await {
+            Ok(Ok(0)) => return Err("connection closed during FETCH".to_string()),
+            Ok(Ok(_)) => {
+                if line.starts_with("a3 NO") || line.starts_with("a3 BAD") {
+                    return Err(format!("server rejected FETCH: {}", line.trim()));
+                }
+                if line.starts_with("a3 OK") {
+                    return Err(format!("message UID {uid} returned no data in {folder}"));
+                }
+                if line.starts_with("* ") && line.contains("FETCH") {
+                    match extract_literal_size(&line) {
+                        Some(size) => break size,
+                        None => return Err(format!("message UID {uid} not present in {folder}")),
+                    }
+                }
+            }
+            Ok(Err(e)) => return Err(format!("FETCH read: {e}")),
+            Err(_) => {
+                return Err(format!(
+                    "FETCH header timed out after {}s — the server is taking too long to serve this message",
+                    IMAP_FETCH_TIMEOUT.as_secs()
+                ))
+            }
+        }
+    };
+
+    if literal_size > MAX_RAW_MESSAGE_BYTES {
+        return Err(format!(
+            "message UID {uid} in {folder} announces {literal_size} bytes, above the {}MB limit — refusing to fetch it",
+            MAX_RAW_MESSAGE_BYTES / (1024 * 1024)
+        ));
+    }
+
+    let mut buf: Vec<u8> = Vec::with_capacity(literal_size);
+    let mut chunk = vec![0u8; 64 * 1024];
+    let mut remaining = literal_size;
+    while remaining > 0 {
+        let want = remaining.min(chunk.len());
+        let n = tokio::time::timeout(IMAP_FETCH_TIMEOUT, reader.read(&mut chunk[..want]))
+            .await
+            .map_err(|_| {
+                format!(
+                    "message fetch stalled (no data for {}s) — check your network connection",
+                    IMAP_FETCH_TIMEOUT.as_secs()
+                )
+            })?
+            .map_err(|e| format!("message read: {e}"))?;
+        if n == 0 {
+            return Err("connection closed mid-message".to_string());
+        }
+        buf.extend_from_slice(&chunk[..n]);
+        remaining -= n;
+    }
+
+    let mut tail = String::new();
+    let _ = tokio::time::timeout(IMAP_CMD_TIMEOUT, reader.read_line(&mut tail)).await;
+    let mut tagline = String::new();
+    let _ = tokio::time::timeout(IMAP_CMD_TIMEOUT, reader.read_line(&mut tagline)).await;
+    let _ = reader.get_mut().write_all(b"a4 LOGOUT\r\n").await;
+
+    Ok(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&buf))
+}
+
 /// Fetch the raw RFC822 source of a single message by UID.
 /// Returns the full message as a UTF-8 string (lossy conversion for non-UTF-8 bytes).
 pub async fn fetch_raw_message(

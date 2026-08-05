@@ -39,6 +39,7 @@ describe("threadStore", () => {
   beforeEach(() => {
     useThreadStore.setState({
       threads: [],
+      visibleThreadIds: [],
       threadMap: new Map(),
       selectedThreadId: null,
       selectedThreadIds: new Set(),
@@ -124,6 +125,50 @@ describe("threadStore", () => {
     const state = useThreadStore.getState();
     // Should have thread-1 (from toggle) + thread-2, thread-3 (from selectAllFromHere)
     expect(state.selectedThreadIds.size).toBe(3);
+  });
+
+  describe("selection is limited to the visible rows", () => {
+    const mockThread3: Thread = { ...mockThread, id: "thread-3", subject: "Third" };
+    const mockThread4: Thread = { ...mockThread, id: "thread-4", subject: "Fourth" };
+
+    beforeEach(() => {
+      useThreadStore.getState().setThreads([mockThread, mockThread2, mockThread3, mockThread4]);
+      // A search is showing only rows 1 and 4 of the underlying list
+      useThreadStore.getState().setVisibleThreadIds(["thread-1", "thread-4"]);
+    });
+
+    it("shift-click spans only the visible rows, not the hidden ones in between", () => {
+      useThreadStore.getState().selectThread("thread-1");
+      useThreadStore.getState().selectThreadRange("thread-4");
+      const { selectedThreadIds } = useThreadStore.getState();
+      expect([...selectedThreadIds].sort()).toEqual(["thread-1", "thread-4"]);
+    });
+
+    it("selectAll selects only the visible rows", () => {
+      useThreadStore.getState().selectAll();
+      expect([...useThreadStore.getState().selectedThreadIds].sort()).toEqual([
+        "thread-1",
+        "thread-4",
+      ]);
+    });
+
+    it("selectAllFromHere walks the visible rows", () => {
+      useThreadStore.getState().selectThread("thread-4");
+      useThreadStore.getState().selectAllFromHere();
+      expect([...useThreadStore.getState().selectedThreadIds]).toEqual(["thread-4"]);
+    });
+
+    it("adds just the clicked row when the anchor is not visible", () => {
+      useThreadStore.getState().selectThread("thread-2"); // filtered out by the search
+      useThreadStore.getState().selectThreadRange("thread-4");
+      expect([...useThreadStore.getState().selectedThreadIds]).toEqual(["thread-4"]);
+    });
+
+    it("falls back to every thread when no visible set is published", () => {
+      useThreadStore.getState().setVisibleThreadIds([]);
+      useThreadStore.getState().selectAll();
+      expect(useThreadStore.getState().selectedThreadIds.size).toBe(4);
+    });
   });
 
   describe("threadMap", () => {

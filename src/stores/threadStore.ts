@@ -43,6 +43,15 @@ interface ThreadState {
   searchThreadIds: Set<string> | null; // null = no active search
   searchResults: Thread[] | null; // null = no active search, [] = search returned no hits
   searchLoading: boolean;
+  /**
+   * Ids of the threads the list is actually rendering, in render order — published
+   * by EmailList. Range/select-all operate on THIS list, not on `threads`: with a
+   * search (or a read filter) active the visible rows are a subset, and spanning
+   * `threads` silently selected rows the user could not see.
+   * Empty means "nothing published" → fall back to `threads`.
+   */
+  visibleThreadIds: string[];
+  setVisibleThreadIds: (ids: string[]) => void;
   setThreads: (threads: Thread[]) => void;
   selectThread: (id: string | null) => void;
   setSelectedMessageId: (id: string | null) => void;
@@ -63,8 +72,16 @@ interface ThreadState {
   mergeSemanticResults: (results: Thread[]) => void;
 }
 
+/** The list selection actions walk: what is on screen, or every thread if unpublished. */
+function selectionOrder(state: ThreadState): string[] {
+  return state.visibleThreadIds.length > 0
+    ? state.visibleThreadIds
+    : state.threads.map((t) => t.id);
+}
+
 export const useThreadStore = create<ThreadState>((set, get) => ({
   threads: [],
+  visibleThreadIds: [],
   threadMap: new Map(),
   selectedThreadId: null,
   selectedThreadIds: new Set(),
@@ -88,35 +105,42 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       }
       return { selectedThreadIds: next };
     }),
+  setVisibleThreadIds: (visibleThreadIds) => set({ visibleThreadIds }),
   selectThreadRange: (id) => {
     const state = get();
-    const threads = state.threads;
+    const order = selectionOrder(state);
     // Find the anchor: last selected thread or the currently viewed thread
     const anchor = state.selectedThreadId ?? [...state.selectedThreadIds].pop();
     if (!anchor) {
       set({ selectedThreadIds: new Set([id]) });
       return;
     }
-    const anchorIdx = threads.findIndex((t) => t.id === anchor);
-    const targetIdx = threads.findIndex((t) => t.id === id);
-    if (anchorIdx === -1 || targetIdx === -1) return;
+    const anchorIdx = order.indexOf(anchor);
+    const targetIdx = order.indexOf(id);
+    if (targetIdx === -1) return;
+    // Anchor scrolled out of the current view (e.g. it is not part of the search
+    // results): there is no range to span, so just add the clicked thread.
+    if (anchorIdx === -1) {
+      set((s) => ({ selectedThreadIds: new Set([...s.selectedThreadIds, id]) }));
+      return;
+    }
     const start = Math.min(anchorIdx, targetIdx);
     const end = Math.max(anchorIdx, targetIdx);
-    const rangeIds = threads.slice(start, end + 1).map((t) => t.id);
+    const rangeIds = order.slice(start, end + 1);
     set((s) => ({
       selectedThreadIds: new Set([...s.selectedThreadIds, ...rangeIds]),
     }));
   },
   clearMultiSelect: () => set({ selectedThreadIds: new Set() }),
   selectAll: () => {
-    const threads = get().threads;
-    set({ selectedThreadIds: new Set(threads.map((t) => t.id)) });
+    set({ selectedThreadIds: new Set(selectionOrder(get())) });
   },
   selectAllFromHere: () => {
-    const { threads, selectedThreadId } = get();
-    const idx = threads.findIndex((t) => t.id === selectedThreadId);
+    const state = get();
+    const order = selectionOrder(state);
+    const idx = order.indexOf(state.selectedThreadId ?? "");
     const startIdx = idx === -1 ? 0 : idx;
-    const ids = threads.slice(startIdx).map((t) => t.id);
+    const ids = order.slice(startIdx);
     set((s) => ({
       selectedThreadIds: new Set([...s.selectedThreadIds, ...ids]),
     }));

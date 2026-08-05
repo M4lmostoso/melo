@@ -407,6 +407,22 @@ export async function imapFetchRawMessage(
 }
 
 /**
+ * Fetch the raw RFC822 source of a single message by UID, base64url-encoded.
+ *
+ * Uses the raw-TCP path in Rust: unlike `imapFetchRawMessage` it does not go
+ * through the async-imap parser (which loops and exhausts RAM on DavMail) and
+ * the bytes are never lossily round-tripped through UTF-8. Use this whenever
+ * the raw message is going to be re-uploaded (APPEND / cross-account move).
+ */
+export async function imapFetchRawMessageBase64(
+  config: ImapConfig,
+  folder: string,
+  uid: number
+): Promise<string> {
+  return invoke<string>('imap_fetch_raw_message_base64', { config, folder, uid });
+}
+
+/**
  * Check multiple folders for new UIDs in a single IMAP connection.
  * Replaces N separate imapGetFolderStatus + imapFetchNewUids calls with one round-trip.
  */
