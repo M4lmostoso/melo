@@ -28,6 +28,9 @@ import { useThreadStore } from "@/stores/threadStore";
 import { useAccountStore } from "@/stores/accountStore";
 import { addThreadLabel, removeThreadLabel } from "@/services/emailActions";
 import { crossAccountMoveThreads } from "@/services/crossAccountMove";
+import { useTransferStore } from "@/stores/transferStore";
+import { useToastStore } from "@/stores/toastStore";
+import { t } from "@/i18n";
 
 // Map sidebar IDs to Gmail label IDs (same as EmailList)
 const LABEL_MAP: Record<string, string> = {
@@ -89,6 +92,7 @@ export function DndProvider({ children }: DndProviderProps) {
   const [dragData, setDragData] = useState<DragData | null>(null);
   const removeThreads = useThreadStore((s) => s.removeThreads);
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
+  const accounts = useAccountStore((s) => s.accounts);
 
   const sensors = useSensors(
     useSensor(LeftClickPointerSensor, {
@@ -119,16 +123,35 @@ export function DndProvider({ children }: DndProviderProps) {
       const targetFolderKey = withoutPrefix.slice(colonIdx + 1); // "inbox","trash","sent",…
 
       if (targetAccountId && targetAccountId !== dragData.sourceAccountId) {
+        const { startTransfer, updateTransfer, endTransfer } = useTransferStore.getState();
+        const { showToast } = useToastStore.getState();
+        const targetLabel =
+          accounts.find((a) => a.id === targetAccountId)?.email ?? targetAccountId;
+        let lastDone = 0;
+        startTransfer(targetLabel, 0);
         try {
-          await crossAccountMoveThreads(
+          const { moved, total } = await crossAccountMoveThreads(
             dragData.sourceAccountId,
             targetAccountId,
             dragData.threadIds,
             targetFolderKey,
+            (p) => {
+              lastDone = p.done;
+              updateTransfer(p.done, p.total, p.currentSubject);
+            },
           );
           removeThreads(dragData.threadIds);
+          showToast(
+            moved < total ? "warning" : "info",
+            moved < total
+              ? t("ui.transfer.partial", { moved, total, target: targetLabel })
+              : t("ui.transfer.done", { count: moved, target: targetLabel }),
+          );
         } catch (err) {
           console.error("Cross-account move failed:", err);
+          showToast("error", t("ui.transfer.failed", { moved: lastDone, target: targetLabel }));
+        } finally {
+          endTransfer();
         }
         return;
       }

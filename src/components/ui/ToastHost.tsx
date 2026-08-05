@@ -1,6 +1,8 @@
 import { useEffect } from "react";
 import { AlertCircle, AlertTriangle, Info, X } from "lucide-react";
 import { useToastStore, type Toast } from "@/stores/toastStore";
+import { useTransferStore } from "@/stores/transferStore";
+import { TransferProgressHost } from "./TransferProgressHost";
 
 const AUTO_DISMISS_MS = 8000;
 
@@ -41,15 +43,21 @@ function ToastItem({ toast }: { toast: Toast }) {
   );
 }
 
-/** Mounted once in App — renders the global toast stack (bottom-right). */
+/**
+ * Mounted once in App — renders the global toast stack (bottom-right), with the
+ * cross-account transfer progress panel sharing the same column so the two can
+ * never overlap.
+ */
 export function ToastHost() {
   const toasts = useToastStore((s) => s.toasts);
-  if (toasts.length === 0) return null;
+  const transfer = useTransferStore((s) => s.progress);
+  if (toasts.length === 0 && !transfer) return null;
   return (
     <div className="fixed bottom-4 right-4 z-[70] flex flex-col gap-2 items-end">
       {toasts.map((toast) => (
         <ToastItem key={toast.id} toast={toast} />
       ))}
+      <TransferProgressHost />
     </div>
   );
 }

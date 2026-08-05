@@ -941,6 +941,13 @@
     "clearSearch": "Clear search"
   },
   "ui": {
+    "transfer": {
+      "title": "Moving to {target}",
+      "count": "{done}/{total}",
+      "done": "{count} messages moved to {target}.",
+      "partial": "{moved} of {total} messages moved to {target} — the others were skipped.",
+      "failed": "Transfer to {target} interrupted after {moved} messages. The remaining messages were left in place."
+    },
     "confirmDialog": {
       "defaultConfirm": "Confirm",
       "defaultCancel": "Cancel"

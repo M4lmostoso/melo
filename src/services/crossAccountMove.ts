@@ -91,12 +91,24 @@ async function resolveCarryOverTargetLabelIds(
  * land, get threaded, and settle into their final grouped state in one pass
  * instead of flickering in as separate unread messages across sync cycles.
  */
+export interface CrossAccountMoveProgress {
+  /** Messages fully moved (appended to target + removed from source). */
+  done: number;
+  /** Total messages to move across every selected thread. */
+  total: number;
+  /** Subject of the message currently in flight, when known. */
+  currentSubject?: string | null;
+}
+
+export type CrossAccountMoveProgressCallback = (p: CrossAccountMoveProgress) => void;
+
 export async function crossAccountMoveThreads(
   sourceAccountId: string,
   targetAccountId: string,
   threadIds: string[],
   targetFolderKey = "inbox",
-): Promise<void> {
+  onProgress?: CrossAccountMoveProgressCallback,
+): Promise<{ moved: number; total: number }> {
   const [sourceAccount, targetAccount] = await Promise.all([
     getAccount(sourceAccountId),
     getAccount(targetAccountId),
@@ -114,9 +126,21 @@ export async function crossAccountMoveThreads(
   const targetImapFolder = FOLDER_KEY_TO_IMAP[targetFolderKey] ?? "INBOX";
   const targetGmailLabels = FOLDER_KEY_TO_GMAIL[targetFolderKey] ?? ["INBOX"];
 
+  // Resolve every message up-front so the caller can show a real total: a move
+  // is a raw fetch + APPEND + delete per message and can take minutes on a slow
+  // server, so it must never run without visible progress.
+  const perThread: { threadId: string; messages: Awaited<ReturnType<typeof getMessagesForThread>> }[] = [];
   for (const threadId of threadIds) {
-    const messages = await getMessagesForThread(sourceAccountId, threadId, true);
+    perThread.push({
+      threadId,
+      messages: await getMessagesForThread(sourceAccountId, threadId, true),
+    });
+  }
+  const total = perThread.reduce((sum, t) => sum + t.messages.length, 0);
+  let moved = 0;
+  onProgress?.({ done: 0, total });
 
+  for (const { threadId, messages } of perThread) {
     // Custom (user) labels that also exist by name in the target account are
     // preserved on the moved thread; labels with no match are dropped. Gmail
     // applies them server-side on insert; IMAP records a deferred assignment
@@ -128,6 +152,7 @@ export async function crossAccountMoveThreads(
 
     for (const msg of messages) {
       let rawBase64url: string;
+      onProgress?.({ done: moved, total, currentSubject: msg.subject ?? null });
 
       // ── 1. Fetch raw from source ──────────────────────────────────────────
       if (sourceIsImap) {
@@ -169,6 +194,9 @@ export async function crossAccountMoveThreads(
         if (!sourceGmail) continue;
         await sourceGmail.trashMessage(msg.id);
       }
+
+      moved += 1;
+      onProgress?.({ done: moved, total, currentSubject: msg.subject ?? null });
     }
 
     // Mark the thread as deleted locally so it disappears from the current view
@@ -187,4 +215,6 @@ export async function crossAccountMoveThreads(
   triggerSync([sourceAccountId, targetAccountId]).catch((err) => {
     console.error("Post-move sync failed:", err);
   });
+
+  return { moved, total };
 }
