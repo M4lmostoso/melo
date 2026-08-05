@@ -1439,19 +1439,28 @@ pub async fn imap_fetch_and_store(
                 )
         });
         let local_id = format!("imap-{account_id}-{}-{}", msg.folder, msg.uid);
-        let synthetic_rfc_id = || {
-            format!(
-                "synthetic-{account_id}-{}-{}@melo.local",
-                msg.folder, msg.uid
+        // Messages with no Message-ID header (thousands on Exchange/DavMail) get a
+        // CONTENT-derived identity, never a UID-derived one: a UID renumber or folder
+        // move used to mint a brand-new id, which defeated the dedup below (duplicate
+        // rows) and re-keyed the JWZ thread (orphaning tasks linked to it).
+        let rfc_id_for_header = msg.message_id.clone().unwrap_or_else(|| {
+            crate::imap::synthetic_id::synthetic_message_id(
+                msg.date,
+                msg.from_address.as_deref(),
+                msg.to_addresses.as_deref(),
+                msg.subject.as_deref(),
+                msg.raw_size,
             )
-        };
-        let rfc_id_for_header = msg.message_id.clone().unwrap_or_else(synthetic_rfc_id);
+        });
 
         // Filter 2: dedup by RFC message ID (message already stored — in another
         // folder, an earlier sync cycle, or earlier in this same batch).
-        let stored = if msg.message_id.as_ref().is_some_and(|id| {
-            existing_rfc_ids.contains(id) || seen_rfc_ids_in_batch.contains(id)
-        }) {
+        // Dedup keys on rfc_id_for_header, so messages WITHOUT a Message-ID header are
+        // deduplicated too — previously they never matched (their id embedded the UID)
+        // and every renumber left a second copy behind.
+        let stored = if existing_rfc_ids.contains(&rfc_id_for_header)
+            || seen_rfc_ids_in_batch.contains(&rfc_id_for_header)
+        {
             // Same-folder UID renumber: server replaced the appended copy (old UID) with the
             // SMTP auto-saved copy (new UID). Update the existing row's imap_uid so that
             // reconcileDeletedMessages finds the message on the server and does NOT delete it.
@@ -1467,7 +1476,8 @@ pub async fn imap_fetch_and_store(
             // server coordinates from the first import of that Message-ID so the row stops
             // being an orphan placeholder. Draft rows (stable-UUID local drafts, coords
             // managed by draftAutoSave) are excluded via is_draft = 0.
-            if let Some(ref rfc_id) = msg.message_id {
+            {
+                let rfc_id = &rfc_id_for_header;
                 conn.execute(
                     "UPDATE messages SET imap_uid = ?1, imap_folder = ?2 \
                      WHERE account_id = ?3 AND message_id_header = ?4 \
@@ -1574,7 +1584,7 @@ pub async fn imap_fetch_and_store(
                         msg.list_unsubscribe,
                         msg.list_unsubscribe_post,
                         msg.auth_results,
-                        msg.message_id,
+                        rfc_id_for_header,
                         msg.references,
                         msg.in_reply_to,
                         msg.uid,
@@ -1612,9 +1622,7 @@ pub async fn imap_fetch_and_store(
                 }
                 // Record the stored Message-ID so a second copy of the same message
                 // later in this batch is caught by Filter 2 above.
-                if let Some(ref id) = msg.message_id {
-                    seen_rfc_ids_in_batch.insert(id.clone());
-                }
+                seen_rfc_ids_in_batch.insert(rfc_id_for_header.clone());
                 true
             }
         };

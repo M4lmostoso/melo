@@ -132,6 +132,65 @@ export async function repairHasAttachmentsFlags(): Promise<void> {
 }
 
 /**
+ * One-shot repair: give every IMAP message that never had a `Message-ID` header a
+ * stable, content-derived synthetic id.
+ *
+ * Those rows were stored with `message_id_header = NULL`; their threading identity
+ * was computed on the fly from the row id, which embeds the IMAP UID. Any UID
+ * renumber (routine on DavMail/Exchange) therefore changed their identity — that is
+ * what duplicated messages and re-keyed threads, orphaning the tasks linked to them.
+ * Backfilling the same id Rust now mints at import makes the identity permanent.
+ *
+ * Fire-and-forget after startup; tracked in settings so it runs once.
+ */
+export async function repairSyntheticMessageIds(): Promise<void> {
+  const { getSetting, setSetting } = await import('./settings');
+  if (await getSetting('synthetic_message_id_backfill_v1') === '1') return;
+
+  const { syntheticMessageId } = await import('../imap/syntheticMessageId');
+  const { executeAtomicBatch } = await import('./connection');
+  const db = await getDb();
+
+  const rows = await db.select<{
+    id: string;
+    date: number;
+    from_address: string | null;
+    to_addresses: string | null;
+    subject: string | null;
+    raw_size: number | null;
+  }[]>(
+    `SELECT id, date, from_address, to_addresses, subject, raw_size
+     FROM messages
+     WHERE message_id_header IS NULL AND id LIKE 'imap-%'`,
+  );
+
+  // Two rows can legitimately map to the same synthetic id (the same message filed
+  // in two folders). message_id_header has no unique constraint, so both simply get
+  // the same id — exactly what the dedup expects — and no row is dropped here.
+  const statements = rows.map((r) => ({
+    sql: 'UPDATE messages SET message_id_header = ?1 WHERE id = ?2 AND message_id_header IS NULL',
+    params: [
+      syntheticMessageId({
+        date: r.date,
+        fromAddress: r.from_address,
+        toAddresses: r.to_addresses,
+        subject: r.subject,
+        rawSize: r.raw_size ?? 0,
+      }),
+      r.id,
+    ],
+  }));
+
+  const CHUNK = 500;
+  for (let i = 0; i < statements.length; i += CHUNK) {
+    await executeAtomicBatch(statements.slice(i, i + CHUNK));
+  }
+
+  await setSetting('synthetic_message_id_backfill_v1', '1');
+  console.log(`[migrations] synthetic Message-ID backfill done: ${rows.length} messages`);
+}
+
+/**
  * Split a SQL string into individual statements, correctly handling
  * BEGIN...END blocks (e.g. inside CREATE TRIGGER) that contain semicolons.
  */

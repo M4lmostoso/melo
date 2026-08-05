@@ -9,7 +9,12 @@ import { AskInbox } from "./components/search/AskInbox";
 import { useUIStore } from "./stores/uiStore";
 import { useAccountStore } from "./stores/accountStore";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
-import { runMigrations, repairMojibakeData, repairHasAttachmentsFlags } from "./services/db/migrations";
+import {
+  runMigrations,
+  repairMojibakeData,
+  repairHasAttachmentsFlags,
+  repairSyntheticMessageIds,
+} from "./services/db/migrations";
 import { getAllAccounts } from "./services/db/accounts";
 import { getSetting, deleteSetting } from "./services/db/settings";
 import {
@@ -710,6 +715,12 @@ export default function App() {
           invoke("close_splashscreen").catch(() => {});
           return;
         }
+        // Awaited on purpose: until legacy rows carry their content-derived id, a
+        // sync that re-imports one of them can't recognise it and would store a
+        // duplicate. One-shot and a no-op on every later start.
+        await repairSyntheticMessageIds().catch((err) =>
+          console.error("[repair] synthetic Message-IDs:", err),
+        );
         repairMojibakeData().catch((err) =>
           console.error("[App] mojibake repair failed:", err),
         );

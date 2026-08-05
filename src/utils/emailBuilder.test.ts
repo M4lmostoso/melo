@@ -180,3 +180,34 @@ function decodeBase64Url(encoded: string): string {
   }
   return new TextDecoder().decode(bytes);
 }
+
+describe("buildRawEmail — internal placeholder ids", () => {
+  const base = {
+    from: "me@example.com",
+    to: ["you@example.com"],
+    subject: "Re: Offerta",
+    htmlBody: "<p>ok</p>",
+  };
+
+  it("never publishes a synthetic In-Reply-To in outgoing mail", () => {
+    const raw = buildRawEmail({ ...base, inReplyTo: "synthetic-5ca99472fc027bdf@melo.local" });
+    expect(decodeBase64Url(raw)).not.toContain("In-Reply-To");
+  });
+
+  it("drops the legacy UID-derived placeholder too", () => {
+    const raw = buildRawEmail({ ...base, inReplyTo: "synthetic-acc-1-INBOX-2410@melo.local" });
+    expect(decodeBase64Url(raw)).not.toContain("In-Reply-To");
+  });
+
+  it("keeps real Message-IDs and strips only the placeholders from References", () => {
+    const raw = buildRawEmail({
+      ...base,
+      inReplyTo: "<real.2@example.com>",
+      references: "<real.1@example.com> synthetic-5ca99472fc027bdf@melo.local <real.2@example.com>",
+    });
+    const text = decodeBase64Url(raw);
+    expect(text).toContain("In-Reply-To: <real.2@example.com>");
+    expect(text).toContain("References: <real.1@example.com> <real.2@example.com>");
+    expect(text).not.toContain("melo.local");
+  });
+});

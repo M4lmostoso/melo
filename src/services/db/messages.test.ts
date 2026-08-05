@@ -10,7 +10,12 @@ vi.mock("@/services/db/connection", async (importOriginal) => {
 });
 
 import { getDb } from "@/services/db/connection";
-import { deleteAllMessagesForAccount, updateMessageThreadIds, getMessagesForThread } from "./messages";
+import {
+  deleteAllMessagesForAccount,
+  updateMessageThreadIds,
+  getMessagesForThread,
+  deleteMessagesForFolder,
+} from "./messages";
 import { createMockDb } from "@/test/mocks";
 
 const mockDb = createMockDb();
@@ -111,6 +116,41 @@ describe("messages service", () => {
       const sql = mockDb.select.mock.calls[0]![0] as string;
       expect(sql).not.toContain("is_trashed = 0");
       expect(sql).not.toContain("is_trashed = 1");
+    });
+  });
+  // Last-resort backstop: sync must never wipe a folder (four mass-loss incidents).
+  describe("deleteMessagesForFolder wipe guard", () => {
+    it("refuses to delete a substantial folder without an explicit force", async () => {
+      mockDb.select
+        .mockResolvedValueOnce([{ thread_id: "t-1" }]) // affected threads
+        .mockResolvedValueOnce([{ n: 2349 }]); // row count
+
+      await expect(deleteMessagesForFolder("acc-1", "INBOX")).rejects.toThrow(/refused/);
+      expect(mockDb.execute).not.toHaveBeenCalled();
+    });
+
+    it("deletes when explicitly forced by a user action", async () => {
+      mockDb.select.mockResolvedValueOnce([{ thread_id: "t-1" }]);
+
+      await deleteMessagesForFolder("acc-1", "INBOX", { force: true });
+
+      expect(mockDb.execute).toHaveBeenCalledWith(
+        "DELETE FROM messages WHERE account_id = $1 AND imap_folder = $2",
+        ["acc-1", "INBOX"],
+      );
+    });
+
+    it("still allows small folders through unforced", async () => {
+      mockDb.select
+        .mockResolvedValueOnce([{ thread_id: "t-1" }])
+        .mockResolvedValueOnce([{ n: 3 }]);
+
+      await deleteMessagesForFolder("acc-1", "Junk");
+
+      expect(mockDb.execute).toHaveBeenCalledWith(
+        "DELETE FROM messages WHERE account_id = $1 AND imap_folder = $2",
+        ["acc-1", "Junk"],
+      );
     });
   });
 });

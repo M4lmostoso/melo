@@ -1395,7 +1395,18 @@ pub async fn delta_check_folders(
             }
         };
 
-        let current_uidvalidity = mailbox.uid_validity.unwrap_or(0);
+        // A missing UIDVALIDITY in the SELECT response means "the server didn't tell
+        // us", NOT "it changed". Reporting a change here makes the caller purge and
+        // re-download the whole folder (DavMail/Exchange omits it often enough under
+        // load, and that is exactly how thousands of messages got wiped before).
+        // Skip the folder for this cycle instead: no purge, no cursor movement.
+        let Some(current_uidvalidity) = mailbox.uid_validity.filter(|v| *v > 0) else {
+            log::warn!(
+                "delta_check: {} reported no UIDVALIDITY — skipping folder this cycle (never treat as a change)",
+                req.folder
+            );
+            continue;
+        };
         let uidvalidity_changed = req.uidvalidity != 0 && current_uidvalidity != req.uidvalidity;
 
         if uidvalidity_changed {

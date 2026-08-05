@@ -1,6 +1,8 @@
 /**
  * Build an RFC 2822 email message and encode as base64url for the Gmail API.
  */
+import { isInternalPlaceholderId } from "@/services/imap/syntheticMessageId";
+
 export interface EmailAttachment {
   filename: string;
   mimeType: string;
@@ -120,11 +122,21 @@ export function buildRawEmail(draft: EmailDraft): string {
   lines.push(`Subject: ${draft.subject}`);
   lines.push(`MIME-Version: 1.0`);
 
-  if (draft.inReplyTo) {
-    lines.push(`In-Reply-To: ${draft.inReplyTo}`);
+  // Messages with no Message-ID header carry an internal placeholder id
+  // (`synthetic-...@melo.local`). It identifies the row inside Melo and means
+  // nothing to any other mail system, so it must never be published in outgoing
+  // threading headers — strip it instead of advertising a fake ancestor.
+  const inReplyTo = isInternalPlaceholderId(draft.inReplyTo) ? undefined : draft.inReplyTo;
+  const references = draft.references
+    ?.split(/\s+/)
+    .filter((id) => id && !isInternalPlaceholderId(id))
+    .join(" ");
+
+  if (inReplyTo) {
+    lines.push(`In-Reply-To: ${inReplyTo}`);
   }
-  if (draft.references) {
-    lines.push(`References: ${draft.references}`);
+  if (references) {
+    lines.push(`References: ${references}`);
   }
 
   const { html: processedHtml, images: inlineImages } = extractInlineImages(draft.htmlBody);

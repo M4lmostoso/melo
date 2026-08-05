@@ -253,9 +253,26 @@ export async function updateMessageThreadIds(
   }
 }
 
+/** Above this many rows, a folder wipe must be explicitly forced by a user action. */
+const FOLDER_WIPE_GUARD_ROWS = 50;
+
+/**
+ * Delete every locally stored message of an IMAP folder.
+ *
+ * DANGEROUS — this has caused mass mail loss four times, always through sync
+ * deciding on its own that a folder "must be reset" (bogus UIDVALIDITY, flaky
+ * search, UID renumber). **Sync must never call this.** UIDVALIDITY changes are
+ * handled by reconciling additions instead (imapSync.ts), and disappearances by
+ * reconcileDeletedMessages with its own guards.
+ *
+ * The row cap is a last-resort backstop at the primitive itself: wiping a
+ * substantial folder now requires `{ force: true }`, which only a deliberate
+ * user-initiated flow (account removal / resync) may pass.
+ */
 export async function deleteMessagesForFolder(
   accountId: string,
   imapFolder: string,
+  opts: { force?: boolean } = {},
 ): Promise<void> {
   const db = await getDb();
 
@@ -265,6 +282,19 @@ export async function deleteMessagesForFolder(
     [accountId, imapFolder],
   );
   const affectedThreadIds = threadRows.map((r) => r.thread_id);
+
+  if (!opts.force) {
+    const countRows = await db.select<{ n: number }[]>(
+      "SELECT COUNT(*) as n FROM messages WHERE account_id = $1 AND imap_folder = $2",
+      [accountId, imapFolder],
+    );
+    const n = countRows[0]?.n ?? 0;
+    if (n > FOLDER_WIPE_GUARD_ROWS) {
+      throw new Error(
+        `deleteMessagesForFolder refused: would delete ${n} messages from ${imapFolder} (cap ${FOLDER_WIPE_GUARD_ROWS}). Pass { force: true } only from a deliberate user action.`,
+      );
+    }
+  }
 
   await db.execute(
     `DELETE FROM message_embeddings WHERE account_id = $1 AND message_id IN (

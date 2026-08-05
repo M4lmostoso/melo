@@ -19,15 +19,16 @@ import {
 } from "./folderMapper";
 import type { ParsedMessage } from "../gmail/messageParser";
 import type { SyncResult } from "../email/types";
-import { deleteMessagesForFolder, purgeImapDuplicates, purgeOrphanPlaceholderThreads } from "../db/messages";
+import { purgeImapDuplicates, purgeOrphanPlaceholderThreads } from "../db/messages";
 import { getAccount, updateAccountSyncState } from "../db/accounts";
 import {
   upsertFolderSyncState,
   getAllFolderSyncStates,
   type FolderSyncState,
 } from "../db/folderSyncState";
-import { clearDeletedImapUidsForFolder, pruneDeletedImapUids, getDeletedImapUidsForFolder } from "../db/deletedImapUids";
+import { pruneDeletedImapUids, getDeletedImapUidsForFolder } from "../db/deletedImapUids";
 import { getLabelsForAccount } from "../db/labels";
+import { syntheticMessageId } from "./syntheticMessageId";
 import { reconcilePecReceipts } from "../pec/pecManager";
 import {
   buildThreads,
@@ -1409,7 +1410,11 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
           pendingFolderStates.push({
             account_id: accountId,
             folder_path: folder.raw_path,
-            uidvalidity: savedState.uidvalidity ?? 1,
+            // 0 = "not known yet". Never invent a placeholder (this used to write 1):
+            // the next delta check would compare the server's real UIDVALIDITY against
+            // the fake one, see a mismatch and purge the whole folder. 0 is the agreed
+            // "don't compare" value on both sides.
+            uidvalidity: savedState.uidvalidity ?? 0,
             last_uid: res.serverMaxUid,
             modseq: null,
             last_sync_at: Math.floor(Date.now() / 1000),
@@ -1431,63 +1436,62 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
       if (!deltaResult) continue;
 
       try {
+        // Second guard at the delete site (the batch delta check runs in Rust; the
+        // per-folder JS fallback has the same check). A non-positive/NaN UIDVALIDITY
+        // is a flaky or silent server response, never a real reset — purging on it
+        // is what wiped whole folders before.
+        if (
+          deltaResult.uidvalidity_changed &&
+          !(Number.isFinite(deltaResult.uidvalidity) && deltaResult.uidvalidity > 0)
+        ) {
+          console.warn(
+            `[imapSync] Ignoring UIDVALIDITY change for ${folder.path}: server reported ${deltaResult.uidvalidity} (not a valid UIDVALIDITY) — no purge.`,
+          );
+          continue;
+        }
+
         if (deltaResult.uidvalidity_changed) {
-          // A UIDVALIDITY change purges the whole folder before resyncing, so this
-          // path is the single most destructive operation in sync. Before deleting
-          // anything we (1) search the server and (2) confirm the result is sane.
-          // We NEVER purge a non-empty local folder when the server search came
-          // back empty or failed — that combination means a flaky/failed response,
-          // not a genuinely emptied mailbox, and blindly deleting there is exactly
-          // what caused mass data loss before.
-          let uidvalidityUids: number[];
-          let uidvalidityVal: number;
+          // A UIDVALIDITY change NEVER deletes local mail and never re-downloads a
+          // whole folder. It used to do both ("purge and resync"), which is how this
+          // account lost its INBOX four times: a single bogus/absent UIDVALIDITY from
+          // DavMail wiped thousands of messages and then re-pulled ~2400 full bodies.
+          //
+          // The additions reconcile below is strictly better in every case:
+          //   - bogus change (the common one): local UIDs still match the server, so
+          //     `missing` is empty → zero deletions, zero downloads;
+          //   - genuine renumber: only the UIDs we don't already hold are fetched, and
+          //     the Message-ID dedup in imap_fetch_and_store collapses the copies.
+          // Removal of messages that truly disappeared stays where it belongs —
+          // reconcileDeletedMessages, which has the empty-search and renumber guards.
+          console.warn(
+            `[imapSync] UIDVALIDITY changed for ${folder.path} (${savedState.uidvalidity} → ${deltaResult.uidvalidity}) — reconciling additions, NOT purging`,
+          );
           try {
-            if (daysBack > 0) {
-              const sinceDate = computeSinceDate(daysBack);
-              const searchResult = await imapSearchFolder(config, folder.raw_path, sinceDate);
-              uidvalidityUids = searchResult.uids;
-              uidvalidityVal = searchResult.folder_status.uidvalidity;
-            } else {
-              const folderStatus = await imapGetFolderStatus(config, folder.raw_path);
-              uidvalidityUids = await imapSearchAllUids(config, folder.raw_path);
-              uidvalidityVal = folderStatus.uidvalidity;
+            const res = await reconcileFolderAdditions(
+              config, accountId, folder.raw_path, folderMapping.labelId, unfetchableMaxRetries,
+            );
+            if (!res) {
+              // Enumeration empty/failed: leave everything untouched and retry next
+              // cycle. Notably the stored uidvalidity is NOT advanced, so we don't
+              // "accept" a change we couldn't verify.
+              console.warn(`[imapSync] UIDVALIDITY reconcile: enumeration returned 0 UIDs for ${folder.path} — retrying next cycle`);
+              continue;
             }
-          } catch (searchErr) {
-            console.warn(
-              `[imapSync] UIDVALIDITY resync search failed for ${folder.path} — skipping purge to avoid data loss:`,
-              searchErr,
-            );
-            continue;
-          }
-
-          const { getStoredImapUidsForFolder } = await import("../db/messages");
-          const storedCount = (await getStoredImapUidsForFolder(accountId, folder.raw_path)).length;
-          if (storedCount > 0 && uidvalidityUids.length === 0) {
-            console.warn(
-              `[imapSync] UIDVALIDITY change for ${folder.path}: server search returned 0 UIDs but ${storedCount} message(s) are stored locally — skipping purge (treating as a failed/empty search, not a real reset).`,
-            );
-            continue;
-          }
-
-          console.warn(`UIDVALIDITY changed for ${folder.path} — purging and resyncing`);
-          await deleteMessagesForFolder(accountId, folder.raw_path);
-          await clearDeletedImapUidsForFolder(accountId, folder.raw_path).catch(() => {});
-
-          if (uidvalidityUids.length > 0) {
-            const cutoffDate = daysBack > 0 ? Math.floor(Date.now() / 1000) - daysBack * 86400 : 0;
-            const { headers, lastUid } = await fetchAllInBatches(
-              config, accountId, folder.raw_path, folderMapping.labelId, uidvalidityUids, cutoffDate,
-            );
-            _accumLabels(headers, labelsByRfcId);
-            allHeaders.push(...headers);
+            _accumLabels(res.headers, labelsByRfcId);
+            allHeaders.push(...res.headers);
+            unfetchableCount += res.unfetchable;
             pendingFolderStates.push({
               account_id: accountId,
               folder_path: folder.raw_path,
-              uidvalidity: uidvalidityVal,
-              last_uid: lastUid,
+              uidvalidity: deltaResult.uidvalidity,
+              last_uid: Math.max(savedState.last_uid, res.serverMaxUid),
               modseq: null,
               last_sync_at: Math.floor(Date.now() / 1000),
             });
+          } catch (err) {
+            const errMsg = err instanceof Error ? err.message : String(err ?? "Unknown error");
+            console.error(`[imapSync] UIDVALIDITY reconcile failed for ${folder.path}:`, err);
+            deltaFolderErrors.push(`${folder.path}: ${errMsg}`);
           }
           continue;
         }
@@ -1574,7 +1578,7 @@ export async function imapDeltaSync(accountId: string, daysBack = 365): Promise<
           pendingFolderStates.push({
             account_id: accountId,
             folder_path: folder.raw_path,
-            uidvalidity: savedState.uidvalidity ?? 1,
+            uidvalidity: savedState.uidvalidity ?? 0, // 0 = unknown; never a placeholder (see above)
             last_uid: Math.max(savedState.last_uid, res.serverMaxUid),
             modseq: null,
             last_sync_at: Math.floor(Date.now() / 1000),
@@ -1945,11 +1949,15 @@ async function reconcileFragmentedThreads(accountId: string): Promise<number> {
     is_read: number;
     is_starred: number;
     is_trashed: number;
+    from_address: string | null;
+    to_addresses: string | null;
+    raw_size: number | null;
   };
 
   const rows = await db.select<MsgRow[]>(
     `SELECT id, message_id_header, in_reply_to_header, references_header,
-            subject, date, thread_id, snippet, is_read, is_starred, is_trashed
+            subject, date, thread_id, snippet, is_read, is_starred, is_trashed,
+            from_address, to_addresses, raw_size
      FROM messages
      WHERE account_id = $1
      ORDER BY date ASC`,
@@ -1960,7 +1968,18 @@ async function reconcileFragmentedThreads(accountId: string): Promise<number> {
 
   const threadable: ThreadableMessage[] = rows.map((r) => ({
     id: r.id,
-    messageId: r.message_id_header ?? `synthetic-${r.id}@melo.local`,
+    // Legacy rows imported before the content-derived id may still have no
+    // message_id_header; derive the same stable id Rust would mint today rather
+    // than falling back to the row id (which embeds the volatile IMAP UID).
+    messageId:
+      r.message_id_header ??
+      syntheticMessageId({
+        date: r.date,
+        fromAddress: r.from_address,
+        toAddresses: r.to_addresses,
+        subject: r.subject,
+        rawSize: r.raw_size ?? 0,
+      }),
     inReplyTo: r.in_reply_to_header,
     references: r.references_header,
     subject: r.subject,
