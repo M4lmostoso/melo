@@ -948,3 +948,4 @@ export async function purgeDraftFromDb(
 export { deleteDraft, deleteDraftThread, tombstoneImapDraft } from "./draftActions";
 export { deleteSingleMessage, trashLatestMessage } from "./messageActions";
 export { emptyTrash, markAllTrashRead, trashAllSpam, markAllSpamRead } from "./bulkActions";
+export type { BulkProgress, BulkProgressCallback } from "./bulkActions";

@@ -347,6 +347,29 @@ describe("emailActions", () => {
       expect(mockRemoveThread).toHaveBeenCalledWith("t1");
     });
 
+    it("emptyTrash issues ONE server delete for all threads and reports progress", async () => {
+      vi.mocked(useUIStore.getState).mockReturnValue({ isOnline: true } as never);
+      mockDb.select
+        .mockResolvedValueOnce([
+          { id: "m1", thread_id: "t1" },
+          { id: "m2", thread_id: "t2" },
+          { id: "m3", thread_id: "t2" },
+        ])
+        .mockResolvedValueOnce([{ cnt: 0 }])
+        .mockResolvedValueOnce([{ cnt: 0 }]);
+
+      const progress: { phase: string; done: number; total: number }[] = [];
+      const result = await emptyTrash(["acct-1"], (p) => progress.push(p));
+
+      expect(result.success).toBe(true);
+      // Single batched round-trip — not one connection per thread
+      expect(mockProvider.permanentDelete).toHaveBeenCalledTimes(1);
+      expect(mockProvider.permanentDelete).toHaveBeenCalledWith("t1", ["m1", "m2", "m3"]);
+      expect(progress[0]).toEqual({ phase: "server", done: 0, total: 3 });
+      expect(progress[progress.length - 1]).toEqual({ phase: "local", done: 3, total: 3 });
+      expect(result.data).toEqual({ deleted: 3, queued: false });
+    });
+
     it("emptyTrash queues the permanent delete when offline", async () => {
       vi.mocked(useUIStore.getState).mockReturnValue({ isOnline: false } as never);
       mockDb.select

@@ -1768,6 +1768,15 @@
         "emptyTrashConfirmTitle": "Svuotare il cestino?",
         "emptyTrashConfirmMessage": "Tutti i messaggi cestinati verranno eliminati definitivamente. Le conversazioni composte da soli messaggi cestinati saranno rimosse; le conversazioni con altri messaggi li manterranno."
       },
+      "bulkProgress": {
+        "starting": "Avvio…",
+        "server": "Eliminazione di {count} messaggi dal server — su server lenti può richiedere un po'.",
+        "local": "{done} di {total} messaggi elaborati…",
+        "emptyTrashDone": "Cestino svuotato — {count} messaggi eliminati definitivamente.",
+        "trashSpamDone": "{count} conversazioni di spam spostate nel cestino.",
+        "queued": "Nessuna connessione al server: {count} messaggi rimossi localmente, eliminazione messa in coda.",
+        "failed": "Azione non riuscita. Controlla la connessione e riprova."
+      },
       "spamToolbar": {
         "trashAll": "Cestina tutto",
         "markAllRead": "Segna tutto come letto",

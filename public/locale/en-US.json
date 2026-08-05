@@ -1768,6 +1768,15 @@
         "emptyTrashConfirmTitle": "Empty trash?",
         "emptyTrashConfirmMessage": "All trashed messages will be permanently deleted. Conversations made up only of trashed messages will be removed; conversations with other messages will keep them."
       },
+      "bulkProgress": {
+        "starting": "Starting…",
+        "server": "Deleting {count} messages from the server — this can take a while on a slow server.",
+        "local": "{done} of {total} messages processed…",
+        "emptyTrashDone": "Trash emptied — {count} messages permanently deleted.",
+        "trashSpamDone": "{count} spam conversations moved to the trash.",
+        "queued": "No connection to the server: {count} messages were removed locally and the deletion was queued.",
+        "failed": "The bulk action failed. Check the connection and try again."
+      },
       "spamToolbar": {
         "trashAll": "Move all to trash",
         "markAllRead": "Mark all as read",

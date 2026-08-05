@@ -16,7 +16,8 @@ import { getCategoriesForThreads, getCategoriesForThreadsGlobal, getCategoryUnre
 import { getActiveFollowUpThreadIds } from "@/services/db/followUpReminders";
 import { getBundleRules, getHeldThreadIds, getBundleSummaries, type DbBundleRule } from "@/services/db/bundleRules";
 import { getGmailClient } from "@/services/gmail/tokenManager";
-import { trashThread, permanentDeleteThread, archiveThread, spamThread, emptyTrash, markAllTrashRead, trashAllSpam, markAllSpamRead, isPendingRemoval } from "@/services/emailActions";
+import { trashThread, permanentDeleteThread, archiveThread, spamThread, emptyTrash, markAllTrashRead, trashAllSpam, markAllSpamRead, isPendingRemoval, type BulkProgress, type BulkProgressCallback } from "@/services/emailActions";
+import { useToastStore } from "@/stores/toastStore";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { useLabelStore } from "@/stores/labelStore";
 import { useSmartFolderStore } from "@/stores/smartFolderStore";
@@ -128,6 +129,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
   // Bulk Trash/Spam toolbar — confirmation for the destructive actions
   const [bulkConfirm, setBulkConfirm] = useState<null | "emptyTrash" | "trashSpam">(null);
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState<BulkProgress | null>(null);
 
   const handleThreadContextMenu = useCallback((e: React.MouseEvent, threadId: string) => {
     e.preventDefault();
@@ -251,16 +253,34 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
     [activeAccountId, globalAccountIds],
   );
 
-  const runBulkAction = async (fn: (ids: string[]) => Promise<unknown>) => {
+  const runBulkAction = async (
+    fn: (ids: string[], onProgress?: BulkProgressCallback) => Promise<unknown>,
+    doneMessage?: (count: number) => string,
+  ) => {
     if (bulkScopeAccountIds.length === 0 || bulkBusy) return;
+    const { showToast } = useToastStore.getState();
     setBulkBusy(true);
+    setBulkProgress(null);
     try {
-      await fn(bulkScopeAccountIds);
+      const result = (await fn(bulkScopeAccountIds, setBulkProgress)) as
+        | { queued?: boolean; data?: { deleted?: number; moved?: number } }
+        | undefined;
       await loadThreads();
+      const count = result?.data?.deleted ?? result?.data?.moved ?? 0;
+      if (doneMessage && count > 0) {
+        showToast(
+          result?.queued ? "warning" : "info",
+          result?.queued
+            ? t("layout.emailList.bulkProgress.queued", { count })
+            : doneMessage(count),
+        );
+      }
     } catch (err) {
       console.error("Bulk trash/spam action failed:", err);
+      showToast("error", t("layout.emailList.bulkProgress.failed"));
     } finally {
       setBulkBusy(false);
+      setBulkProgress(null);
       setBulkConfirm(null);
     }
   };
@@ -956,8 +976,12 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
         onClose={() => setBulkConfirm(null)}
         onConfirm={() =>
           bulkConfirm === "emptyTrash"
-            ? runBulkAction(emptyTrash)
-            : runBulkAction(trashAllSpam)
+            ? runBulkAction(emptyTrash, (count) =>
+                t("layout.emailList.bulkProgress.emptyTrashDone", { count }),
+              )
+            : runBulkAction(trashAllSpam, (count) =>
+                t("layout.emailList.bulkProgress.trashSpamDone", { count }),
+              )
         }
         variant="danger"
         loading={bulkBusy}
@@ -967,9 +991,18 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
             : t("layout.emailList.trashToolbar.emptyTrashConfirmTitle")
         }
         message={
-          bulkConfirm === "trashSpam"
-            ? t("layout.emailList.spamToolbar.trashAllConfirmMessage")
-            : t("layout.emailList.trashToolbar.emptyTrashConfirmMessage")
+          bulkBusy
+            ? bulkProgress
+              ? bulkProgress.phase === "server" && bulkProgress.done === 0
+                ? t("layout.emailList.bulkProgress.server", { count: bulkProgress.total })
+                : t("layout.emailList.bulkProgress.local", {
+                    done: bulkProgress.done,
+                    total: bulkProgress.total,
+                  })
+              : t("layout.emailList.bulkProgress.starting")
+            : bulkConfirm === "trashSpam"
+              ? t("layout.emailList.spamToolbar.trashAllConfirmMessage")
+              : t("layout.emailList.trashToolbar.emptyTrashConfirmMessage")
         }
         confirmLabel={
           bulkConfirm === "trashSpam"
