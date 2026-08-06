@@ -64,6 +64,24 @@ async function resolveTargetImapFolder(
 }
 
 /**
+ * First of these labels that is mapped to an IMAP folder, or null.
+ *
+ * On IMAP a label IS a folder: a moved message that ends up tagged with a mapped
+ * label but parked in INBOX is in the wrong place on the server, and nothing
+ * later moves it (the folder→label sync only ever adds tags, never files mail).
+ */
+async function resolveFolderForLabels(
+  accountId: string,
+  labelIds: string[],
+): Promise<string | null> {
+  for (const labelId of labelIds) {
+    const folder = await getLabelFolderMapping(accountId, labelId);
+    if (folder) return folder;
+  }
+  return null;
+}
+
+/**
  * Resolve which of the source thread's user (custom) labels also exist by name
  * in the target account, returning the matching target `user_labels.id`s.
  *
@@ -194,13 +212,26 @@ export async function crossAccountMoveThreads(
     // preserved on the moved thread; labels with no match are dropped. Gmail
     // applies them server-side on insert; IMAP records a deferred assignment
     // (keyed by the message's RFC Message-ID) applied once the move is synced.
+    // The dropped-on label comes first: when several of them are mapped to a
+    // folder it is the one the user actually aimed at that decides the filing.
     const carryOverLabelIds = [
       ...new Set([
-        ...(await resolveCarryOverTargetLabelIds(sourceAccountId, threadId, targetAccountId)),
         ...(dropTargetLabelId ? [dropTargetLabelId] : []),
+        ...(await resolveCarryOverTargetLabelIds(sourceAccountId, threadId, targetAccountId)),
       ]),
     ];
     const insertGmailLabels = [...new Set([...targetGmailLabels, ...carryOverLabelIds])];
+
+    // Where this thread's messages are APPENDed. A drop onto a specific folder
+    // (Sent/Trash/…) or onto a mapped label already resolved to it above; when
+    // the drop only said "this account" — or aimed at a label with no folder
+    // mapping — INBOX is a fallback, not a decision, so a carried-over label
+    // that IS mapped to a folder wins. Without this, a thread whose label exists
+    // in both accounts arrived tagged correctly but sitting in INBOX.
+    const threadImapFolder =
+      targetIsImap && targetImapFolder === "INBOX" && carryOverLabelIds.length > 0
+        ? (await resolveFolderForLabels(targetAccountId, carryOverLabelIds)) ?? targetImapFolder
+        : targetImapFolder;
 
     for (const msg of messages) {
       let rawBase64url: string;
@@ -231,7 +262,7 @@ export async function crossAccountMoveThreads(
         // own sort order) would show the mail dated the day it was moved.
         await imapAppendMessage(
           targetConfig,
-          targetImapFolder,
+          threadImapFolder,
           rawBase64url,
           msg.is_read ? "(\\Seen)" : undefined,
           toImapInternalDate(msg.internal_date ?? msg.date),

@@ -85,6 +85,43 @@ describe("crossAccountMoveThreads", () => {
     );
   });
 
+  it("files the thread into the folder a carried-over label is mapped to", async () => {
+    vi.mocked(getMessagesForThread).mockResolvedValue([
+      { id: "m1", imap_uid: 1, imap_folder: "INBOX", subject: "One", date: 1_700_000_000_000 },
+    ] as never);
+    // Dropped on the account itself ("inbox"), but the thread carries a label
+    // that exists by name in the target and is mapped to a folder there.
+    mockDb.select
+      .mockResolvedValueOnce([{ name: "Progetti/BEE" }])
+      .mockResolvedValueOnce([{ id: "label-bee", name: "Progetti/BEE" }])
+      .mockResolvedValue([]);
+    vi.mocked(getLabelFolderMapping).mockResolvedValue("INBOX.Progetti.BEE");
+
+    await crossAccountMoveThreads("src", "dst", ["t1"], "inbox");
+
+    expect(imapAppendMessage).toHaveBeenCalledWith(
+      expect.anything(), "INBOX.Progetti.BEE", expect.any(String), undefined, expect.any(String),
+    );
+  });
+
+  it("keeps an explicit system-folder drop even when a carried-over label is mapped", async () => {
+    vi.mocked(getMessagesForThread).mockResolvedValue([
+      { id: "m1", imap_uid: 1, imap_folder: "INBOX", subject: "One", date: 1_700_000_000_000 },
+    ] as never);
+    mockDb.select
+      .mockResolvedValueOnce([{ name: "Progetti/BEE" }])
+      .mockResolvedValueOnce([{ id: "label-bee", name: "Progetti/BEE" }])
+      .mockResolvedValue([]);
+    vi.mocked(getLabelFolderMapping).mockResolvedValue("INBOX.Progetti.BEE");
+    vi.mocked(findSpecialFolder).mockResolvedValue("Cestino");
+
+    await crossAccountMoveThreads("src", "dst", ["t1"], "trash");
+
+    expect(imapAppendMessage).toHaveBeenCalledWith(
+      expect.anything(), "Cestino", expect.any(String), undefined, expect.any(String),
+    );
+  });
+
   it("resolves system folder keys through the target's special-use folders", async () => {
     vi.mocked(getMessagesForThread).mockResolvedValue([
       { id: "m1", imap_uid: 1, imap_folder: "INBOX", subject: "One", date: 1_700_000_000_000 },
