@@ -43,6 +43,8 @@ describe("threadStore", () => {
       threadMap: new Map(),
       selectedThreadId: null,
       selectedThreadIds: new Set(),
+      selectionAnchorId: null,
+      rangeBaseIds: new Set(),
       isLoading: false,
     });
   });
@@ -168,6 +170,91 @@ describe("threadStore", () => {
       useThreadStore.getState().setVisibleThreadIds([]);
       useThreadStore.getState().selectAll();
       expect(useThreadStore.getState().selectedThreadIds.size).toBe(4);
+    });
+  });
+
+  describe("macOS-style selection", () => {
+    const t3: Thread = { ...mockThread, id: "thread-3", subject: "Third" };
+    const t4: Thread = { ...mockThread, id: "thread-4", subject: "Fourth" };
+    const t5: Thread = { ...mockThread, id: "thread-5", subject: "Fifth" };
+
+    beforeEach(() => {
+      useThreadStore.getState().setThreads([mockThread, mockThread2, t3, t4, t5]);
+      useThreadStore
+        .getState()
+        .setVisibleThreadIds(["thread-1", "thread-2", "thread-3", "thread-4", "thread-5"]);
+    });
+
+    it("shrinks the range when the second shift-click moves back toward the anchor", () => {
+      const store = useThreadStore.getState();
+      store.selectThread("thread-2"); // anchor
+      store.selectThreadRange("thread-5");
+      expect([...useThreadStore.getState().selectedThreadIds].sort()).toEqual([
+        "thread-2",
+        "thread-3",
+        "thread-4",
+        "thread-5",
+      ]);
+      store.selectThreadRange("thread-3");
+      expect([...useThreadStore.getState().selectedThreadIds].sort()).toEqual([
+        "thread-2",
+        "thread-3",
+      ]);
+    });
+
+    it("keeps the anchor on shift-click and moves it on cmd-click", () => {
+      const store = useThreadStore.getState();
+      store.selectThread("thread-1");
+      store.selectThreadRange("thread-3");
+      expect(useThreadStore.getState().selectionAnchorId).toBe("thread-1");
+      store.toggleThreadSelection("thread-5");
+      expect(useThreadStore.getState().selectionAnchorId).toBe("thread-5");
+    });
+
+    it("preserves cmd-clicked rows outside the range", () => {
+      const store = useThreadStore.getState();
+      store.toggleThreadSelection("thread-1"); // ⌘-click island
+      store.toggleThreadSelection("thread-3"); // ⌘-click → becomes the anchor
+      store.selectThreadRange("thread-5");
+      expect([...useThreadStore.getState().selectedThreadIds].sort()).toEqual([
+        "thread-1",
+        "thread-3",
+        "thread-4",
+        "thread-5",
+      ]);
+    });
+
+    it("shift+arrow grows and shrinks from the anchor", () => {
+      const store = useThreadStore.getState();
+      store.selectThread("thread-2");
+      expect(store.extendSelection(1)).toBe("thread-3");
+      expect([...useThreadStore.getState().selectedThreadIds].sort()).toEqual([
+        "thread-2",
+        "thread-3",
+      ]);
+      useThreadStore.getState().extendSelection(1);
+      expect(useThreadStore.getState().selectedThreadIds.size).toBe(3);
+      useThreadStore.getState().extendSelection(-1);
+      expect([...useThreadStore.getState().selectedThreadIds].sort()).toEqual([
+        "thread-2",
+        "thread-3",
+      ]);
+    });
+
+    it("drops selected rows that the list stops displaying", () => {
+      const store = useThreadStore.getState();
+      store.selectThread("thread-1");
+      store.selectThreadRange("thread-3");
+      // A search narrows the list to rows 1 and 5
+      useThreadStore.getState().setVisibleThreadIds(["thread-1", "thread-5"]);
+      expect([...useThreadStore.getState().selectedThreadIds]).toEqual(["thread-1"]);
+    });
+
+    it("keeps the selection when the list unmounts (empty publish)", () => {
+      const store = useThreadStore.getState();
+      store.toggleThreadSelection("thread-1");
+      useThreadStore.getState().setVisibleThreadIds([]);
+      expect([...useThreadStore.getState().selectedThreadIds]).toEqual(["thread-1"]);
     });
   });
 

@@ -2039,7 +2039,8 @@
     "mutedUrgency": "Muted — urgency silenced",
     "pinned": "Pinned",
     "hasAttachments": "Has attachments",
-    "starred": "Starred"
+    "starred": "Starred",
+    "toggleSelection": "Select conversation"
   },
   "urgency": {
     "score": "Score",

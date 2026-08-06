@@ -42,6 +42,7 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
   );
   const toggleThreadSelection = useThreadStore((s) => s.toggleThreadSelection);
   const selectThreadRange = useThreadStore((s) => s.selectThreadRange);
+  const clearMultiSelect = useThreadStore((s) => s.clearMultiSelect);
   const activeLabel = useActiveLabel();
   const emailDensity = useUIStore((s) => s.emailDensity);
   const contactsMap = useContactsStore((s) => s.contactsMap);
@@ -116,6 +117,8 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
     data: dragData,
   });
 
+  // macOS list semantics: Shift = contiguous range from the anchor, ⌘/Ctrl = toggle
+  // one row, plain click = collapse the selection and open the thread.
   const handleClick = (e: React.MouseEvent) => {
     if (e.shiftKey) {
       e.preventDefault();
@@ -123,11 +126,18 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
     } else if (e.ctrlKey || e.metaKey) {
       e.preventDefault();
       toggleThreadSelection(thread.id);
-    } else if (hasMultiSelect) {
-      toggleThreadSelection(thread.id);
     } else {
+      if (hasMultiSelect) clearMultiSelect();
       onClick(thread);
     }
+  };
+
+  // Mouse-only path into multi-select (no keyboard): the avatar acts as a checkbox.
+  const handleAvatarClick = (e: React.MouseEvent) => {
+    if (e.shiftKey || e.metaKey || e.ctrlKey) return; // let the row handler decide
+    e.preventDefault();
+    e.stopPropagation();
+    toggleThreadSelection(thread.id);
   };
 
   const handleContextMenu = onContextMenu
@@ -159,13 +169,30 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
       <div className="flex items-start gap-3">
         {/* Avatar */}
         <div
-          className={`rounded-full flex items-center justify-center shrink-0 font-medium text-white ${
+          role="checkbox"
+          aria-checked={isMultiSelected}
+          aria-label={t("threadCard.toggleSelection")}
+          title={t("threadCard.toggleSelection")}
+          onClick={handleAvatarClick}
+          className={`rounded-full flex items-center justify-center shrink-0 font-medium text-white cursor-pointer ${
             emailDensity === "compact" ? "w-7 h-7 text-xs" : emailDensity === "spacious" ? "w-10 h-10 text-sm" : "w-9 h-9 text-sm"
           } ${
             isMultiSelected ? "bg-accent" : thread.isRead ? "bg-text-tertiary" : "bg-accent"
           }`}
         >
-          {isMultiSelected ? <Check size={emailDensity === "compact" ? 14 : 16} /> : initial}
+          {isMultiSelected ? (
+            <Check size={emailDensity === "compact" ? 14 : 16} />
+          ) : (
+            <>
+              {/* Hovering the row turns the avatar into a checkmark: the affordance
+                  that tells a mouse-only user where to click to start a selection. */}
+              <span className="group-hover:hidden">{initial}</span>
+              <Check
+                size={emailDensity === "compact" ? 14 : 16}
+                className="hidden group-hover:block"
+              />
+            </>
+          )}
         </div>
 
         {/* Content */}

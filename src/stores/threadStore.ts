@@ -51,12 +51,26 @@ interface ThreadState {
    * Empty means "nothing published" → fall back to `threads`.
    */
   visibleThreadIds: string[];
+  /**
+   * macOS-style selection anchor: the row a Shift-range is measured from. Set by
+   * plain click, ⌘-click and keyboard navigation — NOT by Shift-click, so repeated
+   * Shift-clicks grow/shrink the same range instead of walking the anchor along.
+   */
+  selectionAnchorId: string | null;
+  /**
+   * Selection as it was when the anchor was set. A Shift-click resolves to
+   * `rangeBaseIds ∪ range(anchor…target)`, so shrinking a range really shrinks it
+   * (Finder/Mail behaviour) while ⌘-clicked islands outside the range survive.
+   */
+  rangeBaseIds: Set<string>;
   setVisibleThreadIds: (ids: string[]) => void;
   setThreads: (threads: Thread[]) => void;
   selectThread: (id: string | null) => void;
   setSelectedMessageId: (id: string | null) => void;
   toggleThreadSelection: (id: string) => void;
   selectThreadRange: (id: string) => void;
+  /** Shift+↑/↓: extend the range one visible row past the current edge. Returns the new edge. */
+  extendSelection: (delta: 1 | -1) => string | null;
   clearMultiSelect: () => void;
   selectAll: () => void;
   selectAllFromHere: () => void;
@@ -85,6 +99,8 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
   threadMap: new Map(),
   selectedThreadId: null,
   selectedThreadIds: new Set(),
+  selectionAnchorId: null,
+  rangeBaseIds: new Set(),
   selectedMessageId: null,
   isLoading: false,
   searchQuery: "",
@@ -93,7 +109,13 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
   searchLoading: false,
 
   setThreads: (threads) => set({ threads, threadMap: new Map(threads.map((t) => [t.id, t])) }),
-  selectThread: (selectedThreadId) => set({ selectedThreadId, selectedThreadIds: new Set() }),
+  selectThread: (selectedThreadId) =>
+    set({
+      selectedThreadId,
+      selectedThreadIds: new Set(),
+      selectionAnchorId: selectedThreadId,
+      rangeBaseIds: new Set(),
+    }),
   setSelectedMessageId: (selectedMessageId) => set({ selectedMessageId }),
   toggleThreadSelection: (id) =>
     set((state) => {
@@ -103,16 +125,34 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       } else {
         next.add(id);
       }
-      return { selectedThreadIds: next };
+      // ⌘-click moves the anchor and re-bases the range, exactly like Finder.
+      return { selectedThreadIds: next, selectionAnchorId: id, rangeBaseIds: new Set(next) };
     }),
-  setVisibleThreadIds: (visibleThreadIds) => set({ visibleThreadIds }),
+  setVisibleThreadIds: (visibleThreadIds) =>
+    set((state) => {
+      // The list re-published what is on screen (filter/search/label change): drop
+      // selected rows that are no longer displayed, so a bulk action can never hit
+      // a thread the user cannot see. An empty publish means "no list mounted" —
+      // leave the selection alone, the list is simply gone for a moment.
+      if (visibleThreadIds.length === 0 || state.selectedThreadIds.size === 0) {
+        return { visibleThreadIds };
+      }
+      const visible = new Set(visibleThreadIds);
+      const kept = [...state.selectedThreadIds].filter((id) => visible.has(id));
+      if (kept.length === state.selectedThreadIds.size) return { visibleThreadIds };
+      return {
+        visibleThreadIds,
+        selectedThreadIds: new Set(kept),
+        rangeBaseIds: new Set([...state.rangeBaseIds].filter((id) => visible.has(id))),
+      };
+    }),
   selectThreadRange: (id) => {
     const state = get();
     const order = selectionOrder(state);
-    // Find the anchor: last selected thread or the currently viewed thread
-    const anchor = state.selectedThreadId ?? [...state.selectedThreadIds].pop();
+    const anchor =
+      state.selectionAnchorId ?? state.selectedThreadId ?? [...state.selectedThreadIds].pop();
     if (!anchor) {
-      set({ selectedThreadIds: new Set([id]) });
+      set({ selectedThreadIds: new Set([id]), selectionAnchorId: id, rangeBaseIds: new Set() });
       return;
     }
     const anchorIdx = order.indexOf(anchor);
@@ -121,19 +161,57 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     // Anchor scrolled out of the current view (e.g. it is not part of the search
     // results): there is no range to span, so just add the clicked thread.
     if (anchorIdx === -1) {
-      set((s) => ({ selectedThreadIds: new Set([...s.selectedThreadIds, id]) }));
+      set((s) => ({
+        selectedThreadIds: new Set([...s.rangeBaseIds, id]),
+        selectionAnchorId: id,
+        rangeBaseIds: new Set(s.rangeBaseIds),
+      }));
       return;
     }
     const start = Math.min(anchorIdx, targetIdx);
     const end = Math.max(anchorIdx, targetIdx);
     const rangeIds = order.slice(start, end + 1);
-    set((s) => ({
-      selectedThreadIds: new Set([...s.selectedThreadIds, ...rangeIds]),
-    }));
+    // Re-derive from the base every time: a second Shift-click closer to the anchor
+    // shrinks the range instead of accumulating it (Finder/Mail semantics).
+    set((s) => ({ selectedThreadIds: new Set([...s.rangeBaseIds, ...rangeIds]) }));
   },
-  clearMultiSelect: () => set({ selectedThreadIds: new Set() }),
+  extendSelection: (delta) => {
+    const state = get();
+    const order = selectionOrder(state);
+    if (order.length === 0) return null;
+    const anchor = state.selectionAnchorId ?? state.selectedThreadId;
+    const anchorIdx = anchor ? order.indexOf(anchor) : -1;
+    if (anchorIdx === -1) {
+      const first = order[0] ?? null;
+      if (first) {
+        set({
+          selectedThreadIds: new Set([first]),
+          selectionAnchorId: first,
+          rangeBaseIds: new Set(),
+        });
+      }
+      return first;
+    }
+    // Current edge = the far end of the selected run measured from the anchor.
+    let edgeIdx = anchorIdx;
+    for (let i = 0; i < order.length; i++) {
+      const oid = order[i];
+      if (oid && state.selectedThreadIds.has(oid) && Math.abs(i - anchorIdx) > Math.abs(edgeIdx - anchorIdx)) {
+        edgeIdx = i;
+      }
+    }
+    const nextEdge = Math.max(0, Math.min(order.length - 1, edgeIdx + delta));
+    const start = Math.min(anchorIdx, nextEdge);
+    const end = Math.max(anchorIdx, nextEdge);
+    const rangeIds = order.slice(start, end + 1);
+    set((s) => ({ selectedThreadIds: new Set([...s.rangeBaseIds, ...rangeIds]) }));
+    return order[nextEdge] ?? null;
+  },
+  clearMultiSelect: () =>
+    set({ selectedThreadIds: new Set(), rangeBaseIds: new Set() }),
   selectAll: () => {
-    set({ selectedThreadIds: new Set(selectionOrder(get())) });
+    const all = new Set(selectionOrder(get()));
+    set({ selectedThreadIds: all, rangeBaseIds: new Set(all) });
   },
   selectAllFromHere: () => {
     const state = get();
@@ -141,9 +219,8 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
     const idx = order.indexOf(state.selectedThreadId ?? "");
     const startIdx = idx === -1 ? 0 : idx;
     const ids = order.slice(startIdx);
-    set((s) => ({
-      selectedThreadIds: new Set([...s.selectedThreadIds, ...ids]),
-    }));
+    const next = new Set([...state.selectedThreadIds, ...ids]);
+    set({ selectedThreadIds: next, rangeBaseIds: new Set(next) });
   },
   setLoading: (isLoading) => set({ isLoading }),
   updateThread: (id, updates) =>
@@ -165,7 +242,10 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       threadMap.delete(id);
       const next = new Set(state.selectedThreadIds);
       next.delete(id);
+      const base = new Set(state.rangeBaseIds);
+      base.delete(id);
       return {
+        rangeBaseIds: base,
         threads: state.threads.filter((t) => t.id !== id),
         threadMap,
         selectedThreadId: state.selectedThreadId === id ? null : state.selectedThreadId,
@@ -179,7 +259,10 @@ export const useThreadStore = create<ThreadState>((set, get) => ({
       for (const id of ids) threadMap.delete(id);
       const next = new Set(state.selectedThreadIds);
       for (const id of ids) next.delete(id);
+      const base = new Set(state.rangeBaseIds);
+      for (const id of ids) base.delete(id);
       return {
+        rangeBaseIds: base,
         threads: state.threads.filter((t) => !idsSet.has(t.id)),
         threadMap,
         selectedThreadId: state.selectedThreadId && idsSet.has(state.selectedThreadId) ? null : state.selectedThreadId,

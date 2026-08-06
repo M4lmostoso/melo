@@ -61,8 +61,15 @@ Melo is designed to be used entirely from the keyboard. All shortcuts are custom
 
 ## Multi-select
 
-- **Click** a thread to toggle its selection
-- **Shift+click** to select a range
+Standard macOS list semantics:
+
+- **Click** clears the selection and opens the thread
+- **Cmd/Ctrl+click** toggles a single thread (and moves the range anchor)
+- **Shift+click** selects the range from the anchor to the clicked thread; clicking back toward the anchor shrinks it again, and ⌘-clicked threads outside the range survive
+- **Shift+↑ / Shift+↓** extends or shrinks the range with the keyboard
+- **Click the avatar** to toggle a thread without the keyboard
+- `Escape` clears the selection
+- Selection only ever covers rows the list is actually displaying — rows hidden by the current search/filter are excluded, and rows that stop being displayed drop out of the selection
 - All keyboard actions (archive, trash, star, etc.) apply to the entire selection
 
 ## Two-key sequences

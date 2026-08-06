@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useUIStore } from "@/stores/uiStore";
-import { useThreadStore } from "@/stores/threadStore";
+import { useThreadStore, type Thread } from "@/stores/threadStore";
 import { useComposerStore } from "@/stores/composerStore";
 import { useAccountStore } from "@/stores/accountStore";
 import { useShortcutStore } from "@/stores/shortcutStore";
@@ -199,6 +199,12 @@ export function useKeyboardShortcuts() {
         // (when pane is off and a thread is selected, ThreadView handles arrows for message nav)
         if (!(paneOff && selectedId)) {
           e.preventDefault();
+          // Shift+↑/↓ grows/shrinks the selection from the anchor (macOS lists)
+          // instead of moving the cursor and opening the next thread.
+          if (e.shiftKey) {
+            useThreadStore.getState().extendSelection(key === "ArrowDown" ? 1 : -1);
+            return;
+          }
           await executeAction(key === "ArrowDown" ? "nav.next" : "nav.prev");
           return;
         }
@@ -234,7 +240,13 @@ async function executeAction(actionId: string): Promise<void> {
       selectedId = firstThread.id;
     }
   }
-const currentIdx = threads.findIndex((t) => t.id === selectedId);
+  // Arrow navigation walks the rows the list is actually rendering (search/filter
+  // applied), falling back to the full thread list when nothing is published.
+  const { visibleThreadIds = [], threadMap: navThreadMap } = useThreadStore.getState();
+  const navOrder: Thread[] = visibleThreadIds.length > 0 && navThreadMap
+    ? visibleThreadIds.map((id) => navThreadMap.get(id)).filter((t): t is Thread => !!t)
+    : threads;
+  const currentIdx = navOrder.findIndex((t) => t.id === selectedId);
    // Thread-bound actions (reply/forward/archive/…) must operate on the SELECTED
    // thread's own account, not the globally-active account — otherwise in a
    // multi-account or unified view a reply/forward would query the wrong account
@@ -251,18 +263,18 @@ const currentIdx = threads.findIndex((t) => t.id === selectedId);
 
    switch (actionId) {
     case "nav.next": {
-      const nextIdx = Math.min(currentIdx + 1, threads.length - 1);
-      if (threads[nextIdx]) {
-        navigateToThread(threads[nextIdx].id);
-        useThreadStore.getState().selectThread(threads[nextIdx].id);
+      const nextIdx = Math.min(currentIdx + 1, navOrder.length - 1);
+      if (navOrder[nextIdx]) {
+        navigateToThread(navOrder[nextIdx].id);
+        useThreadStore.getState().selectThread(navOrder[nextIdx].id);
       }
       break;
     }
     case "nav.prev": {
       const prevIdx = Math.max(currentIdx - 1, 0);
-      if (threads[prevIdx]) {
-        navigateToThread(threads[prevIdx].id);
-        useThreadStore.getState().selectThread(threads[prevIdx].id);
+      if (navOrder[prevIdx]) {
+        navigateToThread(navOrder[prevIdx].id);
+        useThreadStore.getState().selectThread(navOrder[prevIdx].id);
       }
       break;
     }

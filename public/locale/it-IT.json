@@ -2039,7 +2039,8 @@
     "mutedUrgency": "Silenziato — urgenza disattivata",
     "pinned": "Fissato",
     "hasAttachments": "Ha allegati",
-    "starred": "Con stella"
+    "starred": "Con stella",
+    "toggleSelection": "Seleziona conversazione"
   },
   "urgency": {
     "score": "Punteggio",

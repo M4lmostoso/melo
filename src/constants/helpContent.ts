@@ -632,12 +632,13 @@ export const HELP_CATEGORIES: HelpCategory[] = [
         title: "Multi-select & batch actions",
         summary: "Select multiple threads for bulk operations.",
         description:
-          "Click threads to toggle their selection. Shift+click to select a range from the last selected thread to the clicked one. Once you have multiple threads selected, any action you take (archive, trash, star, label, etc.) applies to all of them at once. Keyboard shortcuts also work on your selection — press e to archive all selected threads, # to trash them, etc.",
+          "Selection follows the standard macOS list rules. Cmd/Ctrl+click adds or removes a single thread, Shift+click selects the whole range from the anchor to the clicked thread (clicking closer to the anchor shrinks the range again), and a plain click clears the selection and opens that thread. You can also click a thread's avatar to toggle it without the keyboard. Shift+Up/Down extends the selection with the keyboard. Selection never reaches rows the current search or filter is hiding. Once you have multiple threads selected, any action you take (archive, trash, star, label, etc.) applies to all of them at once — press e to archive all selected threads, # to trash them, etc.",
         tips: [
           { text: "Select all threads", shortcut: "Ctrl+A" },
           { text: "Select range from current position", shortcut: "Ctrl+Shift+A" },
-          { text: "Click to toggle individual thread selection." },
-          { text: "Shift+click to select a range of threads." },
+          { text: "Extend the selection one row", shortcut: "Shift+↑ / Shift+↓" },
+          { text: "Cmd/Ctrl+click toggles a single thread; click its avatar to do the same with the mouse only." },
+          { text: "Shift+click selects a range from the anchor; a plain click clears the selection." },
           { text: "All keyboard actions (archive, trash, star) work on the selection." },
           { text: "Press Escape to clear the selection." },
         ],
