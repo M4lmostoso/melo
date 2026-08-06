@@ -325,7 +325,11 @@ export class GmailClient {
    */
   async insertMessage(rawBase64url: string, labelIds?: string[]): Promise<{ id: string }> {
     const token = await this.getValidToken();
-    const url = `https://www.googleapis.com/upload/gmail/v1/users/me/messages?uploadType=media`;
+    // internalDateSource=dateHeader: Gmail otherwise stamps the insert time, so a
+    // cross-account move would re-date the mail to the day it was moved.
+    const url =
+      `https://www.googleapis.com/upload/gmail/v1/users/me/messages` +
+      `?uploadType=media&internalDateSource=dateHeader`;
     const rawBytes = Uint8Array.from(
       atob(rawBase64url.replace(/-/g, "+").replace(/_/g, "/")),
       (c) => c.charCodeAt(0),

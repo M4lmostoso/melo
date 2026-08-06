@@ -15,11 +15,13 @@ vi.mock("@/stores/labelStore", () => ({
   ),
 }));
 
+const { accountProvider } = vi.hoisted(() => ({ accountProvider: { value: "gmail_api" } }));
+
 vi.mock("@/stores/accountStore", () => ({
   useAccountStore: vi.fn((selector: (s: { activeAccountId: string; accounts: { id: string; provider?: string }[] }) => unknown) =>
     selector({
       activeAccountId: "acc-1",
-      accounts: [{ id: "acc-1", provider: "gmail_api" }],
+      accounts: [{ id: "acc-1", provider: accountProvider.value }],
     }),
   ),
 }));
@@ -56,7 +58,7 @@ vi.mock("react-transition-group", () => ({
   },
 }));
 
-import { archiveThread, trashThread, spamThread, addThreadLabel, removeThreadLabel } from "@/services/emailActions";
+import { archiveThread, trashThread, spamThread, addThreadLabel, removeThreadLabel, moveThread } from "@/services/emailActions";
 
 const defaultProps = {
   isOpen: true,
@@ -66,6 +68,7 @@ const defaultProps = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  accountProvider.value = "gmail_api";
 });
 
 describe("MoveToFolderDialog", () => {
@@ -145,6 +148,19 @@ describe("MoveToFolderDialog", () => {
     await vi.waitFor(() => {
       expect(removeThreadLabel).toHaveBeenCalledWith("acc-1", "thread-1", "INBOX");
     });
+  });
+
+  it("tags an IMAP label instead of moving into a folder named after the label id", async () => {
+    // Label ids are generated UUIDs, not folder paths: moving to dest.id asked the
+    // server for a non-existent folder and the mail stayed in the Inbox. addLabel
+    // resolves the label→folder mapping provider-side and moves there.
+    accountProvider.value = "imap";
+    render(<MoveToFolderDialog {...defaultProps} />);
+
+    fireEvent.click(screen.getByText("Work"));
+
+    expect(addThreadLabel).toHaveBeenCalledWith("acc-1", "thread-1", "label-1");
+    expect(moveThread).not.toHaveBeenCalled();
   });
 
   it("calls addThreadLabel for Inbox (un-archive) on Gmail", async () => {

@@ -19,6 +19,8 @@ import {
   imapDeleteMessages,
   imapGetFolderStatus,
   imapFetchAttachment,
+  imapAppendMessage,
+  toImapInternalDate,
   smtpSendEmail,
   smtpTestConnection,
   type ImapConfig,
@@ -225,6 +227,57 @@ describe('IMAP Tauri commands', () => {
       partId: '1.2',
     });
     expect(result).toBe('base64encodeddata==');
+  });
+
+  it('imapAppendMessage passes flags and INTERNALDATE through', async () => {
+    mockInvoke.mockResolvedValue(77);
+
+    const uid = await imapAppendMessage(
+      testImapConfig, 'Archive', 'cmF3', '(\\Seen)', '01-Feb-2024 09:15:00 +0100',
+    );
+
+    expect(mockInvoke).toHaveBeenCalledWith('imap_append_message', {
+      config: testImapConfig,
+      folder: 'Archive',
+      flags: '(\\Seen)',
+      internalDate: '01-Feb-2024 09:15:00 +0100',
+      rawMessage: 'cmF3',
+    });
+    expect(uid).toBe(77);
+  });
+
+  it('imapAppendMessage sends nulls when flags/date are omitted', async () => {
+    mockInvoke.mockResolvedValue(1);
+
+    await imapAppendMessage(testImapConfig, 'Drafts', 'cmF3');
+
+    expect(mockInvoke).toHaveBeenCalledWith('imap_append_message', {
+      config: testImapConfig,
+      folder: 'Drafts',
+      flags: null,
+      internalDate: null,
+      rawMessage: 'cmF3',
+    });
+  });
+});
+
+describe('toImapInternalDate', () => {
+  it('formats an epoch timestamp as an RFC 3501 date-time', () => {
+    // Built from local-time parts so the expectation holds in any TZ the suite runs in.
+    const d = new Date(2024, 1, 1, 9, 15, 30);
+    const formatted = toImapInternalDate(d.getTime());
+    expect(formatted).toMatch(/^01-Feb-2024 09:15:30 [+-]\d{4}$/);
+  });
+
+  it('zero-pads single-digit days and hours', () => {
+    const d = new Date(2024, 11, 5, 7, 4, 3);
+    expect(toImapInternalDate(d.getTime())).toMatch(/^05-Dec-2024 07:04:03 [+-]\d{4}$/);
+  });
+
+  it('returns null for missing or invalid input', () => {
+    expect(toImapInternalDate(null)).toBeNull();
+    expect(toImapInternalDate(undefined)).toBeNull();
+    expect(toImapInternalDate(Number.NaN)).toBeNull();
   });
 });
 

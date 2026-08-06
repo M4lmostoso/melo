@@ -1031,6 +1031,7 @@ pub async fn imap_append_message(
     config: ImapConfig,
     folder: String,
     flags: Option<String>,
+    internal_date: Option<String>,
     raw_message: String,
 ) -> Result<u32, String> {
     let mut session = imap_client::connect(&config).await?;
@@ -1039,7 +1040,14 @@ pub async fn imap_append_message(
     let raw_bytes = base64url_decode(&raw_message)?;
 
     let flags_ref = flags.as_deref();
-    let uid = imap_client::append_message(&mut session, &folder, flags_ref, &raw_bytes).await?;
+    let uid = imap_client::append_message(
+        &mut session,
+        &folder,
+        flags_ref,
+        internal_date.as_deref(),
+        &raw_bytes,
+    )
+    .await?;
     let _ = session.logout().await;
     Ok(uid)
 }

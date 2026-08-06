@@ -306,18 +306,59 @@ export async function imapDeleteMessages(
   return invoke<void>('imap_delete_messages', { config, folder, uids });
 }
 
+const IMAP_MONTHS = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+] as const;
+
+/**
+ * Format an epoch-millis timestamp as an IMAP date-time (RFC 3501), unquoted:
+ * `"01-Feb-2024 09:15:00 +0100"`. Rust adds the quotes.
+ *
+ * Returns null for missing/invalid input so callers can simply omit the
+ * INTERNALDATE and let the server stamp the append time.
+ */
+export function toImapInternalDate(epochMs: number | null | undefined): string | null {
+  if (epochMs == null || !Number.isFinite(epochMs)) return null;
+  const d = new Date(epochMs);
+  if (Number.isNaN(d.getTime())) return null;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  // Local time + the local UTC offset: the instant is what matters, and this
+  // avoids a message received at 00:30 showing up on the previous day.
+  const offsetMin = -d.getTimezoneOffset();
+  const sign = offsetMin < 0 ? "-" : "+";
+  const abs = Math.abs(offsetMin);
+  const day = pad(d.getDate());
+  const month = IMAP_MONTHS[d.getMonth()];
+  return (
+    `${day}-${month}-${d.getFullYear()} ` +
+    `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())} ` +
+    `${sign}${pad(Math.floor(abs / 60))}${pad(abs % 60)}`
+  );
+}
+
 /**
  * Append a raw message to a folder (for saving sent mail or drafts).
  * @param rawMessage - The full email message encoded as base64url.
  * @param flags - Optional IMAP flags string (e.g. "(\\Seen)" or "(\\Draft)").
+ * @param internalDate - Optional IMAP date-time (see `toImapInternalDate`). Omit
+ *   for messages that are genuinely new (sent copies, drafts); pass the original
+ *   date when copying an existing message, or the server dates it "now".
  */
 export async function imapAppendMessage(
   config: ImapConfig,
   folder: string,
   rawMessage: string,
-  flags?: string
+  flags?: string,
+  internalDate?: string | null
 ): Promise<number> {
-  return invoke<number>('imap_append_message', { config, folder, flags: flags ?? null, rawMessage });
+  return invoke<number>('imap_append_message', {
+    config,
+    folder,
+    flags: flags ?? null,
+    internalDate: internalDate ?? null,
+    rawMessage,
+  });
 }
 
 /**

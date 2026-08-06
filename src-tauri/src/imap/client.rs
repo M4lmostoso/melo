@@ -700,12 +700,30 @@ pub async fn delete_messages(
 /// Reads UIDNEXT before APPEND, then verifies with a post-APPEND STATUS check.
 /// If another message was appended concurrently (UIDNEXT jumped by more than 1),
 /// falls back to searching the new UID range to find the appended message.
+///
+/// `internal_date` is an IMAP date-time (`"01-Feb-2024 09:15:00 +0100"`, unquoted).
+/// It is what the server stores as the message's INTERNALDATE — without it the
+/// server stamps the APPEND time, so a moved message would show up on the server
+/// (and in every other client) dated the day it was moved instead of the day it
+/// was received.
 pub async fn append_message(
     session: &mut ImapSession,
     folder: &str,
     flags: Option<&str>,
+    internal_date: Option<&str>,
     raw_message: &[u8],
 ) -> Result<u32, String> {
+    // The date goes into the APPEND command line verbatim, so it must be quoted
+    // and must not be able to break out of the literal.
+    let quoted_date = match internal_date {
+        Some(d) if !d.is_empty() => {
+            if d.contains('"') || d.contains('\r') || d.contains('\n') {
+                return Err(format!("invalid INTERNALDATE: {d}"));
+            }
+            Some(format!("\"{d}\""))
+        }
+        _ => None,
+    };
     // Read UIDNEXT before APPEND.
     let status_before = tokio::time::timeout(
         IMAP_CMD_TIMEOUT,
@@ -716,7 +734,10 @@ pub async fn append_message(
     .map_err(|e| format!("STATUS failed: {e}"))?;
     let uid_next_before = status_before.uid_next.unwrap_or(0);
 
-    tokio::time::timeout(IMAP_FETCH_TIMEOUT, session.append(folder, flags, None, raw_message))
+    tokio::time::timeout(
+        IMAP_FETCH_TIMEOUT,
+        session.append(folder, flags, quoted_date.as_deref(), raw_message),
+    )
         .await
         .map_err(|_| format!("APPEND timed out after {}s — check your server settings or network connection", IMAP_FETCH_TIMEOUT.as_secs()))?
         .map_err(|e| format!("APPEND failed: {e}"))?;

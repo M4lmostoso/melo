@@ -103,8 +103,12 @@ export function MoveToFolderDialog({
           }
         } else if (dest.type === "label") {
           if (isImap) {
-            // IMAP: move to folder. The label's id is the folder path for IMAP accounts.
-            await moveThread(activeAccountId, threadId, [], dest.id);
+            // Labels have generated ids, NOT folder paths — passing dest.id to
+            // moveThread asked the server to move into a folder named like a UUID,
+            // which fails and leaves the mail where it was (i.e. still in Inbox).
+            // addThreadLabel tags the thread locally and, when the label is mapped
+            // to an IMAP folder, moves the messages into exactly that folder.
+            await addThreadLabel(activeAccountId, threadId, dest.id);
           } else {
             // Gmail: add destination label + remove from current location (archive)
             await addThreadLabel(activeAccountId, threadId, dest.id);

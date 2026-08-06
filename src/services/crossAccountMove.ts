@@ -3,7 +3,14 @@ import { getMessagesForThread } from "./db/messages";
 import { getDb } from "./db/connection";
 import { addPendingLabelAssignments } from "./db/pendingLabelAssignments";
 import { buildImapConfig } from "./imap/imapConfigBuilder";
-import { imapFetchRawMessageBase64, imapAppendMessage, imapDeleteMessages } from "./imap/tauriCommands";
+import {
+  imapFetchRawMessageBase64,
+  imapAppendMessage,
+  imapDeleteMessages,
+  toImapInternalDate,
+} from "./imap/tauriCommands";
+import { findSpecialFolder } from "./imap/messageHelper";
+import { getLabelFolderMapping } from "./db/folderLabelMappings";
 import { getGmailClient } from "./gmail/tokenManager";
 import { triggerSync } from "./gmail/syncManager";
 
@@ -19,17 +26,42 @@ const FOLDER_KEY_TO_GMAIL: Record<string, string[]> = {
   all:     ["INBOX"],
 };
 
-// Maps sidebar folder keys → standard IMAP folder name (RFC 6154 / common conventions)
-const FOLDER_KEY_TO_IMAP: Record<string, string> = {
-  inbox:   "INBOX",
-  starred: "INBOX",
-  sent:    "Sent",
-  drafts:  "Drafts",
-  trash:   "Trash",
-  spam:    "Junk",
-  snoozed: "INBOX",
-  all:     "INBOX",
+// Maps sidebar folder keys → the target account's special-use attribute, with the
+// RFC 6154 / conventional folder name as the fallback when the server advertises
+// no such special-use folder. Resolving through special-use matters: servers name
+// these folders anything (DavMail's "Sent Items", localized "Posta inviata", …),
+// and a hardcoded "Sent" would make the APPEND fail or create a stray folder.
+const FOLDER_KEY_TO_IMAP: Record<string, { specialUse: string | null; fallback: string }> = {
+  inbox:   { specialUse: null,        fallback: "INBOX" },
+  starred: { specialUse: null,        fallback: "INBOX" },
+  sent:    { specialUse: "\\Sent",    fallback: "Sent" },
+  drafts:  { specialUse: "\\Drafts",  fallback: "Drafts" },
+  trash:   { specialUse: "\\Trash",   fallback: "Trash" },
+  spam:    { specialUse: "\\Junk",    fallback: "Junk" },
+  snoozed: { specialUse: null,        fallback: "INBOX" },
+  all:     { specialUse: null,        fallback: "INBOX" },
 };
+
+/**
+ * Which IMAP folder a drop should land in.
+ *
+ * A sidebar folder key resolves through special-use; anything else is one of the
+ * target account's custom labels. A custom label that is mapped to an IMAP folder
+ * (Settings → folder/label mapping) means the user considers label and folder the
+ * same thing, so the message must be APPENDed straight into that folder — dropping
+ * it into INBOX and only tagging it would leave the server copy in the wrong place.
+ */
+async function resolveTargetImapFolder(
+  targetAccountId: string,
+  targetFolderKey: string,
+): Promise<string> {
+  const known = FOLDER_KEY_TO_IMAP[targetFolderKey];
+  if (known) {
+    if (!known.specialUse) return known.fallback;
+    return (await findSpecialFolder(targetAccountId, known.specialUse)) ?? known.fallback;
+  }
+  return (await getLabelFolderMapping(targetAccountId, targetFolderKey)) ?? "INBOX";
+}
 
 /**
  * Resolve which of the source thread's user (custom) labels also exist by name
@@ -123,7 +155,9 @@ export async function crossAccountMoveThreads(
   const sourceGmail = !sourceIsImap ? await getGmailClient(sourceAccountId) : null;
   const targetGmail = !targetIsImap ? await getGmailClient(targetAccountId) : null;
 
-  const targetImapFolder = FOLDER_KEY_TO_IMAP[targetFolderKey] ?? "INBOX";
+  const targetImapFolder = targetIsImap
+    ? await resolveTargetImapFolder(targetAccountId, targetFolderKey)
+    : "INBOX";
   const targetGmailLabels = FOLDER_KEY_TO_GMAIL[targetFolderKey] ?? ["INBOX"];
 
   // A drop onto one of the target account's custom labels arrives here with the
@@ -192,7 +226,16 @@ export async function crossAccountMoveThreads(
       // ── 2. Insert into target ─────────────────────────────────────────────
       if (targetIsImap) {
         if (!targetConfig) continue;
-        await imapAppendMessage(targetConfig, targetImapFolder, rawBase64url);
+        // Carry the original date over as the INTERNALDATE: without it the target
+        // server stamps the append time, so every other client (and the target's
+        // own sort order) would show the mail dated the day it was moved.
+        await imapAppendMessage(
+          targetConfig,
+          targetImapFolder,
+          rawBase64url,
+          msg.is_read ? "(\\Seen)" : undefined,
+          toImapInternalDate(msg.internal_date ?? msg.date),
+        );
         // IMAP has no server-side labels — defer the carry-over until the
         // appended message is synced and gets a local thread_id.
         if (carryOverLabelIds.length > 0 && msg.message_id_header) {

@@ -10,21 +10,28 @@ vi.mock("./db/accounts", () => ({
 vi.mock("./db/messages", () => ({ getMessagesForThread: vi.fn() }));
 vi.mock("./db/pendingLabelAssignments", () => ({ addPendingLabelAssignments: vi.fn() }));
 vi.mock("./imap/imapConfigBuilder", () => ({ buildImapConfig: vi.fn(() => ({ host: "h" })) }));
-vi.mock("./imap/tauriCommands", () => ({
+vi.mock("./imap/tauriCommands", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./imap/tauriCommands")>()),
   imapFetchRawMessageBase64: vi.fn(async () => "cmF3LWJ5dGVz"),
   imapAppendMessage: vi.fn(async () => undefined),
   imapDeleteMessages: vi.fn(async () => undefined),
 }));
+vi.mock("./imap/messageHelper", () => ({ findSpecialFolder: vi.fn(async () => null) }));
+vi.mock("./db/folderLabelMappings", () => ({ getLabelFolderMapping: vi.fn(async () => null) }));
 vi.mock("./gmail/tokenManager", () => ({ getGmailClient: vi.fn() }));
 vi.mock("./gmail/syncManager", () => ({ triggerSync: vi.fn(async () => undefined) }));
 
 import { getMessagesForThread } from "./db/messages";
 import { imapAppendMessage, imapDeleteMessages } from "./imap/tauriCommands";
 import { addPendingLabelAssignments } from "./db/pendingLabelAssignments";
+import { getLabelFolderMapping } from "./db/folderLabelMappings";
+import { findSpecialFolder } from "./imap/messageHelper";
 
 describe("crossAccountMoveThreads", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(getLabelFolderMapping).mockResolvedValue(null);
+    vi.mocked(findSpecialFolder).mockResolvedValue(null);
     mockDb.select.mockResolvedValue([]);
     mockDb.execute.mockResolvedValue(undefined);
   });
@@ -62,6 +69,51 @@ describe("crossAccountMoveThreads", () => {
     await crossAccountMoveThreads("src", "dst", ["t1"], "label-9");
 
     expect(addPendingLabelAssignments).toHaveBeenCalledWith("dst", "<a@b>", ["label-9"]);
+  });
+
+  it("appends into the folder the drop-target label is mapped to", async () => {
+    vi.mocked(getMessagesForThread).mockResolvedValue([
+      { id: "m1", imap_uid: 1, imap_folder: "INBOX", subject: "One", date: 1_700_000_000_000 },
+    ] as never);
+    mockDb.select.mockResolvedValueOnce([{ id: "label-9" }]).mockResolvedValue([]);
+    vi.mocked(getLabelFolderMapping).mockResolvedValue("Archivio/2024");
+
+    await crossAccountMoveThreads("src", "dst", ["t1"], "label-9");
+
+    expect(imapAppendMessage).toHaveBeenCalledWith(
+      expect.anything(), "Archivio/2024", expect.any(String), undefined, expect.any(String),
+    );
+  });
+
+  it("resolves system folder keys through the target's special-use folders", async () => {
+    vi.mocked(getMessagesForThread).mockResolvedValue([
+      { id: "m1", imap_uid: 1, imap_folder: "INBOX", subject: "One", date: 1_700_000_000_000 },
+    ] as never);
+    vi.mocked(findSpecialFolder).mockResolvedValue("Posta inviata");
+
+    await crossAccountMoveThreads("src", "dst", ["t1"], "sent");
+
+    expect(findSpecialFolder).toHaveBeenCalledWith("dst", "\\Sent");
+    expect(imapAppendMessage).toHaveBeenCalledWith(
+      expect.anything(), "Posta inviata", expect.any(String), undefined, expect.any(String),
+    );
+  });
+
+  it("preserves the original date as the INTERNALDATE and the read state as \\Seen", async () => {
+    const date = new Date(2024, 1, 1, 9, 15, 30).getTime();
+    vi.mocked(getMessagesForThread).mockResolvedValue([
+      { id: "m1", imap_uid: 1, imap_folder: "INBOX", subject: "One", date, is_read: 1 },
+    ] as never);
+
+    await crossAccountMoveThreads("src", "dst", ["t1"], "inbox");
+
+    expect(imapAppendMessage).toHaveBeenCalledWith(
+      expect.anything(),
+      "INBOX",
+      expect.any(String),
+      "(\\Seen)",
+      expect.stringMatching(/^01-Feb-2024 09:15:30 [+-]\d{4}$/),
+    );
   });
 
   it("counts a skipped message as not moved", async () => {
