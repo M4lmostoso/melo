@@ -128,7 +128,9 @@ export function DndProvider({ children }: DndProviderProps) {
         const targetLabel =
           accounts.find((a) => a.id === targetAccountId)?.email ?? targetAccountId;
         let lastDone = 0;
-        startTransfer(targetLabel, 0);
+        // Each drop owns its own progress row: several transfers can be queued
+        // and run at once, and they must not overwrite one another.
+        const transferId = startTransfer(targetLabel, 0);
         try {
           const { moved, total } = await crossAccountMoveThreads(
             dragData.sourceAccountId,
@@ -137,7 +139,7 @@ export function DndProvider({ children }: DndProviderProps) {
             targetFolderKey,
             (p) => {
               lastDone = p.done;
-              updateTransfer(p.done, p.total, p.currentSubject);
+              updateTransfer(transferId, p.done, p.total, p.currentSubject);
             },
           );
           removeThreads(dragData.threadIds);
@@ -151,7 +153,7 @@ export function DndProvider({ children }: DndProviderProps) {
           console.error("Cross-account move failed:", err);
           showToast("error", t("ui.transfer.failed", { moved: lastDone, target: targetLabel }));
         } finally {
-          endTransfer();
+          endTransfer(transferId);
         }
         return;
       }

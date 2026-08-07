@@ -946,7 +946,9 @@
       "count": "{done}/{total}",
       "done": "{count} messages moved to {target}.",
       "partial": "{moved} of {total} messages moved to {target} — the others were skipped.",
-      "failed": "Transfer to {target} interrupted after {moved} messages. The remaining messages were left in place."
+      "failed": "Transfer to {target} interrupted after {moved} messages. The remaining messages were left in place.",
+      "activeCount": "{count} transfers in progress",
+      "more": "+{count} more transfers · {done}/{total} messages"
     },
     "confirmDialog": {
       "defaultConfirm": "Confirm",

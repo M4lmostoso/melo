@@ -50,8 +50,8 @@ function ToastItem({ toast }: { toast: Toast }) {
  */
 export function ToastHost() {
   const toasts = useToastStore((s) => s.toasts);
-  const transfer = useTransferStore((s) => s.progress);
-  if (toasts.length === 0 && !transfer) return null;
+  const transfers = useTransferStore((s) => s.transfers);
+  if (toasts.length === 0 && transfers.length === 0) return null;
   return (
     <div className="fixed bottom-4 right-4 z-[70] flex flex-col gap-2 items-end">
       {toasts.map((toast) => (

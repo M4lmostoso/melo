@@ -946,7 +946,9 @@
       "count": "{done}/{total}",
       "done": "{count} messaggi spostati su {target}.",
       "partial": "{moved} di {total} messaggi spostati su {target} — gli altri sono stati saltati.",
-      "failed": "Trasferimento su {target} interrotto dopo {moved} messaggi. I messaggi restanti sono rimasti dov'erano."
+      "failed": "Trasferimento su {target} interrotto dopo {moved} messaggi. I messaggi restanti sono rimasti dov'erano.",
+      "activeCount": "{count} trasferimenti in corso",
+      "more": "+{count} altri trasferimenti · {done}/{total} messaggi"
     },
     "confirmDialog": {
       "defaultConfirm": "Conferma",
