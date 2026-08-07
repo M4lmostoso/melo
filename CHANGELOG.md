@@ -4,6 +4,28 @@
 
 ---
 
+## [0.1.7](https://github.com/M4lmostoso/melo/compare/v0.1.6...v0.1.7) (2026-08-07)
+
+
+### Features
+
+* add raw-TCP fetch for accurate message retrieval and constrain selection actions to visible thread list. ([80c13b1](https://github.com/M4lmostoso/melo/commit/80c13b1fb7248c258fc82842c17316eb951d76a4))
+* add scheduling state, error handling, and optimized asynchronous draft cleanup in composer ([3141cf6](https://github.com/M4lmostoso/melo/commit/3141cf6e0fa9d4d48b9e2a7f2101d5ac36a2c923))
+* batch emptyTrash operations and add progress tracking for bulk actions ([a60d9d4](https://github.com/M4lmostoso/melo/commit/a60d9d4298ed1fcff3874cc3b7783351b17bef98))
+* implement IMAP cross-account move with INTERNALDATE preservation and correct folder mapping resolution ([79f7173](https://github.com/M4lmostoso/melo/commit/79f7173e1d151e69c33dc0dd5d518d36f2f73874))
+* implement macOS-style multi-select range logic in threadStore and update UI components accordingly ([d87cb1b](https://github.com/M4lmostoso/melo/commit/d87cb1b3cbcd78a3fd8d013dc0c0ca4c9597082c))
+* implement progress tracking and UI for cross-account thread transfers ([8b6f798](https://github.com/M4lmostoso/melo/commit/8b6f798678089b78c9620c1371433ed1f874d564))
+* implement stable synthetic Message-IDs, backfill legacy data, and harden IMAP/deletion safety logic ([e7c72b4](https://github.com/M4lmostoso/melo/commit/e7c72b4dd289e38e24feee5e5ea905728eaf6650))
+* resolve IMAP target folder from carried-over labels during cross-account moves ([8b79c05](https://github.com/M4lmostoso/melo/commit/8b79c051b69904f47a28b6c1f0768e78820f3198))
+* support concurrent cross-account transfers by tracking multiple progress items in the store and UI ([8097add](https://github.com/M4lmostoso/melo/commit/8097add5dbb841b60a85576af15a6913327af9a2))
+
+
+### Bug Fixes
+
+* filter out cancelled events from UI range queries while allowing sync reconciliation to clean them up ([9991c0f](https://github.com/M4lmostoso/melo/commit/9991c0f86bd45b0c655d27002eadf5fa6d6fdc43))
+* improve folder reconciliation safety with STATUS confirmation and implement trash restoration logic for synced messages ([cce1d63](https://github.com/M4lmostoso/melo/commit/cce1d63fd7d0535751e991fb0fd479023bbf47e0))
+* schedule post-send syncs to proactively clean up phantom drafts created by race-conditioned autosave appends ([16303c6](https://github.com/M4lmostoso/melo/commit/16303c6943bab5061b4188b1b46f0db7c16395ee))
+
 ## [0.1.6](https://github.com/M4lmostoso/melo/compare/v0.1.5...v0.1.6) (2026-07-23)
 
 
