@@ -14,6 +14,7 @@ import type { ColorThemeId } from "./constants/themes";
 import { FONT_FAMILY_STACKS } from "./constants/fonts";
 import type { ComposerMode, ComposerAttachment } from "./stores/composerStore";
 import { getIsDiscarding } from "./services/composer/draftAutoSave";
+import { closeSelfWindow } from "./services/windowLifecycle";
 
 export default function ComposerWindow() {
   const { setTheme, setFontScale, setAppFontFamily, setColorTheme, setComposerFontFamily, setComposerFontSize } = useUIStore();
@@ -178,11 +179,9 @@ export default function ComposerWindow() {
 
   useEffect(() => {
     if (!loading && !isOpen) {
-      import("@tauri-apps/api/window")
-        .then(({ getCurrentWindow }) => {
-          getCurrentWindow().close();
-        })
-        .catch((err) => console.error("Failed to close window", err));
+      // hide-then-close: destroying this webview from inside its own callback
+      // stack can segfault WebKit's scrolling tree (see windowLifecycle.ts)
+      closeSelfWindow();
     }
   }, [isOpen, loading]);
 
@@ -262,10 +261,20 @@ export default function ComposerWindow() {
     import("@tauri-apps/api/webviewWindow").then(({ getCurrentWebviewWindow }) => {
       const win = getCurrentWebviewWindow();
       win.onCloseRequested((event) => {
-        if (!useComposerStore.getState().isOpen) return;
-        // A delete is already finishing (it will closeComposer shortly) — let the OS
-        // close proceed so the user is never permanently stuck.
-        if (getIsDiscarding()) return;
+        // These two paths close for real — but via closeSelfWindow(), never by
+        // letting the OS destroy the webview mid-refresh (see windowLifecycle.ts).
+        if (!useComposerStore.getState().isOpen) {
+          event.preventDefault();
+          closeSelfWindow();
+          return;
+        }
+        // A delete is already finishing (it will closeComposer shortly) — close
+        // anyway so the user is never permanently stuck.
+        if (getIsDiscarding()) {
+          event.preventDefault();
+          closeSelfWindow();
+          return;
+        }
         event.preventDefault();
         window.dispatchEvent(new Event("melo-composer-close-requested"));
       }).then((fn) => { unlisten = fn; });

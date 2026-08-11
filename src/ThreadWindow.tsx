@@ -15,6 +15,7 @@ import { getThemeById, COLOR_THEMES } from "./constants/themes";
 import type { ColorThemeId } from "./constants/themes";
 import { FONT_FAMILY_STACKS } from "./constants/fonts";
 import type { Thread } from "./stores/threadStore";
+import { useDeferredWindowClose } from "./hooks/useDeferredWindowClose";
 
 const isMac = navigator.userAgent.includes("Macintosh");
 
@@ -25,6 +26,10 @@ export default function ThreadWindow() {
   const [thread, setThread] = useState<Thread | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Long threads carry the biggest scrolling tree — route the OS close through
+  // hide-then-close so WebKit never tears it down mid-refresh.
+  useDeferredWindowClose();
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);

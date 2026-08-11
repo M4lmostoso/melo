@@ -11,13 +11,15 @@ import { getThemeById, COLOR_THEMES } from "./constants/themes";
 import type { ColorThemeId } from "./constants/themes";
 import { FONT_FAMILY_STACKS } from "./constants/fonts";
 import { t } from "./i18n";
+import { closeSelfWindow } from "./services/windowLifecycle";
+import { useDeferredWindowClose } from "./hooks/useDeferredWindowClose";
 
 const isMac = navigator.userAgent.includes("Macintosh");
 
 function closeThisWindow(): void {
-  import("@tauri-apps/api/window")
-    .then(({ getCurrentWindow }) => getCurrentWindow().close())
-    .catch(() => window.close());
+  // hide-then-close: destroying this webview from inside its own callback stack
+  // can segfault WebKit's scrolling tree (see windowLifecycle.ts)
+  closeSelfWindow();
 }
 
 /**
@@ -32,6 +34,9 @@ export default function PreviewWindow() {
   const [attachment, setAttachment] = useState<DbAttachment | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Cmd+W / red traffic light → hide-then-close, same as Space/Esc above.
+  useDeferredWindowClose();
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
