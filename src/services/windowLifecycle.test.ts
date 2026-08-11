@@ -2,17 +2,17 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { closeSelfWindow, __resetCloseGuard } from "./windowLifecycle";
 
 const hide = vi.fn(() => Promise.resolve());
-const close = vi.fn(() => Promise.resolve());
+const destroy = vi.fn(() => Promise.resolve());
 
 vi.mock("@tauri-apps/api/window", () => ({
-  getCurrentWindow: () => ({ hide, close }),
+  getCurrentWindow: () => ({ hide, destroy }),
 }));
 
 describe("closeSelfWindow", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     hide.mockClear();
-    close.mockClear();
+    destroy.mockClear();
     __resetCloseGuard();
   });
 
@@ -20,25 +20,25 @@ describe("closeSelfWindow", () => {
     vi.useRealTimers();
   });
 
-  it("hides the window before closing it", async () => {
+  it("hides the window before destroying it", async () => {
     closeSelfWindow();
     await vi.waitFor(() => expect(hide).toHaveBeenCalledTimes(1));
 
-    // Still open at this point — the close is deferred to a later run-loop turn
-    expect(close).not.toHaveBeenCalled();
+    // Still alive at this point — the destroy is deferred to a later run-loop turn
+    expect(destroy).not.toHaveBeenCalled();
 
     await vi.advanceTimersByTimeAsync(200);
-    expect(close).toHaveBeenCalledTimes(1);
+    expect(destroy).toHaveBeenCalledTimes(1);
   });
 
-  it("closes even when hide() rejects", async () => {
+  it("destroys even when hide() rejects", async () => {
     hide.mockRejectedValueOnce(new Error("no such window"));
 
     closeSelfWindow();
     await vi.waitFor(() => expect(hide).toHaveBeenCalledTimes(1));
     await vi.advanceTimersByTimeAsync(200);
 
-    expect(close).toHaveBeenCalledTimes(1);
+    expect(destroy).toHaveBeenCalledTimes(1);
   });
 
   it("ignores re-entrant calls while a close is in flight", async () => {
@@ -48,6 +48,6 @@ describe("closeSelfWindow", () => {
     await vi.waitFor(() => expect(hide).toHaveBeenCalledTimes(1));
     await vi.advanceTimersByTimeAsync(200);
 
-    expect(close).toHaveBeenCalledTimes(1);
+    expect(destroy).toHaveBeenCalledTimes(1);
   });
 });

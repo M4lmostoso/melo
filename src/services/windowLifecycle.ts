@@ -33,7 +33,10 @@ export function closeSelfWindow(): void {
       // Best-effort: a hide() failure must never leave the window open forever.
       await Promise.resolve(win.hide()).catch(() => {});
       setTimeout(() => {
-        Promise.resolve(win.close()).catch((err) => {
+        // destroy(), NOT close(): close() re-emits CloseRequested, and the
+        // handlers that route the OS close through here call preventDefault —
+        // the window would hide and then never actually go away.
+        Promise.resolve(win.destroy()).catch((err) => {
           console.error("Failed to close window", err);
           closing = false;
         });
