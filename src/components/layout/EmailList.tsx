@@ -481,9 +481,10 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
       if (accountId) pairs.push({ accountId, threadId });
     }
     try {
-      const [dbThreads, labelsByKey] = await Promise.all([
+      const [dbThreads, labelsByKey, decay] = await Promise.all([
         getThreadsByIdsBatch(pairs),
         getThreadLabelsByIdsBatch(pairs),
+        getDecaySettings(),
       ]);
       const threads: Thread[] = dbThreads.map((t) => ({
         id: t.id,
@@ -503,7 +504,9 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
         fromAddress: t.from_address,
         allSenders: t.all_senders,
         allRecipients: t.all_recipients ?? null,
-        urgencyScore: t.urgency_score ?? undefined,
+        urgencyScore: t.urgency_score == null
+          ? undefined
+          : applyTemporalDecay(t.urgency_score, t.last_message_at ?? 0, decay.decayStartDays, decay.decayFloorDays),
         sentimentScore: t.sentiment_score ?? undefined,
         isHeatExtinguished: t.is_heat_extinguished === 1,
         urgencyReason: t.urgency_reason ?? null,

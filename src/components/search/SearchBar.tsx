@@ -11,6 +11,8 @@ import {
   getThreadsByIdsBatch,
   getThreadLabelsByIdsBatch,
 } from "@/services/db/threads";
+import { applyTemporalDecay } from "@/services/ai/reputationEngine";
+import { getDecaySettings } from "@/services/ai/urgencyPipeline";
 import { useAccountStore } from "@/stores/accountStore";
 import { useThreadStore, type Thread } from "@/stores/threadStore";
 import { useContactsStore } from "@/stores/contactsStore";
@@ -141,9 +143,10 @@ export function SearchBar() {
       uniquePairs.push({ accountId: h.account_id, threadId: h.thread_id });
     }
 
-    const [dbThreads, labelsByKey] = await Promise.all([
+    const [dbThreads, labelsByKey, decay] = await Promise.all([
       getThreadsByIdsBatch(uniquePairs),
       getThreadLabelsByIdsBatch(uniquePairs),
+      getDecaySettings(),
     ]);
     if (isStale()) return;
 
@@ -165,7 +168,11 @@ export function SearchBar() {
       fromAddress: t.from_address,
       allSenders: t.all_senders,
       allRecipients: t.all_recipients ?? null,
-      urgencyScore: t.urgency_score ?? undefined,
+      // Urgency decays with thread age at read time (same as EmailList) — without
+      // this, old threads keep showing their original max-urgency flame in results.
+      urgencyScore: t.urgency_score == null
+        ? undefined
+        : applyTemporalDecay(t.urgency_score, t.last_message_at ?? 0, decay.decayStartDays, decay.decayFloorDays),
       sentimentScore: t.sentiment_score ?? undefined,
       isHeatExtinguished: t.is_heat_extinguished === 1,
       urgencyReason: t.urgency_reason ?? null,
