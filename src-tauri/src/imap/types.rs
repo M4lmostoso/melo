@@ -170,6 +170,17 @@ pub struct DeltaCheckRequest {
     pub last_sync_at: Option<i64>,
 }
 
+/// Everything a batched delta check reports back to the command layer: the
+/// per-folder results plus the pool-state updates the run earned (quirk verdict,
+/// which folders actually paid for a SINCE search, whether the sanity probe ran).
+#[derive(Debug)]
+pub struct DeltaCheckOutcome {
+    pub results: Vec<DeltaCheckResult>,
+    pub range_search_confirmed_unreliable: bool,
+    pub since_probed_folders: Vec<String>,
+    pub range_probe_ran: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeltaCheckResult {
     pub folder: String,

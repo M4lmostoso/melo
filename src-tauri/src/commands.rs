@@ -1117,14 +1117,41 @@ pub async fn imap_delta_check(
     // Pooled: the once-per-cycle batch check reuses a live session instead of
     // forcing a fresh LOGIN every 60s.
     let skip_range_search = pool.skip_range_search(&config).await;
+
+    // The SINCE-date fallback is rate-limited per folder on servers whose range
+    // search works (it is a backstop there, and the authoritative reconcile in the
+    // TS layer is the real safety net). Servers with a broken range search ignore
+    // this and always run it — see `should_probe_since`.
+    let mut since_probe_allowed = std::collections::HashSet::new();
+    for f in &folders {
+        if pool.should_probe_since(&config, &f.folder).await {
+            since_probe_allowed.insert(f.folder.clone());
+        }
+    }
+    let run_range_sanity_probe = !skip_range_search && pool.needs_range_sanity_probe(&config).await;
+
     let (mut session, key) = pool.acquire(&config).await?;
-    match imap_client::delta_check_folders(&mut session, &folders, skip_range_search).await {
-        Ok((results, confirmed_unreliable)) => {
+    match imap_client::delta_check_folders(
+        &mut session,
+        &folders,
+        skip_range_search,
+        &since_probe_allowed,
+        run_range_sanity_probe,
+    )
+    .await
+    {
+        Ok(outcome) => {
             pool.release(key, session).await;
-            if confirmed_unreliable {
+            if outcome.range_probe_ran {
+                pool.mark_range_probe_done(&config).await;
+            }
+            if outcome.range_search_confirmed_unreliable {
                 pool.mark_no_range_search(&config).await;
             }
-            Ok(results)
+            for folder in &outcome.since_probed_folders {
+                pool.mark_since_probed(&config, folder).await;
+            }
+            Ok(outcome.results)
         }
         Err(e) => Err(e),
     }

@@ -2,6 +2,7 @@ use async_imap::{types::Flag, Authenticator, Client, Session};
 use base64::Engine;
 use futures::StreamExt;
 use mail_parser::{MessageParser, MimeHeaders};
+use std::collections::HashSet;
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
@@ -1511,6 +1512,43 @@ pub async fn fetch_raw_message(
     Ok(String::from_utf8_lossy(raw).to_string())
 }
 
+/// Decide whether this server honours `UID SEARCH n:*` range queries.
+///
+/// Returns `Some(true)`/`Some(false)` for a conclusive verdict, `None` when the
+/// probe could not establish one (the caller then leaves its verdict unchanged).
+/// See the call site for why the lower bound comes from a live enumeration.
+async fn probe_range_search(session: &mut ImapSession, folder: &str) -> Option<bool> {
+    let existing_uid = match tokio::time::timeout(
+        IMAP_SEARCH_TIMEOUT,
+        session.uid_search("1:* NOT DELETED"),
+    )
+    .await
+    {
+        Ok(Ok(uids)) => uids.into_iter().max()?,
+        Ok(Err(e)) => {
+            log::warn!("delta_check: range sanity probe enumeration failed on {folder}: {e}");
+            return None;
+        }
+        Err(_) => {
+            log::warn!("delta_check: range sanity probe enumeration timed out on {folder}");
+            return None;
+        }
+    };
+
+    let query = format!("{existing_uid}:* NOT DELETED");
+    match tokio::time::timeout(IMAP_SEARCH_TIMEOUT, session.uid_search(&query)).await {
+        Ok(Ok(uids)) => Some(uids.contains(&existing_uid)),
+        Ok(Err(e)) => {
+            log::warn!("delta_check: range sanity probe '{query}' failed on {folder}: {e}");
+            None
+        }
+        Err(_) => {
+            log::warn!("delta_check: range sanity probe '{query}' timed out on {folder}");
+            None
+        }
+    }
+}
+
 /// Check multiple folders for new UIDs in a single IMAP session.
 ///
 /// For each folder: SELECT, compare UIDVALIDITY, UID SEARCH for new messages.
@@ -1520,12 +1558,25 @@ pub async fn delta_check_folders(
     session: &mut ImapSession,
     folders: &[DeltaCheckRequest],
     skip_range_search: bool,
-) -> Result<(Vec<DeltaCheckResult>, bool), String> {
+    since_probe_allowed: &HashSet<String>,
+    run_range_sanity_probe: bool,
+) -> Result<DeltaCheckOutcome, String> {
     let mut results = Vec::with_capacity(folders.len());
-    // Only set once the SINCE fallback actually finds messages the range query
-    // missed — that's proof the server drops range results, not just "no new
-    // mail this cycle" (which also leaves range_uids empty).
+    // Only set once the range query is *proven* to drop results — either the
+    // SINCE fallback found messages it missed, or the sanity probe below came
+    // back empty for a range that cannot be empty. An empty range result on its
+    // own is just "no new mail this cycle".
     let mut range_search_confirmed_unreliable = false;
+    // Folders where a SINCE search actually went out, so the caller can restart
+    // their probe clocks. Folders skipped, or served by the range query, keep the
+    // clock they had.
+    let mut since_probed_folders = Vec::new();
+    // Latches as soon as the range query is proven broken mid-call, so the
+    // remaining folders in this batch stop paying for it and get their SINCE
+    // fallback unconditionally, exactly as they will from the next cycle on.
+    let mut range_search_broken = skip_range_search;
+    let mut range_probe_pending = run_range_sanity_probe && !skip_range_search;
+    let mut range_probe_ran = false;
 
     for req in folders {
         let mailbox = match tokio::time::timeout(IMAP_CMD_TIMEOUT, session.select(&req.folder)).await {
@@ -1567,7 +1618,7 @@ pub async fn delta_check_folders(
         // UID SEARCH for messages newer than last_uid, excluding \Deleted flagged messages.
         // Skipped entirely once this server has confirmed it drops range results —
         // no point paying the round trip for a query we know will come back empty.
-        let range_uids = if skip_range_search {
+        let range_uids = if range_search_broken {
             vec![]
         } else {
             let query = format!("{}:* NOT DELETED", req.last_uid + 1);
@@ -1588,11 +1639,48 @@ pub async fn delta_check_folders(
             }
         };
 
+        // ---- One-shot range-search sanity probe (once per server per run) ----
+        // Without this, `mark_no_range_search` can only ever latch at the moment
+        // new mail happens to arrive: a server known to drop range results keeps
+        // paying a doomed query on every folder of every cycle until then.
+        //
+        // The probe asks a question whose answer cannot be ambiguous. First
+        // `1:*` enumerates the folder, which yields a UID that provably exists
+        // *right now*; then that exact UID is used as the lower bound of a second
+        // range. A healthy server must return at least it. Deriving the bound from
+        // the live enumeration instead of our stored `last_uid` is what keeps an
+        // expunged last message — routine in Drafts and Trash — from reading as a
+        // broken server. Two SEARCHes, once per server per app run.
+        if range_probe_pending && range_uids.is_empty() && mailbox.exists > 0 {
+            // A `None` verdict (error, timeout, or an enumeration that came back
+            // empty) proves nothing: leave the probe pending for a later folder
+            // rather than condemning the server on a hiccup.
+            if let Some(range_works) = probe_range_search(session, &req.folder).await {
+                range_probe_pending = false;
+                range_probe_ran = true;
+                if range_works {
+                    log::debug!("delta_check: range sanity probe OK on {}", req.folder);
+                } else {
+                    log::warn!(
+                        "delta_check: range sanity probe on {} returned empty for a range containing a UID that exists — server drops UID range results",
+                        req.folder
+                    );
+                    range_search_confirmed_unreliable = true;
+                    range_search_broken = true;
+                }
+            }
+        }
+
         // DavMail/Exchange fallback: if UID range search returns empty but we have a
         // last_sync_at, also try a SINCE date search. DavMail sometimes doesn't honour
         // `UID SEARCH n:*` range queries and silently returns an empty set even when
         // new messages have arrived.
-        let new_uids = if range_uids.is_empty() {
+        //
+        // Where the range query works this is a backstop, not the detector, so the
+        // caller rate-limits it per folder via `since_probe_allowed`. Where the range
+        // query is broken it is the only thing finding mail and always runs.
+        let since_allowed = range_search_broken || since_probe_allowed.contains(&req.folder);
+        let new_uids = if range_uids.is_empty() && since_allowed {
             if let Some(last_sync_at) = req.last_sync_at {
                 // Subtract one day as a safety margin for timezone/clock differences.
                 let since_ts = last_sync_at - 86_400;
@@ -1602,6 +1690,7 @@ pub async fn delta_check_folders(
                     req.folder, since_date
                 );
                 let since_query = format!("SINCE {since_date} NOT DELETED");
+                since_probed_folders.push(req.folder.clone());
                 match tokio::time::timeout(IMAP_SEARCH_TIMEOUT, session.uid_search(&since_query)).await {
                     Ok(Ok(uids)) => {
                         let mut result: Vec<u32> = uids.into_iter().filter(|&u| u > req.last_uid).collect();
@@ -1614,7 +1703,7 @@ pub async fn delta_check_folders(
                             // Range search legitimately ran (not pre-skipped) and missed
                             // real messages SINCE caught — proof this server drops range
                             // results, not just "no new mail this cycle".
-                            if !skip_range_search {
+                            if !range_search_broken {
                                 range_search_confirmed_unreliable = true;
                             }
                         }
@@ -1644,7 +1733,12 @@ pub async fn delta_check_folders(
         });
     }
 
-    Ok((results, range_search_confirmed_unreliable))
+    Ok(DeltaCheckOutcome {
+        results,
+        range_search_confirmed_unreliable,
+        since_probed_folders,
+        range_probe_ran,
+    })
 }
 
 /// Search a folder: SELECT → UID SEARCH, returning UIDs and folder status without fetching bodies.
