@@ -204,8 +204,11 @@ export async function askMyInbox(
     };
   }
 
+  // Short positional markers ("[#3]") instead of the raw message id: models
+  // mangle 55-char ids (one dropped UUID character breaks every citation),
+  // and the index maps straight back onto `sourceMessages`.
   const context = results
-    .map((r) => {
+    .map((r, i) => {
       const date = new Date(r.date).toLocaleDateString("en-US", {
         month: "short",
         day: "numeric",
@@ -214,7 +217,7 @@ export async function askMyInbox(
       const from = r.from_name
         ? `${r.from_name} <${r.from_address}>`
         : (r.from_address ?? "Unknown");
-      return `[Message ID: ${r.message_id}]\nFrom: ${from}\nDate: ${date}\nSubject: ${r.subject ?? "(no subject)"}\nPreview: ${r.snippet ?? ""}`;
+      return `[#${i + 1}]\nFrom: ${from}\nDate: ${date}\nSubject: ${r.subject ?? "(no subject)"}\nPreview: ${r.snippet ?? ""}`;
     })
     .join("\n---\n");
 

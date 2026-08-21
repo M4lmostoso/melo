@@ -469,12 +469,18 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
   }, [selectedThreadId, threadMap, fetchAndAddThread]);
 
   const handleSemanticResult = useCallback(async (result: { citations: Array<{ threadId: string; messageId?: string }>; hits: Array<{ account_id: string; thread_id: string }> }) => {
+    // Prefer the threads the answer actually cites; when nothing resolved
+    // (the model can cite a marker we can't map back), fall back to the whole
+    // retrieved set — a semantic answer must never leave the list empty.
     const citedThreadIds = new Set(result.citations.map((c) => c.threadId));
-    if (citedThreadIds.size === 0) return;
+    const threadIds = citedThreadIds.size > 0
+      ? citedThreadIds
+      : new Set(result.hits.map((h) => h.thread_id));
+    if (threadIds.size === 0) return;
     const accountById = new Map(result.hits.map((h) => [h.thread_id, h.account_id]));
     const seen = new Set<string>();
     const pairs: Array<{ accountId: string; threadId: string }> = [];
-    for (const threadId of citedThreadIds) {
+    for (const threadId of threadIds) {
       if (seen.has(threadId)) continue;
       seen.add(threadId);
       const accountId = accountById.get(threadId);

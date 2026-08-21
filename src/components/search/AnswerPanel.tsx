@@ -78,21 +78,25 @@ function renderTextWithLinks(
 
 function renderAnswer(
    answer: string,
-   citations: Citation[],
+   citationsByToken: Record<string, Citation[]>,
    onCitationClick: (threadId: string, messageId?: string) => void,
  ): React.ReactNode[] {
-  const citationMap = new Map(citations.map((c) => [c.id, c]));
   return answer.split(/(\[[^\]]+\])/).map((part, i) => {
     if (part.startsWith("[") && part.endsWith("]")) {
-      const id = part.slice(1, -1);
-      const citation = citationMap.get(id);
-      if (citation) {
+      // Keyed by the literal marker text, so mangled/aliased ids resolved by
+      // the service still render as chips instead of leaking raw brackets.
+      const cited = citationsByToken[part.slice(1, -1)];
+      if (cited && cited.length > 0) {
         return (
-          <CitationChip
-            key={i}
-            citation={citation}
-            onClick={() => onCitationClick(citation.threadId, citation.messageId)}
-          />
+          <span key={i}>
+            {cited.map((citation, j) => (
+              <CitationChip
+                key={`${i}-${j}`}
+                citation={citation}
+                onClick={() => onCitationClick(citation.threadId, citation.messageId)}
+              />
+            ))}
+          </span>
         );
       }
     }
@@ -178,7 +182,7 @@ export function AnswerPanel({
         {result && (
           <>
             <p className="text-xs text-text-primary leading-relaxed">
-              {renderAnswer(result.answer, result.citations, onCitationClick)}
+              {renderAnswer(result.answer, result.citationsByToken, onCitationClick)}
             </p>
             {result.citations.length > 0 && (
               <div className="mt-3 pt-3 border-t border-accent/10">

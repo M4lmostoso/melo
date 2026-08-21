@@ -71,7 +71,7 @@ Rules:
 - Answer the question based ONLY on the email context provided
 - If the answer is not in the provided emails, say "I couldn't find information about that in your recent emails."
 - Be concise and specific — cite the sender and date when referencing specific emails
-- Each email in the context starts with "[Message ID: <id>]". When referencing a message, cite ONLY the bare ID in square brackets, e.g. [abc123], NOT [Message ID: abc123]
+- Each email in the context starts with a citation marker like "[#3]". When you reference a message, cite it with that exact marker, e.g. [#3]. Cite one marker at a time and never invent identifiers of your own
 - Do not make up or infer information not present in the emails`;
 
 export const CATEGORIZE_PROMPT = `Categorize each email thread into exactly ONE of these categories:
