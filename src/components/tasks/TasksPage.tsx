@@ -94,6 +94,7 @@ function formatDeletedAt(ts: number): string {
 export function TasksPage() {
   const accounts = useAccountStore((s) => s.accounts);
   const accountId = useAccountStore((s) => s.activeAccountId);
+  const defaultAccountId = useAccountStore((s) => s.defaultAccountId);
 
   const setTasks = useTaskStore((s) => s.setTasks);
   const selectedTaskId = useTaskStore((s) => s.selectedTaskId);
@@ -211,11 +212,13 @@ export function TasksPage() {
   const groups = useMemo(() => buildGroups(filteredTasks), [filteredTasks]);
 
   const handleAddTask = useCallback(async (title: string, priority: TaskPriority = "none") => {
-    if (!accountId) return;
-    await insertTask({ accountId, title, priority });
+    // In unified mode accountId is null — attribute the task to the default
+    // account (falling back to the first one) instead of silently doing nothing.
+    const ownerAccountId = accountId ?? defaultAccountId ?? accounts[0]?.id ?? null;
+    await insertTask({ accountId: ownerAccountId, title, priority });
     await loadTasks();
     await useTaskStore.getState().refreshTaskBadges();
-  }, [accountId, loadTasks]);
+  }, [accountId, defaultAccountId, accounts, loadTasks]);
 
   const handleToggleComplete = useCallback(async (id: string, completed: boolean) => {
     if (completed) {
