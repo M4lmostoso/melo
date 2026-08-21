@@ -611,6 +611,12 @@ export async function deleteLocalImapDraft(
         "DELETE FROM thread_labels WHERE account_id=$1 AND thread_id=$2 AND label_id='DRAFT'",
         [accountId, threadId],
       );
+      // The draft row had bumped the thread's last_message_at/snippet while it
+      // existed. Without this recompute the thread keeps the (now deleted)
+      // draft's date and preview text: the list shows a message the thread view
+      // cannot display, and the user reads it as a lost mail.
+      const { recalculateThreadStats } = await import("@/services/db/threads");
+      await recalculateThreadStats(accountId, threadId).catch(() => {});
     }
   } catch (err) {
     console.warn("[draftAutoSave] deleteLocalImapDraft failed:", err);

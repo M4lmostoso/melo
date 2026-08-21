@@ -106,6 +106,12 @@ export async function tombstoneImapDraft(
           "DELETE FROM threads WHERE id = $1 AND account_id = $2",
           [threadId, resolvedAccountId],
         );
+      } else {
+        // Thread survives: drop the deleted draft's date/snippet from its
+        // aggregates, otherwise the list keeps showing a message the thread
+        // view no longer contains.
+        const { recalculateThreadStats } = await import("@/services/db/threads");
+        await recalculateThreadStats(resolvedAccountId, threadId).catch(() => {});
       }
     }
   } catch (err) {

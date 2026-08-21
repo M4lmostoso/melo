@@ -1805,6 +1805,26 @@ pub async fn imap_store_threads(
         )
         .map_err(|e| e.to_string())?;
 
+        // Recompute last_message_at/snippet authoritatively from the messages
+        // table. update.last_message_at comes from buildThreadUpdates, which only
+        // sees the headers stored in THIS batch (`h.stored`): a thread that gained
+        // a reply already stored by an earlier batch would have its date pushed
+        // BACK to an older member, so the thread never bubbles up in the list and
+        // the new mail reads as missing. The reverse case (a deleted draft leaving
+        // a future date) is corrected here too. Trashed messages excluded, same
+        // semantics as recalculateThreadStats.
+        conn.execute(
+            "UPDATE threads SET \
+               last_message_at = COALESCE((SELECT MAX(date) FROM messages \
+                 WHERE account_id = ?1 AND thread_id = ?2 AND is_trashed = 0), last_message_at), \
+               snippet = COALESCE((SELECT snippet FROM messages \
+                 WHERE account_id = ?1 AND thread_id = ?2 AND is_draft = 0 AND is_trashed = 0 \
+                 ORDER BY date DESC LIMIT 1), snippet) \
+             WHERE account_id = ?1 AND id = ?2",
+            rusqlite::params![account_id, update.thread_id],
+        )
+        .map_err(|e| e.to_string())?;
+
         // Recompute is_read authoritatively from the messages table, excluding
         // drafts and trashed messages (same semantics as recalculateThreadStats).
         // The MIN() in the upsert above is only a provisional value: update.is_read

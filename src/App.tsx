@@ -592,6 +592,8 @@ export default function App() {
                   "DELETE FROM thread_labels WHERE account_id=$1 AND thread_id=$2 AND label_id='DRAFT'",
                   [p.accountId, tid],
                 );
+                const { recalculateThreadStats } = await import("./services/db/threads");
+                await recalculateThreadStats(p.accountId, tid).catch(() => {});
               }
             }
           }
