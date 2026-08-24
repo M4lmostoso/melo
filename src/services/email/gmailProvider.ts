@@ -298,6 +298,14 @@ export class GmailApiProvider implements EmailProvider {
     return { id: resp.id };
   }
 
+  async isMessageOnServer(rfcMessageId: string): Promise<boolean> {
+    const resp = await this.client.listThreads({
+      q: `rfc822msgid:${rfcMessageId}`,
+      maxResults: 1,
+    });
+    return (resp.threads?.length ?? 0) > 0;
+  }
+
   async createDraft(
     rawBase64Url: string,
     threadId?: string,

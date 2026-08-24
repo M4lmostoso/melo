@@ -497,6 +497,34 @@ pub async fn fetch_new_uids(
     Ok(result)
 }
 
+/// Search a folder for messages carrying the given RFC Message-ID.
+///
+/// Used by the send-retry guard: when a send fails ambiguously (e.g. the SMTP
+/// transaction times out after DATA was accepted) the queued retry must not
+/// deliver a second copy. `HEADER MESSAGE-ID` matches on a substring of the
+/// header value, so the bare id matches the `<id>` the server stored.
+pub async fn search_message_id(
+    session: &mut ImapSession,
+    folder: &str,
+    message_id: &str,
+) -> Result<Vec<u32>, String> {
+    tokio::time::timeout(IMAP_CMD_TIMEOUT, session.select(folder))
+        .await
+        .map_err(|_| format!("SELECT {folder} timed out after {}s", IMAP_CMD_TIMEOUT.as_secs()))?
+        .map_err(|e| format!("SELECT {folder} failed: {e}"))?;
+
+    let escaped = message_id.replace('\\', "\\\\").replace('"', "\\\"");
+    let query = format!("HEADER MESSAGE-ID \"{escaped}\"");
+    let uids = tokio::time::timeout(IMAP_SEARCH_TIMEOUT, session.uid_search(&query))
+        .await
+        .map_err(|_| format!("UID SEARCH HEADER MESSAGE-ID timed out after {}s", IMAP_SEARCH_TIMEOUT.as_secs()))?
+        .map_err(|e| format!("UID SEARCH HEADER MESSAGE-ID failed: {e}"))?;
+
+    let mut result: Vec<u32> = uids.into_iter().collect();
+    result.sort();
+    Ok(result)
+}
+
 /// Search for all UIDs in a folder using `UID SEARCH ALL`.
 /// Returns real UIDs sorted ascending — avoids the sparse UID gap problem.
 pub async fn search_all_uids(

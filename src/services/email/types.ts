@@ -110,6 +110,13 @@ export interface EmailProvider {
     rawBase64Url: string,
     threadId?: string,
   ): Promise<{ id: string }>;
+  /**
+   * True when a message with this RFC Message-ID is already on the server.
+   * Send-retry guard — a send that failed ambiguously (SMTP timeout after the
+   * server accepted DATA) must not be delivered a second time by the queue.
+   * Throws if the check itself fails: the caller decides how to treat "unknown".
+   */
+  isMessageOnServer?(rfcMessageId: string): Promise<boolean>;
   createDraft(
     rawBase64Url: string,
     threadId?: string,

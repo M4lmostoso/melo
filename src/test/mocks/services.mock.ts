@@ -45,6 +45,7 @@ export function createMockEmailProvider(
     addLabel: vi.fn(() => Promise.resolve()),
     removeLabel: vi.fn(() => Promise.resolve()),
     sendMessage: vi.fn(() => Promise.resolve({ id: "msg-1" })),
+    isMessageOnServer: vi.fn(() => Promise.resolve(false)),
     createDraft: vi.fn(() => Promise.resolve({ draftId: "d-1" })),
     updateDraft: vi.fn(() => Promise.resolve({ draftId: "d-1" })),
     deleteDraft: vi.fn(() => Promise.resolve()),

@@ -58,11 +58,18 @@ import {
   emptyTrash,
   trashAllSpam,
   markAllSpamRead,
+  rfcMessageIdOfRaw,
 } from "./emailActions";
 import { navigateToThread, navigateBack, getSelectedThreadId } from "@/router/navigate";
 import { createMockEmailProvider, createMockUIStoreState, createMockThreadStoreState } from "@/test/mocks";
 
 const mockProvider = createMockEmailProvider();
+
+/** base64url-encode a minimal raw email carrying the given Message-ID. */
+function rawWithMessageId(id: string): string {
+  const raw = `Message-ID: <${id}>\r\nFrom: a@b.c\r\nTo: d@e.f\r\nSubject: x\r\n\r\nbody`;
+  return btoa(raw).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
 
 const mockUpdateThread = vi.fn();
 const mockRemoveThread = vi.fn();
@@ -135,6 +142,55 @@ describe("emailActions", () => {
         "DELETE FROM messages WHERE account_id = $1 AND id = $2",
         ["acct-1", "local-draft-1"],
       );
+    });
+
+    it("skips the resend when the message is already on the server", async () => {
+      // Ambiguous SMTP failure: the server took the mail but the response never
+      // came back. Re-sending would deliver a second copy.
+      const raw = rawWithMessageId("dup-guard-1@melo.test");
+      vi.mocked(mockProvider.isMessageOnServer!).mockResolvedValue(true);
+
+      await executeQueuedAction("acct-1", "sendMessage", {
+        rawBase64Url: raw,
+        threadId: "t1",
+        cleanupLocalDraftId: "local-draft-1",
+      });
+
+      expect(mockProvider.isMessageOnServer).toHaveBeenCalledWith("dup-guard-1@melo.test");
+      expect(mockProvider.sendMessage).not.toHaveBeenCalled();
+      // The draft the failed send left behind is still cleaned up.
+      expect(mockDb.execute).toHaveBeenCalledWith(
+        "DELETE FROM messages WHERE account_id = $1 AND id = $2",
+        ["acct-1", "local-draft-1"],
+      );
+    });
+
+    it("skips the resend when a synced Sent copy already exists locally", async () => {
+      const raw = rawWithMessageId("dup-guard-2@melo.test");
+      mockDb.select.mockResolvedValue([{ id: "imap-acct-1-Sent-42" }]);
+
+      await executeQueuedAction("acct-1", "sendMessage", { rawBase64Url: raw, threadId: "t1" });
+
+      expect(mockProvider.sendMessage).not.toHaveBeenCalled();
+      expect(mockProvider.isMessageOnServer).not.toHaveBeenCalled();
+    });
+
+    it("still sends when the server says the message is not there", async () => {
+      const raw = rawWithMessageId("dup-guard-3@melo.test");
+      vi.mocked(mockProvider.isMessageOnServer!).mockResolvedValue(false);
+
+      await executeQueuedAction("acct-1", "sendMessage", { rawBase64Url: raw, threadId: "t1" });
+
+      expect(mockProvider.sendMessage).toHaveBeenCalledWith(raw, "t1");
+    });
+
+    it("sends rather than dropping the email when the guard check itself fails", async () => {
+      const raw = rawWithMessageId("dup-guard-4@melo.test");
+      vi.mocked(mockProvider.isMessageOnServer!).mockRejectedValue(new Error("offline"));
+
+      await executeQueuedAction("acct-1", "sendMessage", { rawBase64Url: raw, threadId: "t1" });
+
+      expect(mockProvider.sendMessage).toHaveBeenCalledWith(raw, "t1");
     });
 
     it("does not touch any draft when no cleanup hints are present", async () => {
@@ -432,5 +488,16 @@ describe("emailActions", () => {
       expect(result.success).toBe(true);
       expect(mockProvider.createDraft).toHaveBeenCalledWith("base64data", undefined);
     });
+  });
+});
+
+describe("rfcMessageIdOfRaw", () => {
+  it("extracts the bare Message-ID from a base64url raw email", () => {
+    expect(rfcMessageIdOfRaw(rawWithMessageId("abc@melo.test"))).toBe("abc@melo.test");
+  });
+
+  it("returns null for undecodable or header-less input", () => {
+    expect(rfcMessageIdOfRaw("RAW")).toBeNull();
+    expect(rfcMessageIdOfRaw(btoa("From: a@b.c\r\n\r\nbody"))).toBeNull();
   });
 });

@@ -226,6 +226,19 @@ export async function imapFetchNewUids(
 }
 
 /**
+ * UIDs in `folder` whose RFC Message-ID matches `messageId` (bare id, no brackets).
+ * Send-retry guard: proves whether a message the SMTP layer reported as failed
+ * actually reached the server.
+ */
+export async function imapSearchMessageId(
+  config: ImapConfig,
+  folder: string,
+  messageId: string,
+): Promise<number[]> {
+  return invoke<number[]>('imap_search_message_id', { config, folder, messageId });
+}
+
+/**
  * Search for all UIDs in a folder using UID SEARCH ALL.
  * Returns real UIDs — avoids the sparse UID gap problem with generateUidRange.
  */

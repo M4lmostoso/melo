@@ -143,6 +143,24 @@ pub async fn imap_search_all_uids(
     }
 }
 
+/// Look up a message by its RFC Message-ID inside one folder (send-retry guard).
+#[tauri::command]
+pub async fn imap_search_message_id(
+    pool: tauri::State<'_, ImapSessionPool>,
+    config: ImapConfig,
+    folder: String,
+    message_id: String,
+) -> Result<Vec<u32>, String> {
+    let (mut session, key) = pool.acquire(&config).await?;
+    match imap_client::search_message_id(&mut session, &folder, &message_id).await {
+        Ok(uids) => {
+            pool.release(key, session).await;
+            Ok(uids)
+        }
+        Err(e) => Err(e),
+    }
+}
+
 /// Authoritative folder enumeration over a fresh raw connection. Unlike the
 /// pooled `imap_search_all_uids`, this is reliable on DavMail/Exchange whose
 /// pooled async-imap UID SEARCH can silently return a truncated set. Used by the

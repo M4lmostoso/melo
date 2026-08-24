@@ -17,6 +17,7 @@ import {
   imapTestConnection,
   imapAppendMessage,
   smtpSendEmail,
+  imapSearchMessageId,
   smtpTestConnection,
   type ImapConfig,
   type SmtpConfig,
@@ -915,6 +916,19 @@ export class ImapSmtpProvider implements EmailProvider {
     }
 
     return { id: messageId };
+  }
+
+  /**
+   * Send-retry guard: does the Sent folder already hold this Message-ID?
+   * A send whose SMTP transaction timed out may well have been delivered —
+   * re-sending it from the queue would put a second copy in the recipient's
+   * mailbox, and (same Message-ID) leave no trace locally.
+   */
+  async isMessageOnServer(rfcMessageId: string): Promise<boolean> {
+    const imapConfig = await this.getImapConfig();
+    const sentFolder = (await findSpecialFolder(this.accountId, "\\Sent")) ?? "Sent";
+    const uids = await imapSearchMessageId(imapConfig, sentFolder, rfcMessageId);
+    return uids.length > 0;
   }
 
   /**

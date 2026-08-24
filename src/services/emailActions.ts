@@ -491,20 +491,7 @@ async function executeViaProvider(
       return provider.removeLabel(action.threadId, action.labelId);
     case "sendMessage": {
       const result = await provider.sendMessage(action.rawBase64Url, action.threadId);
-      // A retry that originated from a failed send carries cleanup hints: now that the
-      // send finally went through, remove the draft left behind. Mirrors the success
-      // path in App.tsx's melo-execute-send handler.
-      if (action.cleanupDraftId) {
-        const { deleteDraft } = await import("./draftActions");
-        await deleteDraft(accountId, action.cleanupDraftId, action.threadId).catch(() => {});
-      } else if (action.cleanupLocalDraftId) {
-        await purgeDraftFromDb(
-          accountId,
-          null,
-          action.threadId ?? null,
-          action.cleanupLocalDraftId,
-        ).catch(() => {});
-      }
+      await runSendCleanup(accountId, action);
       return result;
     }
     case "appendToSent": {
@@ -617,12 +604,100 @@ export async function executeEmailAction(
 // Execute a queued operation (used by queue processor)
 // ---------------------------------------------------------------------------
 
+/**
+ * Drop the draft a failed send intentionally left behind. Only queued retries
+ * carry these hints — normal online sends clean up in the send handler.
+ */
+async function runSendCleanup(
+  accountId: string,
+  action: Extract<EmailAction, { type: "sendMessage" }>,
+): Promise<void> {
+  if (action.cleanupDraftId) {
+    const { deleteDraft } = await import("./draftActions");
+    await deleteDraft(accountId, action.cleanupDraftId, action.threadId).catch(() => {});
+  } else if (action.cleanupLocalDraftId) {
+    await purgeDraftFromDb(
+      accountId,
+      null,
+      action.threadId ?? null,
+      action.cleanupLocalDraftId,
+    ).catch(() => {});
+  }
+}
+
+/** RFC Message-ID (bare, no angle brackets) of a base64url-encoded raw email. */
+export function rfcMessageIdOfRaw(rawBase64Url: string): string | null {
+  try {
+    let base64 = rawBase64Url.replace(/-/g, "+").replace(/_/g, "/");
+    while (base64.length % 4 !== 0) base64 += "=";
+    // The header block is all we need — decoding a 10MB attachment would be waste.
+    const head = atob(base64).slice(0, 16384);
+    const match = head.match(/^message-id:\s*<?([^>\r\n]+)>?/im);
+    return match?.[1]?.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Has this exact email already been delivered?
+ *
+ * An SMTP/API send can fail *ambiguously*: the server accepted DATA but the
+ * response never came back (timeout, dropped connection). `classifyError` sees
+ * "timeout" → retryable → the queue re-sends the identical raw, so the
+ * recipient gets two copies — and since both carry the same Message-ID, the
+ * local dedup collapses them into one Sent row and nothing looks wrong here.
+ * Before any queued resend, check whether the message is already out.
+ *
+ * Returns false when the answer can't be established (never block a send that
+ * may genuinely have failed — losing an email is worse than duplicating one).
+ */
+async function wasAlreadyDelivered(
+  accountId: string,
+  rawBase64Url: string,
+): Promise<boolean> {
+  const rfcId = rfcMessageIdOfRaw(rawBase64Url);
+  if (!rfcId) return false;
+
+  // Cheap path: a sync may already have imported the server's Sent copy.
+  try {
+    const db = await getDb();
+    const rows = await db.select<{ id: string }[]>(
+      `SELECT id FROM messages
+       WHERE account_id = $1 AND message_id_header = $2 AND is_draft = 0
+         AND (imap_uid IS NOT NULL OR gmail_label_ids LIKE '%SENT%')
+       LIMIT 1`,
+      [accountId, rfcId],
+    );
+    if (rows.length > 0) return true;
+  } catch (err) {
+    console.warn("[send-guard] local lookup failed:", err);
+  }
+
+  try {
+    const provider = await getEmailProvider(accountId);
+    if (!provider.isMessageOnServer) return false;
+    return await provider.isMessageOnServer(rfcId);
+  } catch (err) {
+    console.warn("[send-guard] server lookup failed, proceeding with resend:", err);
+    return false;
+  }
+}
+
 export async function executeQueuedAction(
   accountId: string,
   operationType: string,
   params: Record<string, unknown>,
 ): Promise<void> {
   const action = { type: operationType, ...params } as EmailAction;
+  if (action.type === "sendMessage") {
+    // Every send reaching the queue is a retry of an attempt that already ran.
+    if (await wasAlreadyDelivered(accountId, action.rawBase64Url)) {
+      console.warn("[send-guard] message already on the server — skipping resend");
+      await runSendCleanup(accountId, action);
+      return;
+    }
+  }
   await executeViaProvider(accountId, action);
 }
 
