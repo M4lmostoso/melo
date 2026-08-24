@@ -4,6 +4,22 @@
 
 ---
 
+## [0.1.8](https://github.com/M4lmostoso/melo/compare/v0.1.7...v0.1.8) (2026-08-24)
+
+
+### Features
+
+* apply temporal decay to urgency scores in email list and search results ([61a06be](https://github.com/M4lmostoso/melo/commit/61a06be392ebee9eebbe0633d41fb7c1b5b03681))
+* implement fuzzy citation resolution in AI search responses to improve marker mapping and link identification ([e12bc75](https://github.com/M4lmostoso/melo/commit/e12bc754d38c7b7a2ef3e0493d93aecb74436ba6))
+* implement proactive IMAP range search sanity probing to detect broken servers and optimize delta checks ([19d6ddb](https://github.com/M4lmostoso/melo/commit/19d6ddbd00de8e9d5433c47bf4ca8af77b072dac))
+* implement send-retry guard to prevent duplicate deliveries by checking if Message-ID exists on server before retrying failed sends ([014d788](https://github.com/M4lmostoso/melo/commit/014d788b7094fdb358d844f3cd4b44a5a9959bd7))
+
+
+### Bug Fixes
+
+* attribute new tasks to the default account in unified mode instead of failing silently ([5e51fe7](https://github.com/M4lmostoso/melo/commit/5e51fe745b667f7af64915556b851f7dbd4ea2b8))
+* update thread stats after draft deletion and synchronization to ensure accurate list display ([57ce100](https://github.com/M4lmostoso/melo/commit/57ce100df1f3fc0c7c36a8835e6d0fb7eb8efb7b))
+
 ## [0.1.7](https://github.com/M4lmostoso/melo/compare/v0.1.6...v0.1.7) (2026-08-07)
 
 
