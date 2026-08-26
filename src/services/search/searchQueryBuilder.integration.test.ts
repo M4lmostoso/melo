@@ -1,5 +1,16 @@
+// @vitest-environment node
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { DatabaseSync } from "node:sqlite";
+
+// Node's built-in SQLite (added 22.5, unflagged from 23.4). Imported through a
+// variable so Vite never tries to bundle it as a client dependency, and guarded
+// so an older runtime skips this suite instead of failing to collect it.
+type SqliteModule = typeof import("node:sqlite");
+const sqliteSpecifier = "node:sqlite";
+const sqlite = (await import(/* @vite-ignore */ sqliteSpecifier).catch(
+  () => null,
+)) as SqliteModule | null;
+const DatabaseSync = sqlite?.DatabaseSync;
+const describeSqlite = describe.skipIf(!DatabaseSync);
 import { parseSearchQuery } from "./searchParser";
 import { buildSearchQuery, type BuildSearchOptions } from "./searchQueryBuilder";
 
@@ -16,7 +27,7 @@ import { buildSearchQuery, type BuildSearchOptions } from "./searchQueryBuilder"
 const DAY = 86_400_000;
 const NOW = Date.now();
 
-let db: DatabaseSync;
+let db: InstanceType<NonNullable<typeof DatabaseSync>>;
 
 interface Row {
   message_id: string;
@@ -40,7 +51,7 @@ function subjects(query: string, options: BuildSearchOptions = {}): string[] {
 }
 
 beforeAll(() => {
-  db = new DatabaseSync(":memory:");
+  db = new DatabaseSync!(":memory:");
 
   db.exec(`
     CREATE TABLE messages (
@@ -169,7 +180,7 @@ afterAll(() => {
   db?.close();
 });
 
-describe("search SQL against a real FTS5 index", () => {
+describeSqlite("search SQL against a real FTS5 index", () => {
   // ── The crash class: queries that used to raise an FTS5 syntax error ──────
 
   it.each([

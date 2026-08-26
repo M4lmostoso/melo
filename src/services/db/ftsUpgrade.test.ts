@@ -1,5 +1,16 @@
+// @vitest-environment node
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { DatabaseSync } from "node:sqlite";
+
+// Node's built-in SQLite (added 22.5, unflagged from 23.4). Imported through a
+// variable so Vite never tries to bundle it as a client dependency, and guarded
+// so an older runtime skips this suite instead of failing to collect it.
+type SqliteModule = typeof import("node:sqlite");
+const sqliteSpecifier = "node:sqlite";
+const sqlite = (await import(/* @vite-ignore */ sqliteSpecifier).catch(
+  () => null,
+)) as SqliteModule | null;
+const DatabaseSync = sqlite?.DatabaseSync;
+const describeSqlite = describe.skipIf(!DatabaseSync);
 
 vi.mock("./connection", () => ({ getDb: vi.fn() }));
 
@@ -16,7 +27,7 @@ import { upgradeFtsDiacritics } from "./migrations";
 type Row = Record<string, unknown>;
 
 /** Minimal stand-in for the Tauri SQL plugin's Database, over node:sqlite. */
-function adapter(db: DatabaseSync, onExecute?: (sql: string) => void) {
+function adapter(db: Db, onExecute?: (sql: string) => void) {
   const bind = (params: unknown[] = []) => {
     const named: Record<string, unknown> = {};
     params.forEach((p, i) => { named[String(i + 1)] = p as never; });
@@ -33,8 +44,10 @@ function adapter(db: DatabaseSync, onExecute?: (sql: string) => void) {
   };
 }
 
-function makeDb(): DatabaseSync {
-  const db = new DatabaseSync(":memory:");
+type Db = InstanceType<NonNullable<typeof DatabaseSync>>;
+
+function makeDb(): Db {
+  const db = new DatabaseSync!(":memory:");
   db.exec(`
     CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
     CREATE TABLE messages (
@@ -53,18 +66,18 @@ function makeDb(): DatabaseSync {
   return db;
 }
 
-const tokenizer = (db: DatabaseSync): string =>
+const tokenizer = (db: Db): string =>
   (db.prepare("SELECT sql FROM sqlite_master WHERE name='messages_fts'").get() as Row)
     .sql as string;
 
-const flag = (db: DatabaseSync): string | undefined =>
+const flag = (db: Db): string | undefined =>
   (db.prepare("SELECT value FROM settings WHERE key='fts_remove_diacritics_v1'").get() as Row | undefined)
     ?.value as string | undefined;
 
-let db: DatabaseSync;
+let db: Db;
 beforeEach(() => { db = makeDb(); });
 
-describe("upgradeFtsDiacritics", () => {
+describeSqlite("upgradeFtsDiacritics", () => {
   it("rebuilds the index with diacritics folding and records the flag", async () => {
     await upgradeFtsDiacritics(adapter(db) as never);
 

@@ -19,9 +19,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Node 24: the search tests exercise the real FTS5 index through the
+      # built-in node:sqlite, which only became available without a flag in
+      # 23.4. On an older runtime those suites skip themselves rather than fail,
+      # so CI has to be the place where they actually run.
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
 
       - name: Install dependencies
