@@ -6,7 +6,7 @@ import { classifyError } from "@/utils/networkErrors";
 import { recalculateThreadStats, getThreadById } from "@/services/db/threads";
 import { getMessagesForThread } from "@/services/db/messages";
 import { updateBadgeCount } from "@/services/badgeManager";
-import { navigateToThread } from "@/router/navigate";
+import { navigateToThread, navigateBack, getSelectedThreadId } from "@/router/navigate";
 import { useUIStore } from "@/stores/uiStore";
 import { useThreadStore } from "@/stores/threadStore";
 import { getNextThreadId, markPendingRemoval, type ActionResult } from "./emailActions";
@@ -87,9 +87,18 @@ export async function deleteSingleMessage(
       await db.execute("UPDATE threads SET is_read = 1 WHERE account_id = $1 AND id = $2", [accountId, threadId]);
       useThreadStore.getState().updateThread(threadId, { isRead: true });
     }
+    // Capture whether the removed thread is the one being viewed *before* removing it —
+    // getNextThreadId only returns a sibling when the removed thread is selected.
+    const isViewing = getSelectedThreadId() === threadId;
     const nextId = getNextThreadId(threadId);
     useThreadStore.getState().removeThread(threadId);
-    if (nextId) markPendingRemoval(threadId, navigateToThread(nextId));
+    if (nextId) {
+      markPendingRemoval(threadId, navigateToThread(nextId));
+    } else if (isViewing) {
+      // No sibling to advance to (e.g. the last thread in a smart folder). Deselect so the
+      // reading pane empties and the deep-link safety net doesn't re-fetch the removed thread.
+      markPendingRemoval(threadId, navigateBack());
+    }
   } else {
     // Recalculate thread stats and labels reflecting the soft-trashed message
     await recalculateThreadStats(accountId, threadId);
