@@ -28,7 +28,8 @@ const MIGRATIONS = [
  * tokenizer; on an older build the CREATE raises "unrecognized parameter",
  * which is why the caller retries without it rather than letting startup fail.
  */
-async function rebuildMessagesFts(
+/** @internal exported for tests */
+export async function rebuildMessagesFts(
   db: Awaited<ReturnType<typeof getDb>>,
   removeDiacritics: boolean,
 ): Promise<void> {
@@ -77,14 +78,37 @@ async function rebuildMessagesFts(
   await db.execute("INSERT INTO messages_fts(messages_fts) VALUES('rebuild')");
 }
 
+/** Minutes after which an abandoned rebuild claim may be taken over. */
+const FTS_CLAIM_STALE_MINUTES = 30;
+
+/** True when messages_fts is already declared with diacritics folding. */
+async function ftsHasDiacriticsFolding(
+  db: Awaited<ReturnType<typeof getDb>>,
+): Promise<boolean> {
+  const rows = await db.select<{ sql: string | null }[]>(
+    "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'messages_fts'",
+  );
+  return (rows[0]?.sql ?? "").includes("remove_diacritics");
+}
+
 /**
  * One-time upgrade of the search index to accent-insensitive matching.
  *
  * Runs as a post-migration repair rather than a numbered migration because a
  * failure here must never block startup: the fallback leaves the index exactly
  * as it was before, and search keeps working (accents included, as they were).
+ *
+ * Exclusive across windows. `runMigrations()` is memoised per module instance,
+ * but ThreadWindow and PreviewWindow are separate webviews with their own
+ * module instance, so several of them can enter this function at the same
+ * moment — and two concurrent DROP + rebuild passes over a multi-hundred-MB
+ * index are exactly the kind of contention that wedges startup. Only the window
+ * that wins the claim row rebuilds; the others move on and pick the new index
+ * up on their next launch.
  */
-async function upgradeFtsDiacritics(
+// Exported for tests: the cross-window exclusion below is the part worth
+// exercising, and it is only observable by driving the function directly.
+export async function upgradeFtsDiacritics(
   db: Awaited<ReturnType<typeof getDb>>,
 ): Promise<void> {
   const flag = await db.select<{ value: string }[]>(
@@ -92,10 +116,47 @@ async function upgradeFtsDiacritics(
   );
   if (flag.length > 0) return;
 
+  // Cheap idempotency: another window may have finished the rebuild moments
+  // ago, or a previous run may have died between the rebuild and the flag.
+  if (await ftsHasDiacriticsFolding(db)) {
+    await db.execute(
+      "INSERT OR REPLACE INTO settings (key, value) VALUES ('fts_remove_diacritics_v1', '1')",
+    );
+    return;
+  }
+
+  // Claim the rebuild. INSERT OR IGNORE is atomic, so exactly one caller sees
+  // rowsAffected = 1 even when several race here.
+  const now = Date.now();
+  const claimed = await db.execute(
+    "INSERT OR IGNORE INTO settings (key, value) VALUES ('fts_remove_diacritics_claim', $1)",
+    [String(now)],
+  );
+
+  if (claimed.rowsAffected === 0) {
+    // Someone else holds the claim. Take it over only if it is stale — a run
+    // that died mid-rebuild must not lock the upgrade out forever.
+    const held = await db.select<{ value: string }[]>(
+      "SELECT value FROM settings WHERE key = 'fts_remove_diacritics_claim'",
+    );
+    const heldAt = parseInt(held[0]?.value ?? "0", 10);
+    const stale = !Number.isFinite(heldAt) || now - heldAt > FTS_CLAIM_STALE_MINUTES * 60_000;
+    if (!stale) {
+      console.log("[search] FTS rebuild already in progress in another window — skipping.");
+      return;
+    }
+    console.warn("[search] Taking over a stale FTS rebuild claim.");
+    await db.execute(
+      "INSERT OR REPLACE INTO settings (key, value) VALUES ('fts_remove_diacritics_claim', $1)",
+      [String(now)],
+    );
+  }
+
   console.log("[search] Rebuilding FTS index with diacritics folding...");
+  const startedAt = Date.now();
   try {
     await rebuildMessagesFts(db, true);
-    console.log("[search] FTS index rebuilt (accent-insensitive).");
+    console.log(`[search] FTS index rebuilt (accent-insensitive) in ${Date.now() - startedAt}ms.`);
   } catch (err) {
     console.warn("[search] Diacritics-folding FTS unavailable on this SQLite build:", err);
     try {
@@ -103,13 +164,20 @@ async function upgradeFtsDiacritics(
       console.log("[search] FTS index rebuilt (accent-sensitive fallback).");
     } catch (err2) {
       console.error("[search] FTS rebuild failed — search index left untouched:", err2);
-      return; // No flag: retry on the next startup.
+      // Drop the claim so the next start retries instead of waiting it out.
+      await db
+        .execute("DELETE FROM settings WHERE key = 'fts_remove_diacritics_claim'")
+        .catch(() => {});
+      return;
     }
   }
 
   await db.execute(
     "INSERT OR REPLACE INTO settings (key, value) VALUES ('fts_remove_diacritics_v1', '1')",
   );
+  await db
+    .execute("DELETE FROM settings WHERE key = 'fts_remove_diacritics_claim'")
+    .catch(() => {});
 }
 
 // ---------------------------------------------------------------------------
@@ -334,14 +402,28 @@ function splitStatements(sql: string): string[] {
 
 let _migrationPromise: Promise<void> | null = null;
 
-export function runMigrations(): Promise<void> {
+export interface RunMigrationsOptions {
+  /**
+   * Whether this window may perform the heavy one-time index maintenance
+   * (currently the FTS rebuild). Only the main window should: an auxiliary
+   * webview opening to show one thread or one attachment has no business
+   * rebuilding a multi-hundred-MB search index, and having several windows
+   * attempt it at once is how startup gets wedged.
+   *
+   * Schema migrations always run — those are the correctness-critical part
+   * and every window needs them before it touches the database.
+   */
+  indexMaintenance?: boolean;
+}
+
+export function runMigrations(options: RunMigrationsOptions = {}): Promise<void> {
   if (!_migrationPromise) {
-    _migrationPromise = _runMigrations();
+    _migrationPromise = _runMigrations(options.indexMaintenance ?? true);
   }
   return _migrationPromise;
 }
 
-async function _runMigrations(): Promise<void> {
+async function _runMigrations(indexMaintenance: boolean): Promise<void> {
   const db = await getDb();
 
   // Ensure migrations table exists
@@ -498,7 +580,10 @@ async function _runMigrations(): Promise<void> {
   console.log("All migrations applied.");
 
   // Search index: fold accents so "universita" finds "università".
-  await upgradeFtsDiacritics(db);
+  // Main window only — see RunMigrationsOptions.indexMaintenance.
+  if (indexMaintenance) {
+    await upgradeFtsDiacritics(db);
+  }
 
   // One-time repair: fix IMAP messages stored with date=0 (Unix epoch / January 1970).
   // Root cause: mail-parser's to_timestamp() returned 0 for malformed Date headers and

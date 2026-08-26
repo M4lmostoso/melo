@@ -49,7 +49,9 @@ export default function PreviewWindow() {
         return;
       }
       try {
-        await runMigrations();
+        // Schema only: index maintenance belongs to the main window, and
+        // several windows rebuilding the search index at once wedges startup.
+        await runMigrations({ indexMaintenance: false });
 
         // Restore theme
         const savedTheme = await getSetting("theme");
