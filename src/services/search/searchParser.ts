@@ -1,7 +1,7 @@
 /**
  * Parses search query strings with operator support.
  * Supported operators: from:, to:, subject:, has:attachment, is:unread, is:read,
- * is:starred, before:, after:, label:
+ * is:starred, before:, after:, label:, in:
  */
 
 export interface ParsedSearchQuery {
@@ -19,9 +19,35 @@ export interface ParsedSearchQuery {
   before?: number; // unix timestamp (milliseconds)
   after?: number;  // unix timestamp (milliseconds)
   label?: string;
+  /**
+   * in: operator — restricts to a system folder ("inbox", "sent", "trash",
+   * "spam", "drafts"), or "anywhere" to lift the default Trash/Spam exclusion.
+   * Normalised to the system label id, or "ANYWHERE".
+   */
+  in?: string;
 }
 
-const OPERATOR_REGEX = /(?:^|\s)(from|to|subject|has|is|before|after|label):\s*(?:"([^"]+)"|(\S+))/gi;
+const OPERATOR_REGEX = /(?:^|\s)(from|to|subject|has|is|before|after|label|in):\s*(?:"([^"]+)"|(\S+))/gi;
+
+/**
+ * in: values → system label id. "anywhere" is the escape hatch that lifts the
+ * default Trash/Spam exclusion without pinning the search to one folder.
+ */
+const IN_LABELS: Record<string, string> = {
+  inbox: "INBOX",
+  sent: "SENT",
+  trash: "TRASH",
+  cestino: "TRASH",
+  spam: "SPAM",
+  junk: "SPAM",
+  draft: "DRAFT",
+  drafts: "DRAFT",
+  bozze: "DRAFT",
+  starred: "STARRED",
+  archive: "ARCHIVE",
+  anywhere: "ANYWHERE",
+  ovunque: "ANYWHERE",
+};
 
 /**
  * Parse a date string like YYYY/MM/DD or YYYY-MM-DD into a unix timestamp (milliseconds).
@@ -105,6 +131,11 @@ export function parseSearchQuery(input: string): ParsedSearchQuery {
       case "label":
         result.label = value;
         break;
+      case "in": {
+        const mapped = IN_LABELS[value.toLowerCase()];
+        if (mapped) result.in = mapped;
+        break;
+      }
     }
   }
 

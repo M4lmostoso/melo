@@ -61,11 +61,14 @@ const SIG_PATTERNS: RegExp[] = [
   /-{3,}[\s\S]*/,
 ];
 
+/** Approximate characters per token, for translating a token budget to chars. */
+const CHARS_PER_TOKEN = 4;
+
 /**
- * Strip HTML, entities, boilerplate signatures, and truncate to chunk boundary.
- * chunkSize is in approximate tokens (~4 chars each).
+ * Strip HTML, entities and boilerplate signatures. Length is left alone —
+ * callers decide whether to truncate (queries) or chunk (documents).
  */
-export function sanitizeForEmbedding(text: string, chunkSize = 512): string {
+export function cleanForEmbedding(text: string): string {
   let clean = text.replace(/<[^>]+>/g, " ");
   clean = clean.replace(/&[a-z#0-9]+;/gi, " ");
   for (const pat of SIG_PATTERNS) {
@@ -78,7 +81,61 @@ export function sanitizeForEmbedding(text: string, chunkSize = 512): string {
     if (m.index < minKeep) continue;
     clean = clean.slice(0, m.index);
   }
-  return clean.replace(/\s+/g, " ").trim().slice(0, chunkSize * 4);
+  return clean.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Clean and truncate to a single chunk. Used for the *query* side, where one
+ * short vector is what we want; documents go through chunkForEmbedding.
+ * chunkSize is in approximate tokens (~4 chars each).
+ */
+export function sanitizeForEmbedding(text: string, chunkSize = 512): string {
+  return cleanForEmbedding(text).slice(0, chunkSize * CHARS_PER_TOKEN);
+}
+
+/** Fraction of a chunk repeated at the start of the next one. */
+const CHUNK_OVERLAP_RATIO = 0.15;
+
+/**
+ * Split a message into overlapping passages, each small enough to embed.
+ *
+ * A single truncated vector per message meant everything past the first few
+ * paragraphs was unreachable: a contract whose deadline sits halfway down the
+ * mail simply never matched. Chunks overlap so a sentence spanning a boundary
+ * is still represented whole in one of them, and split on whitespace so no
+ * chunk starts mid-word.
+ *
+ * `maxChunks` bounds the embedding cost of a single very long mail; the tail
+ * of a 40-page newsletter is not worth the Ollama round-trips.
+ */
+export function chunkForEmbedding(
+  text: string,
+  chunkSize = 384,
+  maxChunks = 8,
+): string[] {
+  const clean = cleanForEmbedding(text);
+  if (!clean) return [];
+
+  const size = Math.max(1, chunkSize * CHARS_PER_TOKEN);
+  if (clean.length <= size) return [clean];
+
+  const step = Math.max(1, Math.round(size * (1 - CHUNK_OVERLAP_RATIO)));
+  const chunks: string[] = [];
+
+  for (let start = 0; start < clean.length && chunks.length < maxChunks; start += step) {
+    let end = Math.min(start + size, clean.length);
+    // Prefer a word boundary, but never claw back more than a fifth of the
+    // chunk chasing one.
+    if (end < clean.length) {
+      const space = clean.lastIndexOf(" ", end);
+      if (space > start + size * 0.8) end = space;
+    }
+    const piece = clean.slice(start, end).trim();
+    if (piece) chunks.push(piece);
+    if (end >= clean.length) break;
+  }
+
+  return chunks;
 }
 
 // ---------------------------------------------------------------------------
@@ -232,19 +289,25 @@ export async function testEmbeddingModel(
 // DB helpers
 // ---------------------------------------------------------------------------
 
-// Stores an embedding as a binary BLOB via the native Rust command.
+// Stores one chunk's embedding as a binary BLOB via the native Rust command.
 // Pass an empty array to write a NULL sentinel (no embeddable content).
+// `chunkText` is kept so the matched passage — rather than the snippet — can
+// be handed to the answering model as context.
 export async function storeEmbedding(
   messageId: string,
   accountId: string,
   embedding: number[],
   model: string,
+  chunkIndex = 0,
+  chunkText: string | null = null,
 ): Promise<void> {
   await invoke("store_embedding", {
     messageId,
     accountId,
     embedding,
     model,
+    chunkIndex,
+    chunkText,
   });
 }
 
@@ -274,7 +337,9 @@ export async function getEmbeddingProgress(
   const model = await getCurrentEmbeddingModel();
 
   const [indexedRow] = await db.select<CountRow[]>(
-    `SELECT COUNT(*) as cnt FROM message_embeddings WHERE account_id = $1 AND model = $2`,
+    // chunk_index = 0 is the per-message completion marker (written last by
+    // the backfill), so counting it counts messages, not passages.
+    `SELECT COUNT(*) as cnt FROM message_embeddings WHERE account_id = $1 AND model = $2 AND chunk_index = 0`,
     [accountId, model],
   );
   const [totalRow] = await db.select<CountRow[]>(
@@ -307,6 +372,7 @@ export async function getEmbeddingProgressAll(
      JOIN messages m ON m.id = me.message_id
      WHERE me.account_id IN (${placeholders})
        AND me.model = ?
+       AND me.chunk_index = 0
        AND NOT EXISTS (
          SELECT 1 FROM thread_labels tl
          WHERE tl.account_id = m.account_id

@@ -14,6 +14,7 @@ import {
 import { applyTemporalDecay } from "@/services/ai/reputationEngine";
 import { getDecaySettings } from "@/services/ai/urgencyPipeline";
 import { useAccountStore } from "@/stores/accountStore";
+import { useUIStore } from "@/stores/uiStore";
 import { useThreadStore, type Thread } from "@/stores/threadStore";
 import { useContactsStore } from "@/stores/contactsStore";
 import { useSmartFolderStore } from "@/stores/smartFolderStore";
@@ -21,7 +22,7 @@ import { useComposerStore } from "@/stores/composerStore";
 import { useActiveLabel } from "@/hooks/useRouteNavigation";
 import { getSelectedThreadId } from "@/router/navigate";
 import { InputDialog } from "@/components/ui/InputDialog";
-import { Search, X, FolderPlus, Pencil, User } from "lucide-react";
+import { Search, X, FolderPlus, Pencil, User, SortDesc, CalendarClock } from "lucide-react";
 
 const SEARCH_HIT_LIMIT = 100;
 
@@ -31,6 +32,15 @@ export function SearchBar() {
   const accounts = useAccountStore((s) => s.accounts);
   const openComposer = useComposerStore((s) => s.openComposer);
   const activeLabel = useActiveLabel();
+  const searchSort = useUIStore((s) => s.searchSort);
+  const sortRef = useRef(searchSort);
+  sortRef.current = searchSort;
+  // Searching from inside Trash or Spam must search *there* — the default
+  // exclusion of those folders would otherwise return nothing.
+  const inSystemFolder = activeLabel === "trash" || activeLabel === "spam";
+  const systemFolderRef = useRef(inSystemFolder);
+  systemFolderRef.current = inSystemFolder;
+  const setSearchSort = useUIStore((s) => s.setSearchSort);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const smartFolderBtnRef = useRef<HTMLButtonElement | null>(null);
   const clearBtnRef = useRef<HTMLButtonElement | null>(null);
@@ -106,7 +116,15 @@ export function SearchBar() {
       debounceRef.current = setTimeout(async () => {
         const isStale = () => useThreadStore.getState().searchQuery !== value;
         try {
-          const hits = await searchMessages(value, activeAccountId ?? undefined, SEARCH_HIT_LIMIT);
+          const hits = await searchMessages(value, {
+            accountId: activeAccountId ?? undefined,
+            limit: SEARCH_HIT_LIMIT,
+            sort: sortRef.current,
+            // One row per conversation: without this the limit is spent on
+            // messages, so a single busy thread can push everything else out.
+            groupByThread: true,
+            includeSystemFolders: systemFolderRef.current,
+          });
           if (isStale()) return;
           await hydrateAndStore(hits, value, isStale);
         } catch (err) {
@@ -247,7 +265,15 @@ export function SearchBar() {
       debounceRef.current = setTimeout(async () => {
         const isStale = () => useThreadStore.getState().searchQuery !== value;
         try {
-          const hits = await searchMessages(value, activeAccountId ?? undefined, SEARCH_HIT_LIMIT);
+          const hits = await searchMessages(value, {
+            accountId: activeAccountId ?? undefined,
+            limit: SEARCH_HIT_LIMIT,
+            sort: sortRef.current,
+            // One row per conversation: without this the limit is spent on
+            // messages, so a single busy thread can push everything else out.
+            groupByThread: true,
+            includeSystemFolders: systemFolderRef.current,
+          });
           if (isStale()) return;
           await hydrateAndStore(hits, value, isStale);
         } catch (err) {
@@ -376,6 +402,46 @@ export function SearchBar() {
     }
   };
 
+  // Re-run the active search when the ordering (or the account scope) changes,
+  // so flipping relevance/date reorders what is already on screen instead of
+  // waiting for the next keystroke.
+  const skipFirstSortRun = useRef(true);
+  useEffect(() => {
+    if (skipFirstSortRun.current) {
+      skipFirstSortRun.current = false;
+      return;
+    }
+    const value = useThreadStore.getState().searchQuery;
+    if (value.trim().length < 2) return;
+
+    let cancelled = false;
+    const isStale = () => cancelled || useThreadStore.getState().searchQuery !== value;
+    useThreadStore.getState().setSearchLoading(true);
+
+    (async () => {
+      try {
+        const hits = await searchMessages(value, {
+          accountId: activeAccountId ?? undefined,
+          limit: SEARCH_HIT_LIMIT,
+          sort: searchSort,
+          groupByThread: true,
+          includeSystemFolders: inSystemFolder,
+        });
+        if (isStale()) return;
+        await hydrateAndStore(hits, value, isStale);
+      } catch (err) {
+        console.error("Search failed:", err);
+        if (!isStale()) {
+          useThreadStore.getState().setSearchResults([]);
+          useThreadStore.getState().setSearchLoading(false);
+        }
+      }
+    })();
+
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchSort, activeAccountId, inSystemFolder]);
+
   // Close suggestions on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -413,6 +479,16 @@ export function SearchBar() {
         />
         {searchQuery && (
           <div className="absolute right-2 top-[0.375rem] flex items-center gap-1">
+            {searchQuery.trim().length >= 2 && (
+              <button
+                onClick={() => setSearchSort(searchSort === "relevance" ? "date" : "relevance")}
+                className="text-text-tertiary hover:text-accent transition-colors"
+                title={searchSort === "relevance" ? t("search.sortByDate") : t("search.sortByRelevance")}
+                aria-label={searchSort === "relevance" ? t("search.sortByDate") : t("search.sortByRelevance")}
+              >
+                {searchSort === "relevance" ? <SortDesc size={14} /> : <CalendarClock size={14} />}
+              </button>
+            )}
             {searchQuery.trim().length >= 2 && (
               <button
                 ref={smartFolderBtnRef}

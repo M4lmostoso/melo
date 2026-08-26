@@ -7,6 +7,7 @@ vi.mock("@/services/db/settings", () => ({ getSetting: vi.fn() }));
 
 import {
   sanitizeForEmbedding,
+  chunkForEmbedding,
   getEmbeddingPrefixes,
   cosineSimilarity,
 } from "./ollamaEmbeddings";
@@ -41,6 +42,53 @@ describe("sanitizeForEmbedding", () => {
   it("truncates to the chunk boundary (~4 chars per token)", () => {
     const out = sanitizeForEmbedding("a".repeat(10_000), 100);
     expect(out.length).toBe(400);
+  });
+});
+
+describe("chunkForEmbedding", () => {
+  it("returns a single chunk when the text fits", () => {
+    expect(chunkForEmbedding("hello world", 384)).toEqual(["hello world"]);
+  });
+
+  it("returns nothing for empty content", () => {
+    expect(chunkForEmbedding("   ", 384)).toEqual([]);
+  });
+
+  it("splits long text into several passages", () => {
+    // 10 tokens ≈ 40 chars per chunk.
+    const words = Array.from({ length: 200 }, (_, i) => `word${i}`).join(" ");
+    const chunks = chunkForEmbedding(words, 10, 8);
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.length).toBeLessThanOrEqual(8);
+  });
+
+  it("covers text a single truncated vector would have missed", () => {
+    // ~5500 characters of preamble: the old single-vector path stopped at
+    // chunkSize * 4 = 1536, so this deadline was unreachable.
+    const filler = "riempitivo ".repeat(500);
+    const chunks = chunkForEmbedding(`${filler} scadenza contratto 31 dicembre`);
+    expect(chunks.some((c) => c.includes("scadenza contratto"))).toBe(true);
+  });
+
+  it("overlaps consecutive chunks", () => {
+    const words = Array.from({ length: 100 }, (_, i) => `w${i}`).join(" ");
+    const chunks = chunkForEmbedding(words, 10, 8);
+    const first = chunks[0]!.split(" ");
+    const tail = first.slice(-1)[0]!;
+    expect(chunks[1]).toContain(tail);
+  });
+
+  it("honours the chunk cap", () => {
+    const chunks = chunkForEmbedding("x ".repeat(20_000), 10, 3);
+    expect(chunks.length).toBe(3);
+  });
+
+  it("strips HTML and signatures like the single-chunk path", () => {
+    const body = "<p>" + "Contenuto reale della mail. ".repeat(20) + "</p>";
+    const chunks = chunkForEmbedding(`${body} Cordiali saluti Mario`, 384);
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0]).not.toContain("Cordiali saluti");
+    expect(chunks[0]).toContain("Contenuto reale");
   });
 });
 

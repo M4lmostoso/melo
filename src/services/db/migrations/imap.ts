@@ -354,4 +354,26 @@ export const MIGRATIONS_IMAP = [
       );
     `,
   },
+  {
+    version: 72,
+    description:
+      "Chunked embeddings for semantic search: one row per passage instead of one per message. A single embedding truncated at ~1536 characters left everything past the first few paragraphs of a mail invisible to retrieval, and gave the answering model nothing but the subject and snippet to work from. chunk_text is stored alongside the vector so the matched passage — not the snippet — becomes the model's context. Clears existing vectors to force a re-index.",
+    sql: `
+      DROP TABLE IF EXISTS message_embeddings;
+      CREATE TABLE message_embeddings (
+        message_id TEXT NOT NULL,
+        account_id TEXT NOT NULL,
+        chunk_index INTEGER NOT NULL DEFAULT 0,
+        chunk_text TEXT,
+        embedding BLOB,
+        model TEXT NOT NULL,
+        created_at INTEGER DEFAULT (unixepoch()),
+        PRIMARY KEY (account_id, message_id, chunk_index),
+        FOREIGN KEY (account_id, message_id) REFERENCES messages(account_id, id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_embeddings_account ON message_embeddings(account_id);
+      CREATE INDEX IF NOT EXISTS idx_embeddings_account_created ON message_embeddings(account_id, created_at);
+      CREATE INDEX IF NOT EXISTS idx_embeddings_message ON message_embeddings(account_id, message_id);
+    `,
+  },
 ];

@@ -1,5 +1,5 @@
 import { getDb } from "./connection";
-import { parseSearchQuery, hasSearchOperators } from "../search/searchParser";
+import { parseSearchQuery } from "../search/searchParser";
 import { buildSearchQuery } from "../search/searchQueryBuilder";
 
 export interface SenderSuggestion {
@@ -199,74 +199,112 @@ export interface SearchResult {
   rank: number;
 }
 
+export interface SearchOptions {
+  accountId?: string;
+  limit?: number;
+  /**
+   * "relevance" (default) ranks by weighted BM25 with a recency/attention
+   * multiplier; "date" is a straight reverse-chronological listing.
+   */
+  sort?: "relevance" | "date";
+  /** Collapse to one row per thread, keeping each thread's best message. */
+  groupByThread?: boolean;
+  /**
+   * Include threads that live only in Trash/Spam. Off by default — deleted
+   * copies of a mail are noise in a search, and the user can ask for them
+   * explicitly with `in:trash` / `in:anywhere`.
+   */
+  includeSystemFolders?: boolean;
+  /**
+   * "all" (default) requires every term; "any" is the higher-recall mode used
+   * by the AI question path, whose terms are extracted rather than typed.
+   */
+  matchMode?: "all" | "any";
+}
+
 /**
  * Full-text search across messages using FTS5.
- * Supports search operators: from:, to:, subject:, has:attachment, is:unread, etc.
+ * Supports search operators: from:, to:, subject:, has:attachment, is:unread,
+ * in:trash, and the rest handled by parseSearchQuery.
+ *
+ * The query text is always routed through buildFtsQuery — passing raw user
+ * input to `messages_fts MATCH` makes FTS5 parse it as a query expression,
+ * which throws on an email address, a filename or an apostrophe.
  */
 export async function searchMessages(
   query: string,
-  accountId?: string,
-  limit = 50,
-  orderByDate = false,
+  options: SearchOptions = {},
 ): Promise<SearchResult[]> {
   const db = await getDb();
 
-  const ftsQuery = query.trim();
-  if (!ftsQuery) return [];
+  const trimmed = query.trim();
+  if (!trimmed) return [];
 
-  const order = orderByDate ? "m.date DESC" : "rank, m.date DESC";
+  const parsed = parseSearchQuery(trimmed);
 
-  // Check if query contains search operators
-  if (hasSearchOperators(ftsQuery)) {
-    const parsed = parseSearchQuery(ftsQuery);
-    // If we have no free text and no operators matched usefully, fall through
-    if (parsed.freeText || parsed.from || parsed.to || parsed.subject ||
-        parsed.hasAttachment || parsed.isUnread || parsed.isRead ||
-        parsed.isStarred || parsed.before !== undefined || parsed.after !== undefined ||
-        parsed.label) {
-      const { sql, params } = buildSearchQuery(parsed, accountId, limit, false, orderByDate);
-      return db.select<SearchResult[]>(sql, params);
-    }
-  }
+  // Nothing to search on: no free text and no operator narrowed anything down.
+  const hasAnyFilter =
+    parsed.freeText.trim() !== "" ||
+    parsed.from !== undefined ||
+    parsed.to !== undefined ||
+    parsed.subject !== undefined ||
+    parsed.hasAttachment ||
+    parsed.hasCalendar ||
+    parsed.isUnread ||
+    parsed.isRead ||
+    parsed.isStarred ||
+    parsed.isPecReceipt ||
+    parsed.before !== undefined ||
+    parsed.after !== undefined ||
+    parsed.label !== undefined ||
+    parsed.in !== undefined;
+  if (!hasAnyFilter) return [];
 
-  // Fall through to standard FTS5 search
-  if (accountId) {
-    return db.select<SearchResult[]>(
-      `SELECT
-        m.id as message_id,
-        m.account_id,
-        m.thread_id,
-        m.subject,
-        m.from_name,
-        m.from_address,
-        m.snippet,
-        m.date,
-        rank
-      FROM messages_fts
-      JOIN messages m ON m.rowid = messages_fts.rowid
-      WHERE messages_fts MATCH $1 AND m.account_id = $2
-      ORDER BY ${order}
-      LIMIT $3`,
-      [ftsQuery, accountId, limit],
-    );
-  }
+  const { sql, params } = buildSearchQuery(parsed, {
+    accountId: options.accountId,
+    limit: options.limit ?? 50,
+    sort: options.sort ?? "relevance",
+    groupByThread: options.groupByThread ?? false,
+    excludeSystemLabels: !options.includeSystemFolders,
+    matchMode: options.matchMode ?? "all",
+  });
 
-  return db.select<SearchResult[]>(
-    `SELECT
-      m.id as message_id,
-      m.account_id,
-      m.thread_id,
-      m.subject,
-      m.from_name,
-      m.from_address,
-      m.snippet,
-      m.date,
-      rank
-    FROM messages_fts
-    JOIN messages m ON m.rowid = messages_fts.rowid
-    WHERE messages_fts MATCH $1
-    ORDER BY ${order}
-    LIMIT $2`,
-    [ftsQuery, limit],
+  return db.select<SearchResult[]>(sql, params);
+}
+
+/**
+ * Body excerpts for a set of messages, keyed by message id.
+ *
+ * The AI question path used to build its context from `snippet` alone — about
+ * a hundred characters — so the model was asked when a contract expires while
+ * being shown only a subject line and the opening greeting. This gives it the
+ * actual text.
+ */
+export async function getMessageExcerpts(
+  refs: Array<{ accountId: string; messageId: string }>,
+  maxChars = 1200,
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (refs.length === 0) return out;
+
+  const db = await getDb();
+  const placeholders = refs.map((_, i) => `($${i * 2 + 1}, $${i * 2 + 2})`).join(", ");
+  const params = refs.flatMap((r) => [r.accountId, r.messageId]);
+
+  const rows = await db.select<Array<{ id: string; body_text: string | null; snippet: string | null }>>(
+    `SELECT id, body_text, snippet FROM messages
+     WHERE (account_id, id) IN (VALUES ${placeholders})`,
+    params,
   );
+
+  for (const row of rows) {
+    const raw = (row.body_text ?? row.snippet ?? "")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&[a-z#0-9]+;/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (raw) out.set(row.id, raw.slice(0, maxChars));
+  }
+
+  return out;
 }

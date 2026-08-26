@@ -23,6 +23,8 @@ export type ComposerFontSize =
   | "20px"
   | "24px";
 export type InboxViewMode = "unified" | "split";
+/** How the search bar orders its results. */
+export type SearchSort = "relevance" | "date";
 export type AccountSyncPhase = "idle" | "syncing" | "error";
 export interface AccountSyncState {
   phase: AccountSyncPhase;
@@ -63,6 +65,7 @@ interface UIState {
   contactSidebarTarget: { email: string; name: string | null } | null;
   readingPanePosition: ReadingPanePosition;
   readFilter: ReadFilter;
+  searchSort: SearchSort;
   emailListWidth: number;
   emailDensity: EmailDensity;
   defaultReplyMode: DefaultReplyMode;
@@ -92,6 +95,7 @@ interface UIState {
   setContactSidebarTarget: (target: { email: string; name: string | null } | null) => void;
   setReadingPanePosition: (position: ReadingPanePosition) => void;
   setReadFilter: (filter: ReadFilter) => void;
+  setSearchSort: (sort: SearchSort) => void;
   setEmailListWidth: (width: number) => void;
   setEmailDensity: (density: EmailDensity) => void;
   setDefaultReplyMode: (mode: DefaultReplyMode) => void;
@@ -124,6 +128,7 @@ export const useUIStore = create<UIState>((set) => ({
   contactSidebarTarget: null,
   readingPanePosition: "right",
   readFilter: "all",
+  searchSort: "relevance",
   emailListWidth: 320,
   emailDensity: "default",
   defaultReplyMode: "reply",
@@ -174,6 +179,10 @@ export const useUIStore = create<UIState>((set) => ({
   setReadFilter: (readFilter) => {
     setSetting("read_filter", readFilter).catch(() => {});
     set({ readFilter });
+  },
+  setSearchSort: (searchSort) => {
+    setSetting("search_sort", searchSort).catch(() => {});
+    set({ searchSort });
   },
   setEmailListWidth: (emailListWidth) => {
     setSetting("email_list_width", String(emailListWidth)).catch(() => {});

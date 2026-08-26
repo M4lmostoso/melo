@@ -938,7 +938,9 @@
     "composeNew": "Componi nuovo messaggio",
     "saveAsSmartFolder": "Salva come cartella smart",
     "editSmartFolder": "Modifica cartella smart",
-    "clearSearch": "Cancella ricerca"
+    "clearSearch": "Cancella ricerca",
+    "sortByRelevance": "Ordina per rilevanza",
+    "sortByDate": "Ordina per data"
   },
   "ui": {
     "transfer": {

@@ -797,6 +797,12 @@ export default function App() {
           ui.setEmailDensity(savedDensity);
         }
 
+        // Restore search result ordering
+        const savedSearchSort = await getSetting("search_sort");
+        if (savedSearchSort === "relevance" || savedSearchSort === "date") {
+          ui.setSearchSort(savedSearchSort);
+        }
+
         // Restore default reply mode
         const savedReplyMode = await getSetting("default_reply_mode");
         if (savedReplyMode === "reply" || savedReplyMode === "replyAll") {

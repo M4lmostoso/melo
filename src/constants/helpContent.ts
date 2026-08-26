@@ -446,7 +446,7 @@ export const HELP_CATEGORIES: HelpCategory[] = [
         title: "Search operators",
         summary: "Gmail-style operators to refine search results.",
         description:
-          "Search uses Gmail-style operators for precise filtering. Combine multiple operators to find exactly what you need. All searches run against your local database using FTS5 full-text indexing, so results are instant. Operators can be combined freely — they use AND logic, so each additional operator narrows the results further.",
+          "Search uses Gmail-style operators for precise filtering. Combine multiple operators to find exactly what you need. All searches run against your local database using FTS5 full-text indexing, so results are instant. Operators can be combined freely — they use AND logic, so each additional operator narrows the results further. Free-text words are also ANDed: every word must appear. Accents are ignored, so \"universita\" finds \"università\". Trash and Spam are left out unless you ask for them.",
         tips: [
           { text: "from:jane — emails from a specific sender" },
           { text: "to:team@ — emails sent to a specific address" },
@@ -455,7 +455,23 @@ export const HELP_CATEGORIES: HelpCategory[] = [
           { text: "is:unread / is:starred / is:read — filter by status" },
           { text: "before:2024-06-01 / after:2024-01-01 — date range filters" },
           { text: "label:work — filter by label" },
+          { text: "in:trash / in:spam / in:anywhere — search folders that are normally excluded" },
+          { text: "-word — exclude results containing a word" },
+          { text: "\"exact phrase\" — match the words together, in order" },
           { text: "Combine freely: from:jane subject:report has:attachment after:2024-01-01" },
+        ],
+      },
+      {
+        id: "search-ranking",
+        icon: Search,
+        title: "Result ordering",
+        summary: "Relevance or date — and what relevance actually means.",
+        description:
+          "Search results are ordered by relevance by default: a match in the subject or the sender counts for much more than one buried in the body of a long newsletter, recent mail is favoured over old, and starred or unread conversations get a small nudge. Use the sort button in the search bar to switch to a straight reverse-chronological listing when you would rather browse than pinpoint. Results show one row per conversation, and the words you searched for are highlighted in the subject and preview.",
+        tips: [
+          { text: "Click the sort icon in the search bar to toggle relevance ⇄ date" },
+          { text: "Your choice is remembered between sessions" },
+          { text: "Searching from inside Trash or Spam searches that folder" },
         ],
       },
       {
@@ -1324,7 +1340,7 @@ export const CONTEXTUAL_TIPS: Record<string, ContextualTip> = {
   },
   "search-operators": {
     title: "Search operators",
-    body: "Use from:, to:, subject:, has:attachment, is:unread, before:, after:, and label: to narrow your search.",
+    body: "Use from:, to:, subject:, has:attachment, is:unread, before:, after:, label:, and in: to narrow your search. Prefix a word with - to exclude it.",
     helpTopic: "search-navigation",
   },
   "filters": {

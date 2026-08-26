@@ -1,7 +1,7 @@
 import { getSetting } from "@/services/db/settings";
 import { getDb } from "@/services/db/connection";
 import {
-  sanitizeForEmbedding,
+  chunkForEmbedding,
   generateEmbedding,
   storeEmbedding,
   getEmbeddingPrefixes,
@@ -37,8 +37,8 @@ async function writeSentinel(
   model: string,
 ): Promise<void> {
   await db.execute(
-    `INSERT OR REPLACE INTO message_embeddings (message_id, account_id, embedding, model)
-     VALUES ($1, $2, NULL, $3)`,
+    `INSERT OR REPLACE INTO message_embeddings (message_id, account_id, chunk_index, chunk_text, embedding, model)
+     VALUES ($1, $2, 0, NULL, NULL, $3)`,
     [messageId, accountId, model],
   );
 }
@@ -75,6 +75,10 @@ export async function runEmbeddingBackfill(): Promise<void> {
   // non-empty content — avoids silently writing sentinels for the entire
   // mailbox when Ollama has crashed or run out of memory.
   const MAX_CONSECUTIVE_FAILURES = 5;
+
+  // Bounds the embedding cost of one very long mail — the tail of a 40-page
+  // newsletter is not worth the round-trips.
+  const MAX_CHUNKS_PER_MESSAGE = 8;
   let consecutiveFailures = 0;
 
   try {
@@ -89,7 +93,7 @@ export async function runEmbeddingBackfill(): Promise<void> {
          FROM messages m
          JOIN accounts a ON a.id = m.account_id
          LEFT JOIN message_embeddings me
-           ON me.message_id = m.id AND me.account_id = m.account_id
+           ON me.message_id = m.id AND me.account_id = m.account_id AND me.chunk_index = 0
          WHERE (me.message_id IS NULL OR me.model != $1)
            AND m.account_id IS NOT NULL
            AND a.rag_enabled = 1
@@ -117,9 +121,11 @@ export async function runEmbeddingBackfill(): Promise<void> {
         const rawText = [msg.subject ?? "", msg.body_text ?? msg.snippet ?? ""]
           .join(" ")
           .trim();
-        const text = sanitizeForEmbedding(rawText, chunkSize);
+        // One vector per passage, not per message: a single truncated vector
+        // left everything past the first few paragraphs unreachable.
+        const chunks = chunkForEmbedding(rawText, chunkSize, MAX_CHUNKS_PER_MESSAGE);
 
-        if (!text) {
+        if (chunks.length === 0) {
           // Empty content — mark via Rust (INSERT OR REPLACE, same path as real embeddings)
           try { await storeEmbedding(msg.id, msg.account_id, [], model); } catch (e) {
             console.error(`[RAG] sentinel (empty text) failed for ${msg.id}:`, e);
@@ -128,53 +134,73 @@ export async function runEmbeddingBackfill(): Promise<void> {
         }
 
         const { document: docPrefix } = getEmbeddingPrefixes(model);
-        const prefixedText = docPrefix ? `${docPrefix}${text}` : text;
-        const embedding = await generateEmbedding(prefixedText, serverUrl, model);
 
-        // Sanitise: JSON can't carry NaN/Infinity (they become null), which
-        // breaks serde deserialisation on the Rust side. Replace with 0.
-        const safeEmbedding = embedding
-          ? embedding.map((v) => (Number.isFinite(v) ? v : 0))
-          : null;
+        // Chunk 0 is the completion marker the eligibility query keys on, so
+        // it is written LAST: a crash mid-message then leaves the message
+        // eligible again rather than half-indexed and considered done.
+        const order = chunks.map((_, i) => i).slice(1).concat(0);
+        let messageFailed = false;
 
-        if (safeEmbedding && safeEmbedding.length > 0) {
-          consecutiveFailures = 0;
-          try {
-            await storeEmbedding(msg.id, msg.account_id, safeEmbedding, model);
-          } catch (e) {
-            lastError = `store_embedding failed for ${msg.id}: ${e}`;
-            console.error("[RAG] store_embedding error:", e);
-            // Fall back to sqlx sentinel so the message is excluded next time
-            try { await writeSentinel(db, msg.id, msg.account_id, model); } catch (e2) {
-              console.error(`[RAG] writeSentinel fallback also failed for ${msg.id}:`, e2);
+        for (const chunkIndex of order) {
+          if (stopRequested) break;
+
+          const text = chunks[chunkIndex]!;
+          const prefixedText = docPrefix ? `${docPrefix}${text}` : text;
+          const embedding = await generateEmbedding(prefixedText, serverUrl, model);
+
+          // Sanitise: JSON can't carry NaN/Infinity (they become null), which
+          // breaks serde deserialisation on the Rust side. Replace with 0.
+          const safeEmbedding = embedding
+            ? embedding.map((v) => (Number.isFinite(v) ? v : 0))
+            : null;
+
+          if (safeEmbedding && safeEmbedding.length > 0) {
+            try {
+              await storeEmbedding(msg.id, msg.account_id, safeEmbedding, model, chunkIndex, text);
+            } catch (e) {
+              lastError = `store_embedding failed for ${msg.id}#${chunkIndex}: ${e}`;
+              console.error("[RAG] store_embedding error:", e);
+              // Fall back to sqlx sentinel so the message is excluded next time
+              if (chunkIndex === 0) {
+                try { await writeSentinel(db, msg.id, msg.account_id, model); } catch (e2) {
+                  console.error(`[RAG] writeSentinel fallback also failed for ${msg.id}:`, e2);
+                }
+              }
             }
+          } else {
+            // Ollama couldn't process this specific passage (timeout, bad
+            // content, etc.). Mark the message via a sentinel so it is skipped
+            // in future runs; only stop entirely if ALL recent messages fail.
+            messageFailed = true;
+            console.warn(`[RAG] Ollama returned null for ${msg.id}#${chunkIndex}`);
+            try {
+              await storeEmbedding(msg.id, msg.account_id, [], model);
+              console.log(`[RAG] Sentinel (Rust) written for ${msg.id}`);
+            } catch (e) {
+              console.error(`[RAG] sentinel (Rust) failed for ${msg.id}:`, e);
+              try { await writeSentinel(db, msg.id, msg.account_id, model); } catch (e2) {
+                console.error(`[RAG] sentinel (sqlx) also failed for ${msg.id}:`, e2);
+              }
+            }
+            break;
           }
-        } else {
-          // Ollama couldn't process this specific email (timeout, bad content, etc.).
-          // Mark via Rust sentinel (INSERT OR REPLACE) so it's skipped in future runs.
-          // Only stop if ALL recent emails fail (Ollama completely down).
+
+          // Thermal pause between passages — keeps Ollama responsive
+          await delay(50);
+        }
+
+        if (messageFailed) {
           consecutiveFailures++;
-          console.warn(`[RAG] Ollama returned null for ${msg.id} (consecutive failures: ${consecutiveFailures})`);
-          try {
-            await storeEmbedding(msg.id, msg.account_id, [], model);
-            console.log(`[RAG] Sentinel (Rust) written for ${msg.id}`);
-          } catch (e) {
-            console.error(`[RAG] sentinel (Rust) failed for ${msg.id}:`, e);
-            try { await writeSentinel(db, msg.id, msg.account_id, model); } catch (e2) {
-              console.error(`[RAG] sentinel (sqlx) also failed for ${msg.id}:`, e2);
-            }
-          }
-
           if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
             lastError = `Ollama non risponde — il backfill si è fermato dopo ${consecutiveFailures} errori consecutivi. Verifica che Ollama sia attivo e poi riprendi l'indicizzazione.`;
             console.error("[RAG]", lastError);
             stopRequested = true;
             break;
           }
+        } else {
+          consecutiveFailures = 0;
         }
 
-        // Thermal pause — keeps Ollama responsive
-        await delay(50);
       }
     }
   } finally {
@@ -202,7 +228,7 @@ export async function getPendingCount(): Promise<number> {
   const result = await db.select<{ cnt: number }[]>(
     `SELECT COUNT(*) as cnt FROM messages m
      JOIN accounts a ON a.id = m.account_id
-     LEFT JOIN message_embeddings me ON me.message_id = m.id AND me.account_id = m.account_id
+     LEFT JOIN message_embeddings me ON me.message_id = m.id AND me.account_id = m.account_id AND me.chunk_index = 0
      WHERE (me.message_id IS NULL OR me.model != $1)
        AND a.rag_enabled = 1
        AND m.account_id IS NOT NULL

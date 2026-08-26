@@ -1,4 +1,4 @@
-import { searchMessages, type SearchResult } from "@/services/db/search";
+import { searchMessages, getMessageExcerpts, type SearchResult } from "@/services/db/search";
 import { askInbox as callAskInbox } from "./aiService";
 import { getSetting } from "@/services/db/settings";
 import { getAccountRagEnabled, getRagEnabledAccountIds } from "@/services/db/accounts";
@@ -19,6 +19,7 @@ interface RustSearchHit {
   snippet: string | null;
   date: number;
   score: number;
+  chunk_text: string | null;
 }
 
 export function extractSearchTerms(question: string): string {
@@ -61,13 +62,23 @@ export function extractSearchTerms(question: string): string {
     .join(" ");
 }
 
+/** How many messages are retrieved before the answer is composed. */
+const RETRIEVAL_LIMIT = 20;
+
+/** How many of them are quoted into the model's context. */
+const CONTEXT_MESSAGES = 10;
+
+/** Characters of body text per context entry. */
+const CONTEXT_EXCERPT_CHARS = 1200;
+
 export interface AskInboxResult {
   answer: string;
   sourceMessages: SearchResult[];
 }
 
-function rustHitToSearchResult(h: RustSearchHit): SearchResult {
+function rustHitToSearchResult(h: RustSearchHit): SearchResult & { chunk_text?: string | null } {
   return {
+    chunk_text: h.chunk_text,
     message_id: h.message_id,
     account_id: h.account_id,
     thread_id: h.thread_id,
@@ -78,14 +89,6 @@ function rustHitToSearchResult(h: RustSearchHit): SearchResult {
     date: h.date,
     rank: h.score,
   };
-}
-
-function buildFtsQuery(terms: string): string {
-  // FTS5 trigram tokenizer treats "word1 word2" as a literal phrase (substring including space),
-  // so multi-word queries almost always return 0 results. Use explicit OR instead.
-  const words = terms.split(/\s+/).filter((w) => w.length >= 3);
-  if (words.length === 0) return terms;
-  return words.join(" OR ");
 }
 
 function pad(n: number): string {
@@ -128,6 +131,15 @@ export function extractDateConstraint(question: string): number | null {
   return null;
 }
 
+/** Retrieval settings shared by the FTS-only fallbacks in askMyInbox. */
+const RETRIEVAL_OPTIONS = (accountId: string | null) =>
+  ({
+    accountId: accountId ?? undefined,
+    limit: RETRIEVAL_LIMIT,
+    sort: "relevance" as const,
+    matchMode: "any" as const,
+  });
+
 export async function askMyInbox(
   question: string,
   accountId: string | null,
@@ -142,9 +154,11 @@ export async function askMyInbox(
     };
   }
 
-  const textQuery = terms.trim() ? buildFtsQuery(terms) : "";
+  // The extracted keywords are a guess, so they are matched with "any" (OR)
+  // rather than the search bar's "all" (AND) — a question that mentions one
+  // term the mail does not use must not zero the retrieval.
   const ftsQuery = [
-    textQuery,
+    terms.trim(),
     afterMs != null ? `after:${formatDate(new Date(afterMs))}` : null,
   ]
     .filter(Boolean)
@@ -164,7 +178,7 @@ export async function askMyInbox(
   const serverUrl = ragAccountIds.length > 0 ? await getSetting("ollama_server_url") : null;
   const embeddingModel = (await getSetting("embedding_model")) ?? "nomic-embed-text";
 
-  let results: SearchResult[];
+  let results: Array<SearchResult & { chunk_text?: string | null }>;
 
   if (serverUrl && ragAccountIds.length > 0) {
     // Generate query embedding from Ollama (still JS-side, network call)
@@ -191,10 +205,10 @@ export async function askMyInbox(
       results = hits.map(rustHitToSearchResult);
     } else {
       // Ollama unreachable — fall back to FTS silently
-      results = await searchMessages(ftsQuery, accountId ?? undefined, 15, true);
+      results = await searchMessages(ftsQuery, RETRIEVAL_OPTIONS(accountId));
     }
   } else {
-    results = await searchMessages(ftsQuery, accountId ?? undefined, 15, true);
+    results = await searchMessages(ftsQuery, RETRIEVAL_OPTIONS(accountId));
   }
 
   if (results.length === 0) {
@@ -207,7 +221,18 @@ export async function askMyInbox(
   // Short positional markers ("[#3]") instead of the raw message id: models
   // mangle 55-char ids (one dropped UUID character breaks every citation),
   // and the index maps straight back onto `sourceMessages`.
+  //
+  // The body — not the snippet — is what the model needs. The hybrid path
+  // already returns the passage whose embedding matched; everything else gets
+  // an excerpt pulled from the message here.
+  const needExcerpt = results
+    .filter((r) => !r.chunk_text)
+    .slice(0, CONTEXT_MESSAGES)
+    .map((r) => ({ accountId: r.account_id, messageId: r.message_id }));
+  const excerpts = await getMessageExcerpts(needExcerpt, CONTEXT_EXCERPT_CHARS);
+
   const context = results
+    .slice(0, CONTEXT_MESSAGES)
     .map((r, i) => {
       const date = new Date(r.date).toLocaleDateString("en-US", {
         month: "short",
@@ -217,7 +242,12 @@ export async function askMyInbox(
       const from = r.from_name
         ? `${r.from_name} <${r.from_address}>`
         : (r.from_address ?? "Unknown");
-      return `[#${i + 1}]\nFrom: ${from}\nDate: ${date}\nSubject: ${r.subject ?? "(no subject)"}\nPreview: ${r.snippet ?? ""}`;
+      const body =
+        r.chunk_text?.trim() ||
+        excerpts.get(r.message_id) ||
+        r.snippet ||
+        "";
+      return `[#${i + 1}]\nFrom: ${from}\nDate: ${date}\nSubject: ${r.subject ?? "(no subject)"}\nContent: ${body}`;
     })
     .join("\n---\n");
 

@@ -16,6 +16,103 @@ const MIGRATIONS = [
 
 
 // ---------------------------------------------------------------------------
+// FTS index rebuild
+// ---------------------------------------------------------------------------
+
+/**
+ * Recreate `messages_fts` (and its sync triggers) and repopulate it from the
+ * `messages` content table.
+ *
+ * `removeDiacritics` folds accents at index and query time, so "universita"
+ * finds "università". The option landed in SQLite 3.45 for the trigram
+ * tokenizer; on an older build the CREATE raises "unrecognized parameter",
+ * which is why the caller retries without it rather than letting startup fail.
+ */
+async function rebuildMessagesFts(
+  db: Awaited<ReturnType<typeof getDb>>,
+  removeDiacritics: boolean,
+): Promise<void> {
+  const tokenize = removeDiacritics ? "trigram remove_diacritics 1" : "trigram";
+
+  await db.execute("DROP TRIGGER IF EXISTS messages_ai");
+  await db.execute("DROP TRIGGER IF EXISTS messages_ad");
+  await db.execute("DROP TRIGGER IF EXISTS messages_au");
+  await db.execute("DROP TABLE IF EXISTS messages_fts");
+
+  await db.execute(`
+    CREATE VIRTUAL TABLE messages_fts USING fts5(
+      subject,
+      from_name,
+      from_address,
+      body_text,
+      snippet,
+      content='messages',
+      content_rowid='rowid',
+      tokenize='${tokenize}'
+    )
+  `);
+
+  await db.execute(`
+    CREATE TRIGGER messages_ai AFTER INSERT ON messages BEGIN
+      INSERT INTO messages_fts(rowid, subject, from_name, from_address, body_text, snippet)
+      VALUES (new.rowid, new.subject, new.from_name, new.from_address, new.body_text, new.snippet);
+    END
+  `);
+  await db.execute(`
+    CREATE TRIGGER messages_ad AFTER DELETE ON messages BEGIN
+      INSERT INTO messages_fts(messages_fts, rowid, subject, from_name, from_address, body_text, snippet)
+      VALUES ('delete', old.rowid, old.subject, old.from_name, old.from_address, old.body_text, old.snippet);
+    END
+  `);
+  await db.execute(`
+    CREATE TRIGGER messages_au AFTER UPDATE ON messages BEGIN
+      INSERT INTO messages_fts(messages_fts, rowid, subject, from_name, from_address, body_text, snippet)
+      VALUES ('delete', old.rowid, old.subject, old.from_name, old.from_address, old.body_text, old.snippet);
+      INSERT INTO messages_fts(rowid, subject, from_name, from_address, body_text, snippet)
+      VALUES (new.rowid, new.subject, new.from_name, new.from_address, new.body_text, new.snippet);
+    END
+  `);
+
+  // Canonical repopulate for an external-content table.
+  await db.execute("INSERT INTO messages_fts(messages_fts) VALUES('rebuild')");
+}
+
+/**
+ * One-time upgrade of the search index to accent-insensitive matching.
+ *
+ * Runs as a post-migration repair rather than a numbered migration because a
+ * failure here must never block startup: the fallback leaves the index exactly
+ * as it was before, and search keeps working (accents included, as they were).
+ */
+async function upgradeFtsDiacritics(
+  db: Awaited<ReturnType<typeof getDb>>,
+): Promise<void> {
+  const flag = await db.select<{ value: string }[]>(
+    "SELECT value FROM settings WHERE key = 'fts_remove_diacritics_v1'",
+  );
+  if (flag.length > 0) return;
+
+  console.log("[search] Rebuilding FTS index with diacritics folding...");
+  try {
+    await rebuildMessagesFts(db, true);
+    console.log("[search] FTS index rebuilt (accent-insensitive).");
+  } catch (err) {
+    console.warn("[search] Diacritics-folding FTS unavailable on this SQLite build:", err);
+    try {
+      await rebuildMessagesFts(db, false);
+      console.log("[search] FTS index rebuilt (accent-sensitive fallback).");
+    } catch (err2) {
+      console.error("[search] FTS rebuild failed — search index left untouched:", err2);
+      return; // No flag: retry on the next startup.
+    }
+  }
+
+  await db.execute(
+    "INSERT OR REPLACE INTO settings (key, value) VALUES ('fts_remove_diacritics_v1', '1')",
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Post-migration data repair
 // ---------------------------------------------------------------------------
 
@@ -399,6 +496,9 @@ async function _runMigrations(): Promise<void> {
   }
 
   console.log("All migrations applied.");
+
+  // Search index: fold accents so "universita" finds "università".
+  await upgradeFtsDiacritics(db);
 
   // One-time repair: fix IMAP messages stored with date=0 (Unix epoch / January 1970).
   // Root cause: mail-parser's to_timestamp() returned 0 for malformed Date headers and

@@ -19,6 +19,10 @@ pub struct VectorSearchHit {
     pub snippet: Option<String>,
     pub date: i64,
     pub score: f32,
+    /// The passage whose embedding matched, when the hit came from the vector
+    /// arm. Feeding this to the answering model instead of the snippet is the
+    /// difference between quoting a subject line and quoting the actual text.
+    pub chunk_text: Option<String>,
 }
 
 #[allow(dead_code)]
@@ -101,7 +105,10 @@ pub async fn store_embedding(
     account_id: String,
     embedding: Vec<f32>,
     model: String,
+    chunk_index: Option<i64>,
+    chunk_text: Option<String>,
 ) -> Result<(), String> {
+    let chunk_index = chunk_index.unwrap_or(0);
     let db_path = get_db_path(&app)?;
 
     tokio::task::spawn_blocking(move || {
@@ -118,10 +125,12 @@ pub async fn store_embedding(
             .map_err(|e| e.to_string())?;
 
         if embedding.is_empty() {
-            // NULL sentinel: message has no embeddable content
+            // NULL sentinel: message has no embeddable content. Always written
+            // at chunk 0, the index the backfill's eligibility check keys on.
             conn.execute(
                 "INSERT OR REPLACE INTO message_embeddings \
-                 (message_id, account_id, embedding, model) VALUES (?1, ?2, NULL, ?3)",
+                 (message_id, account_id, chunk_index, chunk_text, embedding, model) \
+                 VALUES (?1, ?2, 0, NULL, NULL, ?3)",
                 rusqlite::params![message_id, account_id, model],
             )
             .map_err(|e| e.to_string())?;
@@ -132,8 +141,16 @@ pub async fn store_embedding(
                 .collect();
             conn.execute(
                 "INSERT OR REPLACE INTO message_embeddings \
-                 (message_id, account_id, embedding, model) VALUES (?1, ?2, ?3, ?4)",
-                rusqlite::params![message_id, account_id, bytes.as_slice(), model],
+                 (message_id, account_id, chunk_index, chunk_text, embedding, model) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                rusqlite::params![
+                    message_id,
+                    account_id,
+                    chunk_index,
+                    chunk_text,
+                    bytes.as_slice(),
+                    model
+                ],
             )
             .map_err(|e| e.to_string())?;
         }
@@ -177,9 +194,27 @@ pub async fn store_embedding(
 //     through to FTS-only results without panicking.
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Hard cap on in-memory blobs. Sized for the unified view (all accounts in
-// one scan): 20k × 768-dim f32 ≈ 60 MB transient.
-const MAX_VECTOR_ROWS: usize = 20_000;
+// Hard cap on the number of chunk vectors scanned in one query. Blobs are
+// streamed in batches rather than collected, so this bounds work, not RAM:
+// peak extra memory is one batch (VECTOR_BATCH_ROWS × 768 × 4 B ≈ 12 MB) plus
+// the per-message best-score map.
+const MAX_VECTOR_ROWS: usize = 200_000;
+
+// Rows pulled into memory at a time before being scored in parallel.
+const VECTOR_BATCH_ROWS: usize = 4_096;
+
+// Below this, scoring a batch in parallel costs more than it saves.
+const PARALLEL_THRESHOLD: usize = 256;
+
+// How many vector hits take part in the fusion. Rank-based fusion gives every
+// scanned message a non-zero score, so without a cutoff a vaguely-similar mail
+// at vector rank 900 still competes with a keyword hit.
+const VECTOR_FUSION_DEPTH: usize = 50;
+
+// The full-text arm is weighted above the vector arm in the fusion: when a
+// query does contain the words a mail actually uses, that is stronger evidence
+// than embedding proximity.
+const FTS_FUSION_WEIGHT: f64 = 1.3;
 
 const NOT_TRASH_SPAM_SQL: &str = "NOT EXISTS (
     SELECT 1 FROM thread_labels tl
@@ -286,7 +321,7 @@ pub async fn ask_inbox_rust(
         //
         // Scored result: sorted Vec<(message_id, cosine_score)>, descending.
 
-        let scored: Vec<(String, f32)> = if !query_embedding.is_empty() {
+        let scored: Vec<(String, f32, i64)> = if !query_embedding.is_empty() {
             vector_score(
                 &conn,
                 &account_ids,
@@ -302,15 +337,23 @@ pub async fn ask_inbox_rust(
 
         let mut rrf_total: HashMap<String, f64> = HashMap::new();
 
-        // Vector RRF ranks (already sorted descending by cosine score)
-        for (rank, (msg_id, _)) in scored.iter().enumerate() {
+        // Vector RRF ranks (already sorted descending by cosine score),
+        // truncated: rank-based fusion hands every scanned message a non-zero
+        // score, so an untruncated arm lets a barely-similar mail outrank a
+        // real keyword hit purely by being in the list.
+        // message_id → the chunk that matched, for the context fetch below.
+        let mut best_chunk: HashMap<String, i64> = HashMap::new();
+        for (rank, (msg_id, _, chunk_index)) in
+            scored.iter().take(VECTOR_FUSION_DEPTH).enumerate()
+        {
             *rrf_total.entry(msg_id.clone()).or_insert(0.0) +=
                 1.0 / (K + rank as f64 + 1.0);
+            best_chunk.insert(msg_id.clone(), *chunk_index);
         }
 
-        // FTS RRF
+        // FTS RRF, weighted above the vector arm.
         for (msg_id, rrf) in &fts_rrf {
-            *rrf_total.entry(msg_id.clone()).or_insert(0.0) += rrf;
+            *rrf_total.entry(msg_id.clone()).or_insert(0.0) += rrf * FTS_FUSION_WEIGHT;
         }
 
         let mut ranked: Vec<(String, f64)> = rrf_total.into_iter().collect();
@@ -369,6 +412,59 @@ pub async fn ask_inbox_rust(
             }
         }
 
+        // ── Step 4b: Fetch the matched passage for the top IDs ──────────────
+        //
+        // Only for the handful of results being returned: chunk_text is up to
+        // ~1.5 KB a row, far too much to carry through the whole scan.
+
+        let mut chunk_map: HashMap<String, String> = HashMap::new();
+        let chunk_ids: Vec<&String> = top_ids
+            .iter()
+            .filter(|id| best_chunk.contains_key(*id))
+            .collect();
+
+        if !chunk_ids.is_empty() {
+            let chunk_sql = format!(
+                "SELECT me.message_id, me.chunk_index, me.chunk_text
+                 FROM message_embeddings me
+                 WHERE me.message_id IN ({}) AND me.account_id IN ({})
+                   AND me.chunk_text IS NOT NULL",
+                in_placeholders(chunk_ids.len()),
+                in_placeholders(account_ids.len()),
+            );
+            let chunk_params: Vec<rusqlite::types::Value> = chunk_ids
+                .iter()
+                .map(|s| rusqlite::types::Value::Text((*s).clone()))
+                .chain(
+                    account_ids
+                        .iter()
+                        .map(|s| rusqlite::types::Value::Text(s.clone())),
+                )
+                .collect();
+
+            if let Ok(mut chunk_stmt) = conn.prepare(&chunk_sql) {
+                if let Ok(rows) = chunk_stmt.query_map(
+                    rusqlite::params_from_iter(chunk_params),
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, i64>(1)?,
+                            row.get::<_, Option<String>>(2)?,
+                        ))
+                    },
+                ) {
+                    // The wanted chunk index differs per message, so the match
+                    // happens here rather than in the WHERE clause.
+                    for (msg_id, chunk_index, text) in rows.flatten() {
+                        let Some(text) = text else { continue };
+                        if best_chunk.get(&msg_id) == Some(&chunk_index) {
+                            chunk_map.insert(msg_id, text);
+                        }
+                    }
+                }
+            }
+        }
+
         // ── Step 5: Build result list ────────────────────────────────────────
 
         let hits: Vec<VectorSearchHit> = ranked
@@ -390,6 +486,7 @@ pub async fn ask_inbox_rust(
                         snippet: snip.clone(),
                         date: *date,
                         score: score as f32,
+                        chunk_text: chunk_map.get(&msg_id).cloned(),
                     })
                 } else if let Some((acct, thread, subj, fname, faddr, snip, date)) =
                     fts_meta.get(&msg_id)
@@ -404,6 +501,7 @@ pub async fn ask_inbox_rust(
                         snippet: snip.clone(),
                         date: *date,
                         score: score as f32,
+                        chunk_text: chunk_map.get(&msg_id).cloned(),
                     })
                 } else {
                     None
@@ -420,17 +518,15 @@ pub async fn ask_inbox_rust(
 // ─────────────────────────────────────────────────────────────────────────────
 // vector_score — internal helper
 //
-// Returns a Vec<(message_id, cosine_score)> sorted descending by score.
+// Returns Vec<(message_id, best_cosine, best_chunk_index)> sorted descending by
+// score — one entry per message, not per chunk. Embeddings are stored per
+// passage now, so several rows can belong to the same mail; the best-matching
+// passage is what represents it.
 //
-// Two paths:
-//   ≤ 1000 indexed rows  →  stream lazily (true one-row-at-a-time iteration).
-//                           Peak extra RAM: one blob at a time + a rolling
-//                           top-K buffer of (score, message_id).
-//   > 1000 indexed rows  →  collect only (message_id, blob) bytes (no full
-//                           metadata), then compute in parallel with rayon.
-//
-// Both paths cap the scan at MAX_VECTOR_ROWS (10k) so a huge mailbox cannot
-// OOM the process.
+// Rows are streamed in batches of VECTOR_BATCH_ROWS and scored with rayon,
+// which keeps peak memory at one batch of blobs regardless of mailbox size —
+// the previous "collect everything, then par_iter" path scaled its RAM with
+// the index and had to be capped at 20k rows to stay safe.
 // ─────────────────────────────────────────────────────────────────────────────
 
 fn vector_score(
@@ -439,41 +535,15 @@ fn vector_score(
     query_embedding: &[f32],
     model: Option<&str>,
     after_ms: Option<i64>,
-) -> Result<Vec<(String, f32)>, String> {
+) -> Result<Vec<(String, f32, i64)>, String> {
     let acct_in = in_placeholders(account_ids.len());
     let model_clause = if model.is_some() { "AND me.model = ?" } else { "" };
-
-    // Quick count — decides which path to take. Kept join-free (embeddings
-    // table only) since it's a heuristic, not a correctness gate.
-    let count_sql = format!(
-        "SELECT COUNT(*) FROM message_embeddings me
-         WHERE me.account_id IN ({acct_in})
-           AND me.embedding IS NOT NULL
-           AND length(me.embedding) > 0
-           {model_clause}",
-    );
-    let mut count_params: Vec<rusqlite::types::Value> = account_ids
-        .iter()
-        .map(|id| rusqlite::types::Value::Text(id.clone()))
-        .collect();
-    if let Some(m) = model {
-        count_params.push(rusqlite::types::Value::Text(m.to_string()));
-    }
-    let count: i64 = conn
-        .query_row(&count_sql, rusqlite::params_from_iter(count_params), |row| {
-            row.get(0)
-        })
-        .map_err(|e| e.to_string())?;
-
-    if count == 0 {
-        return Ok(vec![]);
-    }
 
     // The embed scan: joined to messages so SPAM/TRASH threads and messages
     // outside the optional date window are excluded at query time.
     // Ordered by recency, capped at MAX_VECTOR_ROWS.
     let embed_sql = format!(
-        "SELECT me.message_id, me.embedding
+        "SELECT me.message_id, me.chunk_index, me.embedding
          FROM message_embeddings me
          JOIN messages m ON m.id = me.message_id AND m.account_id = me.account_id
          WHERE me.account_id IN ({acct_in})
@@ -499,49 +569,75 @@ fn vector_score(
     }
     embed_params.push(rusqlite::types::Value::Integer(MAX_VECTOR_ROWS as i64));
 
-    let mut scored: Vec<(String, f32)> = if count as usize <= 1000 {
-        // ── Sequential lazy path ──────────────────────────────────────────
-        // Processes one row at a time without ever collecting all blobs.
-        let mut stmt = conn.prepare(&embed_sql).map_err(|e| e.to_string())?;
-        let rows = stmt
-            .query_map(rusqlite::params_from_iter(embed_params), |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, Vec<u8>>(1)?))
-            })
-            .map_err(|e| e.to_string())?;
+    let mut stmt = conn.prepare(&embed_sql).map_err(|e| e.to_string())?;
+    let rows = stmt
+        .query_map(rusqlite::params_from_iter(embed_params), |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, Vec<u8>>(2)?,
+            ))
+        })
+        .map_err(|e| e.to_string())?;
 
-        let mut out = Vec::new();
-        for row in rows.flatten() {
-            let (msg_id, blob) = row;
-            let emb = blob_to_f32(&blob);
-            if emb.is_empty() {
-                continue; // corrupt/wrong-length blob — skip silently
-            }
-            out.push((msg_id, cosine_similarity(query_embedding, &emb)));
+    // message_id → (best score, chunk index of that score)
+    let mut best: HashMap<String, (f32, i64)> = HashMap::new();
+    let mut batch: Vec<(String, i64, Vec<u8>)> = Vec::with_capacity(VECTOR_BATCH_ROWS);
+
+    let absorb = |batch: &mut Vec<(String, i64, Vec<u8>)>,
+                      best: &mut HashMap<String, (f32, i64)>| {
+        if batch.is_empty() {
+            return;
         }
-        out
-    } else {
-        // ── Rayon parallel path ───────────────────────────────────────────
-        // Collect only (message_id, blob) — metadata stays out of RAM.
-        let mut stmt = conn.prepare(&embed_sql).map_err(|e| e.to_string())?;
-        let raw: Vec<(String, Vec<u8>)> = stmt
-            .query_map(rusqlite::params_from_iter(embed_params), |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, Vec<u8>>(1)?))
-            })
-            .map_err(|e| e.to_string())?
-            .flatten()
-            .collect();
+        let scored: Vec<(String, i64, f32)> = if batch.len() >= PARALLEL_THRESHOLD {
+            use rayon::prelude::*;
+            batch
+                .par_iter()
+                .filter_map(|(msg_id, chunk, blob)| {
+                    let emb = blob_to_f32(blob);
+                    if emb.is_empty() {
+                        return None; // corrupt blob — skip
+                    }
+                    Some((msg_id.clone(), *chunk, cosine_similarity(query_embedding, &emb)))
+                })
+                .collect()
+        } else {
+            batch
+                .iter()
+                .filter_map(|(msg_id, chunk, blob)| {
+                    let emb = blob_to_f32(blob);
+                    if emb.is_empty() {
+                        return None;
+                    }
+                    Some((msg_id.clone(), *chunk, cosine_similarity(query_embedding, &emb)))
+                })
+                .collect()
+        };
 
-        use rayon::prelude::*;
-        raw.par_iter()
-            .filter_map(|(msg_id, blob)| {
-                let emb = blob_to_f32(blob);
-                if emb.is_empty() {
-                    return None; // corrupt blob — skip
+        for (msg_id, chunk, score) in scored {
+            match best.get_mut(&msg_id) {
+                Some(entry) if entry.0 >= score => {}
+                Some(entry) => *entry = (score, chunk),
+                None => {
+                    best.insert(msg_id, (score, chunk));
                 }
-                Some((msg_id.clone(), cosine_similarity(query_embedding, &emb)))
-            })
-            .collect()
+            }
+        }
+        batch.clear();
     };
+
+    for row in rows.flatten() {
+        batch.push(row);
+        if batch.len() >= VECTOR_BATCH_ROWS {
+            absorb(&mut batch, &mut best);
+        }
+    }
+    absorb(&mut batch, &mut best);
+
+    let mut scored: Vec<(String, f32, i64)> = best
+        .into_iter()
+        .map(|(msg_id, (score, chunk))| (msg_id, score, chunk))
+        .collect();
 
     scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
     Ok(scored)

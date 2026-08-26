@@ -14,6 +14,8 @@ import type { DragData } from "@/components/dnd/DndProvider";
 import { t } from "@/i18n";
 import { useContactsStore } from "@/stores/contactsStore";
 import { useContextMenuStore } from "@/stores/contextMenuStore";
+import { HighlightedText } from "@/components/search/HighlightedText";
+import { highlightTermsFor } from "@/services/search/ftsQuery";
 
 const CATEGORY_COLORS: Record<string, string> = {
   Updates: "bg-yellow-500/15 text-yellow-600 dark:text-yellow-400",
@@ -34,6 +36,15 @@ interface ThreadCardProps {
 
 export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick, onContextMenu, category, showCategoryBadge, hasFollowUp }: ThreadCardProps) {
   const isMultiSelected = useThreadStore((s) => s.selectedThreadIds.has(thread.id));
+  // Only while a search is actually showing results — the raw query string
+  // alone would light up terms in the normal folder listing as the user types.
+  const searchTermSource = useThreadStore((s) =>
+    s.searchResults !== null ? s.searchQuery : "",
+  );
+  const highlightTerms = useMemo(
+    () => (searchTermSource ? highlightTermsFor(searchTermSource) : []),
+    [searchTermSource],
+  );
   const hasMultiSelect = useThreadStore((s) => s.selectedThreadIds.size > 0);
   // Highlight the thread whose context menu is currently open, so it's clear which
   // thread the right-click action targets. Narrow selector → only the active card re-renders.
@@ -227,13 +238,19 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
               thread.isRead ? "text-text-secondary" : "text-text-primary"
             }`}
           >
-            {thread.subject ?? t("threadCard.noSubject")}
+            <HighlightedText
+              text={thread.subject ?? t("threadCard.noSubject")}
+              terms={highlightTerms}
+            />
           </div>
 
           {/* Snippet + indicators */}
           <div className={`flex items-center gap-1.5 mt-0.5 ${emailDensity === "compact" ? "hidden" : ""}`}>
             <span className="text-xs text-text-tertiary truncate flex-1">
-              {decodeHtml(thread.snippet ?? "")}
+              <HighlightedText
+                text={decodeHtml(thread.snippet ?? "")}
+                terms={highlightTerms}
+              />
             </span>
             {showCategoryBadge && category && category !== "Primary" && CATEGORY_COLORS[category] && (
               <span className={`shrink-0 text-[0.625rem] px-1.5 rounded-full leading-normal ${CATEGORY_COLORS[category]}`}>

@@ -938,7 +938,9 @@
     "composeNew": "Compose new email",
     "saveAsSmartFolder": "Save as Smart Folder",
     "editSmartFolder": "Edit Smart Folder",
-    "clearSearch": "Clear search"
+    "clearSearch": "Clear search",
+    "sortByRelevance": "Sort by relevance",
+    "sortByDate": "Sort by date"
   },
   "ui": {
     "transfer": {

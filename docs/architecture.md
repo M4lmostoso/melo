@@ -30,7 +30,7 @@ Melo follows a **three-layer architecture** with clear separation of concerns.
 | **Editor** | TipTap v3 |
 | **Backend** | Rust |
 | **Database** | SQLite (via tauri-plugin-sql) |
-| **Search** | FTS5 with trigram tokenizer |
+| **Search** | FTS5, trigram tokenizer with diacritics folding; weighted BM25 ranking |
 | **AI** | Anthropic Claude, OpenAI GPT, Google Gemini, Ollama (local), GitHub Copilot (user-selectable models per provider) |
 | **Icons** | Lucide React |
 | **Drag & Drop** | @dnd-kit |
@@ -154,7 +154,7 @@ All business logic lives in `src/services/` as plain async functions (except `Gm
 
 | Service | Description |
 |---------|-------------|
-| `db/` | SQLite queries, migrations (69 versions), FTS5 search |
+| `db/` | SQLite queries, migrations (72 versions), FTS5 search |
 | `email/` | EmailProvider abstraction, provider factory, Gmail/IMAP adapters |
 | `gmail/` | Gmail client, token management, sync engine |
 | `imap/` | IMAP sync, folder-to-label mapping, auto-discovery, Tauri command wrappers |

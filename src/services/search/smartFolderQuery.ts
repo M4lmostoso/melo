@@ -70,7 +70,16 @@ export function getSmartFolderSearchQuery(
   const resolved = resolveQueryTokens(rawQuery);
   const parsed = parseSearchQuery(resolved);
   const excludeSystem = !parsed.label || !["trash", "spam"].includes(parsed.label.toLowerCase());
-  return buildSearchQuery(parsed, accountId, limit ?? 50, excludeSystem);
+  const { sql, params } = buildSearchQuery(parsed, {
+    accountId,
+    limit: limit ?? 50,
+    excludeSystemLabels: excludeSystem,
+    // A smart folder is a saved *view*, so it reads chronologically like a
+    // folder rather than by relevance, and shows one row per conversation.
+    sort: "date",
+    groupByThread: true,
+  });
+  return { sql, params };
 }
 
 /**
@@ -87,18 +96,19 @@ export function getSmartFolderUnreadCount(
   // Force unread filter
   const withUnread = { ...parsed, isUnread: true };
   const excludeSystem = !parsed.label || !["trash", "spam"].includes(parsed.label.toLowerCase());
-  const { sql: baseSql, params } = buildSearchQuery(withUnread, accountId, 999999, excludeSystem);
 
-  // Replace SELECT ... FROM with SELECT COUNT(DISTINCT thread_id) FROM and remove LIMIT
-  const countSql = baseSql
-    .replace(/SELECT DISTINCT[\s\S]*?(?=\bFROM\s)/i, "SELECT COUNT(DISTINCT m.thread_id) as count ")
-    .replace(/ORDER BY[\s\S]*?(?=LIMIT|$)/i, "")
-    .replace(/LIMIT \$\d+/i, "");
+  // Compose the COUNT from the builder's own FROM/WHERE fragments. Rewriting
+  // the generated SELECT with regexes used to work only as long as the query
+  // shape never changed — it now wraps its scoring in a CTE.
+  const { fromSql, whereSql, whereParams } = buildSearchQuery(withUnread, {
+    accountId,
+    excludeSystemLabels: excludeSystem,
+  });
 
-  // Remove the last param (which was the limit)
-  const countParams = params.slice(0, -1);
-
-  return { sql: countSql, params: countParams };
+  return {
+    sql: `SELECT COUNT(DISTINCT m.thread_id) as count ${fromSql} ${whereSql}`,
+    params: whereParams,
+  };
 }
 
 export interface SmartFolderRow {
