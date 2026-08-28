@@ -22,6 +22,18 @@ const IV_LENGTH = 12;
 const FS_OPTIONS = { baseDir: BaseDirectory.AppData };
 
 let cachedKey: CryptoKey | null = null;
+/**
+ * In-flight key load, shared by every concurrent caller.
+ *
+ * `cachedKey` alone is not enough: it is only assigned once the load has fully
+ * resolved, so a burst of concurrent callers — `getAllAccounts()` decrypts all
+ * accounts through `Promise.all`, three secrets each — all miss the cache and
+ * each fire their own keychain round trip. On macOS those serialize inside
+ * securityd, which turned account loading into a 20s+ startup stall (and, when
+ * the keychain needed attention, a splash screen that never went away).
+ * Caching the promise collapses the stampede to a single read per process.
+ */
+let keyLoad: Promise<CryptoKey> | null = null;
 
 function base64Encode(bytes: Uint8Array): string {
   let binary = "";
@@ -135,19 +147,31 @@ async function loadOrCreateRawKey(): Promise<string> {
 
 async function getOrCreateKey(): Promise<CryptoKey> {
   if (cachedKey) return cachedKey;
+  if (keyLoad) return keyLoad;
 
-  const rawKeyB64 = await loadOrCreateRawKey();
+  keyLoad = (async () => {
+    const rawKeyB64 = await loadOrCreateRawKey();
 
-  const rawKey = base64Decode(rawKeyB64);
-  cachedKey = await crypto.subtle.importKey(
-    "raw",
-    asBufferSource(rawKey),
-    { name: ALGORITHM },
-    false,
-    ["encrypt", "decrypt"],
-  );
+    const rawKey = base64Decode(rawKeyB64);
+    cachedKey = await crypto.subtle.importKey(
+      "raw",
+      asBufferSource(rawKey),
+      { name: ALGORITHM },
+      false,
+      ["encrypt", "decrypt"],
+    );
 
-  return cachedKey;
+    return cachedKey;
+  })();
+
+  try {
+    return await keyLoad;
+  } catch (err) {
+    // Never cache a failure: a transient keychain error must not poison every
+    // later decrypt for the lifetime of the window.
+    keyLoad = null;
+    throw err;
+  }
 }
 
 /**

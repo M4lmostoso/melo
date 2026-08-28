@@ -53,6 +53,17 @@ fn close_splashscreen(app: tauri::AppHandle) {
     }
 }
 
+/// Frontend-side startup breadcrumbs.
+///
+/// The webview console never reaches `Melo.log`, so a startup that stalls
+/// between two awaits in `App.tsx` leaves no trace at all — the log simply ends
+/// after the last Rust call and the splash screen stays up forever. Routing the
+/// startup stages through here makes the stall point visible post-mortem.
+#[tauri::command]
+fn log_startup_stage(stage: String) {
+    log::info!("[startup] {stage}");
+}
+
 #[tauri::command]
 fn set_tray_tooltip(app: tauri::AppHandle, tooltip: String) -> Result<(), String> {
     #[cfg(not(target_os = "linux"))]
@@ -407,6 +418,7 @@ pub fn run() {
             set_tray_badge,
             set_tray_icon_style,
             close_splashscreen,
+            log_startup_stage,
             open_devtools,
             commands::imap_test_connection,
             commands::imap_list_folders,
@@ -478,6 +490,13 @@ pub fn run() {
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()
                         .level(level)
+                        // The plugin default keeps a single 40 KB file, which a
+                        // few sync cycles overwrite in under a minute — by the
+                        // time a startup problem is reported, the startup lines
+                        // are long gone. Keep enough history to diagnose one.
+                        .max_file_size(5_000_000)
+                        .rotation_strategy(tauri_plugin_log::RotationStrategy::KeepSome(3))
+                        .timezone_strategy(tauri_plugin_log::TimezoneStrategy::UseLocal)
                         .level_for("sqlx::query", log::LevelFilter::Warn)
                         .level_for("hyper_util", log::LevelFilter::Warn)
                         .level_for("hyper", log::LevelFilter::Warn)

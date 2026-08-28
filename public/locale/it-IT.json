@@ -1,4 +1,8 @@
 {
+  "app": {
+    "loadingInbox": "Caricamento della posta...",
+    "startupSlow": "Ancora in “{stage}” — sta impiegando più del solito."
+  },
   "date": {
     "today": "Oggi",
     "yesterday": "Ieri"

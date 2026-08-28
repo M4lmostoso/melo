@@ -127,6 +127,13 @@ import {
 import { runUrgencyBackfill, runExtinguishBackfill } from "./services/ai/urgencyPipeline";
 
 /**
+ * How long startup may hold the splash screen before the main window takes
+ * over. Well past a cold start on a large mailbox (~5s here), short enough that
+ * a genuine hang doesn't read as a dead app.
+ */
+const SPLASH_WATCHDOG_MS = 20_000;
+
+/**
  * Sync bridge: subscribes to router state changes and writes the selected
  * thread ID to the threadStore so that range-select and other multi-select
  * logic can use it as an anchor.
@@ -194,6 +201,8 @@ export default function App() {
   const [showAddAccount, setShowAddAccount] = useState(false);
   const [initialized, setInitialized] = useState(false);
   const [migrationError, setMigrationError] = useState<string | null>(null);
+  const [startupStage, setStartupStage] = useState<string | null>(null);
+  const [startupSlow, setStartupSlow] = useState(false);
   const [syncStatus, setSyncStatus] = useState<string | null>(null);
   const [showCommandPalette, setShowCommandPalette] = useState(false);
   const [showShortcutsHelp, setShowShortcutsHelp] = useState(false);
@@ -706,7 +715,31 @@ export default function App() {
   // Initialize database, load accounts, start sync
   useEffect(() => {
     async function init() {
+      // Startup breadcrumbs. The webview console never reaches Melo.log, so a
+      // stall between two awaits below used to be completely invisible: the log
+      // just stopped and the splash screen stayed up forever.
+      let stage = "boot";
+      const mark = (next: string) => {
+        stage = next;
+        setStartupStage(next);
+        invoke("log_startup_stage", { stage: next }).catch(() => {});
+      };
+
+      // Watchdog. Every await here is a potential hang (a network call with no
+      // timeout, a DB lock held by another window), and a hung splash screen
+      // locks the user out of an app whose data is entirely local. When init
+      // overruns, hand over to the main window: its loading state names the
+      // stage that is stuck and the rest of init keeps running behind it.
+      const watchdog = setTimeout(() => {
+        invoke("log_startup_stage", {
+          stage: `WATCHDOG: still in "${stage}" after ${SPLASH_WATCHDOG_MS}ms — showing main window`,
+        }).catch(() => {});
+        setStartupSlow(true);
+        invoke("close_splashscreen").catch(() => {});
+      }, SPLASH_WATCHDOG_MS);
+
       try {
+        mark("migrations");
         try {
           await runMigrations();
         } catch (migErr) {
@@ -714,28 +747,18 @@ export default function App() {
           // and possible data corruption — block with a repair screen instead.
           console.error("Migration failed — blocking startup:", migErr);
           setMigrationError(migErr instanceof Error ? (migErr.stack ?? migErr.message) : String(migErr));
+          clearTimeout(watchdog);
           invoke("close_splashscreen").catch(() => {});
           return;
         }
         // Awaited on purpose: until legacy rows carry their content-derived id, a
         // sync that re-imports one of them can't recognise it and would store a
         // duplicate. One-shot and a no-op on every later start.
+        mark("repair-synthetic-message-ids");
         await repairSyntheticMessageIds().catch((err) =>
           console.error("[repair] synthetic Message-IDs:", err),
         );
-        repairMojibakeData().catch((err) =>
-          console.error("[App] mojibake repair failed:", err),
-        );
-        import("./services/db/messages").then(({ purgeGhostDrafts }) =>
-          purgeGhostDrafts().catch((err) =>
-            console.error("[App] purgeGhostDrafts failed:", err),
-          ),
-        );
-        // Clear leftover files materialized for attachment drag-out/open in a prior session.
-        import("./services/attachments/attachmentActions").then(({ cleanupDragTemp }) =>
-          cleanupDragTemp().catch(() => {}),
-        );
-
+        mark("settings");
         const ui = useUIStore.getState();
 
         // Restore persisted theme
@@ -925,11 +948,13 @@ export default function App() {
         }
 
         // Load custom keyboard shortcuts
+        mark("shortcuts");
         await useShortcutStore.getState().loadKeyMap();
 
         // Load contacts display-name cache
         useContactsStore.getState().loadContacts().catch(console.error);
 
+        mark("accounts");
         const dbAccounts = await getAllAccounts();
         const mapped = dbAccounts.map((a) => ({
           id: a.id,
@@ -952,9 +977,11 @@ export default function App() {
         useAccountStore.getState().setAccounts(mapped, savedAccountId);
 
 // Initialize Gmail clients for existing accounts
+         mark("gmail-clients");
          await initializeClients();
 
          // Load SOUL.md for AI personality
+         mark("soul");
          await loadSoul();
          startSoulWatcher().catch(console.error);
 
@@ -963,19 +990,25 @@ export default function App() {
         const gmailAccountIds = mapped
           .filter((a) => a.isActive && a.provider === "gmail_api")
           .map((a) => a.id);
-        for (const accountId of gmailAccountIds) {
-          try {
-            const client = await getGmailClient(accountId);
-            await fetchSendAsAliases(client, accountId);
-          } catch (err) {
-            console.warn(
-              `Failed to fetch send-as aliases for ${accountId}:`,
-              err,
-            );
+        // Deliberately NOT awaited: this is a network round-trip per account
+        // with no timeout, and it sat between the user and a usable window.
+        // Aliases only matter once a composer opens, long after startup.
+        void (async () => {
+          for (const accountId of gmailAccountIds) {
+            try {
+              const client = await getGmailClient(accountId);
+              await fetchSendAsAliases(client, accountId);
+            } catch (err) {
+              console.warn(
+                `Failed to fetch send-as aliases for ${accountId}:`,
+                err,
+              );
+            }
           }
-        }
+        })();
 
         // Start background sync for active accounts
+        mark("sync-start");
         if (activeIds.length > 0) {
           startBackgroundSync(activeIds);
           // Push-mode IDLE for IMAP accounts (no-op for Gmail-API accounts)
@@ -1014,6 +1047,7 @@ export default function App() {
 
         // Recover operations interrupted by a crash/quit BEFORE the checkers start,
         // so stuck 'executing'/'sending'/'undo' rows are resolved exactly once.
+        mark("queue-recovery");
         try {
           const { recoverInterruptedOperations } = await import("./services/queue/queueRecovery");
           await recoverInterruptedOperations();
@@ -1021,6 +1055,7 @@ export default function App() {
           console.error("[App] Interrupted-operation recovery failed:", err);
         }
 
+        mark("checkers");
         startSnoozeChecker();
         startScheduledSendChecker();
         startFollowUpChecker();
@@ -1031,6 +1066,7 @@ export default function App() {
         startPreCacheManager();
 
         // Initialize notifications
+        mark("notifications");
         await initNotifications();
 
         // Initialize global compose shortcut
@@ -1040,6 +1076,7 @@ export default function App() {
         deepLinkCleanupRef.current = await initDeepLinkHandler();
 
         // Initial badge count
+        mark("badges");
         await updateBadgeCount();
 
         // Load initial task badge counts (active + overdue per account)
@@ -1061,11 +1098,35 @@ export default function App() {
         runExtinguishBackfill().catch(() => {});
       } catch (err) {
         console.error("Failed to initialize:", err);
+        invoke("log_startup_stage", {
+          stage: `FAILED in "${stage}": ${err instanceof Error ? err.message : String(err)}`,
+        }).catch(() => {});
       }
+      clearTimeout(watchdog);
+      mark("ready");
+      setStartupSlow(false);
       setInitialized(true);
       invoke("close_splashscreen").catch(() => {});
+
+      // Background housekeeping, deliberately started only once the window is
+      // up. These are full scans of a mailbox that can run to gigabytes, and
+      // the SQL plugin hands out one pooled connection at a time — launched
+      // before the UI they starve the pool, and startup would sit for tens of
+      // seconds on a single-row `getSetting` queued behind them.
       repairHasAttachmentsFlags().catch((err) =>
         console.error("[repair] has_attachments flags:", err),
+      );
+      repairMojibakeData().catch((err) =>
+        console.error("[App] mojibake repair failed:", err),
+      );
+      import("./services/db/messages").then(({ purgeGhostDrafts }) =>
+        purgeGhostDrafts().catch((err) =>
+          console.error("[App] purgeGhostDrafts failed:", err),
+        ),
+      );
+      // Clear leftover files materialized for attachment drag-out/open in a prior session.
+      import("./services/attachments/attachmentActions").then(({ cleanupDragTemp }) =>
+        cleanupDragTemp().catch(() => {}),
       );
     }
 
@@ -1331,8 +1392,13 @@ export default function App() {
             <div className="absolute inset-0 rounded-full border-2 border-transparent border-t-accent animate-spin" />
           </div>
           <span className="text-xs text-text-tertiary animate-pulse">
-            Loading your inbox...
+            {t("app.loadingInbox")}
           </span>
+          {startupSlow && (
+            <span className="text-[11px] text-text-tertiary/70">
+              {t("app.startupSlow", { stage: startupStage ?? "?" })}
+            </span>
+          )}
         </div>
       </div>
     );
