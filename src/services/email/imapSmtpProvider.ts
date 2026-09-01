@@ -897,6 +897,38 @@ export class ImapSmtpProvider implements EmailProvider {
     }
   }
 
+  /**
+   * Did the SMTP server already put this message in the Sent folder? Returns
+   * its UID, or 0 if the copy is not there and we have to APPEND it ourselves.
+   *
+   * A server that files the copy commits it inside the SMTP transaction, so by
+   * the time we hold a 250 one immediate search settles it — no delay, no
+   * retry, nothing added to the send path of servers that file nothing. A
+   * failed search returns 0: a duplicate in Sent is annoying, a sent message
+   * with no copy anywhere is not recoverable.
+   */
+  private async findServerSentCopy(
+    imapConfig: ImapConfig,
+    sentFolder: string,
+    rawBase64Url: string,
+  ): Promise<number> {
+    const raw = base64UrlDecode(rawBase64Url);
+    const rfcId = raw.match(/^message-id:\s*<?([^>\r\n]+)>?/im)?.[1]?.trim();
+    if (!rfcId) return 0;
+
+    try {
+      const uids = await imapSearchMessageId(imapConfig, sentFolder, rfcId);
+      if (uids.length > 0) {
+        const uid = Math.max(...uids);
+        console.log(`[imap_] send: server already filed the Sent copy (uid=${uid}) — no APPEND`);
+        return uid;
+      }
+    } catch (err) {
+      console.warn("[IMAP] Sent-folder probe failed before APPEND:", err);
+    }
+    return 0;
+  }
+
   async sendMessage(
     rawBase64Url: string,
     _threadId?: string,
@@ -921,7 +953,15 @@ export class ImapSmtpProvider implements EmailProvider {
       const imapConfig = await this.getImapConfig();
       const sentFolder =
         (await findSpecialFolder(this.accountId, "\\Sent")) ?? "Sent";
-      const uid = await imapAppendMessage(imapConfig, sentFolder, rawBase64Url, "(\\Seen)");
+      // Many SMTP servers file the Sent copy themselves (DavMail/Exchange with
+      // davmail.smtpSaveInSent, most webmail relays). APPENDing on top of that
+      // puts a SECOND copy in the server's Sent folder — invisible in Melo,
+      // because the local row de-dupes by Message-ID, but every sent message
+      // shows up twice in Outlook/OWA. So look before appending.
+      let uid = await this.findServerSentCopy(imapConfig, sentFolder, rawBase64Url);
+      if (uid === 0) {
+        uid = await imapAppendMessage(imapConfig, sentFolder, rawBase64Url, "(\\Seen)");
+      }
       if (uid > 0) {
         messageId = `imap-${this.accountId}-${sentFolder}-${uid}`;
         // Save locally with the real IMAP UID so the message appears in Sent

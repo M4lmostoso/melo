@@ -613,6 +613,42 @@ describe("ImapSmtpProvider", () => {
       expect(result.sentCopyDurable).toBe(true);
       expect(enqueuePendingOperation).not.toHaveBeenCalled();
     });
+
+    // DavMail (davmail.smtpSaveInSent) and most webmail relays file the Sent
+    // copy themselves. APPENDing on top of that left EVERY sent message sitting
+    // twice in the server's Sent folder — invisible in Melo, plain as day in
+    // Outlook/OWA.
+    it("adopts the copy the SMTP server already filed instead of appending a second one", async () => {
+      vi.mocked(smtpSendEmail).mockResolvedValue({ success: true, message: "OK" });
+      vi.mocked(findSpecialFolder).mockResolvedValue("Sent");
+      vi.mocked(imapSearchMessageId).mockResolvedValue([4242]);
+
+      const result = await provider.sendMessage(rawBase64Url);
+
+      expect(imapSearchMessageId).toHaveBeenCalledWith(
+        expect.anything(),
+        "Sent",
+        "test123@example.com",
+      );
+      expect(imapAppendMessage).not.toHaveBeenCalled();
+      expect(result.id).toBe("imap-acc-1-Sent-4242");
+      expect(upsertMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ imapUid: 4242, imapFolder: "Sent" }),
+      );
+      expect(result.sentCopyDurable).toBe(true);
+    });
+
+    it("still appends when the server filed nothing", async () => {
+      vi.mocked(smtpSendEmail).mockResolvedValue({ success: true, message: "OK" });
+      vi.mocked(findSpecialFolder).mockResolvedValue("Sent");
+      vi.mocked(imapSearchMessageId).mockResolvedValue([]);
+      vi.mocked(imapAppendMessage).mockResolvedValue(100);
+
+      const result = await provider.sendMessage(rawBase64Url);
+
+      expect(imapAppendMessage).toHaveBeenCalled();
+      expect(result.id).toBe("imap-acc-1-Sent-100");
+    });
   });
 
   describe("appendToSent", () => {

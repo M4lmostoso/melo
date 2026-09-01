@@ -23,7 +23,7 @@ describe("emailBuilder", () => {
     expect(decoded).toContain("Subject: Test Subject");
     expect(decoded).toContain("MIME-Version: 1.0");
     expect(decoded).toContain("multipart/alternative");
-    expect(decoded).toContain("<p>Hello World</p>");
+    expect(decodedBodies(decoded)).toContain("<p>Hello World</p>");
   });
 
   it("includes Date and Message-ID headers", () => {
@@ -129,7 +129,7 @@ describe("emailBuilder", () => {
     expect(decoded).toContain("multipart/alternative");
     expect(decoded).toContain('Content-Disposition: attachment; filename="test.txt"');
     expect(decoded).toContain("Content-Transfer-Encoding: base64");
-    expect(decoded).toContain("<p>See attached</p>");
+    expect(decodedBodies(decoded)).toContain("<p>See attached</p>");
     expect(decoded).toContain("text/plain");
     expect(decoded).toContain("text/html");
   });
@@ -166,6 +166,27 @@ describe("emailBuilder", () => {
     expect(decoded).not.toContain("multipart/mixed");
   });
 });
+
+/**
+ * Every body part is base64 now, so assertions on body text have to decode.
+ * Returns all base64 part payloads concatenated as text.
+ */
+function decodedBodies(rawMessage: string): string {
+  return rawMessage
+    .split(/\r\n--/)
+    .filter((part) => /Content-Transfer-Encoding: base64/i.test(part))
+    .map((part) => {
+      const payload = part.split("\r\n\r\n").slice(1).join("\r\n\r\n");
+      try {
+        return new TextDecoder().decode(
+          Uint8Array.from(atob(payload.replace(/\s/g, "")), (c) => c.charCodeAt(0)),
+        );
+      } catch {
+        return "";
+      }
+    })
+    .join("\n");
+}
 
 function decodeBase64Url(encoded: string): string {
   // Add back padding
@@ -209,5 +230,91 @@ describe("buildRawEmail — internal placeholder ids", () => {
     expect(text).toContain("In-Reply-To: <real.2@example.com>");
     expect(text).toContain("References: <real.1@example.com> <real.2@example.com>");
     expect(text).not.toContain("melo.local");
+  });
+});
+
+describe("buildRawEmail — 7-bit safety (Exchange ErrorMimeContentInvalid)", () => {
+  const base = {
+    from: "me@example.com",
+    to: ["you@example.com"],
+    subject: "Test",
+    htmlBody: "<p>ok</p>",
+  };
+
+  const hasRawNonAscii = (text: string) => /[^\x00-\x7f]/.test(text);
+
+  it("never emits raw 8-bit bytes in an accented attachment filename", () => {
+    const raw = buildRawEmail({
+      ...base,
+      attachments: [
+        {
+          filename: "caractéristiques techniques.xlsx",
+          mimeType: "application/vnd.ms-excel",
+          content: btoa("x"),
+        },
+      ],
+    });
+    const decoded = decodeBase64Url(raw);
+    const headers = decoded.slice(0, decoded.indexOf("\r\n\r\n"));
+    expect(hasRawNonAscii(headers)).toBe(false);
+    expect(decoded).toContain(
+      "filename*=UTF-8''caract%C3%A9ristiques%20techniques.xlsx",
+    );
+    // An ASCII-only fallback stays for clients that ignore RFC 2231.
+    expect(decoded).toContain('filename="caract_ristiques techniques.xlsx"');
+  });
+
+  it("RFC 2047-encodes an accented Subject", () => {
+    const raw = buildRawEmail({ ...base, subject: "Caractéristiques techniques" });
+    const decoded = decodeBase64Url(raw);
+    expect(decoded).toMatch(/^Subject: =\?UTF-8\?B\?[^\r\n]+\?=$/m);
+    expect(decoded).not.toContain("Caractéristiques");
+  });
+
+  it("RFC 2047-encodes an accented From display name but not the address", () => {
+    const raw = buildRawEmail({ ...base, from: "Mirko Landénna <me@example.com>" });
+    const decoded = decodeBase64Url(raw);
+    expect(decoded).toMatch(/^From: =\?UTF-8\?B\?[^\r\n]+\?= <me@example\.com>$/m);
+  });
+
+  it("base64-encodes the bodies so accented text is never 8-bit", () => {
+    const raw = buildRawEmail({ ...base, htmlBody: "<p>ça va — è però</p>" });
+    const decoded = decodeBase64Url(raw);
+    expect(hasRawNonAscii(decoded)).toBe(false);
+    expect(decoded).toContain("Content-Transfer-Encoding: base64");
+    expect(decodedBodies(decoded)).toContain("<p>ça va — è però</p>");
+  });
+
+  // THE root cause of the rejected sends: the HTML body of a long reply chain
+  // went out as one unbroken 640KB line. RFC 5322 caps a line at 998 octets and
+  // Exchange enforces it — the message never left, and the Sent copy never landed.
+  it("keeps every line inside the RFC 5322 998-octet limit", () => {
+    const longChain = `<div>${"quoted reply text ".repeat(60000)}</div>`;
+    const raw = buildRawEmail({
+      ...base,
+      subject: "Re: ".repeat(60) + "long chain",
+      htmlBody: longChain,
+      references: Array.from({ length: 40 }, (_, i) => `msg-${i}@example.com`).join(" "),
+      to: Array.from({ length: 30 }, (_, i) => `person${i}@example.com`),
+      attachments: [
+        { filename: "big.bin", mimeType: "application/octet-stream", content: "A".repeat(5000) },
+      ],
+    });
+    const longest = Math.max(...decodeBase64Url(raw).split("\r\n").map((l) => l.length));
+    expect(longest).toBeLessThanOrEqual(998);
+  });
+
+  it("brackets bare Message-IDs in In-Reply-To and References", () => {
+    // Melo stores message_id_header without angle brackets.
+    const raw = buildRawEmail({
+      ...base,
+      inReplyTo: "abc@outlook.com",
+      references: "one@example.com <two@example.com> three@example.com",
+    });
+    const decoded = decodeBase64Url(raw);
+    expect(decoded).toContain("In-Reply-To: <abc@outlook.com>");
+    expect(decoded).toContain(
+      "References: <one@example.com> <two@example.com> <three@example.com>",
+    );
   });
 });
