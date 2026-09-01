@@ -193,6 +193,27 @@ describe("emailActions", () => {
       expect(mockProvider.sendMessage).toHaveBeenCalledWith(raw, "t1");
     });
 
+    it("reconciles the Sent copy instead of re-sending a delivered-no-copy row", async () => {
+      // The row survived only because the delivered mail had no Sent copy
+      // anywhere. Handing this raw back to SMTP would deliver it a second time.
+      const raw = rawWithMessageId("no-copy-1@melo.test");
+
+      await executeQueuedAction("acct-1", "sendMessage", {
+        rawBase64Url: raw,
+        threadId: "t1",
+        deliveredNoCopy: true,
+        cleanupLocalDraftId: "local-draft-1",
+      });
+
+      expect(mockProvider.sendMessage).not.toHaveBeenCalled();
+      expect(mockProvider.appendToSent).toHaveBeenCalledWith(raw, "t1", undefined);
+      // The draft the send left behind is still cleaned up.
+      expect(mockDb.execute).toHaveBeenCalledWith(
+        "DELETE FROM messages WHERE account_id = $1 AND id = $2",
+        ["acct-1", "local-draft-1"],
+      );
+    });
+
     it("does not touch any draft when no cleanup hints are present", async () => {
       await executeQueuedAction("acct-1", "sendMessage", {
         rawBase64Url: "RAW",

@@ -833,10 +833,74 @@ export class ImapSmtpProvider implements EmailProvider {
 
   // ---- Send/Draft operations ----
 
+  /**
+   * Write the local Sent copy, retrying across the transient DB stalls that make
+   * the SQL plugin's pool time out (a heavy sync cycle can hold it for seconds).
+   * A single swallowed failure here used to mean a delivered email with no copy
+   * anywhere — local or server — so the caller must be told whether it landed.
+   */
+  private async persistSentCopy(
+    rawBase64Url: string,
+    messageId: string,
+    threadId?: string,
+    imapFolder?: string,
+    imapUid?: number,
+  ): Promise<boolean> {
+    const delaysMs = [0, 500, 2000];
+    for (let attempt = 0; attempt < delaysMs.length; attempt++) {
+      if (delaysMs[attempt]! > 0) {
+        await new Promise((resolve) => setTimeout(resolve, delaysMs[attempt]!));
+      }
+      try {
+        await this.saveSentMessageLocally(
+          rawBase64Url,
+          messageId,
+          threadId,
+          imapFolder,
+          imapUid,
+        );
+        return true;
+      } catch (err) {
+        console.warn(
+          `[IMAP] Sent copy save failed (attempt ${attempt + 1}/${delaysMs.length}):`,
+          err,
+        );
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Persist an `appendToSent` recovery op for an email that is already delivered
+   * but whose Sent copy is missing (server APPEND failed, local write failed, or
+   * both). The op carries the raw message, so the email survives a crash right
+   * here, and `appendToSent` is idempotent — it adopts an existing server copy
+   * rather than appending a second one, and it never re-sends anything.
+   */
+  private async queueSentCopyRecovery(
+    rawBase64Url: string,
+    threadId?: string,
+    localMessageId?: string,
+  ): Promise<boolean> {
+    try {
+      const { enqueuePendingOperation } = await import("../db/pendingOperations");
+      await enqueuePendingOperation(
+        this.accountId,
+        "appendToSent",
+        threadId ?? localMessageId ?? crypto.randomUUID(),
+        { rawBase64Url, threadId, localMessageId },
+      );
+      return true;
+    } catch (err) {
+      console.error("[IMAP] Failed to queue Sent-copy recovery:", err);
+      return false;
+    }
+  }
+
   async sendMessage(
     rawBase64Url: string,
     _threadId?: string,
-  ): Promise<{ id: string }> {
+  ): Promise<{ id: string; sentCopyDurable: boolean }> {
     const smtpConfig = await this.getSmtpConfig();
     const result = await smtpSendEmail(smtpConfig, rawBase64Url);
     if (!result.success) {
@@ -851,8 +915,8 @@ export class ImapSmtpProvider implements EmailProvider {
     // immediately; the delta sync's Filter 2 adopts the real UID/folder into
     // that row by Message-ID instead of inserting a duplicate.
     let messageId = `imap-${this.accountId}-sent-${Date.now()}`;
-    let resolvedSentFolder: string | undefined;
-    let resolvedUid: number | undefined;
+    let sentCopySaved = false;
+    let appendFailed = false;
     try {
       const imapConfig = await this.getImapConfig();
       const sentFolder =
@@ -860,15 +924,15 @@ export class ImapSmtpProvider implements EmailProvider {
       const uid = await imapAppendMessage(imapConfig, sentFolder, rawBase64Url, "(\\Seen)");
       if (uid > 0) {
         messageId = `imap-${this.accountId}-${sentFolder}-${uid}`;
-        resolvedSentFolder = sentFolder;
-        resolvedUid = uid;
         // Save locally with the real IMAP UID so the message appears in Sent
         // immediately and delta sync de-dupes on the same ID.
-        try {
-          await this.saveSentMessageLocally(rawBase64Url, messageId, _threadId, resolvedSentFolder, resolvedUid);
-        } catch (err) {
-          console.warn("[IMAP] Failed to save sent message to local DB:", err);
-        }
+        sentCopySaved = await this.persistSentCopy(
+          rawBase64Url,
+          messageId,
+          _threadId,
+          sentFolder,
+          uid,
+        );
         // Proactively purge any same-UID duplicates that may arise when APPENDUID
         // returns an incorrect UID. Run non-fatally in the background so it does
         // not delay the send response.
@@ -879,43 +943,42 @@ export class ImapSmtpProvider implements EmailProvider {
         // uid === 0: APPEND succeeded but the server returned no APPENDUID
         // (DavMail/Exchange). Without a local save the sent message stays
         // invisible until the next delta sync — save a placeholder row with
-        // NULL imap coords now. Do NOT queue an appendToSent retry: the copy
-        // IS on the server, re-appending would duplicate it there. The next
-        // delta sync imports the server copy and (via the Rust Filter 2
-        // NULL-coords adoption) stamps the real UID/folder onto this row.
-        try {
-          await this.saveSentMessageLocally(rawBase64Url, messageId, _threadId);
-        } catch (saveErr) {
-          console.warn("[IMAP] Failed to save placeholder sent message (uid=0):", saveErr);
-        }
+        // NULL imap coords now. The next delta sync imports the server copy and
+        // (via the Rust Filter 2 NULL-coords adoption) stamps the real
+        // UID/folder onto this row.
+        sentCopySaved = await this.persistSentCopy(rawBase64Url, messageId, _threadId);
       }
     } catch (err) {
+      appendFailed = true;
       console.error(
         "[IMAP] Failed to copy sent message to Sent folder on server:",
         err,
       );
       // The email WAS delivered via SMTP — never leave the user staring at an empty
       // Sent folder (they'd re-send, duplicating the delivery). Save a placeholder
-      // row now and queue an appendToSent retry that reconciles it with the real
-      // server UID once the APPEND finally goes through.
-      try {
-        await this.saveSentMessageLocally(rawBase64Url, messageId, _threadId);
-      } catch (saveErr) {
-        console.error("[IMAP] Failed to save placeholder sent message:", saveErr);
-      }
-      try {
-        const { enqueuePendingOperation } = await import("../db/pendingOperations");
-        await enqueuePendingOperation(this.accountId, "appendToSent", _threadId ?? messageId, {
-          rawBase64Url,
-          threadId: _threadId,
-          localMessageId: messageId,
-        });
-      } catch (queueErr) {
-        console.error("[IMAP] Failed to queue appendToSent retry:", queueErr);
-      }
+      // row now; the recovery op below reconciles it with the real server UID once
+      // the APPEND finally goes through.
+      sentCopySaved = await this.persistSentCopy(rawBase64Url, messageId, _threadId);
     }
 
-    return { id: messageId };
+    // Queue the recovery whenever the sent copy is not fully in place: the server
+    // APPEND failed, or the local write did (a jammed DB pool fails all three
+    // attempts). Skipping it is how a delivered email ends up with no copy at all.
+    let recoveryQueued = false;
+    if (appendFailed || !sentCopySaved) {
+      recoveryQueued = await this.queueSentCopyRecovery(
+        rawBase64Url,
+        _threadId,
+        // Only claim a local row when one actually exists — otherwise the
+        // recovery has to create it from the raw instead of rewiring it.
+        sentCopySaved ? messageId : undefined,
+      );
+    }
+
+    // Durable = the email is recorded somewhere that survives a restart: either
+    // the local Sent row or a queued recovery op holding the raw. The caller must
+    // not drop its own copy of the message until this is true.
+    return { id: messageId, sentCopyDurable: sentCopySaved || recoveryQueued };
   }
 
   /**
@@ -932,9 +995,16 @@ export class ImapSmtpProvider implements EmailProvider {
   }
 
   /**
-   * Retry the copy-to-Sent APPEND for an already-delivered message (queued when the
-   * APPEND failed during sendMessage). Rewires the placeholder local row to the real
-   * server UID so the next delta sync upserts onto the same ID instead of duplicating.
+   * Reconcile the Sent copy of an already-delivered message (queued by sendMessage
+   * when the server APPEND failed, the local write failed, or both). Never re-sends:
+   * it only puts the copy where it belongs, and it is idempotent at every step so
+   * the queue can retry it freely —
+   *   1. a real local row already exists  → nothing to do,
+   *   2. the copy is already on the server → adopt its UID instead of appending
+   *      a second one (the APPEND may well have landed before the error we saw),
+   *   3. otherwise                         → APPEND, then write the local row.
+   * `localMessageId` names a placeholder row to rewire; without one the local row
+   * is created from the raw message.
    */
   async appendToSent(
     rawBase64Url: string,
@@ -944,56 +1014,98 @@ export class ImapSmtpProvider implements EmailProvider {
     const sentFolder = (await findSpecialFolder(this.accountId, "\\Sent")) ?? "Sent";
     const db = await getDb();
 
-    // If the original APPEND actually landed server-side (we only saw a client error),
-    // delta sync has since imported the real row. Drop the placeholder and do NOT
-    // append again — that would put a duplicate copy in the server Sent folder.
     const raw = base64UrlDecode(rawBase64Url);
     const rfcIdMatch = raw.match(/^message-id:\s*<?([^>\r\n]+)>?/im);
     const rfcId = rfcIdMatch?.[1]?.trim() ?? null;
-    if (rfcId && localMessageId) {
+
+    // 1. Delta sync (or an earlier run of this op) may already have imported the
+    //    real row. Drop the placeholder and do NOT append again.
+    if (rfcId) {
       const existing = await db.select<{ id: string }[]>(
         `SELECT id FROM messages
-         WHERE account_id = $1 AND message_id_header = $2 AND imap_folder = $3 AND id != $4
+         WHERE account_id = $1 AND message_id_header = $2 AND imap_folder = $3
+           AND ($4 IS NULL OR id != $4)
          LIMIT 1`,
-        [this.accountId, rfcId, sentFolder, localMessageId],
+        [this.accountId, rfcId, sentFolder, localMessageId ?? null],
       );
       if (existing.length > 0) {
-        await db.execute(`DELETE FROM messages WHERE account_id = $1 AND id = $2`, [
-          this.accountId,
-          localMessageId,
-        ]);
+        if (localMessageId) {
+          await db.execute(`DELETE FROM messages WHERE account_id = $1 AND id = $2`, [
+            this.accountId,
+            localMessageId,
+          ]);
+        }
         return { id: existing[0]!.id };
       }
     }
 
     const imapConfig = await this.getImapConfig();
-    const uid = await imapAppendMessage(imapConfig, sentFolder, rawBase64Url, "(\\Seen)");
-    if (uid > 0 && localMessageId) {
-      const realId = `imap-${this.accountId}-${sentFolder}-${uid}`;
+
+    // 2. Is the copy already sitting in the server's Sent folder? Only the local
+    //    write failed, then — appending again would leave two copies there.
+    let uid = 0;
+    if (rfcId) {
       try {
-        await db.execute(
-          `UPDATE messages SET id = $1, imap_folder = $2, imap_uid = $3
-           WHERE account_id = $4 AND id = $5`,
-          [realId, sentFolder, uid, this.accountId, localMessageId],
-        );
-        await db.execute(
-          `UPDATE attachments SET message_id = $1 WHERE account_id = $2 AND message_id = $3`,
-          [realId, this.accountId, localMessageId],
-        );
-      } catch {
-        // PK collision: delta sync imported the real row concurrently — placeholder
-        // is now redundant.
-        await db.execute(`DELETE FROM messages WHERE account_id = $1 AND id = $2`, [
-          this.accountId,
-          localMessageId,
-        ]);
+        const uids = await imapSearchMessageId(imapConfig, sentFolder, rfcId);
+        uid = uids.length > 0 ? Math.max(...uids) : 0;
+      } catch (err) {
+        // A failed search must not block the reconcile — worst case we append a
+        // copy the server already has, which is recoverable; losing it is not.
+        console.warn("[IMAP] Sent-folder lookup failed during recovery:", err);
+      }
+    }
+
+    // 3. Not there: put it there.
+    if (uid === 0) {
+      uid = await imapAppendMessage(imapConfig, sentFolder, rawBase64Url, "(\\Seen)");
+    }
+
+    if (uid > 0) {
+      const realId = `imap-${this.accountId}-${sentFolder}-${uid}`;
+      if (localMessageId) {
+        try {
+          await db.execute(
+            `UPDATE messages SET id = $1, imap_folder = $2, imap_uid = $3
+             WHERE account_id = $4 AND id = $5`,
+            [realId, sentFolder, uid, this.accountId, localMessageId],
+          );
+          await db.execute(
+            `UPDATE attachments SET message_id = $1 WHERE account_id = $2 AND message_id = $3`,
+            [realId, this.accountId, localMessageId],
+          );
+        } catch {
+          // PK collision: delta sync imported the real row concurrently — placeholder
+          // is now redundant.
+          await db.execute(`DELETE FROM messages WHERE account_id = $1 AND id = $2`, [
+            this.accountId,
+            localMessageId,
+          ]);
+        }
+      } else {
+        // No placeholder to rewire: this send never managed to write anything
+        // locally, so build the row from the raw message. A failure here throws
+        // and the queue retries — the op still holds the only copy of the email.
+        if (!(await this.persistSentCopy(rawBase64Url, realId, _threadId, sentFolder, uid))) {
+          throw new Error("Failed to write the local Sent copy");
+        }
       }
       import("../db/messages").then(({ purgeImapDuplicates }) =>
         purgeImapDuplicates(this.accountId).catch(() => {}),
       );
       return { id: realId };
     }
-    return { id: localMessageId ?? `imap-${this.accountId}-sent-${Date.now()}` };
+
+    // APPEND accepted the message but returned no APPENDUID (DavMail/Exchange).
+    // The copy is on the server; record it locally with NULL coords so delta
+    // sync's Filter 2 can stamp the real UID onto this row.
+    if (!localMessageId) {
+      const placeholderId = `imap-${this.accountId}-sent-${Date.now()}`;
+      if (!(await this.persistSentCopy(rawBase64Url, placeholderId, _threadId))) {
+        throw new Error("Failed to write the local Sent copy");
+      }
+      return { id: placeholderId };
+    }
+    return { id: localMessageId };
   }
 
   /**

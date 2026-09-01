@@ -53,6 +53,12 @@ export type EmailAction =
       // online sends, which clean the draft up directly in the send handler.
       cleanupDraftId?: string;
       cleanupLocalDraftId?: string;
+      /**
+       * Set on a row kept ONLY because a delivered send could not record its Sent
+       * copy anywhere. The message is already out — a retry must reconcile the
+       * copy, never hand the raw back to SMTP.
+       */
+      deliveredNoCopy?: boolean;
     }
   | {
       // IMAP only: retry the copy-to-Sent APPEND after an SMTP-delivered send whose
@@ -85,6 +91,13 @@ export interface ActionResult {
   queued?: boolean;
   error?: string;
   data?: unknown;
+  /**
+   * sendMessage only: is the sent message recorded somewhere that survives a
+   * restart (local Sent row, or a queued recovery op holding the raw)? False
+   * means the email is delivered but nothing durable references it — the caller
+   * still holds the only copy and must not drop it.
+   */
+  sentCopyDurable?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -578,6 +591,12 @@ export async function executeEmailAction(
     }
     const data = await executeViaProvider(accountId, action);
     window.dispatchEvent(new Event("melo-sync-done"));
+    if (action.type === "sendMessage") {
+      // Providers that persist the copy server-side report nothing — only an
+      // explicit false means the copy is missing.
+      const durable = (data as { sentCopyDurable?: boolean } | undefined)?.sentCopyDurable;
+      return { success: true, data, sentCopyDurable: durable !== false };
+    }
     return { success: true, data };
   } catch (err) {
     const classified = classifyError(err);
@@ -691,6 +710,18 @@ export async function executeQueuedAction(
 ): Promise<void> {
   const action = { type: operationType, ...params } as EmailAction;
   if (action.type === "sendMessage") {
+    if (action.deliveredNoCopy) {
+      // Kept only because the Sent copy went missing; the recipient already has
+      // the mail. Reconcile the copy — handing this raw back to SMTP would
+      // deliver it twice.
+      await executeViaProvider(accountId, {
+        type: "appendToSent",
+        rawBase64Url: action.rawBase64Url,
+        threadId: action.threadId,
+      });
+      await runSendCleanup(accountId, action);
+      return;
+    }
     // Every send reaching the queue is a retry of an attempt that already ran.
     if (await wasAlreadyDelivered(accountId, action.rawBase64Url)) {
       console.warn("[send-guard] message already on the server — skipping resend");

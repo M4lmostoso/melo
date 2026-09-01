@@ -23,6 +23,7 @@ import {
   claimUndoOperation,
   deleteOperation,
   incrementRetry,
+  patchOperationParams,
 } from "./services/db/pendingOperations";
 import { classifyError } from "@/utils/networkErrors";
 import { FONT_FAMILY_STACKS } from "@/constants/fonts";
@@ -543,10 +544,35 @@ export default function App() {
           // Send succeeded or was re-queued by executeEmailAction (which enqueued its
           // own pending op) — either way this row's job is done; remove it so the
           // startup recovery never flags it as an interrupted send.
+          //
+          // UNLESS the provider reports the Sent copy is not durable anywhere: the
+          // email is delivered, but neither a local row nor a recovery op holds it,
+          // so this row is the last copy of the message. Deleting it here is exactly
+          // how a delivered mail vanishes without trace. Keep it, flag it so a retry
+          // reconciles the copy instead of re-sending, and tell the user.
           if (p.opId) {
-            await deleteOperation(p.opId).catch((e) =>
-              console.error("[App] Failed to delete claimed undo-send row:", e),
-            );
+            if (sendResult.sentCopyDurable === false) {
+              await patchOperationParams(p.opId, { deliveredNoCopy: true }).catch((e) =>
+                console.error("[App] Failed to flag delivered-no-copy send:", e),
+              );
+              await updateOperationStatus(
+                p.opId,
+                "failed",
+                t("outgoing.sentCopyMissingBody"),
+              ).catch((e) => console.error("[App] Failed to park delivered-no-copy send:", e));
+              window.dispatchEvent(new Event("melo-sync-done"));
+              useToastStore.getState().showToast("error", t("outgoing.sentCopyMissingBody"));
+              import("@tauri-apps/plugin-notification").then(({ sendNotification }) => {
+                sendNotification({
+                  title: t("outgoing.sentCopyMissingTitle"),
+                  body: t("outgoing.sentCopyMissingBody"),
+                });
+              }).catch(() => {});
+            } else {
+              await deleteOperation(p.opId).catch((e) =>
+                console.error("[App] Failed to delete claimed undo-send row:", e),
+              );
+            }
           }
 
           if (!sendResult.queued && p.threadId) {

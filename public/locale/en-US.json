@@ -2445,6 +2445,8 @@
     "sendFailedBodyWithError": "Could not send email: {error}. It's kept in Outgoing.",
     "queuedTitle": "Send queued",
     "queuedBody": "Could not reach the server. The email is kept in Outgoing and will be retried automatically — you'll be notified if it still can't be sent.",
+    "sentCopyMissingTitle": "Email sent, copy missing",
+    "sentCopyMissingBody": "The email was delivered, but its copy could not be saved to Sent. It's kept in Outgoing — retry to file the copy (it will not be sent again).",
     "interruptedTitle": "Send interrupted",
     "interruptedBody": "The app closed during a send. The email is kept in Outgoing — check your Sent folder, then retry it.",
     "opFailedTitle": "Action could not be completed",

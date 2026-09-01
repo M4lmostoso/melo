@@ -2445,6 +2445,8 @@
     "sendFailedBodyWithError": "Impossibile inviare l'email: {error}. È conservata in In uscita.",
     "queuedTitle": "Invio in coda",
     "queuedBody": "Impossibile raggiungere il server. L'email è conservata in In uscita e verrà ritentata automaticamente — riceverai una notifica se l'invio continua a fallire.",
+    "sentCopyMissingTitle": "Email inviata, copia mancante",
+    "sentCopyMissingBody": "L'email è stata consegnata, ma non è stato possibile salvarne la copia in Posta inviata. È conservata in In uscita — riprova per archiviare la copia (non verrà inviata di nuovo).",
     "interruptedTitle": "Invio interrotto",
     "interruptedBody": "L'app si è chiusa durante un invio. L'email è conservata in In uscita — controlla la cartella Inviati, poi riprova l'invio.",
     "opFailedTitle": "Operazione non completata",

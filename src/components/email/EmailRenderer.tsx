@@ -164,6 +164,11 @@ export function EmailRenderer({
     return `<!DOCTYPE html>
 <html>
 <head>
+  <!-- Mail from real senders still ships http:// image URLs. A srcdoc iframe inherits
+       the app's secure context, so WKWebView drops those as mixed content and the
+       images silently never appear — even for an allowlisted sender. Upgrading them
+       to https is the only way they load; a host without https already failed before. -->
+  <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
   <meta name="format-detection" content="telephone=no, date=no, address=no, email=no, url=no">
   <style>
     /* WKWebView quirk: without explicit height:auto, the body collapses to the

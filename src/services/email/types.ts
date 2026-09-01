@@ -109,7 +109,17 @@ export interface EmailProvider {
   sendMessage(
     rawBase64Url: string,
     threadId?: string,
-  ): Promise<{ id: string }>;
+  ): Promise<{
+    id: string;
+    /**
+     * Is the sent message recorded somewhere that survives a restart — the local
+     * Sent row, or a queued recovery op holding the raw? The caller must keep its
+     * own copy of the email until this is true, or a delivered message can end up
+     * with no copy at all. Providers that always persist server-side (Gmail) may
+     * omit it; treat `undefined` as durable.
+     */
+    sentCopyDurable?: boolean;
+  }>;
   /**
    * True when a message with this RFC Message-ID is already on the server.
    * Send-retry guard — a send that failed ambiguously (SMTP timeout after the

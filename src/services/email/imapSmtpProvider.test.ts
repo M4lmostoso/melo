@@ -32,8 +32,13 @@ vi.mock("../imap/tauriCommands", () => ({
   imapFetchRawMessage: vi.fn(),
   imapTestConnection: vi.fn(),
   imapAppendMessage: vi.fn(),
+  imapSearchMessageId: vi.fn(async () => [] as number[]),
   smtpSendEmail: vi.fn(),
   smtpTestConnection: vi.fn(),
+}));
+
+vi.mock("../db/pendingOperations", () => ({
+  enqueuePendingOperation: vi.fn(async () => "op-1"),
 }));
 
 vi.mock("../imap/messageHelper", () => ({
@@ -73,9 +78,11 @@ import {
   imapDeleteMessages,
   imapTestConnection,
   imapAppendMessage,
+  imapSearchMessageId,
   smtpSendEmail,
   smtpTestConnection,
 } from "../imap/tauriCommands";
+import { enqueuePendingOperation } from "../db/pendingOperations";
 import { findSpecialFolder } from "../imap/messageHelper";
 import { upsertMessage } from "../db/messages";
 import { upsertThread, setThreadLabels, recalculateThreadStats } from "../db/threads";
@@ -120,6 +127,11 @@ describe("ImapSmtpProvider", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // clearAllMocks keeps implementations — the failure modes some send tests
+    // install would otherwise leak into every test that follows.
+    vi.mocked(upsertMessage).mockResolvedValue(undefined);
+    vi.mocked(enqueuePendingOperation).mockResolvedValue("op-1");
+    vi.mocked(imapSearchMessageId).mockResolvedValue([]);
     provider = new ImapSmtpProvider("acc-1");
 
     vi.mocked(getAccount).mockResolvedValue(mockAccount as never);
@@ -549,6 +561,88 @@ describe("ImapSmtpProvider", () => {
         expect.objectContaining({ id: result.id, imapUid: null, imapFolder: null }),
       );
       spy.mockRestore();
+    });
+
+    // A delivered email whose Sent copy exists nowhere — not locally, not on the
+    // server, not in the queue — is unrecoverable: the raw is gone with it. These
+    // cover the reporting the caller relies on to keep its own copy.
+    it("reports the copy durable and queues a recovery when the local save keeps failing", async () => {
+      vi.mocked(smtpSendEmail).mockResolvedValue({ success: true, message: "OK" });
+      vi.mocked(findSpecialFolder).mockResolvedValue("Sent");
+      vi.mocked(imapAppendMessage).mockResolvedValue(100);
+      vi.mocked(upsertMessage).mockRejectedValue(new Error("database is locked"));
+
+      const spy = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const result = await provider.sendMessage(rawBase64Url, "thread-1");
+      spy.mockRestore();
+
+      // Retried, then handed to the queue with the raw message attached.
+      expect(vi.mocked(upsertMessage).mock.calls.length).toBe(3);
+      expect(enqueuePendingOperation).toHaveBeenCalledWith(
+        "acc-1",
+        "appendToSent",
+        "thread-1",
+        expect.objectContaining({ rawBase64Url, localMessageId: undefined }),
+      );
+      expect(result.sentCopyDurable).toBe(true);
+    });
+
+    it("reports the copy NOT durable when the recovery cannot be queued either", async () => {
+      vi.mocked(smtpSendEmail).mockResolvedValue({ success: true, message: "OK" });
+      vi.mocked(findSpecialFolder).mockResolvedValue("Sent");
+      vi.mocked(imapAppendMessage).mockResolvedValue(100);
+      vi.mocked(upsertMessage).mockRejectedValue(new Error("database is locked"));
+      vi.mocked(enqueuePendingOperation).mockRejectedValue(new Error("database is locked"));
+
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const error = vi.spyOn(console, "error").mockImplementation(() => {});
+      const result = await provider.sendMessage(rawBase64Url);
+      warn.mockRestore();
+      error.mockRestore();
+
+      expect(result.sentCopyDurable).toBe(false);
+    });
+
+    it("reports the copy durable on the normal path", async () => {
+      vi.mocked(smtpSendEmail).mockResolvedValue({ success: true, message: "OK" });
+      vi.mocked(findSpecialFolder).mockResolvedValue("Sent");
+      vi.mocked(imapAppendMessage).mockResolvedValue(100);
+
+      const result = await provider.sendMessage(rawBase64Url);
+
+      expect(result.sentCopyDurable).toBe(true);
+      expect(enqueuePendingOperation).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("appendToSent", () => {
+    const rawEmail = "From: user@example.com\r\nTo: bob@example.com\r\nSubject: Test\r\nDate: Thu, 20 Feb 2025 12:00:00 GMT\r\nMessage-ID: <test123@example.com>\r\n\r\nHello";
+    const rawBase64Url = btoa(rawEmail).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+
+    it("adopts the server copy instead of appending a second one", async () => {
+      vi.mocked(findSpecialFolder).mockResolvedValue("Sent");
+      // The original APPEND had in fact landed — only the local write failed.
+      vi.mocked(imapSearchMessageId).mockResolvedValue([412]);
+
+      const result = await provider.appendToSent(rawBase64Url, "thread-1");
+
+      expect(imapAppendMessage).not.toHaveBeenCalled();
+      expect(result.id).toBe("imap-acc-1-Sent-412");
+      // …and the local row missing all along is written from the raw.
+      expect(upsertMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ id: "imap-acc-1-Sent-412", imapUid: 412 }),
+      );
+    });
+
+    it("appends when the server has no copy", async () => {
+      vi.mocked(findSpecialFolder).mockResolvedValue("Sent");
+      vi.mocked(imapSearchMessageId).mockResolvedValue([]);
+      vi.mocked(imapAppendMessage).mockResolvedValue(77);
+
+      const result = await provider.appendToSent(rawBase64Url, "thread-1");
+
+      expect(imapAppendMessage).toHaveBeenCalled();
+      expect(result.id).toBe("imap-acc-1-Sent-77");
     });
   });
 
