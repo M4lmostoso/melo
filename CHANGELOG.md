@@ -4,6 +4,22 @@
 
 ---
 
+## [0.1.9](https://github.com/M4lmostoso/melo/compare/v0.1.8...v0.1.9) (2026-09-01)
+
+
+### Features
+
+* add persistence recovery for sent email copies and implement webview-to-file log forwarding ([ca6fad7](https://github.com/M4lmostoso/melo/commit/ca6fad76c373820776ccc8d58240c8dc464e2545))
+* add startup breadcrumb logging and a watchdog to prevent splash screen hangs during initialization ([ef527de](https://github.com/M4lmostoso/melo/commit/ef527de1beca9193b994ba0b8a234f70043eb2be))
+* implement FTS5 search with diacritics folding, weighted BM25 ranking, and the "in:" operator. ([4dea71e](https://github.com/M4lmostoso/melo/commit/4dea71ed3da24f4472d3243a38d02686cd016657))
+
+
+### Bug Fixes
+
+* **ci:** run FTS tests on a runtime that has node:sqlite, drop stray diagnostic file ([6cdd1ff](https://github.com/M4lmostoso/melo/commit/6cdd1ffcafd541e25589291fa623bf8bdd0018c5))
+* ensure proper navigation and state cleanup when removing the currently viewed thread ([3001650](https://github.com/M4lmostoso/melo/commit/300165053b0c30a7b246b3c5b3d80bb3f865d95b))
+* improve email RFC compliance by base64-encoding bodies, sanitizing headers, and implementing line folding to satisfy Exchange constraints ([325ef4f](https://github.com/M4lmostoso/melo/commit/325ef4f05785808d8419a1e7157210e14b2cc9fd))
+
 ## [0.1.8](https://github.com/M4lmostoso/melo/compare/v0.1.7...v0.1.8) (2026-08-24)
 
 
