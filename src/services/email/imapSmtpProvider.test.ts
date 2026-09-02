@@ -85,6 +85,7 @@ import {
 import { enqueuePendingOperation } from "../db/pendingOperations";
 import { findSpecialFolder } from "../imap/messageHelper";
 import { upsertMessage } from "../db/messages";
+import { buildRawEmail } from "@/utils/emailBuilder";
 import { upsertThread, setThreadLabels, recalculateThreadStats } from "../db/threads";
 
 const mockImapConfig = {
@@ -483,6 +484,35 @@ describe("ImapSmtpProvider", () => {
         "(\\Seen)",
       );
       expect(result.id).toMatch(/^imap-acc-1-/);
+    });
+
+    // Regression: the composer base64-encodes bodies and RFC 2047-encodes
+    // non-ASCII headers for Exchange. The Sent-copy writer re-parses that raw
+    // MIME, so without decoding it stored "=?UTF-8?B?..." as the subject and
+    // the base64 payload as the body — a sent mail that read as gibberish.
+    it("decodes encoded-word headers and the transfer-encoded body of its own raw MIME", async () => {
+      vi.mocked(smtpSendEmail).mockResolvedValue({ success: true, message: "OK" });
+      vi.mocked(findSpecialFolder).mockResolvedValue("Sent");
+      vi.mocked(imapAppendMessage).mockResolvedValue(100);
+
+      const raw = buildRawEmail({
+        from: "Mirko Landenna <user@example.com>",
+        to: ["bob@example.com"],
+        subject: "Re: maquette de synthèse",
+        htmlBody: "<p>Grazie Yuri — è tutto ok</p>",
+      });
+
+      await provider.sendMessage(raw);
+
+      expect(upsertMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          subject: "Re: maquette de synthèse",
+          fromName: "Mirko Landenna",
+          fromAddress: "user@example.com",
+          bodyHtml: "<p>Grazie Yuri — è tutto ok</p>",
+          snippet: expect.stringContaining("Grazie Yuri"),
+        }),
+      );
     });
 
     it("adds SENT label to existing thread when replying", async () => {

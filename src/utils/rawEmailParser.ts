@@ -139,6 +139,46 @@ function decodeQuotedPrintableToBytes(input: string): Uint8Array {
   return Uint8Array.from(out);
 }
 
+/**
+ * Decode a MIME leaf body to text according to its Content-Transfer-Encoding.
+ * Exported because the Sent-copy writer in `imapSmtpProvider` parses the raw
+ * MIME it just built: since the composer started base64-encoding bodies for
+ * Exchange, reading `partBody` verbatim stored the base64 payload itself as the
+ * message body.
+ */
+export function decodeMimeBodyText(body: string, cte: string, charset = "utf-8"): string {
+  const bytes = decodeLeafBytes(body, cte);
+  try {
+    return new TextDecoder(charset, { fatal: false }).decode(bytes);
+  } catch {
+    return new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+  }
+}
+
+/**
+ * Decode RFC 2047 encoded-words ("=?UTF-8?B?...?=") in a header value. The
+ * composer emits these for any non-ASCII subject or display name, so anything
+ * re-reading its own raw MIME must undo them or the user sees the raw token.
+ * Whitespace *between* two encoded words is a separator and disappears; run
+ * them together as the RFC requires.
+ */
+export function decodeEncodedWords(value: string): string {
+  if (!value.includes("=?")) return value;
+  return value
+    .replace(/(\?=)[ \t]+(?==\?)/g, "$1")
+    .replace(/=\?([^?]+)\?([BbQq])\?([^?]*)\?=/g, (match, charset: string, enc: string, text: string) => {
+      const bytes =
+        enc.toLowerCase() === "b"
+          ? decodeBase64ToBytes(text)
+          : decodeQuotedPrintableToBytes(text.replace(/_/g, " "));
+      try {
+        return new TextDecoder(charset.trim().toLowerCase(), { fatal: false }).decode(bytes);
+      } catch {
+        return match;
+      }
+    });
+}
+
 /** Decode a leaf body to raw bytes according to its Content-Transfer-Encoding. */
 function decodeLeafBytes(body: string, cte: string): Uint8Array {
   const enc = cte.toLowerCase().trim();

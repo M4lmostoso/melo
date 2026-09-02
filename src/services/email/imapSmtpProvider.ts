@@ -28,6 +28,7 @@ import { ensureFreshToken } from "../oauth/oauthTokenManager";
 import { upsertMessage, getMessagesForThread } from "../db/messages";
 import { upsertAttachment } from "../db/attachments";
 import { getDb } from "../db/connection";
+import { decodeEncodedWords, decodeMimeBodyText } from "@/utils/rawEmailParser";
 import {
   upsertThread,
   setThreadLabels,
@@ -75,6 +76,19 @@ function parseBasicHeaders(raw: string): Map<string, string> {
 }
 
 /**
+ * Undo a part's Content-Transfer-Encoding. The composer base64-encodes every
+ * body for Exchange, so a leaf read verbatim is the base64 payload, not text —
+ * that is how a sent copy ended up stored (and displayed) as gibberish.
+ */
+function decodePartBody(body: string, headerSection: string, contentTypeLine: string): string {
+  const cte =
+    headerSection.match(/^content-transfer-encoding:\s*([^\r\n]+)/im)?.[1]?.trim() ?? "";
+  if (!cte || /^(7bit|8bit|binary)$/i.test(cte)) return body;
+  const charset = contentTypeLine.match(/charset="?([^";\s]+)"?/i)?.[1] ?? "utf-8";
+  return decodeMimeBodyText(body, cte, charset);
+}
+
+/**
  * Extract a plain-text snippet from a raw RFC 2822 email body.
  */
 function extractPlainText(raw: string): string | null {
@@ -86,7 +100,9 @@ function extractPlainText(raw: string): string | null {
   const ctLow = contentType.toLowerCase();
 
   if (!ctLow.startsWith("multipart/")) {
-    return ctLow.startsWith("text/plain") ? body : null;
+    return ctLow.startsWith("text/plain")
+      ? decodePartBody(body, raw.slice(0, bodyStart), contentType)
+      : null;
   }
 
   const boundaryMatch = contentType.match(/boundary="?([^";\s]+)"?/i);
@@ -103,7 +119,7 @@ function extractPlainText(raw: string): string | null {
     const partCT = (partHeaders.match(/content-type:\s*([^\r\n]+)/i)?.[1] ?? "").toLowerCase();
 
     if (partCT.startsWith("text/plain")) {
-      return partBody.replace(/\r\n--[^\r\n]+(--)?\s*$/, "");
+      return decodePartBody(partBody.replace(/\r\n--[^\r\n]+(--)?\s*$/, ""), partHeaders, partCT);
     }
     if (partCT.startsWith("multipart/")) {
       const nested = extractPlainText(part.replace(/^\r\n/, ""));
@@ -144,7 +160,9 @@ function extractHtmlBody(raw: string): string | null {
 
   // Non-multipart — if it IS text/html return as-is, otherwise no HTML
   if (!contentType.toLowerCase().startsWith("multipart/")) {
-    return contentType.toLowerCase().startsWith("text/html") ? body : null;
+    return contentType.toLowerCase().startsWith("text/html")
+      ? decodePartBody(body, raw.slice(0, bodyStart), contentType)
+      : null;
   }
 
   const boundaryMatch = contentType.match(/boundary="?([^";\s]+)"?/i);
@@ -162,7 +180,11 @@ function extractHtmlBody(raw: string): string | null {
 
     if (partCT.startsWith("text/html")) {
       // Strip trailing MIME boundary marker (--boundary or --boundary--)
-      return partBody.replace(/\r\n--[^\r\n]+(--)?\s*$/, "").trim();
+      return decodePartBody(
+        partBody.replace(/\r\n--[^\r\n]+(--)?\s*$/, ""),
+        partHeaders,
+        partCT,
+      ).trim();
     }
     if (partCT.startsWith("multipart/")) {
       // Recurse into nested multipart (e.g. multipart/related → multipart/alternative).
@@ -1164,10 +1186,14 @@ export class ImapSmtpProvider implements EmailProvider {
     const headers = parseBasicHeaders(raw);
     const snippet = extractSnippet(raw);
 
-    const from = headers.get("from") ?? "";
-    const to = headers.get("to") ?? "";
-    const cc = headers.get("cc") ?? null;
-    const subject = headers.get("subject") ?? null;
+    // Headers come back as the composer wrote them, so any non-ASCII text is an
+    // RFC 2047 encoded word — decode it or the Sent copy shows "=?UTF-8?B?...".
+    const from = decodeEncodedWords(headers.get("from") ?? "");
+    const to = decodeEncodedWords(headers.get("to") ?? "");
+    const cc = headers.has("cc") ? decodeEncodedWords(headers.get("cc")!) : null;
+    const subject = headers.has("subject")
+      ? decodeEncodedWords(headers.get("subject")!)
+      : null;
     // Strip angle brackets to match the format stored by Rust's mail-parser during
     // IMAP sync. Otherwise existing_rfc_ids lookups fail and the same message gets
     // re-imported into a new placeholder thread, splitting the conversation.
