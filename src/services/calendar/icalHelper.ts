@@ -543,7 +543,14 @@ export function extractMeetingUrl(icalData: string): string | null {
     /https?:\/\/[^\s"<>]+\.webex\.com\/[^\s"<>]+/i,
     /https?:\/\/[^\s"<>]+\.gotomeeting\.com\/[^\s"<>]+/i,
   ];
-  const text = icalData.replace(/\r\n[ \t]/g, "").replace(/\\n/gi, " ");
+  // Unfold first (CRLF *or* LF folding — see unfoldLines), then flatten the
+  // escaped newlines inside DESCRIPTION. Without the LF case a folded Teams
+  // join URL was cut at "…/l/meetup-join", which just opens the Teams home window.
+  const text = icalData
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/\n[ \t]/g, "")
+    .replace(/\\n/gi, " ");
   for (const pattern of meetingPatterns) {
     const m = text.match(pattern);
     if (m) return m[0].replace(/\\$/, "");
@@ -629,7 +636,10 @@ export function generateRsvpReply(params: RsvpReplyParams): string {
 
 /** Unfold continuation lines (RFC 5545 §3.1) */
 function unfoldLines(icalData: string): string[] {
-  const raw = icalData.replace(/\r\n[ \t]/g, "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  // Normalize line endings BEFORE unfolding: some servers (and our own attachment
+  // pipeline) hand us LF-only ICS, and a CRLF-only unfold would leave every folded
+  // line broken — 75-char-truncated values and stray continuation lines.
+  const raw = icalData.replace(/\r\n/g, "\n").replace(/\r/g, "\n").replace(/\n[ \t]/g, "");
   return raw.split("\n").filter((l) => l.length > 0);
 }
 

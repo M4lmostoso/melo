@@ -1,4 +1,4 @@
-import { generateVEvent, parseVEvent, generateRsvpReply, expandVEvents } from "./icalHelper";
+import { generateVEvent, parseVEvent, generateRsvpReply, expandVEvents, extractMeetingUrl } from "./icalHelper";
 import type { CreateEventInput } from "./types";
 
 beforeEach(() => {
@@ -691,5 +691,33 @@ describe("expandVEvents — cancelled occurrences", () => {
     ].join("\r\n");
 
     expect(expandVEvents(ics, "/cal/one-off.ics", RANGE_START, RANGE_END)).toEqual([]);
+  });
+});
+
+describe("extractMeetingUrl", () => {
+  const JOIN_URL =
+    "https://teams.microsoft.com/l/meetup-join/19%3ameeting_NzE2ZDQ4NTAt%40thread.v2/0?context=%7b%22Tid%22%3a%22aaaa%22%2c%22Oid%22%3a%22bbbb%22%7d";
+
+  // The URL folded at 75 octets, RFC 5545 §3.1 style.
+  const folded = [
+    "X-MICROSOFT-SKYPETEAMSMEETINGURL:https://teams.microsoft.com/l/meetup-join/19",
+    " %3ameeting_NzE2ZDQ4NTAt%40thread.v2/0?context=%7b%22Tid%22%3a%22aaaa%22%2c%2",
+    " 2Oid%22%3a%22bbbb%22%7d",
+  ];
+
+  it("unfolds a CRLF-folded join URL", () => {
+    const ics = ["BEGIN:VEVENT", ...folded, "END:VEVENT"].join("\r\n");
+    expect(extractMeetingUrl(ics)).toBe(JOIN_URL);
+  });
+
+  it("unfolds an LF-folded join URL", () => {
+    // Outlook ICS reaching us with bare LF used to yield ".../l/meetup-join",
+    // which opens the Teams home window instead of the call.
+    const ics = ["BEGIN:VEVENT", ...folded, "END:VEVENT"].join("\n");
+    expect(extractMeetingUrl(ics)).toBe(JOIN_URL);
+  });
+
+  it("returns null when the event has no conference link", () => {
+    expect(extractMeetingUrl("BEGIN:VEVENT\nSUMMARY:Coffee\nEND:VEVENT")).toBeNull();
   });
 });
