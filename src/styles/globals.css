@@ -646,3 +646,23 @@ html.dark.bg-spotlight .animated-bg::after {
     -webkit-user-select: none !important;
     user-select: none !important;
 }
+
+/*
+ * Keyboard focus ring.
+ *
+ * The app is heavily keyboard-driven (see docs/keyboard-shortcuts.md) but had
+ * no explicit focus style, so focus fell back to the platform default — which
+ * WKWebView draws inconsistently and which disappears entirely on the many
+ * elements that set their own outline/border. `:focus-visible` shows the ring
+ * only for keyboard/AT focus, never on mouse click, so nothing changes for
+ * pointer users.
+ */
+:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+}
+
+/* Mouse/touch focus keeps the UI clean. */
+:focus:not(:focus-visible) {
+    outline: none;
+}

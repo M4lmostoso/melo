@@ -1116,7 +1116,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
                 disabled={bulkBusy || filteredThreads.length === 0}
                 title={t("layout.emailList.trashToolbar.emptyTrash")}
                 aria-label={t("layout.emailList.trashToolbar.emptyTrash")}
-                className="p-1.5 rounded text-text-secondary hover:text-error hover:bg-bg-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                className="p-1.5 rounded text-text-secondary hover:text-danger hover:bg-bg-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <Trash2 size={15} />
               </button>
@@ -1129,7 +1129,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
                 disabled={bulkBusy || filteredThreads.length === 0}
                 title={t("layout.emailList.spamToolbar.trashAll")}
                 aria-label={t("layout.emailList.spamToolbar.trashAll")}
-                className="p-1.5 rounded text-text-secondary hover:text-error hover:bg-bg-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                className="p-1.5 rounded text-text-secondary hover:text-danger hover:bg-bg-hover transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <Trash2 size={15} />
               </button>
@@ -1192,7 +1192,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
             <button
               onClick={handleBulkDelete}
               title={t("layout.emailList.trash")}
-              className="p-1.5 text-text-secondary hover:text-error hover:bg-bg-hover rounded transition-colors"
+              className="p-1.5 text-text-secondary hover:text-danger hover:bg-bg-hover rounded transition-colors"
             >
               <Trash2 size={14} />
             </button>

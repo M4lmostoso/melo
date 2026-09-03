@@ -2393,11 +2393,24 @@ pub async fn db_run_vacuum(app: tauri::AppHandle) -> Result<DbVacuumResult, Stri
 
 // ---------- OS keychain (DB encryption key) ----------
 
-/// Read a secret from the OS keychain. Ok(None) = keychain works but no entry.
+// The keychain entry these commands address is fixed, not chosen by the caller.
+// Taking service/account from the webview would turn the commands into a
+// generic keychain read/write oracle: anything running in a webview (an XSS in
+// rendered mail content, a compromised dependency) could read *any* credential
+// this app can reach, and overwrite or delete entries belonging to other
+// software. Melo only ever needs this one entry, so it is named here.
+const KEYCHAIN_SERVICE: &str = "com.melomail.app";
+const KEYCHAIN_ACCOUNT: &str = "melo-db-key";
+
+fn db_key_entry() -> Result<keyring::Entry, String> {
+    keyring::Entry::new(KEYCHAIN_SERVICE, KEYCHAIN_ACCOUNT).map_err(|e| e.to_string())
+}
+
+/// Read the DB encryption key from the OS keychain.
+/// Ok(None) = keychain works but no entry.
 #[tauri::command]
-pub fn keychain_get_secret(service: String, account: String) -> Result<Option<String>, String> {
-    let entry = keyring::Entry::new(&service, &account).map_err(|e| e.to_string())?;
-    match entry.get_password() {
+pub fn keychain_get_secret() -> Result<Option<String>, String> {
+    match db_key_entry()?.get_password() {
         Ok(p) => Ok(Some(p)),
         Err(keyring::Error::NoEntry) => Ok(None),
         Err(e) => Err(e.to_string()),
@@ -2405,15 +2418,13 @@ pub fn keychain_get_secret(service: String, account: String) -> Result<Option<St
 }
 
 #[tauri::command]
-pub fn keychain_set_secret(service: String, account: String, value: String) -> Result<(), String> {
-    let entry = keyring::Entry::new(&service, &account).map_err(|e| e.to_string())?;
-    entry.set_password(&value).map_err(|e| e.to_string())
+pub fn keychain_set_secret(value: String) -> Result<(), String> {
+    db_key_entry()?.set_password(&value).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn keychain_delete_secret(service: String, account: String) -> Result<(), String> {
-    let entry = keyring::Entry::new(&service, &account).map_err(|e| e.to_string())?;
-    match entry.delete_credential() {
+pub fn keychain_delete_secret() -> Result<(), String> {
+    match db_key_entry()?.delete_credential() {
         Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
         Err(e) => Err(e.to_string()),
     }

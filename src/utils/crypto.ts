@@ -14,8 +14,9 @@ import { exists, readTextFile, writeTextFile, remove, mkdir, BaseDirectory } fro
 import { invoke } from "@tauri-apps/api/core";
 
 const KEY_FILE_NAME = "melo.key";
-const KEYCHAIN_SERVICE = "com.melomail.app";
-const KEYCHAIN_ACCOUNT = "melo-db-key";
+// The keychain service/account pair is fixed in Rust (see `keychain_get_secret`
+// in src-tauri/src/commands.rs) so the commands cannot be used from the webview
+// as a generic keychain oracle. Nothing to pass from here.
 const ALGORITHM = "AES-GCM";
 const KEY_LENGTH = 256;
 const IV_LENGTH = 12;
@@ -68,10 +69,7 @@ function asBufferSource(arr: Uint8Array): BufferSource {
 }
 
 async function keychainGet(): Promise<string | null> {
-  return invoke<string | null>("keychain_get_secret", {
-    service: KEYCHAIN_SERVICE,
-    account: KEYCHAIN_ACCOUNT,
-  });
+  return invoke<string | null>("keychain_get_secret");
 }
 
 /**
@@ -81,11 +79,7 @@ async function keychainGet(): Promise<string | null> {
  */
 async function keychainSetVerified(rawKeyB64: string): Promise<boolean> {
   try {
-    await invoke("keychain_set_secret", {
-      service: KEYCHAIN_SERVICE,
-      account: KEYCHAIN_ACCOUNT,
-      value: rawKeyB64,
-    });
+    await invoke("keychain_set_secret", { value: rawKeyB64 });
     const readBack = await keychainGet();
     return readBack === rawKeyB64;
   } catch {
