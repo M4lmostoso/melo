@@ -17,6 +17,25 @@ const TLS_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(30);
 const AUTH_TIMEOUT: Duration = Duration::from_secs(30);
 const IMAP_CMD_TIMEOUT: Duration = Duration::from_secs(30);
 const IMAP_FETCH_TIMEOUT: Duration = Duration::from_secs(120);
+
+/// How long to wait for the FIRST line of a `BODY.PEEK[]` response when pulling
+/// ONE whole message (attachment download / inline-CID resolution).
+///
+/// DavMail (Exchange/EWS → IMAP) stages the entire message from EWS *before*
+/// emitting the `* n FETCH (… {size}` header line, so on a large mail (tens of
+/// MB) nothing at all arrives for minutes. The generic 60s per-line budget used
+/// by bulk sync turned that into a `FETCH timeout`, and every retry restarted
+/// the whole EWS staging — a 28 MB email could never be downloaded.
+const IMAP_SINGLE_MESSAGE_FETCH_TIMEOUT: Duration = Duration::from_secs(600);
+
+/// Per-line budget for bulk (multi-message) FETCH responses during sync.
+const IMAP_BULK_FETCH_LINE_TIMEOUT: Duration = Duration::from_secs(60);
+
+/// Budget for a raw-TCP command that only exchanges control lines (LOGIN,
+/// SELECT). Deliberately above [`IMAP_CMD_TIMEOUT`]: DavMail serializes work per
+/// account, so a SELECT issued while another connection is staging a large
+/// message from EWS can legitimately sit for well over 30s.
+const IMAP_RAW_CMD_TIMEOUT: Duration = Duration::from_secs(90);
 const IMAP_SEARCH_TIMEOUT: Duration = Duration::from_secs(60);
 const OVERALL_CONNECT_TIMEOUT: Duration = Duration::from_secs(60);
 /// Hard wall-clock budget for a single raw-TCP fetch of a UID batch. DavMail can
@@ -984,7 +1003,8 @@ pub async fn raw_fetch_cid_attachments_batch(
     reader.get_mut().write_all(fetch_cmd.as_bytes()).await
         .map_err(|e| format!("FETCH write: {e}"))?;
 
-    let raw_messages = raw_parse_fetch_responses(&mut reader, "a3").await?;
+    let raw_messages =
+        raw_parse_fetch_responses(&mut reader, "a3", IMAP_SINGLE_MESSAGE_FETCH_TIMEOUT).await?;
     let _ = reader.get_mut().write_all(b"a4 LOGOUT\r\n").await;
 
     let raw_msg = raw_messages.into_iter().next()
@@ -1077,7 +1097,13 @@ pub async fn raw_fetch_message_parts(
         .map_err(|e| format!("FETCH write: {e}"))?;
 
     let raw_messages =
-        raw_parse_fetch_responses_with_progress(&mut reader, "a3", &mut on_progress).await?;
+        raw_parse_fetch_responses_with_progress(
+            &mut reader,
+            "a3",
+            &mut on_progress,
+            IMAP_SINGLE_MESSAGE_FETCH_TIMEOUT,
+        )
+        .await?;
     let _ = reader.get_mut().write_all(b"a4 LOGOUT\r\n").await;
 
     let raw_msg = raw_messages.into_iter().next()
@@ -2138,7 +2164,8 @@ async fn raw_fetch_messages_inner(
         .map_err(|e| format!("FETCH write: {e}"))?;
 
     // Parse FETCH responses with literal handling
-    let raw_messages = raw_parse_fetch_responses(&mut reader, "a3").await?;
+    let raw_messages =
+        raw_parse_fetch_responses(&mut reader, "a3", IMAP_BULK_FETCH_LINE_TIMEOUT).await?;
 
     log::info!("RAW IMAP FETCH {folder}: parsed {} raw messages", raw_messages.len());
 
@@ -2301,10 +2328,7 @@ async fn raw_send_and_wait(
 
     loop {
         let mut line = String::new();
-        match tokio::time::timeout(
-            std::time::Duration::from_secs(30),
-            reader.read_line(&mut line),
-        ).await {
+        match tokio::time::timeout(IMAP_RAW_CMD_TIMEOUT, reader.read_line(&mut line)).await {
             Ok(Ok(0)) => return Err(format!("{tag}: connection closed")),
             Ok(Ok(_)) => {
                 response.push_str(&line);
@@ -2316,7 +2340,10 @@ async fn raw_send_and_wait(
                 }
             }
             Ok(Err(e)) => return Err(format!("{tag} read: {e}")),
-            Err(_) => return Err(format!("{tag}: timeout")),
+            Err(_) => return Err(format!(
+                "{tag}: timed out after {}s",
+                IMAP_RAW_CMD_TIMEOUT.as_secs()
+            )),
         }
     }
 }
@@ -2404,8 +2431,9 @@ async fn read_literal_with_progress(
 async fn raw_parse_fetch_responses(
     reader: &mut tokio::io::BufReader<ImapStream>,
     tag: &str,
+    line_timeout: Duration,
 ) -> Result<Vec<RawFetchedMessage>, String> {
-    raw_parse_fetch_responses_with_progress(reader, tag, &mut None).await
+    raw_parse_fetch_responses_with_progress(reader, tag, &mut None, line_timeout).await
 }
 
 /// Like [`raw_parse_fetch_responses`], reporting byte-level progress of each
@@ -2414,6 +2442,7 @@ async fn raw_parse_fetch_responses_with_progress(
     reader: &mut tokio::io::BufReader<ImapStream>,
     tag: &str,
     on_progress: &mut Option<&mut (dyn FnMut(u64, u64) + Send)>,
+    line_timeout: Duration,
 ) -> Result<Vec<RawFetchedMessage>, String> {
     let mut messages: Vec<RawFetchedMessage> = Vec::new();
     let tag_ok = format!("{tag} OK");
@@ -2422,10 +2451,7 @@ async fn raw_parse_fetch_responses_with_progress(
 
     loop {
         let mut line = String::new();
-        match tokio::time::timeout(
-            std::time::Duration::from_secs(60),
-            reader.read_line(&mut line),
-        ).await {
+        match tokio::time::timeout(line_timeout, reader.read_line(&mut line)).await {
             Ok(Ok(0)) => return Err("Connection closed during FETCH".to_string()),
             Ok(Ok(_)) => {
                 // Check for tagged response (end of FETCH)
@@ -2486,7 +2512,12 @@ async fn raw_parse_fetch_responses_with_progress(
                 }
             }
             Ok(Err(e)) => return Err(format!("FETCH read: {e}")),
-            Err(_) => return Err("FETCH timeout".to_string()),
+            Err(_) => {
+                return Err(format!(
+                    "FETCH timeout — no response for {}s",
+                    line_timeout.as_secs()
+                ))
+            }
         }
     }
 

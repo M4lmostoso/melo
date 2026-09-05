@@ -744,7 +744,8 @@
       "preparing": "Preparing for drag…",
       "readyToDrag": "Ready — drag to a folder",
       "previewNotFound": "Attachment not found",
-      "previewLoadFailed": "Failed to load preview"
+      "previewLoadFailed": "Failed to load preview",
+      "downloadFailedCount": "Could not download {count} of {total} attachments — the mail server did not respond in time. Please try again."
     },
     "authWarning": {
       "failedAuthentication": "Authentication failed",

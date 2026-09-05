@@ -744,7 +744,8 @@
       "preparing": "Preparazione per il trascinamento…",
       "readyToDrag": "Pronto — trascina in una cartella",
       "previewNotFound": "Allegato non trovato",
-      "previewLoadFailed": "Impossibile caricare l’anteprima"
+      "previewLoadFailed": "Impossibile caricare l’anteprima",
+      "downloadFailedCount": "Impossibile scaricare {count} allegati su {total} — il server di posta non ha risposto in tempo. Riprova."
     },
     "authWarning": {
       "failedAuthentication": "Autenticazione fallita",

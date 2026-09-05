@@ -12,6 +12,7 @@ import { useDragOut } from "@/hooks/useDragOut";
 import { toAttachmentRef, openAttachmentWithDefaultApp, downloadAttachmentsToFolder, materializeAttachment } from "@/services/attachments/attachmentActions";
 import { openAttachmentPreviewWindow } from "@/services/attachments/previewWindow";
 import { ContextMenu, type ContextMenuItem } from "@/components/ui/ContextMenu";
+import { useToastStore } from "@/stores/toastStore";
 
 /** Dedup attachments by filename+size (content-based) */
 function dedup(attachments: DbAttachment[]): DbAttachment[] {
@@ -101,7 +102,7 @@ export function AttachmentList({ attachments, referencedCids }: AttachmentListPr
     );
 
     try {
-      const { firstPath } = await downloadAttachmentsToFolder(
+      const { firstPath, failed } = await downloadAttachmentsToFolder(
         items.map(toAttachmentRef),
         dir,
         ({ index, total, dbId }) => {
@@ -112,8 +113,24 @@ export function AttachmentList({ attachments, referencedCids }: AttachmentListPr
         },
       );
       setDownloadPct(100);
-      const { revealItemInDir } = await import("@tauri-apps/plugin-opener");
-      await revealItemInDir(firstPath ?? dir).catch(() => {});
+      // A failed download used to end exactly like a successful one — 100%, then
+      // Finder opening on an empty folder. Say what went wrong instead.
+      if (failed > 0) {
+        useToastStore.getState().showToast(
+          "error",
+          t("email.attachmentList.downloadFailedCount", { count: failed, total: items.length }),
+        );
+      }
+      if (firstPath) {
+        const { revealItemInDir } = await import("@tauri-apps/plugin-opener");
+        await revealItemInDir(firstPath).catch(() => {});
+      }
+    } catch (err) {
+      console.error("Download attachments failed:", err);
+      useToastStore.getState().showToast(
+        "error",
+        t("email.attachmentList.downloadFailedCount", { count: items.length, total: items.length }),
+      );
     } finally {
       unlisten();
       setTimeout(() => setDownloadPct(null), 1200);
