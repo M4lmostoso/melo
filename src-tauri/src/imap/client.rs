@@ -942,33 +942,180 @@ pub async fn fetch_attachment(
     Ok(base64_str)
 }
 
-/// Resolve several inline CID images of ONE message with a single full-message
-/// download, then match each Content-ID locally.
+// ---------- Single-flight whole-message fetch ----------
+
+/// One in-flight `UID FETCH … BODY.PEEK[]` of a whole message, shared by every
+/// caller that wants some slice of it.
 ///
-/// The batch CID resolver used to fetch `BODY.PEEK[]` once *per* image — each
-/// opening a fresh connection and pulling the whole message. An email with N
-/// inline images (signatures/newsletters with many embedded logos) therefore
-/// re-downloaded the message N times. This fetches the body once, parses it, and
-/// extracts every requested Content-ID from that single download.
+/// Attachment download and inline-CID resolution both pull the ENTIRE message
+/// and slice locally (per-part fetches are mangled by DavMail into a near-full
+/// message transfer). Opening the reading pane while downloading the attachments
+/// therefore pulled the same mail twice on two connections — on a 28 MB email
+/// that saturated the link, and DavMail, which serializes work per account,
+/// started timing out unrelated SELECTs and logins until the app flipped itself
+/// to offline mode.
+struct RawMessageFetch {
+    /// Delivers the finished body — or the error — to every waiter.
+    done: tokio::sync::broadcast::Sender<Result<std::sync::Arc<Vec<u8>>, String>>,
+    /// Live `(downloaded, total)` of the leader's transfer, so a follower drives
+    /// its own progress bar off the one real download instead of sitting at 0%.
+    progress: tokio::sync::watch::Sender<(u64, u64)>,
+}
+
+type InflightRawMessages =
+    std::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<RawMessageFetch>>>;
+
+fn inflight_raw_messages() -> &'static InflightRawMessages {
+    static MAP: std::sync::OnceLock<InflightRawMessages> = std::sync::OnceLock::new();
+    MAP.get_or_init(Default::default)
+}
+
+/// Removes the in-flight entry when the leader finishes — or is cancelled.
 ///
-/// Uses the raw-TCP path (no async-imap, no session pool): with DavMail
-/// (Exchange/EWS → IMAP) the async-imap `BODY.PEEK[]` parser stalls without
-/// yielding, defeating `tokio::time::timeout`; raw TCP + manual literal parsing
-/// completes reliably (it is how the body reached the DB during sync).
+/// Cancellation matters: a Tauri command whose future is dropped mid-fetch would
+/// otherwise leave the key behind forever and every later caller would wait on a
+/// leader that no longer exists. Dropping the entry also drops the senders, which
+/// is exactly how followers learn the leader is gone.
+struct InflightGuard {
+    key: String,
+}
+
+impl Drop for InflightGuard {
+    fn drop(&mut self) {
+        let mut map = inflight_raw_messages()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        map.remove(&self.key);
+    }
+}
+
+/// Error a follower gets when the leader's future was dropped before it settled.
+const SHARED_FETCH_CANCELLED: &str = "shared message fetch was cancelled";
+
+/// Fetch the whole raw message for one UID, joining an identical fetch already
+/// in flight instead of opening a second connection for it.
 ///
-/// Returns a map from normalized (bracket-stripped) Content-ID to the decoded
-/// part contents. CIDs not found in the message are absent from the map.
-pub async fn raw_fetch_cid_attachments_batch(
+/// If the leader is cancelled mid-flight (its Tauri command was dropped), the
+/// follower does the fetch itself rather than inheriting a failure it never
+/// caused — one retry only, so a cancellation storm cannot recurse.
+async fn fetch_whole_message_shared(
     config: &ImapConfig,
     folder: &str,
     uid: u32,
-    content_ids: &[String],
-) -> Result<std::collections::HashMap<String, Vec<u8>>, String> {
-    log::debug!(
-        "[raw_fetch_cid_batch] folder={folder} uid={uid} cids={}",
-        content_ids.len()
+    on_progress: &mut Option<&mut (dyn FnMut(u64, u64) + Send)>,
+) -> Result<std::sync::Arc<Vec<u8>>, String> {
+    match fetch_whole_message_shared_once(config, folder, uid, on_progress).await {
+        Err(e) if e == SHARED_FETCH_CANCELLED => {
+            log::info!("[raw-msg] leader cancelled folder={folder} uid={uid} — fetching directly");
+            fetch_whole_message_shared_once(config, folder, uid, on_progress).await
+        }
+        other => other,
+    }
+}
+
+async fn fetch_whole_message_shared_once(
+    config: &ImapConfig,
+    folder: &str,
+    uid: u32,
+    on_progress: &mut Option<&mut (dyn FnMut(u64, u64) + Send)>,
+) -> Result<std::sync::Arc<Vec<u8>>, String> {
+    let key = format!(
+        "{}:{}\u{1}{}\u{1}{}\u{1}{}",
+        config.host, config.port, config.username, folder, uid
     );
 
+    // Subscribe UNDER the lock: a follower that only took the Arc here and
+    // subscribed after releasing it could miss the leader's single broadcast and
+    // then wait forever.
+    let joined = {
+        let mut map = inflight_raw_messages()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        match map.get(&key) {
+            Some(existing) => Err((existing.done.subscribe(), existing.progress.subscribe())),
+            None => {
+                let (done, _) = tokio::sync::broadcast::channel(1);
+                let (progress, _) = tokio::sync::watch::channel((0u64, 0u64));
+                let entry = std::sync::Arc::new(RawMessageFetch { done, progress });
+                map.insert(key.clone(), std::sync::Arc::clone(&entry));
+                Ok(entry)
+            }
+        }
+    };
+
+    let entry = match joined {
+        Err((done, progress)) => {
+            log::info!("[raw-msg] joining in-flight fetch folder={folder} uid={uid}");
+            return follow_whole_message_fetch(done, progress, on_progress).await;
+        }
+        Ok(entry) => entry,
+    };
+    let guard = InflightGuard { key };
+
+    // Leader: run the real transfer, mirroring byte progress to the followers.
+    let result = {
+        let progress_tx = entry.progress.clone();
+        let mut relay = move |downloaded: u64, total: u64| {
+            let _ = progress_tx.send((downloaded, total));
+            if let Some(cb) = on_progress.as_mut() {
+                cb(downloaded, total);
+            }
+        };
+        let mut relay_ref: Option<&mut (dyn FnMut(u64, u64) + Send)> = Some(&mut relay);
+        raw_fetch_whole_message(config, folder, uid, &mut relay_ref).await
+    };
+
+    let shared = result.map(std::sync::Arc::new);
+    // Drop the registry entry BEFORE broadcasting: every follower is already
+    // subscribed, and a caller arriving after this point must start a fresh fetch
+    // rather than join one that is over.
+    drop(guard);
+    let _ = entry.done.send(shared.clone());
+    shared
+}
+
+/// Wait on the leader's transfer, forwarding its byte progress meanwhile.
+async fn follow_whole_message_fetch(
+    mut done: tokio::sync::broadcast::Receiver<Result<std::sync::Arc<Vec<u8>>, String>>,
+    mut progress: tokio::sync::watch::Receiver<(u64, u64)>,
+    on_progress: &mut Option<&mut (dyn FnMut(u64, u64) + Send)>,
+) -> Result<std::sync::Arc<Vec<u8>>, String> {
+    let cancelled = || SHARED_FETCH_CANCELLED.to_string();
+    loop {
+        tokio::select! {
+            settled = done.recv() => {
+                let result = settled.unwrap_or_else(|_| Err(cancelled()));
+                // Land the bar on 100% even when the transfer finished before
+                // this follower was polled — a watch only keeps the latest value.
+                if let (Ok(body), Some(cb)) = (&result, on_progress.as_mut()) {
+                    let len = body.len() as u64;
+                    cb(len, len);
+                }
+                return result;
+            }
+            changed = progress.changed() => {
+                if changed.is_err() {
+                    // Leader gone: its senders are dropped, so `recv` settles now
+                    // instead of spinning on a permanently-ready `changed()`.
+                    return done.recv().await.unwrap_or_else(|_| Err(cancelled()));
+                }
+                let (downloaded, total) = *progress.borrow_and_update();
+                if let Some(cb) = on_progress.as_mut() {
+                    cb(downloaded, total);
+                }
+            }
+        }
+    }
+}
+
+/// The actual `BODY.PEEK[]` transfer for one UID over a fresh raw-TCP connection.
+/// Callers go through [`fetch_whole_message_shared`], never here directly.
+async fn raw_fetch_whole_message(
+    config: &ImapConfig,
+    folder: &str,
+    uid: u32,
+    on_progress: &mut Option<&mut (dyn FnMut(u64, u64) + Send)>,
+) -> Result<Vec<u8>, String> {
     let stream = if config.security == "starttls" {
         raw_connect_starttls(config).await?
     } else {
@@ -1003,18 +1150,58 @@ pub async fn raw_fetch_cid_attachments_batch(
     reader.get_mut().write_all(fetch_cmd.as_bytes()).await
         .map_err(|e| format!("FETCH write: {e}"))?;
 
-    let raw_messages =
-        raw_parse_fetch_responses(&mut reader, "a3", IMAP_SINGLE_MESSAGE_FETCH_TIMEOUT).await?;
+    let raw_messages = raw_parse_fetch_responses_with_progress(
+        &mut reader,
+        "a3",
+        on_progress,
+        IMAP_SINGLE_MESSAGE_FETCH_TIMEOUT,
+    )
+    .await?;
     let _ = reader.get_mut().write_all(b"a4 LOGOUT\r\n").await;
 
-    let raw_msg = raw_messages.into_iter().next()
+    let raw_msg = raw_messages
+        .into_iter()
+        .next()
         .ok_or_else(|| format!("No message returned for UID {uid}"))?;
+    Ok(raw_msg.body)
+}
+
+/// Resolve several inline CID images of ONE message with a single full-message
+/// download, then match each Content-ID locally.
+///
+/// The batch CID resolver used to fetch `BODY.PEEK[]` once *per* image — each
+/// opening a fresh connection and pulling the whole message. An email with N
+/// inline images (signatures/newsletters with many embedded logos) therefore
+/// re-downloaded the message N times. This fetches the body once, parses it, and
+/// extracts every requested Content-ID from that single download.
+///
+/// Uses the raw-TCP path (no async-imap, no session pool): with DavMail
+/// (Exchange/EWS → IMAP) the async-imap `BODY.PEEK[]` parser stalls without
+/// yielding, defeating `tokio::time::timeout`; raw TCP + manual literal parsing
+/// completes reliably (it is how the body reached the DB during sync).
+///
+/// Returns a map from normalized (bracket-stripped) Content-ID to the decoded
+/// part contents. CIDs not found in the message are absent from the map.
+pub async fn raw_fetch_cid_attachments_batch(
+    config: &ImapConfig,
+    folder: &str,
+    uid: u32,
+    content_ids: &[String],
+) -> Result<std::collections::HashMap<String, Vec<u8>>, String> {
+    log::debug!(
+        "[raw_fetch_cid_batch] folder={folder} uid={uid} cids={}",
+        content_ids.len()
+    );
+
+    // Shared with the attachment-download path: rendering inline images while
+    // the same mail's attachments are downloading must not pull it twice.
+    let raw_body = fetch_whole_message_shared(config, folder, uid, &mut None).await?;
 
     // Parse once and walk EVERY MIME part (attachments()/html_bodies() miss inline
     // parts — the same reason raw_fetch_cid_attachment iterates `parts` directly).
     let parser = MessageParser::default();
     let message = parser
-        .parse(raw_msg.body.as_slice())
+        .parse(raw_body.as_slice())
         .ok_or_else(|| format!("mail-parser failed for UID {uid}"))?;
 
     let wanted: std::collections::HashSet<&str> = content_ids
@@ -1062,59 +1249,15 @@ pub async fn raw_fetch_message_parts(
         part_ids.len()
     );
 
-    let stream = if config.security == "starttls" {
-        raw_connect_starttls(config).await?
-    } else {
-        connect_stream(config).await?
-    };
-    let mut reader = BufReader::new(stream);
-
-    // Read greeting (non-STARTTLS only — STARTTLS path already consumed it)
-    if config.security != "starttls" {
-        let mut line = String::new();
-        reader.read_line(&mut line).await.map_err(|e| format!("greeting: {e}"))?;
-    }
-
-    // LOGIN
-    let login_cmd = if config.auth_method == "oauth2" {
-        let xoauth2 = format!("user={}\x01auth=Bearer {}\x01\x01", config.username, config.password);
-        let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, xoauth2.as_bytes());
-        format!("a1 AUTHENTICATE XOAUTH2 {b64}\r\n")
-    } else {
-        let esc_user = config.username.replace('\\', "\\\\").replace('"', "\\\"");
-        let esc_pass = config.password.replace('\\', "\\\\").replace('"', "\\\"");
-        format!("a1 LOGIN \"{esc_user}\" \"{esc_pass}\"\r\n")
-    };
-    raw_send_and_wait(&mut reader, login_cmd.as_bytes(), "a1").await?;
-
-    // SELECT folder
-    let select_cmd = format!("a2 SELECT \"{folder}\"\r\n");
-    raw_send_and_wait(&mut reader, select_cmd.as_bytes(), "a2").await?;
-
-    // FETCH the full body once for the single UID
-    let fetch_cmd = format!("a3 UID FETCH {uid} BODY.PEEK[]\r\n");
-    reader.get_mut().write_all(fetch_cmd.as_bytes()).await
-        .map_err(|e| format!("FETCH write: {e}"))?;
-
-    let raw_messages =
-        raw_parse_fetch_responses_with_progress(
-            &mut reader,
-            "a3",
-            &mut on_progress,
-            IMAP_SINGLE_MESSAGE_FETCH_TIMEOUT,
-        )
-        .await?;
-    let _ = reader.get_mut().write_all(b"a4 LOGOUT\r\n").await;
-
-    let raw_msg = raw_messages.into_iter().next()
-        .ok_or_else(|| format!("No message returned for UID {uid}"))?;
-
+    // Shared with the inline-CID resolver: the reading pane and this download
+    // must never pull the same message on two connections.
+    let raw_body = fetch_whole_message_shared(config, folder, uid, &mut on_progress).await?;
     // Parse once and map IMAP section paths → mail-parser part index. Using the
     // same section builder as sync guarantees the part_id strings match what was
     // stored on the attachment rows.
     let parser = MessageParser::default();
     let message = parser
-        .parse(raw_msg.body.as_slice())
+        .parse(raw_body.as_slice())
         .ok_or_else(|| format!("mail-parser failed for UID {uid}"))?;
 
     let section_map = build_imap_section_map(&message);
@@ -3245,5 +3388,213 @@ mod tests {
             normalize_message_id("1783590354061.bz4x936f@termomeccanica.com"),
             normalize_message_id("1783590354061.bz4x936f@termomeccanica.com>")
         );
+    }
+
+    // ---------- Single-flight whole-message fetch ----------
+
+    /// Minimal IMAP server that answers LOGIN/SELECT and serves one message
+    /// literal per connection, counting how many connections it was given.
+    ///
+    /// The point of the guard is that a second caller for the same UID does NOT
+    /// open a second connection, so the connection count IS the assertion.
+    async fn spawn_fake_imap(
+        body: &'static [u8],
+        fetch_delay: Duration,
+    ) -> (u16, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        use tokio::io::AsyncBufReadExt as _;
+        use tokio::io::AsyncWriteExt as _;
+
+        let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let conns = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = std::sync::Arc::clone(&conns);
+
+        tokio::spawn(async move {
+            loop {
+                let Ok((sock, _)) = listener.accept().await else { return };
+                counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                tokio::spawn(async move {
+                    let mut reader = tokio::io::BufReader::new(sock);
+                    let _ = reader.get_mut().write_all(b"* OK fake ready\r\n").await;
+                    for tag in ["a1", "a2"] {
+                        let mut line = String::new();
+                        if reader.read_line(&mut line).await.unwrap_or(0) == 0 {
+                            return;
+                        }
+                        let _ = reader
+                            .get_mut()
+                            .write_all(format!("{tag} OK done\r\n").as_bytes())
+                            .await;
+                    }
+                    let mut fetch = String::new();
+                    if reader.read_line(&mut fetch).await.unwrap_or(0) == 0 {
+                        return;
+                    }
+                    tokio::time::sleep(fetch_delay).await;
+                    let header = format!(
+                        "* 1 FETCH (UID 42 FLAGS (\\Seen) BODY[] {{{}}}\r\n",
+                        body.len()
+                    );
+                    let _ = reader.get_mut().write_all(header.as_bytes()).await;
+                    let _ = reader.get_mut().write_all(body).await;
+                    let _ = reader.get_mut().write_all(b")\r\na3 OK FETCH done\r\n").await;
+                });
+            }
+        });
+
+        (port, conns)
+    }
+
+    fn fake_config(port: u16) -> ImapConfig {
+        ImapConfig {
+            host: "127.0.0.1".to_string(),
+            port,
+            security: "none".to_string(),
+            username: "user".to_string(),
+            password: "pw".to_string(),
+            auth_method: "password".to_string(),
+            accept_invalid_certs: false,
+        }
+    }
+
+    const FAKE_BODY: &[u8] = b"Subject: hi\r\n\r\nbody bytes\r\n";
+
+    /// In-flight entries belonging to one fake server. The registry is a process
+    /// global shared by every test in this binary, so assert per port, never on
+    /// global emptiness.
+    fn inflight_entries_for_port(port: u16) -> usize {
+        let prefix = format!("127.0.0.1:{port}\u{1}");
+        inflight_raw_messages()
+            .lock()
+            .unwrap()
+            .keys()
+            .filter(|k| k.starts_with(&prefix))
+            .count()
+    }
+
+    #[tokio::test]
+    async fn concurrent_fetches_of_one_uid_share_a_single_connection() {
+        let (port, conns) = spawn_fake_imap(FAKE_BODY, Duration::from_millis(300)).await;
+        let config = fake_config(port);
+
+        // Second caller starts while the first is still waiting on the FETCH.
+        let mut no_progress = None;
+        let (a, b) = tokio::join!(
+            fetch_whole_message_shared(&config, "INBOX", 42, &mut no_progress),
+            async {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                fetch_whole_message_shared(&config, "INBOX", 42, &mut None).await
+            }
+        );
+
+        assert_eq!(a.unwrap().as_slice(), FAKE_BODY);
+        assert_eq!(b.unwrap().as_slice(), FAKE_BODY);
+        assert_eq!(
+            conns.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "the joined fetch must not open a second connection"
+        );
+    }
+
+    #[tokio::test]
+    async fn follower_sees_the_leaders_byte_progress() {
+        let (port, _conns) = spawn_fake_imap(FAKE_BODY, Duration::from_millis(300)).await;
+        let config = fake_config(port);
+
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::<(u64, u64)>::new()));
+        let recorder = std::sync::Arc::clone(&seen);
+
+        let mut no_progress = None;
+        let (a, b) = tokio::join!(
+            fetch_whole_message_shared(&config, "INBOX", 42, &mut no_progress),
+            async {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                let mut cb = move |downloaded: u64, total: u64| {
+                    recorder.lock().unwrap().push((downloaded, total));
+                };
+                let mut on_progress: Option<&mut (dyn FnMut(u64, u64) + Send)> = Some(&mut cb);
+                fetch_whole_message_shared(&config, "INBOX", 42, &mut on_progress).await
+            }
+        );
+        a.unwrap();
+        b.unwrap();
+
+        // A follower used to sit at 0% for the whole transfer; it now mirrors the
+        // one real download.
+        let progress = seen.lock().unwrap().clone();
+        assert!(
+            progress.contains(&(FAKE_BODY.len() as u64, FAKE_BODY.len() as u64)),
+            "follower never saw completed progress: {progress:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn different_uids_are_not_shared() {
+        let (port, conns) = spawn_fake_imap(FAKE_BODY, Duration::from_millis(300)).await;
+        let config = fake_config(port);
+
+        let mut no_progress_a = None;
+        let mut no_progress_b = None;
+        let (a, b) = tokio::join!(
+            fetch_whole_message_shared(&config, "INBOX", 42, &mut no_progress_a),
+            fetch_whole_message_shared(&config, "INBOX", 43, &mut no_progress_b)
+        );
+        a.unwrap();
+        b.unwrap();
+        assert_eq!(conns.load(std::sync::atomic::Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn registry_is_empty_after_a_fetch_settles() {
+        let (port, _conns) = spawn_fake_imap(FAKE_BODY, Duration::from_millis(0)).await;
+        let config = fake_config(port);
+
+        let mut no_progress = None;
+        fetch_whole_message_shared(&config, "INBOX", 42, &mut no_progress)
+            .await
+            .unwrap();
+        assert_eq!(
+            inflight_entries_for_port(port),
+            0,
+            "a settled fetch must leave no entry behind — a stale one would make \
+             every later caller wait on a leader that no longer exists"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_cancelled_leader_does_not_strand_the_follower() {
+        // Leader is dropped mid-FETCH; the follower must complete on its own.
+        let (port, conns) = spawn_fake_imap(FAKE_BODY, Duration::from_millis(600)).await;
+        let config = fake_config(port);
+
+        let leader = tokio::spawn({
+            let config = config.clone();
+            async move {
+                let mut no_progress = None;
+                fetch_whole_message_shared(&config, "INBOX", 42, &mut no_progress).await
+            }
+        });
+        tokio::time::sleep(Duration::from_millis(100)).await; // leader registers
+
+        let follower = tokio::spawn({
+            let config = config.clone();
+            async move {
+                let mut no_progress = None;
+                fetch_whole_message_shared(&config, "INBOX", 42, &mut no_progress).await
+            }
+        });
+        tokio::time::sleep(Duration::from_millis(50)).await; // follower joins
+
+        leader.abort();
+        let _ = leader.await;
+
+        let body = follower.await.unwrap().unwrap();
+        assert_eq!(body.as_slice(), FAKE_BODY);
+        assert_eq!(
+            conns.load(std::sync::atomic::Ordering::SeqCst),
+            2,
+            "the follower must run its own fetch once the leader is gone"
+        );
+        assert_eq!(inflight_entries_for_port(port), 0);
     }
 }
