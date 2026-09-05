@@ -4,6 +4,20 @@
 
 ---
 
+## [0.1.10](https://github.com/M4lmostoso/melo/compare/v0.1.9...v0.1.10) (2026-09-05)
+
+
+### Features
+
+* implement extractMeetingUrl and fix ICS line unfolding to handle LF-folded conference links ([32f1f19](https://github.com/M4lmostoso/melo/commit/32f1f193453bb1e198c81237a27f5d17228cbf5f))
+* implement single-flight whole-message fetching to deduplicate concurrent IMAP requests ([a66c1d0](https://github.com/M4lmostoso/melo/commit/a66c1d0f3e90528a68619de4bed8100f7349e76d))
+
+
+### Bug Fixes
+
+* decode RFC 2047 headers and Content-Transfer-Encoding bodies for locally-parsed sent emails ([0ecc013](https://github.com/M4lmostoso/melo/commit/0ecc013b1e7b8ee796dcc0e19a96a82b57af45b0))
+* extend IMAP FETCH timeouts and add error notifications for partial attachment downloads ([01a644e](https://github.com/M4lmostoso/melo/commit/01a644efcda7b558750341d3ac4129ee51768894))
+
 ## [0.1.9](https://github.com/M4lmostoso/melo/compare/v0.1.8...v0.1.9) (2026-09-01)
 
 
