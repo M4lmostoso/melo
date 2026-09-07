@@ -112,6 +112,7 @@ import {
   deleteDraft as deleteDraftAction,
   deleteDraftThread,
   archiveThread,
+  purgeDraftFromDb,
 } from "./services/emailActions";
 import { upsertContact } from "./services/db/contacts";
 import { useOutgoingStore } from "./stores/outgoingStore";
@@ -488,6 +489,22 @@ export default function App() {
           createdAt: Date.now(),
           timerId: null,
         });
+
+        // The message is now in Outgoing — it must not ALSO still show in Drafts.
+        // The local draft rows used to survive the whole SMTP round trip (they were
+        // only removed in the post-send cleanup below), so the same mail appeared
+        // twice in the sidebar for as long as the send took. Purge them here: fast
+        // local SQLite only (the server EXPUNGE still happens post-send), and safe —
+        // the raw already lives in the claimed undo-send row, and a failed send lands
+        // in Outgoing with Retry/Edit rather than being discarded.
+        await purgeDraftFromDb(
+          p.accountId,
+          p.currentDraftId,
+          p.threadId ?? null,
+          p.localDraftId,
+        ).catch((e) => console.error("[App] Failed to purge draft at send hand-off:", e));
+        window.dispatchEvent(new Event("melo-sync-done"));
+        window.dispatchEvent(new Event("melo-badges-refresh"));
 
         try {
           const sendResult = await sendEmail(p.accountId, p.raw, p.threadId ?? undefined);
