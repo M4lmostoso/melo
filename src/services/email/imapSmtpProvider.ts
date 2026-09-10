@@ -1327,10 +1327,17 @@ export class ImapSmtpProvider implements EmailProvider {
     const headers = parseBasicHeaders(raw);
     const snippet = extractSnippet(raw);
 
-    const from = headers.get("from") ?? "";
-    const to = headers.get("to") ?? "";
-    const cc = headers.get("cc") ?? null;
-    const subject = headers.get("subject") ?? null;
+    // Same trap as saveSentMessageLocally: the composer writes RFC 2047 encoded
+    // words for any non-ASCII header, so a verbatim read stores "=?UTF-8?B?...".
+    // The transient UID row is deleted right after the APPEND, but the thread
+    // subject/snippet upserted here survives → the whole conversation shows the
+    // encoded word while the draft is being written.
+    const from = decodeEncodedWords(headers.get("from") ?? "");
+    const to = decodeEncodedWords(headers.get("to") ?? "");
+    const cc = headers.has("cc") ? decodeEncodedWords(headers.get("cc")!) : null;
+    const subject = headers.has("subject")
+      ? decodeEncodedWords(headers.get("subject")!)
+      : null;
     // Strip angle brackets to match the format stored by Rust's mail-parser during IMAP sync.
     // Strip ALL leading/trailing brackets (like Rust's normalize_message_id) —
     // a malformed "<id>>" must collapse to "id", or sync dedup fails on mismatch.
@@ -1344,19 +1351,30 @@ export class ImapSmtpProvider implements EmailProvider {
     // For draft replies, attach to the existing thread; otherwise use draftId as threadId
     const effectiveThreadId = threadId ?? draftId;
 
-    // Upsert the thread (creates if new, updates subject/snippet if existing)
-    await upsertThread({
-      id: effectiveThreadId,
-      accountId: this.accountId,
-      subject,
-      snippet,
-      lastMessageAt: now,
-      messageCount: 1,
-      isRead: false,
-      isStarred: false,
-      isImportant: false,
-      hasAttachments: false,
-    });
+    // Create the thread row only when it does not exist yet. upsertThread
+    // OVERWRITES every aggregate, so running it for a reply draft replaced the
+    // conversation's subject/snippet with the draft's, reset message_count to 1
+    // and flipped is_read back to 0 — every 18s, while the user was typing.
+    // draftAutoSave's local tier applies the same rule for the same reason.
+    const db = await getDb();
+    const existingThread = await db.select<{ id: string }[]>(
+      "SELECT id FROM threads WHERE account_id = $1 AND id = $2 LIMIT 1",
+      [this.accountId, effectiveThreadId],
+    );
+    if (existingThread.length === 0) {
+      await upsertThread({
+        id: effectiveThreadId,
+        accountId: this.accountId,
+        subject,
+        snippet,
+        lastMessageAt: now,
+        messageCount: 1,
+        isRead: true,
+        isStarred: false,
+        isImportant: false,
+        hasAttachments: false,
+      });
+    }
 
     // Ensure DRAFT label is present without overwriting other labels (e.g. INBOX for replies)
     const existingLabels = await getThreadLabelIds(this.accountId, effectiveThreadId);
@@ -1368,8 +1386,10 @@ export class ImapSmtpProvider implements EmailProvider {
     const fromName = fromNameMatch ? fromNameMatch[1]!.trim() : null;
     const fromAddress = from.replace(/.*<([^>]+)>.*/, "$1").trim();
 
-    const bodyStart = raw.indexOf("\r\n\r\n");
-    const bodyHtml = bodyStart !== -1 ? raw.slice(bodyStart + 4) : null;
+    // Must go through extractHtmlBody (not a raw slice): the composer
+    // base64-encodes every body, so the verbatim slice is the base64 payload
+    // plus MIME boundaries, not readable HTML.
+    const bodyHtml = extractHtmlBody(raw);
 
     await upsertMessage({
       id: draftId,

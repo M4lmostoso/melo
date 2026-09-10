@@ -87,6 +87,7 @@ import { findSpecialFolder } from "../imap/messageHelper";
 import { upsertMessage } from "../db/messages";
 import { buildRawEmail } from "@/utils/emailBuilder";
 import { upsertThread, setThreadLabels, recalculateThreadStats } from "../db/threads";
+import { getDb } from "../db/connection";
 
 const mockImapConfig = {
   host: "imap.example.com",
@@ -739,6 +740,56 @@ describe("ImapSmtpProvider", () => {
         "Drafts",
         "base64data",
         "(\\Draft)",
+      );
+    });
+
+    // Regression: same trap as the Sent copy — the draft writer re-parses the
+    // composer's own raw MIME. Without decoding, the thread it upserts kept the
+    // "=?UTF-8?B?..." subject (and a base64 body) for the whole conversation
+    // while the user was still typing.
+    it("decodes encoded-word headers and the transfer-encoded body of the draft raw MIME", async () => {
+      vi.mocked(findSpecialFolder).mockResolvedValue("Drafts");
+      vi.mocked(imapAppendMessage).mockResolvedValue(7);
+
+      const raw = buildRawEmail({
+        from: "Mirko Landenna <user@example.com>",
+        to: ["bob@example.com"],
+        subject: "Fwd: RE: réunion TME/Suez",
+        htmlBody: "<p>Questo è il file da aggiornare</p>",
+      });
+
+      await provider.createDraft(raw);
+
+      expect(upsertThread).toHaveBeenCalledWith(
+        expect.objectContaining({ subject: "Fwd: RE: réunion TME/Suez" }),
+      );
+      expect(upsertMessage).toHaveBeenCalledWith(
+        expect.objectContaining({
+          subject: "Fwd: RE: réunion TME/Suez",
+          fromName: "Mirko Landenna",
+          bodyHtml: "<p>Questo è il file da aggiornare</p>",
+          snippet: expect.stringContaining("Questo"),
+        }),
+      );
+    });
+
+    // Regression: the autosave APPEND ran every 18s on the thread being replied
+    // to. upsertThread overwrites every aggregate, so it kept replacing the
+    // conversation's subject/snippet with the draft's, resetting message_count
+    // to 1 and marking the thread unread while the user was still typing.
+    it("does not overwrite the aggregates of a thread that already exists", async () => {
+      vi.mocked(findSpecialFolder).mockResolvedValue("Drafts");
+      vi.mocked(imapAppendMessage).mockResolvedValue(7);
+      vi.mocked(getDb).mockResolvedValueOnce({
+        select: vi.fn(async () => [{ id: "thread-1" }]),
+        execute: vi.fn(async () => ({ rowsAffected: 0 })),
+      } as never);
+
+      await provider.createDraft("base64data", "thread-1");
+
+      expect(upsertThread).not.toHaveBeenCalled();
+      expect(upsertMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ threadId: "thread-1", isDraft: true }),
       );
     });
   });
