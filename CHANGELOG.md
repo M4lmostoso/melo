@@ -4,6 +4,23 @@
 
 ---
 
+## [0.1.10](https://github.com/M4lmostoso/melo/compare/v0.1.9...v0.1.10) (2026-09-11)
+
+
+### Features
+
+* implement extractMeetingUrl and fix ICS line unfolding to handle LF-folded conference links ([32f1f19](https://github.com/M4lmostoso/melo/commit/32f1f193453bb1e198c81237a27f5d17228cbf5f))
+* implement single-flight whole-message fetching to deduplicate concurrent IMAP requests ([a66c1d0](https://github.com/M4lmostoso/melo/commit/a66c1d0f3e90528a68619de4bed8100f7349e76d))
+* introduce unconfirmed send tracking with database migration and UI warning for undelivered messages ([07c04f8](https://github.com/M4lmostoso/melo/commit/07c04f8f7e1285d1e23e5d2809343cad58902ae9))
+
+
+### Bug Fixes
+
+* decode MIME headers, correctly parse body, and prevent draft autosave from overwriting existing thread aggregates ([d320f6f](https://github.com/M4lmostoso/melo/commit/d320f6f0a88bfed9b76aa0727f3c33cde193c373))
+* decode RFC 2047 headers and Content-Transfer-Encoding bodies for locally-parsed sent emails ([0ecc013](https://github.com/M4lmostoso/melo/commit/0ecc013b1e7b8ee796dcc0e19a96a82b57af45b0))
+* extend IMAP FETCH timeouts and add error notifications for partial attachment downloads ([01a644e](https://github.com/M4lmostoso/melo/commit/01a644efcda7b558750341d3ac4129ee51768894))
+* remove draft from local database immediately upon send hand-off to prevent UI duplication ([d68d9f9](https://github.com/M4lmostoso/melo/commit/d68d9f97973c8441ca32b12fc624eb437815ebc2))
+
 ## [0.1.9](https://github.com/M4lmostoso/melo/compare/v0.1.8...v0.1.9) (2026-09-01)
 
 
