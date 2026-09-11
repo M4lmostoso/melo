@@ -376,4 +376,27 @@ export const MIGRATIONS_IMAP = [
       CREATE INDEX IF NOT EXISTS idx_embeddings_message ON message_embeddings(account_id, message_id);
     `,
   },
+  {
+    version: 73,
+    description:
+      "Mark sent messages the server never confirmed. A send whose SMTP step reports success but whose copy cannot be established on the server (the APPEND to Sent is refused and no copy is found there) was written to the local Sent folder indistinguishable from a delivered email — the user saw 'sent' for a mail Exchange had in fact refused. The flag drives the warning badge and is cleared the moment a server copy is found or appended. The backfill flags the existing victims: local Sent rows with no server coordinates that still have a Sent-copy recovery op outstanding.",
+    sql: `
+      ALTER TABLE messages ADD COLUMN send_unconfirmed INTEGER NOT NULL DEFAULT 0;
+      CREATE INDEX IF NOT EXISTS idx_messages_send_unconfirmed
+        ON messages(account_id, send_unconfirmed) WHERE send_unconfirmed = 1;
+
+      UPDATE messages SET send_unconfirmed = 1
+      WHERE is_draft = 0
+        AND imap_uid IS NULL
+        AND imap_folder IS NULL
+        AND id LIKE '%-sent-%'
+        AND EXISTS (
+          SELECT 1 FROM pending_operations po
+          WHERE po.account_id = messages.account_id
+            AND po.operation_type = 'appendToSent'
+            AND po.status IN ('pending', 'failed')
+            AND po.params LIKE '%' || messages.id || '%'
+        );
+    `,
+  },
 ];

@@ -55,11 +55,13 @@ import {
   moveThread,
   executeEmailAction,
   executeQueuedAction,
+  SEND_UNCONFIRMED_ERROR,
   emptyTrash,
   trashAllSpam,
   markAllSpamRead,
   rfcMessageIdOfRaw,
 } from "./emailActions";
+import { classifyError } from "@/utils/networkErrors";
 import { navigateToThread, navigateBack, getSelectedThreadId } from "@/router/navigate";
 import { createMockEmailProvider, createMockUIStoreState, createMockThreadStoreState } from "@/test/mocks";
 
@@ -212,6 +214,26 @@ describe("emailActions", () => {
         "DELETE FROM messages WHERE account_id = $1 AND id = $2",
         ["acct-1", "local-draft-1"],
       );
+    });
+
+    // A queued retry that comes back unconfirmed must park, not go round again:
+    // each automatic pass could put another copy in the recipient's mailbox, and
+    // ten silent retries is the opposite of the guarantee this flag exists for.
+    it("throws instead of looping when a queued retry is not confirmed by the server", async () => {
+      const raw = rawWithMessageId("unconfirmed-1@melo.test");
+      mockProvider.sendMessage.mockResolvedValueOnce({
+        id: "m-1",
+        sentCopyDurable: true,
+        sendUnconfirmed: true,
+      });
+
+      await expect(
+        executeQueuedAction("acct-1", "sendMessage", { rawBase64Url: raw, threadId: "t1" }),
+      ).rejects.toThrow(SEND_UNCONFIRMED_ERROR);
+
+      // Permanent by classification → the queue parks it as failed and alerts
+      // the user rather than firing the same mail off on a timer.
+      expect(classifyError(new Error(SEND_UNCONFIRMED_ERROR)).isRetryable).toBe(false);
     });
 
     it("does not touch any draft when no cleanup hints are present", async () => {

@@ -30,7 +30,7 @@ use tauri_plugin_autostart::MacosLauncher;
 mod commands;
 mod imap;
 mod oauth;
-mod smtp;
+pub mod smtp;
 mod vector_search;
 
 /// Bring the main window to the foreground, handling hidden/minimized state.

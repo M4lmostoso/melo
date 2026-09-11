@@ -788,6 +788,11 @@
       "alwaysLoadFromSender": "Carica sempre da questo mittente",
       "showQuotedText": "Mostra testo citato",
       "showNQuotedLines": "Mostra {count} righe citate"
+    },
+    "unconfirmedSend": {
+      "title": "Consegna non confermata",
+      "description": "Il server non ha mai confermato questo messaggio: sul server non esiste alcuna copia in Posta inviata. Potrebbe non essere arrivato al destinatario. L'avviso sparisce da solo non appena la copia compare.",
+      "badge": "Non confermata"
     }
   },
   "composer": {
@@ -2453,7 +2458,9 @@
     "opFailedTitle": "Operazione non completata",
     "opFailedBody": "Un'operazione \"{operation}\" in sospeso è fallita definitivamente. Controlla In uscita nella barra laterale.",
     "scheduledFailedTitle": "Email programmata non inviata",
-    "scheduledFailedBody": "\"{subject}\" non è stata inviata. È conservata in Programmate — riprova da lì."
+    "scheduledFailedBody": "\"{subject}\" non è stata inviata. È conservata in Programmate — riprova da lì.",
+    "sendUnconfirmedTitle": "Invio non confermato",
+    "sendUnconfirmedBody": "Il server ha accettato la connessione ma nessuna copia di questa email risulta in Posta inviata: non c'è alcuna prova che sia stata consegnata. La trovi in Posta in uscita — verifica con il destinatario prima di inviarla di nuovo."
   },
   "notifications": {
     "syncCatchUp": "{count} nuove email arrivate durante il recupero della sincronizzazione"

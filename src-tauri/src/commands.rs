@@ -1545,8 +1545,11 @@ pub async fn imap_fetch_and_store(
             // managed by draftAutoSave) are excluded via is_draft = 0.
             {
                 let rfc_id = &rfc_id_for_header;
+                // send_unconfirmed is cleared alongside the coordinates: the server
+                // just served this Message-ID, which is the proof the send warning
+                // was waiting for.
                 conn.execute(
-                    "UPDATE messages SET imap_uid = ?1, imap_folder = ?2 \
+                    "UPDATE messages SET imap_uid = ?1, imap_folder = ?2, send_unconfirmed = 0 \
                      WHERE account_id = ?3 AND message_id_header = ?4 \
                        AND ((imap_uid IS NULL AND is_draft = 0) \
                             OR (imap_folder = ?2 AND imap_uid < ?1))",

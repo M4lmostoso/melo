@@ -9,6 +9,7 @@ import type { DbAttachment } from "@/services/db/attachments";
 import { MailMinus, Reply, ReplyAll, Forward, Trash2, Paperclip } from "lucide-react";
 import { AuthBadge } from "./AuthBadge";
 import { AuthWarningBanner } from "./AuthWarningBanner";
+import { UnconfirmedSendBanner, UnconfirmedSendBadge } from "./UnconfirmedSendBanner";
 import { isCalendarInvite } from "@/utils/fileTypeHelpers";
 import { base64ToBytes } from "@/utils/fileUtils";
 import { useAccountStore } from "@/stores/accountStore";
@@ -414,6 +415,7 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
                     fromDisplay
                   )}
                   <AuthBadge authResults={message.auth_results} />
+                  {message.send_unconfirmed === 1 && <UnconfirmedSendBadge />}
                 </span>
                 {!expanded && (
                   <span className="text-xs text-text-tertiary truncate block">
@@ -494,6 +496,8 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
       {/* Body — shown when expanded and image setting resolved */}
       {expanded && (
         <div className="px-4 pb-4">
+          {message.send_unconfirmed === 1 && <UnconfirmedSendBanner />}
+
           {!authBannerDismissed && (
             <AuthWarningBanner
               authResults={message.auth_results}

@@ -54,6 +54,11 @@ vi.mock("../db/messages", () => ({
 // resolveGrouped() queries the DB first, then falls back to parsing imap UIDs from the
 // local message ID. With no real DB in jsdom, return no rows so the ID-parsing fallback
 // (what these tests assert) is exercised.
+vi.mock("../db/settings", () => ({
+  getSetting: vi.fn(async () => null),
+  setSetting: vi.fn(async () => {}),
+}));
+
 vi.mock("../db/connection", () => ({
   getDb: vi.fn(async () => ({
     select: vi.fn(async () => []),
@@ -88,6 +93,7 @@ import { upsertMessage } from "../db/messages";
 import { buildRawEmail } from "@/utils/emailBuilder";
 import { upsertThread, setThreadLabels, recalculateThreadStats } from "../db/threads";
 import { getDb } from "../db/connection";
+import { getSetting } from "../db/settings";
 
 const mockImapConfig = {
   host: "imap.example.com",
@@ -667,6 +673,94 @@ describe("ImapSmtpProvider", () => {
         expect.objectContaining({ imapUid: 4242, imapFolder: "Sent" }),
       );
       expect(result.sentCopyDurable).toBe(true);
+    });
+
+    // The 2026-09-11 incident: Exchange refused the mail, DavMail's SMTP step
+    // failed, yet the send was reported as successful and the copy was filed
+    // under Sent as if delivered. Nothing on the server ever held the message.
+    // Delivery is only ever confirmed by seeing the copy in the Sent folder.
+    it("reports the send UNCONFIRMED when the copy reaches the server nowhere", async () => {
+      vi.mocked(smtpSendEmail).mockResolvedValue({ success: true, message: "OK" });
+      vi.mocked(findSpecialFolder).mockResolvedValue("Sent");
+      vi.mocked(imapSearchMessageId).mockResolvedValue([]);
+      vi.mocked(imapAppendMessage).mockRejectedValue(
+        new Error("APPEND failed: ErrorMimeContentInvalid Invalid MIME content."),
+      );
+
+      const execute = vi.fn(async () => ({ rowsAffected: 0 }));
+      vi.mocked(getDb).mockResolvedValue({
+        select: vi.fn(async () => []),
+        execute,
+      } as never);
+
+      const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const result = await provider.sendMessage(rawBase64Url);
+      spy.mockRestore();
+
+      expect(result.sendUnconfirmed).toBe(true);
+      // The content is still kept — flagged, never silently dropped.
+      expect(upsertMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ id: result.id }),
+      );
+      expect(execute).toHaveBeenCalledWith(
+        expect.stringContaining("send_unconfirmed"),
+        expect.arrayContaining([1]),
+      );
+    });
+
+    it("reports the send confirmed once the APPEND puts the copy on the server", async () => {
+      vi.mocked(smtpSendEmail).mockResolvedValue({ success: true, message: "OK" });
+      vi.mocked(findSpecialFolder).mockResolvedValue("Sent");
+      vi.mocked(imapSearchMessageId).mockResolvedValue([]);
+      vi.mocked(imapAppendMessage).mockResolvedValue(100);
+
+      const result = await provider.sendMessage(rawBase64Url);
+
+      expect(result.sendUnconfirmed).toBe(false);
+    });
+
+    // DavMail returns no APPENDUID: the copy IS on the server, the server just
+    // withheld its id. Treating that as unconfirmed would put a warning on every
+    // single message sent through DavMail.
+    it("treats an APPEND with no APPENDUID as confirmed", async () => {
+      vi.mocked(smtpSendEmail).mockResolvedValue({ success: true, message: "OK" });
+      vi.mocked(findSpecialFolder).mockResolvedValue("Sent");
+      vi.mocked(imapSearchMessageId).mockResolvedValue([]);
+      vi.mocked(imapAppendMessage).mockResolvedValue(0);
+
+      const result = await provider.sendMessage(rawBase64Url);
+
+      expect(result.sendUnconfirmed).toBe(false);
+    });
+
+    // The other half of the same incident: Exchange refused three sends for an
+    // unresolvable recipient, our APPEND then put a copy in Sent anyway, and the
+    // mails looked delivered in Melo AND in Outlook. An APPEND we perform proves
+    // only that the server stored our bytes — on a server that files its own
+    // Sent copies, the copy being absent is the tell that nothing went out.
+    it("reports UNCONFIRMED when a server that files its own copies filed none", async () => {
+      vi.mocked(smtpSendEmail).mockResolvedValue({ success: true, message: "OK" });
+      vi.mocked(findSpecialFolder).mockResolvedValue("Sent");
+      vi.mocked(getSetting).mockResolvedValue("1"); // learned on an earlier send
+      vi.mocked(imapSearchMessageId).mockResolvedValue([]);
+      vi.mocked(imapAppendMessage).mockResolvedValue(100);
+
+      const result = await provider.sendMessage(rawBase64Url);
+
+      expect(imapAppendMessage).toHaveBeenCalled();
+      expect(result.sendUnconfirmed).toBe(true);
+    });
+
+    it("keeps a send confirmed on a server that files nothing itself", async () => {
+      vi.mocked(smtpSendEmail).mockResolvedValue({ success: true, message: "OK" });
+      vi.mocked(findSpecialFolder).mockResolvedValue("Sent");
+      vi.mocked(getSetting).mockResolvedValue(null); // never seen filing a copy
+      vi.mocked(imapSearchMessageId).mockResolvedValue([]);
+      vi.mocked(imapAppendMessage).mockResolvedValue(100);
+
+      const result = await provider.sendMessage(rawBase64Url);
+
+      expect(result.sendUnconfirmed).toBe(false);
     });
 
     it("still appends when the server filed nothing", async () => {

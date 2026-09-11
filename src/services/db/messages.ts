@@ -31,6 +31,8 @@ export interface DbMessage {
   imap_folder: string | null;
   is_draft: number;
   has_attachments: number;
+  /** 1 = the send reported success but no copy was ever confirmed on the server. */
+  send_unconfirmed: number;
 }
 
 export async function getMessagesForThread(
@@ -68,7 +70,7 @@ export async function getMessagesMetaForThread(
      m.cc_addresses, m.bcc_addresses, m.reply_to, m.subject, m.snippet, m.date, m.is_read,
      m.is_starred, m.body_cached, m.raw_size, m.internal_date, m.list_unsubscribe,
      m.list_unsubscribe_post, m.auth_results, m.message_id_header, m.references_header,
-     m.in_reply_to_header, m.imap_uid, m.imap_folder,
+     m.in_reply_to_header, m.imap_uid, m.imap_folder, m.send_unconfirmed,
      (SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END FROM attachments WHERE message_id = m.id AND is_inline = 0) AS has_attachments
      FROM messages m WHERE m.account_id = $1 AND m.thread_id = $2 AND m.is_draft = 0 AND m.is_trashed = 0 ORDER BY m.date ASC`,
     [accountId, threadId],

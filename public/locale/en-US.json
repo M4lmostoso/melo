@@ -788,6 +788,11 @@
       "alwaysLoadFromSender": "Always load from sender",
       "showQuotedText": "Show quoted text",
       "showNQuotedLines": "Show {count} quoted lines"
+    },
+    "unconfirmedSend": {
+      "title": "Delivery not confirmed",
+      "description": "The server never confirmed this message: no copy of it exists in the Sent folder on the server. It may not have reached the recipient. The warning disappears on its own as soon as the copy turns up.",
+      "badge": "Not confirmed"
     }
   },
   "composer": {
@@ -2453,7 +2458,9 @@
     "opFailedTitle": "Action could not be completed",
     "opFailedBody": "A pending \"{operation}\" operation failed permanently. Check Outgoing in the sidebar.",
     "scheduledFailedTitle": "Scheduled email not sent",
-    "scheduledFailedBody": "\"{subject}\" could not be sent. It's kept in Scheduled — retry it from there."
+    "scheduledFailedBody": "\"{subject}\" could not be sent. It's kept in Scheduled — retry it from there.",
+    "sendUnconfirmedTitle": "Send not confirmed",
+    "sendUnconfirmedBody": "The server accepted the connection but no copy of this email could be found in Sent, so there is no proof it was delivered. It is in Outgoing — check with the recipient before sending it again."
   },
   "notifications": {
     "syncCatchUp": "{count} new emails arrived while sync was catching up"

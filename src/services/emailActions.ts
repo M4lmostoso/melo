@@ -82,6 +82,13 @@ export type EmailAction =
     }
   | { type: "deleteDraft"; draftId: string; threadId?: string };
 
+/**
+ * Error text for a send whose delivery the server never confirmed. Kept free of
+ * any digit sequence that `classifyError` reads as a retryable status code, so
+ * the operation parks as failed and waits for the user instead of re-sending.
+ */
+export const SEND_UNCONFIRMED_ERROR = "Send not confirmed by the server";
+
 // ---------------------------------------------------------------------------
 // Result type
 // ---------------------------------------------------------------------------
@@ -98,6 +105,13 @@ export interface ActionResult {
    * still holds the only copy and must not drop it.
    */
   sentCopyDurable?: boolean;
+  /**
+   * sendMessage only: the SMTP step reported success but the message could not
+   * be found or placed in the server's Sent folder, so nothing confirms it ever
+   * left. Such a send must never be presented as sent — the incident this exists
+   * for had Exchange refuse the mail while Melo filed it under Sent.
+   */
+  sendUnconfirmed?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -594,8 +608,15 @@ export async function executeEmailAction(
     if (action.type === "sendMessage") {
       // Providers that persist the copy server-side report nothing — only an
       // explicit false means the copy is missing.
-      const durable = (data as { sentCopyDurable?: boolean } | undefined)?.sentCopyDurable;
-      return { success: true, data, sentCopyDurable: durable !== false };
+      const sendData = data as
+        | { sentCopyDurable?: boolean; sendUnconfirmed?: boolean }
+        | undefined;
+      return {
+        success: true,
+        data,
+        sentCopyDurable: sendData?.sentCopyDurable !== false,
+        sendUnconfirmed: sendData?.sendUnconfirmed === true,
+      };
     }
     return { success: true, data };
   } catch (err) {
@@ -728,6 +749,18 @@ export async function executeQueuedAction(
       await runSendCleanup(accountId, action);
       return;
     }
+    const result = (await executeViaProvider(accountId, action)) as
+      | { sendUnconfirmed?: boolean }
+      | undefined;
+    if (result?.sendUnconfirmed) {
+      // Nothing confirms this retry got out either. Throwing parks the op as
+      // failed (the message stays classified as permanent, so the queue does not
+      // quietly fire it off again) and raises the "send not confirmed" alert.
+      // Re-sending on a timer is not acceptable here: each pass could put another
+      // copy in the recipient's mailbox.
+      throw new Error(SEND_UNCONFIRMED_ERROR);
+    }
+    return;
   }
   await executeViaProvider(accountId, action);
 }

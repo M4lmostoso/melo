@@ -28,6 +28,7 @@ import { ensureFreshToken } from "../oauth/oauthTokenManager";
 import { upsertMessage, getMessagesForThread } from "../db/messages";
 import { upsertAttachment } from "../db/attachments";
 import { getDb } from "../db/connection";
+import { getSetting, setSetting } from "../db/settings";
 import { decodeEncodedWords, decodeMimeBodyText } from "@/utils/rawEmailParser";
 import {
   upsertThread,
@@ -323,6 +324,16 @@ export class ImapSmtpProvider implements EmailProvider {
       this._imapConfig = buildImapConfig(account);
     }
     return this._imapConfig;
+  }
+
+  /**
+   * Does this account's SMTP server file the Sent copy itself? Learned the first
+   * time the copy is found in Sent right after a send (DavMail with
+   * davmail.smtpSaveInSent, most webmail relays). Once known, a copy that is NOT
+   * there after a send means the server refused the mail.
+   */
+  private get filesOwnSentCopyKey(): string {
+    return `smtp_files_sent_copy_${this.accountId}`;
   }
 
   private async getSmtpConfig(): Promise<SmtpConfig> {
@@ -867,6 +878,7 @@ export class ImapSmtpProvider implements EmailProvider {
     threadId?: string,
     imapFolder?: string,
     imapUid?: number,
+    sendUnconfirmed = false,
   ): Promise<boolean> {
     const delaysMs = [0, 500, 2000];
     for (let attempt = 0; attempt < delaysMs.length; attempt++) {
@@ -880,6 +892,7 @@ export class ImapSmtpProvider implements EmailProvider {
           threadId,
           imapFolder,
           imapUid,
+          sendUnconfirmed,
         );
         return true;
       } catch (err) {
@@ -943,6 +956,9 @@ export class ImapSmtpProvider implements EmailProvider {
       if (uids.length > 0) {
         const uid = Math.max(...uids);
         console.log(`[imap_] send: server already filed the Sent copy (uid=${uid}) — no APPEND`);
+        // Remember the server does this. On a later send, the copy NOT being
+        // there becomes evidence that the message never went out.
+        void setSetting(this.filesOwnSentCopyKey, "1").catch(() => {});
         return uid;
       }
     } catch (err) {
@@ -954,7 +970,7 @@ export class ImapSmtpProvider implements EmailProvider {
   async sendMessage(
     rawBase64Url: string,
     _threadId?: string,
-  ): Promise<{ id: string; sentCopyDurable: boolean }> {
+  ): Promise<{ id: string; sentCopyDurable: boolean; sendUnconfirmed: boolean }> {
     const smtpConfig = await this.getSmtpConfig();
     const result = await smtpSendEmail(smtpConfig, rawBase64Url);
     if (!result.success) {
@@ -971,6 +987,13 @@ export class ImapSmtpProvider implements EmailProvider {
     let messageId = `imap-${this.accountId}-sent-${Date.now()}`;
     let sentCopySaved = false;
     let appendFailed = false;
+    // Is the message actually on the server? A positive SMTP reply is not proof
+    // on its own: a relay can accept the transaction and refuse the mail behind
+    // it, and a misread reply looks exactly like a delivery. Seeing the message
+    // in Sent — found there, or put there by our own APPEND — is proof. Without
+    // it the send is UNCONFIRMED and must never be presented as sent, which is
+    // how a mail Exchange had refused sat in Sent looking perfectly delivered.
+    let serverCopyConfirmed = false;
     try {
       const imapConfig = await this.getImapConfig();
       const sentFolder =
@@ -981,8 +1004,21 @@ export class ImapSmtpProvider implements EmailProvider {
       // because the local row de-dupes by Message-ID, but every sent message
       // shows up twice in Outlook/OWA. So look before appending.
       let uid = await this.findServerSentCopy(imapConfig, sentFolder, rawBase64Url);
-      if (uid === 0) {
+      if (uid > 0) {
+        // The SMTP server filed the copy itself, inside the transaction that
+        // accepted the mail. That is real evidence of a delivery.
+        serverCopyConfirmed = true;
+      } else {
+        // Our own APPEND proves nothing about delivery — it only proves the
+        // server stored the bytes we handed it. So it counts as confirmation
+        // only for servers that do not file Sent copies themselves; on a server
+        // that does (DavMail/Exchange, most webmail relays), a missing copy is
+        // the tell that the message was refused. That is how three sends
+        // Exchange rejected for an unresolvable recipient still ended up looking
+        // perfectly sent, in Melo and in Outlook alike.
+        const filesOwnCopy = (await getSetting(this.filesOwnSentCopyKey)) === "1";
         uid = await imapAppendMessage(imapConfig, sentFolder, rawBase64Url, "(\\Seen)");
+        serverCopyConfirmed = !filesOwnCopy;
       }
       if (uid > 0) {
         messageId = `imap-${this.accountId}-${sentFolder}-${uid}`;
@@ -994,6 +1030,7 @@ export class ImapSmtpProvider implements EmailProvider {
           _threadId,
           sentFolder,
           uid,
+          !serverCopyConfirmed,
         );
         // Proactively purge any same-UID duplicates that may arise when APPENDUID
         // returns an incorrect UID. Run non-fatally in the background so it does
@@ -1008,7 +1045,14 @@ export class ImapSmtpProvider implements EmailProvider {
         // NULL imap coords now. The next delta sync imports the server copy and
         // (via the Rust Filter 2 NULL-coords adoption) stamps the real
         // UID/folder onto this row.
-        sentCopySaved = await this.persistSentCopy(rawBase64Url, messageId, _threadId);
+        sentCopySaved = await this.persistSentCopy(
+          rawBase64Url,
+          messageId,
+          _threadId,
+          undefined,
+          undefined,
+          !serverCopyConfirmed,
+        );
       }
     } catch (err) {
       appendFailed = true;
@@ -1016,11 +1060,18 @@ export class ImapSmtpProvider implements EmailProvider {
         "[IMAP] Failed to copy sent message to Sent folder on server:",
         err,
       );
-      // The email WAS delivered via SMTP — never leave the user staring at an empty
-      // Sent folder (they'd re-send, duplicating the delivery). Save a placeholder
-      // row now; the recovery op below reconciles it with the real server UID once
-      // the APPEND finally goes through.
-      sentCopySaved = await this.persistSentCopy(rawBase64Url, messageId, _threadId);
+      // Keep the content no matter what — never leave the user staring at an
+      // empty Sent folder. But the copy is nowhere on the server, so the row is
+      // written flagged: the UI shows it as unconfirmed rather than as sent, and
+      // the flag clears as soon as a copy turns up (recovery op or delta sync).
+      sentCopySaved = await this.persistSentCopy(
+        rawBase64Url,
+        messageId,
+        _threadId,
+        undefined,
+        undefined,
+        true,
+      );
     }
 
     // Queue the recovery whenever the sent copy is not fully in place: the server
@@ -1040,7 +1091,11 @@ export class ImapSmtpProvider implements EmailProvider {
     // Durable = the email is recorded somewhere that survives a restart: either
     // the local Sent row or a queued recovery op holding the raw. The caller must
     // not drop its own copy of the message until this is true.
-    return { id: messageId, sentCopyDurable: sentCopySaved || recoveryQueued };
+    return {
+      id: messageId,
+      sentCopyDurable: sentCopySaved || recoveryQueued,
+      sendUnconfirmed: !serverCopyConfirmed,
+    };
   }
 
   /**
@@ -1127,7 +1182,7 @@ export class ImapSmtpProvider implements EmailProvider {
       if (localMessageId) {
         try {
           await db.execute(
-            `UPDATE messages SET id = $1, imap_folder = $2, imap_uid = $3
+            `UPDATE messages SET id = $1, imap_folder = $2, imap_uid = $3, send_unconfirmed = 0
              WHERE account_id = $4 AND id = $5`,
             [realId, sentFolder, uid, this.accountId, localMessageId],
           );
@@ -1167,6 +1222,12 @@ export class ImapSmtpProvider implements EmailProvider {
       }
       return { id: placeholderId };
     }
+    // The APPEND was accepted, so the server now holds the copy: whatever doubt
+    // hung over this send is settled and the warning must come off the message.
+    await db.execute(
+      "UPDATE messages SET send_unconfirmed = 0 WHERE account_id = $1 AND id = $2",
+      [this.accountId, localMessageId],
+    );
     return { id: localMessageId };
   }
 
@@ -1181,6 +1242,7 @@ export class ImapSmtpProvider implements EmailProvider {
     threadId?: string,
     imapFolder?: string,
     imapUid?: number,
+    sendUnconfirmed = false,
   ): Promise<void> {
     const raw = base64UrlDecode(rawBase64Url);
     const headers = parseBasicHeaders(raw);
@@ -1286,6 +1348,14 @@ export class ImapSmtpProvider implements EmailProvider {
     await db.execute(
       "UPDATE messages SET thread_id = $1 WHERE account_id = $2 AND id = $3 AND thread_id != $1",
       [effectiveThreadId, this.accountId, messageId],
+    );
+
+    // upsertMessage has no notion of this flag, so set it here. It is written on
+    // every save — clearing it matters as much as setting it, because this same
+    // path runs when the Sent-copy recovery finally reconciles the message.
+    await db.execute(
+      "UPDATE messages SET send_unconfirmed = $1 WHERE account_id = $2 AND id = $3",
+      [sendUnconfirmed ? 1 : 0, this.accountId, messageId],
     );
 
     // The background sync may have created a placeholder thread (id = messageId) before

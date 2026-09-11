@@ -165,19 +165,74 @@ pub async fn send_raw_email(
     let envelope = extract_envelope(&raw_bytes)?;
     let transport = build_transport(config)?;
 
-    tokio::time::timeout(SEND_TOTAL_TIMEOUT, transport.send_raw(&envelope, &raw_bytes))
-        .await
-        .map_err(|_| {
-            format!(
-                "SMTP send timeout after {}s — network or server hang",
-                SEND_TOTAL_TIMEOUT.as_secs()
-            )
-        })?
-        .map(|_response| SmtpSendResult {
-            success: true,
-            message: "Email sent successfully".to_string(),
-        })
-        .map_err(|e| format!("SMTP send error: {}", e))
+    // Every send leaves a trace in Melo.log. Before this, a send that went wrong
+    // left nothing behind at all: an email reported as delivered but missing
+    // from the server could not be told apart from one the server never saw.
+    let recipients = envelope.to().len();
+    let size = raw_bytes.len();
+    log::info!(
+        "[smtp] send start: {}:{} ({}), {recipients} recipient(s), {size} bytes",
+        config.host,
+        config.port,
+        config.security
+    );
+
+    let outcome = tokio::time::timeout(
+        SEND_TOTAL_TIMEOUT,
+        transport.send_raw(&envelope, &raw_bytes),
+    )
+    .await
+    .map_err(|_| {
+        let msg = format!(
+            "SMTP send timeout after {}s — network or server hang",
+            SEND_TOTAL_TIMEOUT.as_secs()
+        );
+        log::error!("[smtp] {msg} ({size} bytes)");
+        msg
+    })?;
+
+    let response = outcome.map_err(|e| {
+        let msg = format!("SMTP send error: {}", truncate_reply(&e.to_string()));
+        log::error!("[smtp] send refused by server: {msg}");
+        msg
+    })?;
+
+    // Belt and braces over lettre's own check. A transport that mis-reads the
+    // reply — a desynchronised response stream, a server answering out of turn —
+    // hands back a Response that was never a delivery confirmation, and every
+    // layer above here treats "no error" as "the mail is out".
+    if !response.is_positive() {
+        let msg = format!(
+            "SMTP send refused: server replied {} — {}",
+            response.code(),
+            truncate_reply(&response.message().collect::<Vec<_>>().join(" "))
+        );
+        log::error!("[smtp] {msg}");
+        return Err(msg);
+    }
+
+    let code = response.code();
+    log::info!("[smtp] send accepted: server replied {code} ({size} bytes)");
+    Ok(SmtpSendResult {
+        success: true,
+        message: format!("Email sent successfully ({code})"),
+    })
+}
+
+/// SMTP reply text is not necessarily small: DavMail answers a refused send with
+/// `451 Error : ` followed by the whole EWS SOAP request — 20 MB on a single
+/// line in the incident this guard was written for. That string would otherwise
+/// travel into an error message, a queue row and the UI.
+fn truncate_reply(reply: &str) -> String {
+    const MAX: usize = 500;
+    if reply.len() <= MAX {
+        return reply.to_string();
+    }
+    let mut cut = MAX;
+    while cut > 0 && !reply.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    format!("{}… [{} bytes truncated]", &reply[..cut], reply.len() - cut)
 }
 
 /// Test SMTP connectivity by connecting, authenticating, and disconnecting.

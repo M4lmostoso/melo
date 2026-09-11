@@ -568,7 +568,29 @@ export default function App() {
           // how a delivered mail vanishes without trace. Keep it, flag it so a retry
           // reconciles the copy instead of re-sending, and tell the user.
           if (p.opId) {
-            if (sendResult.sentCopyDurable === false) {
+            if (sendResult.sendUnconfirmed) {
+              // The SMTP step reported success, but the message is nowhere in the
+              // server's Sent folder — nothing confirms it was ever delivered.
+              // Park the row as a failed send so it shows up in Outgoing with the
+              // raw intact and the user can decide whether to send it again; the
+              // local Sent copy stays, flagged, so the content is never lost.
+              // Deliberately NOT flagged deliveredNoCopy: that would route a retry
+              // to appendToSent and permanently rule out the actual re-send.
+              await updateOperationStatus(
+                p.opId,
+                "failed",
+                t("outgoing.sendUnconfirmedBody"),
+              ).catch((e) => console.error("[App] Failed to park unconfirmed send:", e));
+              window.dispatchEvent(new Event("melo-sync-done"));
+              useToastStore.getState().showToast("error", t("outgoing.sendUnconfirmedBody"));
+              void playSound("send_error");
+              import("@tauri-apps/plugin-notification").then(({ sendNotification }) => {
+                sendNotification({
+                  title: t("outgoing.sendUnconfirmedTitle"),
+                  body: t("outgoing.sendUnconfirmedBody"),
+                });
+              }).catch(() => {});
+            } else if (sendResult.sentCopyDurable === false) {
               await patchOperationParams(p.opId, { deliveredNoCopy: true }).catch((e) =>
                 console.error("[App] Failed to flag delivered-no-copy send:", e),
               );
@@ -593,8 +615,10 @@ export default function App() {
           }
 
           if (!sendResult.queued && p.threadId) {
-            // Successful send — notify ThreadView to reload messages immediately.
-            void playSound("send");
+            // Reload the thread either way so the new message shows up — but the
+            // success chime only for a send the server actually confirmed; an
+            // unconfirmed one already played send_error above.
+            if (!sendResult.sendUnconfirmed) void playSound("send");
             window.dispatchEvent(new CustomEvent("melo-message-sent", { detail: { threadId: p.threadId } }));
           }
 
