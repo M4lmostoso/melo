@@ -90,6 +90,7 @@ export function TaskItem({
 }: TaskItemProps) {
   const [expanded, setExpanded] = useState(false);
   const [editingDate, setEditingDate] = useState(false);
+  const [dateDraft, setDateDraft] = useState<string>("");
   const [isEditing, setIsEditing] = useState(false);
   const [editTitle, setEditTitle] = useState(task.title);
   const [editDirection, setEditDirection] = useState<TaskDirection>(task.direction);
@@ -165,20 +166,32 @@ export function TaskItem({
   const handleDateClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     if (!onDueDateChange) return;
+    setDateDraft(task.due_date ? tsToDateInput(task.due_date) : "");
     setEditingDate(true);
     setTimeout(() => dateInputRef.current?.focus(), 0);
-  }, [onDueDateChange]);
+  }, [onDueDateChange, task.due_date]);
 
+  // A date input reports an empty value while the user is halfway through a
+  // segment (typing "1" of "12"), so committing on every change would wipe the
+  // due date — and with it the chip that opens this editor. Keep the keystrokes
+  // local and only commit on blur / Enter.
   const handleDateChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = e.target.value;
-    const ts = val ? Math.floor(new Date(val).getTime() / 1000) : null;
-    onDueDateChange?.(task.id, ts);
-    setEditingDate(false);
-  }, [task.id, onDueDateChange]);
-
-  const handleDateBlur = useCallback(() => {
-    setEditingDate(false);
+    setDateDraft(e.target.value);
   }, []);
+
+  const commitDate = useCallback(() => {
+    setEditingDate(false);
+    if (!onDueDateChange) return;
+    const ts = dateDraft ? Math.floor(new Date(dateDraft).getTime() / 1000) : null;
+    if (ts !== null && !Number.isFinite(ts)) return;
+    if (ts === (task.due_date ?? null)) return;
+    onDueDateChange(task.id, ts);
+  }, [task.id, task.due_date, dateDraft, onDueDateChange]);
+
+  const handleDateKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") { e.preventDefault(); commitDate(); }
+    if (e.key === "Escape") { e.preventDefault(); setEditingDate(false); }
+  }, [commitDate]);
 
   const dueDateClass = overdue
     ? "text-red-500 bg-red-500/10 font-medium"
@@ -350,9 +363,10 @@ export function TaskItem({
                 <input
                   ref={dateInputRef}
                   type="date"
-                  defaultValue={task.due_date ? tsToDateInput(task.due_date) : ""}
+                  value={dateDraft}
                   onChange={handleDateChange}
-                  onBlur={handleDateBlur}
+                  onKeyDown={handleDateKeyDown}
+                  onBlur={commitDate}
                   onClick={(e) => e.stopPropagation()}
                   className="text-[0.6875rem] px-1.5 py-0.5 rounded bg-bg-tertiary border border-accent text-text-primary outline-none"
                 />

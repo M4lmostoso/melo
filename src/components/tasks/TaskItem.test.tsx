@@ -82,4 +82,49 @@ describe("TaskItem", () => {
     );
     expect(screen.getByText("Tomorrow")).toBeInTheDocument();
   });
+
+  describe("inline due date editor", () => {
+    const tomorrow = Math.floor(Date.now() / 1000) + 86400;
+
+    function openEditor(onDueDateChange: () => void) {
+      render(
+        <TaskItem
+          task={makeTask({ due_date: tomorrow })}
+          onToggleComplete={vi.fn()}
+          onDueDateChange={onDueDateChange}
+        />,
+      );
+      fireEvent.click(screen.getByText("Tomorrow"));
+      return document.querySelector('input[type="date"]') as HTMLInputElement;
+    }
+
+    it("does not clear the due date while the value is still incomplete", () => {
+      const onDueDateChange = vi.fn();
+      const input = openEditor(onDueDateChange);
+      // A date input reports "" mid-edit — that must not commit a null date
+      fireEvent.change(input, { target: { value: "" } });
+      expect(onDueDateChange).not.toHaveBeenCalled();
+      expect(document.querySelector('input[type="date"]')).toBeInTheDocument();
+    });
+
+    it("commits the new date on blur", () => {
+      const onDueDateChange = vi.fn();
+      const input = openEditor(onDueDateChange);
+      fireEvent.change(input, { target: { value: "2030-01-15" } });
+      fireEvent.blur(input);
+      expect(onDueDateChange).toHaveBeenCalledWith(
+        "t1",
+        Math.floor(new Date("2030-01-15").getTime() / 1000),
+      );
+    });
+
+    it("discards the edit on Escape", () => {
+      const onDueDateChange = vi.fn();
+      const input = openEditor(onDueDateChange);
+      fireEvent.change(input, { target: { value: "2030-01-15" } });
+      fireEvent.keyDown(input, { key: "Escape" });
+      expect(onDueDateChange).not.toHaveBeenCalled();
+      expect(screen.getByText("Tomorrow")).toBeInTheDocument();
+    });
+  });
 });
