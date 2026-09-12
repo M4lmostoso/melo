@@ -4,6 +4,13 @@
 
 ---
 
+## [0.1.11](https://github.com/M4lmostoso/melo/compare/v0.1.10...v0.1.11) (2026-09-12)
+
+
+### Bug Fixes
+
+* **unsubscribe:** restore the whole unsubscribe surface on IMAP accounts ([e6474bd](https://github.com/M4lmostoso/melo/commit/e6474bd79693f632f4303c8dab1daf87775e0c9a))
+
 ## [0.1.10](https://github.com/M4lmostoso/melo/compare/v0.1.9...v0.1.10) (2026-09-11)
 
 
