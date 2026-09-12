@@ -1113,7 +1113,10 @@
       "loading": "Loading subscriptions...",
       "searchPlaceholder": "Search senders...",
       "sendersDetected": "{count} senders detected with unsubscribe headers.",
-      "unsubscribeBulk": "Unsubscribe ({count})"
+      "unsubscribeBulk": "Unsubscribe ({count})",
+      "autoArchive": "Archive mail after unsubscribing",
+      "autoArchiveDesc": "When you unsubscribe from a sender, move the mail they already sent out of the inbox. Archived, never deleted.",
+      "emailCount": "{count} emails"
     },
     "quickStepEditor": {
       "title": "Quick Steps",

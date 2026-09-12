@@ -6,6 +6,14 @@ vi.mock("@/services/db/threadCategories", () => ({
   setThreadCategory: vi.fn(() => Promise.resolve()),
 }));
 
+vi.mock("@/services/db/settings", () => ({
+  getSetting: vi.fn(() => Promise.resolve(null)),
+}));
+
+vi.mock("@/services/emailActions", () => ({
+  archiveThread: vi.fn(() => Promise.resolve({ ok: true })),
+}));
+
 vi.mock("@/services/db/threads", () => ({
   getThreadLabelIds: vi.fn(() => Promise.resolve(["INBOX"])),
 }));
@@ -41,6 +49,8 @@ vi.mock("@/services/db/messages", () => ({
 import { getUncategorizedInboxThreadIds, setThreadCategory } from "@/services/db/threadCategories";
 import { getThreadLabelIds } from "@/services/db/threads";
 import { getMessagesForThread } from "@/services/db/messages";
+import { getSetting } from "@/services/db/settings";
+import { archiveThread } from "@/services/emailActions";
 
 describe("backfillUncategorizedThreads", () => {
   beforeEach(() => {
@@ -50,6 +60,8 @@ describe("backfillUncategorizedThreads", () => {
     vi.mocked(getThreadLabelIds).mockResolvedValue(["INBOX"]);
     vi.mocked(getMessagesForThread).mockResolvedValue([]);
     vi.mocked(getUncategorizedInboxThreadIds).mockResolvedValue([]);
+    vi.mocked(getSetting).mockResolvedValue(null);
+    vi.mocked(archiveThread).mockResolvedValue({ ok: true } as never);
   });
 
   it("categorizes uncategorized threads using rule engine", async () => {
@@ -182,5 +194,146 @@ describe("backfillUncategorizedThreads", () => {
     for (let i = 0; i < batchSize; i++) {
       expect(setThreadCategory).toHaveBeenCalledWith("acc1", `t${i}`, "Primary", false);
     }
+  });
+  it("archives threads whose category the user opted out of", async () => {
+    // Setting lives in `auto_archive_categories`; the Gmail sync honours it on
+    // its own store path, which IMAP accounts never reach — this backfill is
+    // the provider-agnostic enforcement point.
+    vi.mocked(getSetting).mockResolvedValue("Social,Newsletters");
+    vi.mocked(getUncategorizedInboxThreadIds)
+      .mockResolvedValueOnce([
+        { id: "t1", subject: "s", snippet: "s", fromAddress: "notifications@facebookmail.com" },
+        { id: "t2", subject: "s", snippet: "s", fromAddress: "person@example.com" },
+      ])
+      .mockResolvedValueOnce([]);
+    vi.mocked(getThreadLabelIds).mockResolvedValue(["INBOX"]);
+    vi.mocked(getMessagesForThread)
+      .mockResolvedValueOnce([{
+      id: "m1",
+      account_id: "acc1",
+      thread_id: "t1",
+      from_address: "notifications@facebookmail.com",
+      from_name: null,
+      to_addresses: null,
+      cc_addresses: null,
+      bcc_addresses: null,
+      reply_to: null,
+      subject: "Test",
+      snippet: null,
+      date: 1000,
+      is_read: 0,
+      is_starred: 0,
+      body_html: null,
+      body_text: null,
+      body_cached: 0,
+      raw_size: null,
+      internal_date: null,
+      list_unsubscribe: null,
+      list_unsubscribe_post: null,
+    }])
+      .mockResolvedValueOnce([{
+      id: "m2",
+      account_id: "acc1",
+      thread_id: "t2",
+      from_address: "person@example.com",
+      from_name: null,
+      to_addresses: null,
+      cc_addresses: null,
+      bcc_addresses: null,
+      reply_to: null,
+      subject: "Test",
+      snippet: null,
+      date: 1000,
+      is_read: 0,
+      is_starred: 0,
+      body_html: null,
+      body_text: null,
+      body_cached: 0,
+      raw_size: null,
+      internal_date: null,
+      list_unsubscribe: null,
+      list_unsubscribe_post: null,
+    }]);
+
+    await backfillUncategorizedThreads("acc1");
+
+    // Social is opted out → archived; Primary mail is left alone.
+    expect(archiveThread).toHaveBeenCalledTimes(1);
+    expect(archiveThread).toHaveBeenCalledWith("acc1", "t1", ["m1"]);
+  });
+
+  it("does not archive when no category is opted out", async () => {
+    vi.mocked(getUncategorizedInboxThreadIds)
+      .mockResolvedValueOnce([
+        { id: "t1", subject: "s", snippet: "s", fromAddress: "notifications@facebookmail.com" },
+      ])
+      .mockResolvedValueOnce([]);
+    vi.mocked(getThreadLabelIds).mockResolvedValue(["INBOX"]);
+    vi.mocked(getMessagesForThread).mockResolvedValue([{
+      id: "m1",
+      account_id: "acc1",
+      thread_id: "t1",
+      from_address: "notifications@facebookmail.com",
+      from_name: null,
+      to_addresses: null,
+      cc_addresses: null,
+      bcc_addresses: null,
+      reply_to: null,
+      subject: "Test",
+      snippet: null,
+      date: 1000,
+      is_read: 0,
+      is_starred: 0,
+      body_html: null,
+      body_text: null,
+      body_cached: 0,
+      raw_size: null,
+      internal_date: null,
+      list_unsubscribe: null,
+      list_unsubscribe_post: null,
+    }]);
+
+    await backfillUncategorizedThreads("acc1");
+
+    expect(archiveThread).not.toHaveBeenCalled();
+  });
+
+  it("keeps categorizing when an auto-archive call fails", async () => {
+    vi.mocked(getSetting).mockResolvedValue("Social");
+    vi.mocked(archiveThread).mockRejectedValue(new Error("offline"));
+    vi.mocked(getUncategorizedInboxThreadIds)
+      .mockResolvedValueOnce([
+        { id: "t1", subject: "s", snippet: "s", fromAddress: "notifications@facebookmail.com" },
+      ])
+      .mockResolvedValueOnce([]);
+    vi.mocked(getThreadLabelIds).mockResolvedValue(["INBOX"]);
+    vi.mocked(getMessagesForThread).mockResolvedValue([{
+      id: "m1",
+      account_id: "acc1",
+      thread_id: "t1",
+      from_address: "notifications@facebookmail.com",
+      from_name: null,
+      to_addresses: null,
+      cc_addresses: null,
+      bcc_addresses: null,
+      reply_to: null,
+      subject: "Test",
+      snippet: null,
+      date: 1000,
+      is_read: 0,
+      is_starred: 0,
+      body_html: null,
+      body_text: null,
+      body_cached: 0,
+      raw_size: null,
+      internal_date: null,
+      list_unsubscribe: null,
+      list_unsubscribe_post: null,
+    }]);
+
+    const count = await backfillUncategorizedThreads("acc1");
+
+    expect(count).toBe(1);
+    expect(setThreadCategory).toHaveBeenCalledWith("acc1", "t1", "Social", false);
   });
 });

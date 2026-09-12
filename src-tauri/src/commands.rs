@@ -12,7 +12,8 @@ use crate::imap::types::{
     AttachmentDownloadRequest, AttachmentDownloadResult, BodyCache, BodyEntry, CidImageRequest,
     CidImageResult, DeltaCheckRequest, DeltaCheckResult, GmailAttachment, GmailMessage,
     GmailStoredHeader, ImapConfig, ImapFetchResult, ImapFetchResultMeta, ImapFolder,
-    ImapFolderSearchResult, ImapFolderStatus, ImapFolderSyncResult, ImapMessage, ImapMessageMeta,
+    ImapFolderSearchResult, ImapFolderStatus, ImapFolderSyncResult, ImapListHeaders, ImapMessage,
+    ImapMessageMeta,
     ImapSyncHeader, ImapThreadUpdate, SyncSemaphore,
 };
 use crate::smtp::client as smtp_client;
@@ -1114,6 +1115,16 @@ pub async fn imap_sync_folder(
         }
         Err(e) => Err(e), // session dropped → connection closed
     }
+}
+
+#[tauri::command]
+pub async fn imap_fetch_list_headers(
+    config: ImapConfig,
+    folder: String,
+    uid_range: String,
+    whole_header: bool,
+) -> Result<Vec<ImapListHeaders>, String> {
+    imap_client::raw_fetch_list_headers(&config, &folder, &uid_range, whole_header).await
 }
 
 #[tauri::command]

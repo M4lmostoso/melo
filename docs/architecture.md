@@ -142,7 +142,7 @@ The Rust layer (`src-tauri/src/`) handles system integration and performance-cri
 - **Custom titlebar** -- Overlay on macOS, frameless on Windows/Linux
 - **Windows AUMID** -- Set for proper notification identity
 
-**Tauri commands:** `start_oauth_server`, `oauth_exchange_token`, `oauth_refresh_token`, `close_splashscreen`, `set_tray_tooltip`, `open_devtools`, 17 IMAP commands (`imap_test_connection`, `imap_list_folders`, `imap_fetch_messages`, `imap_fetch_new_uids`, `imap_search_all_uids`, `imap_fetch_message_body`, `imap_fetch_raw_message`, `imap_set_flags`, `imap_move_messages`, `imap_delete_messages`, `imap_get_folder_status`, `imap_fetch_attachment`, `imap_append_message`, `imap_search_folder`, `imap_sync_folder`, `imap_raw_fetch_diagnostic`, `imap_delta_check`), 2 SMTP commands (`smtp_send_email`, `smtp_test_connection`)
+**Tauri commands:** `start_oauth_server`, `oauth_exchange_token`, `oauth_refresh_token`, `close_splashscreen`, `set_tray_tooltip`, `open_devtools`, 38 IMAP commands (`imap_test_connection`, `imap_list_folders`, `imap_fetch_messages`, `imap_fetch_new_uids`, `imap_search_all_uids`, `imap_fetch_message_body`, `imap_fetch_raw_message`, `imap_set_flags`, `imap_move_messages`, `imap_delete_messages`, `imap_get_folder_status`, `imap_fetch_attachment`, `imap_append_message`, `imap_search_folder`, `imap_sync_folder`, `imap_raw_fetch_diagnostic`, `imap_fetch_list_headers`, `imap_delta_check`, …), 2 SMTP commands (`smtp_send_email`, `smtp_test_connection`)
 
 **Plugins (14):** sql, notification, opener, log, dialog, fs, http, single-instance, autostart, deep-link, global-shortcut, updater, process, os
 
@@ -173,7 +173,7 @@ All business logic lives in `src/services/` as plain async functions (except `Gm
 | `notifications/` | OS notifications with VIP filtering |
 | `contacts/` | Gravatar integration |
 | `attachments/` | Local attachment caching, pre-cache recent attachments |
-| `unsubscribe/` | One-click unsubscribe (RFC 8058) |
+| `unsubscribe/` | One-click unsubscribe (RFC 8058), subscription manager, header backfill, post-unsubscribe archiving |
 | `quickSteps/` | Custom action chains with executor engine |
 | `queue/` | Offline queue processor with exponential backoff |
 | `tasks/` | Task recurrence manager |

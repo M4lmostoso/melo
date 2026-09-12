@@ -639,6 +639,41 @@ export async function imapStoreThreads(
   });
 }
 
+/** One message's List-Unsubscribe headers, from a header-only fetch. */
+export interface ImapListHeaders {
+  uid: number;
+  list_unsubscribe: string | null;
+  list_unsubscribe_post: string | null;
+}
+
+/**
+ * Fetch ONLY the List-Unsubscribe headers for a UID range.
+ *
+ * Used by the unsubscribe backfill: the bodies of these messages are already
+ * cached locally, so the full-body fetch path must not be reused.
+ *
+ * @param wholeHeader `false` fetches `HEADER.FIELDS (LIST-UNSUBSCRIBE …)`, a few
+ * hundred bytes per message. DavMail returns an EMPTY literal for that (its
+ * HEADER.FIELDS support covers a fixed set of EWS properties that excludes
+ * List-Unsubscribe), so the caller probes and retries with `true`, which pulls
+ * the full header block (~12 KB/message) instead. Rejects with a "server
+ * ignored HEADER.FIELDS" error if a literal is big enough to be a mangled body
+ * fetch — the caller must stop, not retry.
+ */
+export async function imapFetchListHeaders(
+  config: ImapConfig,
+  folder: string,
+  uidRange: string,
+  wholeHeader = false,
+): Promise<ImapListHeaders[]> {
+  return invoke<ImapListHeaders[]>('imap_fetch_list_headers', {
+    config,
+    folder,
+    uidRange,
+    wholeHeader,
+  });
+}
+
 /**
  * Raw IMAP diagnostic: bypasses async-imap to show raw server responses.
  */

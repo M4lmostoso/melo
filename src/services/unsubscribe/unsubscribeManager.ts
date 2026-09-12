@@ -1,4 +1,5 @@
 import { getDb } from "../db/connection";
+import { getSetting } from "../db/settings";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { fetch } from "@tauri-apps/plugin-http";
 import { getCurrentUnixTimestamp } from "@/utils/timestamp";
@@ -72,30 +73,32 @@ export async function executeUnsubscribe(
     }
   }
 
-  // Method 2: mailto via Gmail API
+  // Method 2: mailto, sent through the account's own provider.
+  // Must go through getEmailProvider — the Gmail client it used to call
+  // directly exists only for gmail_api accounts, so on IMAP the mailto method
+  // was skipped entirely and senders offering *only* a mailto could not be
+  // unsubscribed from at all.
   if (!success && parsed.mailtoAddress) {
     try {
-      const { getGmailClient } = await import("../gmail/tokenManager");
-      const client = await getGmailClient(accountId);
-      if (client) {
-        const to = parsed.mailtoAddress.split("?")[0] ?? parsed.mailtoAddress;
-        // Extract subject from mailto params if present
-        const subjectMatch = parsed.mailtoAddress.match(/subject=([^&]+)/i);
-        const subject = subjectMatch ? decodeURIComponent(subjectMatch[1]!) : "unsubscribe";
+      const to = parsed.mailtoAddress.split("?")[0] ?? parsed.mailtoAddress;
+      // Extract subject from mailto params if present
+      const subjectMatch = parsed.mailtoAddress.match(/subject=([^&]+)/i);
+      const subject = subjectMatch ? decodeURIComponent(subjectMatch[1]!) : "unsubscribe";
 
-        const { getAccount } = await import("../db/accounts");
-        const account = await getAccount(accountId);
-        const { buildRawEmail } = await import("../../utils/emailBuilder");
-        const raw = buildRawEmail({
-          from: account?.email ?? "",
-          to: [to],
-          subject,
-          htmlBody: "unsubscribe",
-        });
-        await client.sendMessage(raw);
-        method = "mailto";
-        success = true;
-      }
+      const { getAccount } = await import("../db/accounts");
+      const account = await getAccount(accountId);
+      const { buildRawEmail } = await import("../../utils/emailBuilder");
+      const raw = buildRawEmail({
+        from: account?.email ?? "",
+        to: [to],
+        subject,
+        htmlBody: "unsubscribe",
+      });
+      const { getEmailProvider } = await import("../email/providerFactory");
+      const provider = await getEmailProvider(accountId);
+      await provider.sendMessage(raw);
+      method = "mailto";
+      success = true;
     } catch (err) {
       console.error("Mailto unsubscribe failed, trying fallback:", err);
     }
@@ -123,7 +126,71 @@ export async function executeUnsubscribe(
     success ? "unsubscribed" : "failed",
   );
 
+  if (success) {
+    // Best-effort: a failed cleanup must not turn a completed unsubscribe into
+    // a reported failure.
+    await archiveAfterUnsubscribe(accountId, fromAddress).catch((err) =>
+      console.error("[unsubscribe] post-unsubscribe archive failed:", err),
+    );
+  }
+
   return { method, success };
+}
+
+/**
+ * Archive the mail still sitting in the inbox from a sender just unsubscribed
+ * from, when `auto_archive_after_unsubscribe` is on (it is by default).
+ *
+ * Unsubscribing stops *future* mail; without this the back catalogue stays in
+ * the inbox and the feature feels like it did nothing. Archive, never trash:
+ * senders put receipts and order confirmations on the same list.
+ *
+ * Goes through `archiveThread` so the change is optimistic, queued when
+ * offline, and correct for both Gmail and IMAP.
+ */
+export async function archiveAfterUnsubscribe(
+  accountId: string,
+  fromAddress: string,
+): Promise<number> {
+  if ((await getSetting("auto_archive_after_unsubscribe")) !== "true") return 0;
+
+  const db = await getDb();
+  const rows = await db.select<{ thread_id: string; message_ids: string }[]>(
+    `SELECT m.thread_id, GROUP_CONCAT(m.id) as message_ids
+       FROM messages m
+       JOIN threads t ON t.id = m.thread_id AND t.account_id = m.account_id
+      WHERE m.account_id = $1
+        AND LOWER(m.from_address) = $2
+        AND COALESCE(m.is_trashed, 0) = 0
+        AND COALESCE(m.is_draft, 0) = 0
+        AND EXISTS (
+          SELECT 1 FROM thread_labels tl
+           WHERE tl.thread_id = t.id AND tl.account_id = t.account_id
+             AND tl.label_id = 'INBOX'
+        )
+      GROUP BY m.thread_id`,
+    [accountId, normalizeEmail(fromAddress)],
+  );
+
+  const { archiveThread } = await import("../emailActions");
+  let archived = 0;
+  for (const row of rows) {
+    const messageIds = (row.message_ids ?? "").split(",").filter(Boolean);
+    if (messageIds.length === 0) continue;
+    try {
+      await archiveThread(accountId, row.thread_id, messageIds);
+      archived++;
+    } catch (err) {
+      console.error(`[unsubscribe] archive of thread ${row.thread_id} failed:`, err);
+    }
+  }
+
+  if (archived > 0) {
+    console.log(
+      `[unsubscribe] archived ${archived} thread(s) from ${fromAddress} after unsubscribe`,
+    );
+  }
+  return archived;
 }
 
 async function recordUnsubscribeAction(

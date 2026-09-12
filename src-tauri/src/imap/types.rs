@@ -345,3 +345,14 @@ pub struct GmailStoredHeader {
     pub thread_id: String,
     pub message_count: u32,
 }
+
+/// One message's List-Unsubscribe headers, recovered by a header-only fetch.
+/// Used by the unsubscribe backfill for messages that were synced before the
+/// headers were persisted — full bodies are already cached locally, so the
+/// backfill must not re-download them.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImapListHeaders {
+    pub uid: u32,
+    pub list_unsubscribe: Option<String>,
+    pub list_unsubscribe_post: Option<String>,
+}

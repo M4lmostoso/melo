@@ -2339,6 +2339,202 @@ async fn raw_fetch_messages_inner(
     Ok(ImapFetchResult { messages, folder_status })
 }
 
+/// Fetch ONLY the List-Unsubscribe headers for a UID range.
+///
+/// Backfill path for messages synced before `extract_raw_header` existed: their
+/// bodies are already cached locally, so re-running the full `BODY.PEEK[]` fetch
+/// would re-download the whole mailbox.
+///
+/// `whole_header = false` asks for `HEADER.FIELDS (LIST-UNSUBSCRIBE …)`, a few
+/// hundred bytes per message. DavMail answers that with an EMPTY literal — it
+/// serves HEADER.FIELDS from a fixed set of EWS-mapped properties that does not
+/// include List-Unsubscribe (field-checked: `SUBJECT` comes back, this one does
+/// not) — so the caller probes and retries with `whole_header = true`, which
+/// fetches the full header block (~12 KB/message there) and really does carry
+/// it. Both forms are parsed by the same header-block parser.
+///
+/// Size guard: DavMail is also known to mangle per-part `BODY.PEEK[<section>]`
+/// fetches into something close to the whole message (see
+/// `fetch_attachment_via_raw`). A literal larger than a header block could
+/// plausibly be aborts the fetch with a recognisable error instead of quietly
+/// pulling megabytes per message.
+pub async fn raw_fetch_list_headers(
+    config: &ImapConfig,
+    folder: &str,
+    uid_range: &str,
+    whole_header: bool,
+) -> Result<Vec<ImapListHeaders>, String> {
+    let uid_count = uid_range.split(',').filter(|s| !s.trim().is_empty()).count().max(1);
+    // Header fields are near-instant; a full header block is not — DavMail
+    // serves one per ~2.4s (measured), so the whole-header form gets a far
+    // larger per-UID allowance or every batch would time out.
+    let per_uid = if whole_header { 4 } else { 1 };
+    let budget = std::cmp::min(
+        RAW_FETCH_TOTAL_TIMEOUT,
+        Duration::from_secs(20 + uid_count as u64 * per_uid),
+    );
+    match tokio::time::timeout(
+        budget,
+        raw_fetch_list_headers_inner(config, folder, uid_range, whole_header),
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(_) => Err(format!(
+            "list-header fetch for {folder} UIDs {uid_range}: literal stalled (exceeded {}s budget)",
+            budget.as_secs()
+        )),
+    }
+}
+
+/// Largest plausible response for a two-field `HEADER.FIELDS` fetch. Anything
+/// above this means the server ignored the section and is serving the message.
+const LIST_HEADER_FIELDS_MAX_LITERAL: usize = 8 * 1024;
+/// Largest plausible FULL header block. Long Received/DKIM chains reach tens of
+/// KB (DavMail: ~15 KB observed); a megabyte means a mangled body fetch.
+const LIST_HEADER_WHOLE_MAX_LITERAL: usize = 512 * 1024;
+
+async fn raw_fetch_list_headers_inner(
+    config: &ImapConfig,
+    folder: &str,
+    uid_range: &str,
+    whole_header: bool,
+) -> Result<Vec<ImapListHeaders>, String> {
+    let stream = if config.security == "starttls" {
+        raw_connect_starttls(config).await?
+    } else {
+        connect_stream(config).await?
+    };
+
+    let mut reader = BufReader::new(stream);
+
+    if config.security != "starttls" {
+        let mut line = String::new();
+        reader.read_line(&mut line).await.map_err(|e| format!("greeting: {e}"))?;
+    }
+
+    let login_cmd = if config.auth_method == "oauth2" {
+        let xoauth2 = format!("user={}\x01auth=Bearer {}\x01\x01", config.username, config.password);
+        let b64 = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, xoauth2.as_bytes());
+        format!("a1 AUTHENTICATE XOAUTH2 {b64}\r\n")
+    } else {
+        let esc_user = config.username.replace('\\', "\\\\").replace('"', "\\\"");
+        let esc_pass = config.password.replace('\\', "\\\\").replace('"', "\\\"");
+        format!("a1 LOGIN \"{esc_user}\" \"{esc_pass}\"\r\n")
+    };
+    raw_send_and_wait(&mut reader, login_cmd.as_bytes(), "a1").await?;
+
+    let select_cmd = format!("a2 EXAMINE \"{folder}\"\r\n");
+    raw_send_and_wait(&mut reader, select_cmd.as_bytes(), "a2").await?;
+
+    let section = if whole_header {
+        "HEADER".to_string()
+    } else {
+        "HEADER.FIELDS (LIST-UNSUBSCRIBE LIST-UNSUBSCRIBE-POST)".to_string()
+    };
+    let fetch_cmd = format!("a3 UID FETCH {uid_range} (UID BODY.PEEK[{section}])\r\n");
+    reader
+        .get_mut()
+        .write_all(fetch_cmd.as_bytes())
+        .await
+        .map_err(|e| format!("FETCH write: {e}"))?;
+
+    let fetched =
+        raw_parse_fetch_responses(&mut reader, "a3", IMAP_BULK_FETCH_LINE_TIMEOUT).await?;
+
+    let _ = reader.get_mut().write_all(b"a4 LOGOUT\r\n").await;
+
+    let max_literal = if whole_header {
+        LIST_HEADER_WHOLE_MAX_LITERAL
+    } else {
+        LIST_HEADER_FIELDS_MAX_LITERAL
+    };
+    let mut out = Vec::with_capacity(fetched.len());
+    for msg in &fetched {
+        if msg.body.len() > max_literal {
+            return Err(format!(
+                "list-header fetch for {folder}: server ignored HEADER.FIELDS \
+                 (UID {} returned {} bytes) — aborting to avoid re-downloading bodies",
+                msg.uid,
+                msg.body.len()
+            ));
+        }
+        let (unsub, post) = parse_list_header_block(&msg.body);
+        out.push(ImapListHeaders {
+            uid: msg.uid,
+            list_unsubscribe: unsub,
+            list_unsubscribe_post: post,
+        });
+    }
+
+    log::info!(
+        "list-header fetch {folder} ({}): {} UIDs, {} with List-Unsubscribe",
+        if whole_header { "full header" } else { "header fields" },
+        out.len(),
+        out.iter().filter(|h| h.list_unsubscribe.is_some()).count()
+    );
+
+    Ok(out)
+}
+
+/// Parse a `HEADER.FIELDS` literal into the two List-Unsubscribe values,
+/// unfolding RFC 5322 continuation lines.
+fn parse_list_header_block(body: &[u8]) -> (Option<String>, Option<String>) {
+    let text = String::from_utf8_lossy(body);
+    let mut unsub: Option<String> = None;
+    let mut post: Option<String> = None;
+    // Which header the current (possibly folded) line belongs to.
+    let mut current: Option<bool> = None; // Some(true) = List-Unsubscribe
+
+    for line in text.split('\n') {
+        let line = line.trim_end_matches('\r');
+        if line.trim().is_empty() {
+            current = None;
+            continue;
+        }
+        let folded = line.starts_with(' ') || line.starts_with('\t');
+        if folded {
+            let cont = line.trim();
+            match current {
+                Some(true) => {
+                    if let Some(v) = unsub.as_mut() {
+                        v.push(' ');
+                        v.push_str(cont);
+                    }
+                }
+                Some(false) => {
+                    if let Some(v) = post.as_mut() {
+                        v.push(' ');
+                        v.push_str(cont);
+                    }
+                }
+                None => {}
+            }
+            continue;
+        }
+        let Some((name, value)) = line.split_once(':') else {
+            current = None;
+            continue;
+        };
+        let name = name.trim();
+        let value = value.trim().to_string();
+        if name.eq_ignore_ascii_case("List-Unsubscribe") {
+            unsub = Some(value);
+            current = Some(true);
+        } else if name.eq_ignore_ascii_case("List-Unsubscribe-Post") {
+            post = Some(value);
+            current = Some(false);
+        } else {
+            current = None;
+        }
+    }
+
+    (
+        unsub.filter(|v| !v.is_empty()),
+        post.filter(|v| !v.is_empty()),
+    )
+}
+
 /// Raw IMAP diagnostic: connect via raw TCP/TLS (bypassing async-imap),
 /// authenticate, SELECT folder, FETCH, and return raw server response.
 /// This helps diagnose servers that async-imap can't parse.
@@ -3065,11 +3261,12 @@ fn parse_message(
         }
     });
 
-    // List-Unsubscribe headers
-    let list_unsubscribe = extract_header_text(message.header(mail_parser::HeaderName::ListUnsubscribe));
-    let list_unsubscribe_post = extract_header_text(
-        message.header(mail_parser::HeaderName::Other("List-Unsubscribe-Post".into())),
-    );
+    // List-Unsubscribe headers.
+    // Read from the raw source, NOT through extract_header_text: mail-parser
+    // classifies List-Unsubscribe as an *address* header, so its value never
+    // arrives as Text/TextList (see extract_raw_header).
+    let list_unsubscribe = extract_raw_header(raw, &message, "List-Unsubscribe");
+    let list_unsubscribe_post = extract_raw_header(raw, &message, "List-Unsubscribe-Post");
 
     // Authentication-Results header
     let auth_results = extract_header_text(
@@ -3239,6 +3436,42 @@ fn build_imap_section_map(message: &mail_parser::Message) -> std::collections::H
 }
 
 /// Extract a text value from a HeaderValue, if present.
+/// Recover a header's raw, unfolded text straight from the message source.
+///
+/// `mail-parser` routes `List-Unsubscribe` through its *address* parser
+/// (`parsers/header.rs` → `parse_address`), so the value never arrives as
+/// `HeaderValue::Text`/`TextList` and `extract_header_text` returned `None` for
+/// every message — every IMAP row was stored with a NULL `list_unsubscribe`,
+/// which silently disabled the entire unsubscribe UI (action bar button,
+/// message banner, `u` shortcut, Settings → People → Subscriptions) on all
+/// non-Gmail accounts. Slicing the source preserves the exact
+/// `<https://…>, <mailto:…>` form `parseUnsubscribeHeaders` expects, including
+/// punctuation an address parser would mangle.
+fn extract_raw_header(
+    raw: &[u8],
+    message: &mail_parser::Message,
+    name: &str,
+) -> Option<String> {
+    let header = message
+        .headers()
+        .iter()
+        .find(|h| h.name().eq_ignore_ascii_case(name))?;
+    let bytes = raw.get(header.offset_start()..header.offset_end())?;
+    // Unfold: RFC 5322 continuation lines begin with whitespace.
+    let unfolded = String::from_utf8_lossy(bytes)
+        .split(['\r', '\n'])
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let trimmed = unfolded.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
 fn extract_header_text(hv: Option<&mail_parser::HeaderValue>) -> Option<String> {
     match hv {
         Some(mail_parser::HeaderValue::Text(t)) => Some(t.to_string()),
@@ -3361,6 +3594,56 @@ fn format_address_list(addr: Option<&mail_parser::Address>) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn list_unsubscribe_survives_the_address_parser() {
+        // mail-parser routes List-Unsubscribe through parse_address, so the value
+        // never arrives as Text/TextList — reading it via extract_header_text
+        // yielded None for every message and disabled the unsubscribe UI.
+        let raw = b"From: News <news@example.com>\r\n\
+Subject: Weekly\r\n\
+List-Unsubscribe: <https://example.com/u?id=a,b&t=1>,\r\n <mailto:stop@example.com?subject=unsub>\r\n\
+List-Unsubscribe-Post: List-Unsubscribe=One-Click\r\n\
+\r\nbody\r\n";
+        let parser = MessageParser::default();
+        let message = parser.parse(raw.as_slice()).unwrap();
+
+        assert_eq!(
+            extract_header_text(message.header(mail_parser::HeaderName::ListUnsubscribe)),
+            None,
+            "regression guard: the old path still returns nothing"
+        );
+
+        let unsub = extract_raw_header(raw.as_slice(), &message, "List-Unsubscribe").unwrap();
+        // Folded line joined, and the comma inside the URL query preserved.
+        assert_eq!(
+            unsub,
+            "<https://example.com/u?id=a,b&t=1>, <mailto:stop@example.com?subject=unsub>"
+        );
+        assert_eq!(
+            extract_raw_header(raw.as_slice(), &message, "List-Unsubscribe-Post").unwrap(),
+            "List-Unsubscribe=One-Click"
+        );
+        // Absent header stays absent.
+        assert_eq!(extract_raw_header(raw.as_slice(), &message, "List-Id"), None);
+    }
+
+    #[test]
+    fn parse_list_header_block_unfolds_and_ignores_others() {
+        let block = b"List-Unsubscribe: <https://x.test/u>,\r\n\t<mailto:s@x.test>\r\n\
+List-Unsubscribe-Post: List-Unsubscribe=One-Click\r\n\r\n";
+        let (unsub, post) = parse_list_header_block(block.as_slice());
+        assert_eq!(
+            unsub.unwrap(),
+            "<https://x.test/u>, <mailto:s@x.test>"
+        );
+        assert_eq!(post.unwrap(), "List-Unsubscribe=One-Click");
+
+        // Server that returns the field with an empty value → treated as absent.
+        let (unsub, post) = parse_list_header_block(b"List-Unsubscribe: \r\n\r\n".as_slice());
+        assert_eq!(unsub, None);
+        assert_eq!(post, None);
+    }
 
     #[test]
     fn normalize_message_id_strips_brackets_and_whitespace() {

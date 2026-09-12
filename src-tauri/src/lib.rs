@@ -450,6 +450,7 @@ pub fn run() {
             commands::imap_search_folder,
             commands::imap_sync_folder,
             commands::imap_raw_fetch_diagnostic,
+            commands::imap_fetch_list_headers,
             commands::imap_delta_check,
             commands::imap_fetch_messages_buffered,
             commands::imap_flush_bodies,

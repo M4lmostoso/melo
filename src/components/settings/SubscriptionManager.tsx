@@ -9,6 +9,8 @@ import {
 } from "@/services/unsubscribe/unsubscribeManager";
 import { MailMinus, Search, Loader2 } from "lucide-react";
 import { formatRelativeDate } from "@/utils/date";
+import { getSetting, setSetting } from "@/services/db/settings";
+import { ToggleRow } from "@/components/settings/tabs/shared";
 
 export function SubscriptionManager() {
   const activeAccountId = useAccountStore((s) => s.activeAccountId);
@@ -17,6 +19,13 @@ export function SubscriptionManager() {
   const [searchQuery, setSearchQuery] = useState("");
   const [unsubscribingIds, setUnsubscribingIds] = useState<Set<string>>(() => new Set());
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [autoArchive, setAutoArchive] = useState(true);
+
+  useEffect(() => {
+    getSetting("auto_archive_after_unsubscribe")
+      .then((raw) => setAutoArchive(raw !== "false"))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!activeAccountId) return;
@@ -102,6 +111,17 @@ export function SubscriptionManager() {
 
   return (
     <div className="space-y-4">
+      <ToggleRow
+        label={t("settings.subscriptionManager.autoArchive")}
+        description={t("settings.subscriptionManager.autoArchiveDesc")}
+        checked={autoArchive}
+        onToggle={async () => {
+          const next = !autoArchive;
+          setAutoArchive(next);
+          await setSetting("auto_archive_after_unsubscribe", String(next));
+        }}
+      />
+
       <div className="flex items-center gap-2">
         <div className="relative flex-1">
           <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-tertiary" />
@@ -170,7 +190,9 @@ export function SubscriptionManager() {
                 </div>
                 <div className="flex items-center gap-2 text-xs text-text-tertiary mt-0.5">
                   <span className="truncate">{sub.from_address}</span>
-                  <span className="shrink-0">{sub.message_count} emails</span>
+                  <span className="shrink-0">
+                    {t("settings.subscriptionManager.emailCount", { count: sub.message_count })}
+                  </span>
                   <span className="shrink-0">{formatRelativeDate(sub.latest_date)}</span>
                 </div>
               </div>

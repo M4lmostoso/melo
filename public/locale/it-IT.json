@@ -1113,7 +1113,10 @@
       "loading": "Caricamento iscrizioni...",
       "searchPlaceholder": "Cerca mittenti...",
       "sendersDetected": "{count} mittenti rilevati con intestazioni di disiscrizione.",
-      "unsubscribeBulk": "Cancella iscrizione ({count})"
+      "unsubscribeBulk": "Cancella iscrizione ({count})",
+      "autoArchive": "Archivia la posta dopo la disiscrizione",
+      "autoArchiveDesc": "Quando ti disiscrivi da un mittente, sposta fuori dalla posta in arrivo le email che ti ha già inviato. Archiviate, mai eliminate.",
+      "emailCount": "{count} email"
     },
     "quickStepEditor": {
       "title": "Azioni rapide",
