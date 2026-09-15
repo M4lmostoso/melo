@@ -61,11 +61,24 @@ describe("openAttachmentPreviewWindow", () => {
   it("focuses the existing window instead of opening a duplicate", async () => {
     (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {};
     const setFocus = vi.fn().mockResolvedValue(undefined);
-    getByLabel.mockResolvedValue({ setFocus });
+    getByLabel.mockResolvedValue({ setFocus, isVisible: vi.fn().mockResolvedValue(true) });
 
     expect(openAttachmentPreviewWindow(makeAttachment())).toBe(true);
 
     await vi.waitFor(() => expect(setFocus).toHaveBeenCalled());
     expect(ctor).not.toHaveBeenCalled();
+  });
+
+  it("replaces a hidden leftover window instead of focusing it", async () => {
+    (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {};
+    const setFocus = vi.fn().mockResolvedValue(undefined);
+    const destroy = vi.fn().mockResolvedValue(undefined);
+    getByLabel.mockResolvedValue({ setFocus, destroy, isVisible: vi.fn().mockResolvedValue(false) });
+
+    expect(openAttachmentPreviewWindow(makeAttachment())).toBe(true);
+
+    await vi.waitFor(() => expect(ctor).toHaveBeenCalledTimes(1));
+    expect(destroy).toHaveBeenCalledTimes(1);
+    expect(setFocus).not.toHaveBeenCalled();
   });
 });

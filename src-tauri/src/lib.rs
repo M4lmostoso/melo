@@ -53,6 +53,31 @@ fn close_splashscreen(app: tauri::AppHandle) {
     }
 }
 
+/// Hide-then-destroy the CALLING secondary window (thread / composer / preview).
+///
+/// The delay between hide and destroy must be timed here, not in the webview:
+/// WebKit suspends timers of a hidden page, so a JS `setTimeout` scheduled after
+/// `hide()` never fired and the window stayed alive but invisible forever. A
+/// re-opened attachment preview then found that hidden `preview-*` window by
+/// label and only focused it — the preview appeared to do nothing at all.
+///
+/// Hiding first still matters: destroying a WKWebView while its display link is
+/// running segfaults WebKit's scrolling tree (see `windowLifecycle.ts`).
+#[tauri::command]
+fn close_window_deferred(window: tauri::WebviewWindow) -> Result<(), String> {
+    if window.label() == "main" {
+        return Err("the main window is never destroyed".into());
+    }
+    let _ = window.hide();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+        if let Err(e) = window.destroy() {
+            log::warn!("[window] destroy {} failed: {e}", window.label());
+        }
+    });
+    Ok(())
+}
+
 /// Frontend-side startup breadcrumbs.
 ///
 /// The webview console never reaches `Melo.log`, so a startup that stalls
@@ -418,6 +443,7 @@ pub fn run() {
             set_tray_badge,
             set_tray_icon_style,
             close_splashscreen,
+            close_window_deferred,
             log_startup_stage,
             open_devtools,
             commands::imap_test_connection,

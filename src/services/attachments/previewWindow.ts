@@ -22,8 +22,13 @@ export function openAttachmentPreviewWindow(att: DbAttachment): boolean {
       const label = `preview-${att.id.replace(/[^a-zA-Z0-9\-/:_]/g, "_")}`;
       const existing = await WebviewWindow.getByLabel(label).catch(() => null);
       if (existing) {
-        await existing.setFocus();
-        return;
+        // A window that is closing (or was leaked hidden by an interrupted
+        // close) must not be "focused" — nothing would appear. Replace it.
+        if (await existing.isVisible().catch(() => false)) {
+          await existing.setFocus();
+          return;
+        }
+        await existing.destroy().catch(() => {});
       }
       const params = new URLSearchParams();
       params.set("preview", att.id);

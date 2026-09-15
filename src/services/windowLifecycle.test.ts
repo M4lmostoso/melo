@@ -1,53 +1,44 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { closeSelfWindow, __resetCloseGuard } from "./windowLifecycle";
 
-const hide = vi.fn(() => Promise.resolve());
+const invoke = vi.fn((_cmd: string) => Promise.resolve());
 const destroy = vi.fn(() => Promise.resolve());
 
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: (cmd: string) => invoke(cmd),
+}));
 vi.mock("@tauri-apps/api/window", () => ({
-  getCurrentWindow: () => ({ hide, destroy }),
+  getCurrentWindow: () => ({ destroy }),
 }));
 
 describe("closeSelfWindow", () => {
   beforeEach(() => {
-    vi.useFakeTimers();
-    hide.mockClear();
+    invoke.mockClear();
     destroy.mockClear();
     __resetCloseGuard();
   });
 
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it("hides the window before destroying it", async () => {
+  it("delegates hide-then-destroy to Rust (hidden webviews never fire JS timers)", async () => {
     closeSelfWindow();
-    await vi.waitFor(() => expect(hide).toHaveBeenCalledTimes(1));
-
-    // Still alive at this point — the destroy is deferred to a later run-loop turn
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledWith("close_window_deferred"));
     expect(destroy).not.toHaveBeenCalled();
-
-    await vi.advanceTimersByTimeAsync(200);
-    expect(destroy).toHaveBeenCalledTimes(1);
   });
 
-  it("destroys even when hide() rejects", async () => {
-    hide.mockRejectedValueOnce(new Error("no such window"));
+  it("destroys directly when the Rust command fails", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    invoke.mockRejectedValueOnce(new Error("command not found"));
 
     closeSelfWindow();
-    await vi.waitFor(() => expect(hide).toHaveBeenCalledTimes(1));
-    await vi.advanceTimersByTimeAsync(200);
-
-    expect(destroy).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(destroy).toHaveBeenCalledTimes(1));
+    err.mockRestore();
   });
 
   it("ignores re-entrant calls while a close is in flight", async () => {
     closeSelfWindow();
     closeSelfWindow();
     closeSelfWindow();
-    await vi.waitFor(() => expect(hide).toHaveBeenCalledTimes(1));
-    await vi.advanceTimersByTimeAsync(200);
-
-    expect(destroy).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(invoke).toHaveBeenCalledTimes(1));
+    await new Promise((r) => setTimeout(r, 10));
+    expect(invoke).toHaveBeenCalledTimes(1);
   });
 });

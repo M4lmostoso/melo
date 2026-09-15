@@ -13,9 +13,6 @@
  * out of the current run-loop turn before the window is destroyed.
  */
 
-/** Delay between hide and close — one run-loop turn plus margin. */
-const CLOSE_DEFER_MS = 120;
-
 let closing = false;
 
 /** Reset the in-flight guard (tests only). */
@@ -23,28 +20,31 @@ export function __resetCloseGuard(): void {
   closing = false;
 }
 
+/**
+ * The hide → wait → destroy sequence runs in Rust (`close_window_deferred`).
+ * It used to be a JS `setTimeout` scheduled right after `hide()` — but WebKit
+ * suspends the timers of a hidden page, so the destroy never fired: every
+ * closed thread/composer/preview window lingered invisible, and re-previewing
+ * the same attachment just focused its hidden window (nothing appeared).
+ */
 export function closeSelfWindow(): void {
   if (closing) return;
   closing = true;
 
-  import("@tauri-apps/api/window")
-    .then(async ({ getCurrentWindow }) => {
-      const win = getCurrentWindow();
-      // Best-effort: a hide() failure must never leave the window open forever.
-      await Promise.resolve(win.hide()).catch(() => {});
-      setTimeout(() => {
+  import("@tauri-apps/api/core")
+    .then(({ invoke }) => invoke("close_window_deferred"))
+    .catch(async (err) => {
+      console.error("Deferred window close failed, destroying directly", err);
+      try {
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
         // destroy(), NOT close(): close() re-emits CloseRequested, and the
         // handlers that route the OS close through here call preventDefault —
         // the window would hide and then never actually go away.
-        Promise.resolve(win.destroy()).catch((err) => {
-          console.error("Failed to close window", err);
-          closing = false;
-        });
-      }, CLOSE_DEFER_MS);
-    })
-    .catch(() => {
-      // Non-Tauri context (plain browser / tests)
-      closing = false;
-      window.close();
+        await getCurrentWindow().destroy();
+      } catch {
+        // Non-Tauri context (plain browser / tests)
+        closing = false;
+        window.close();
+      }
     });
 }
