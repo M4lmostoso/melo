@@ -66,3 +66,10 @@ tikv-jemalloc-sys = "0.6"
 
 [target.'cfg(target_os = "linux")'.dependencies.tikv-jemallocator]
 version = "0.6"
+
+# Proc-macros (sqlx-macros & co.) are dlopen'ed by rustc at compile time. With
+# the release default `strip = "debuginfo"`, rustc 1.98 + the macOS 27 CLT emit
+# dylibs that dyld refuses to load ("mis-aligned LINKEDIT string pool"), which
+# breaks `tauri build`. Build-time artifacts never ship, so don't strip them.
+[profile.release.build-override]
+strip = "none"
