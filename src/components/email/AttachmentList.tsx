@@ -309,6 +309,8 @@ export function AttachmentPreview({
 
   const attachmentId = attachment.gmail_attachment_id ?? attachment.imap_part_id;
   const cachePathRef = useRef<string | null>(null);
+  // blobUrl holds either an object URL (revoke on close) or an asset:// URL (don't).
+  const isObjectUrlRef = useRef(false);
 
   const fetchData = useCallback(async (): Promise<Uint8Array> => {
     if (bytesRef.current) return bytesRef.current;
@@ -329,6 +331,19 @@ export function AttachmentPreview({
 
     setLoading(true);
     try {
+      if (isPdf(attachment.mime_type, attachment.filename)) {
+        // Straight from the cache file through the asset protocol: WKWebView
+        // renders the PDF itself, and no multi-MB copy sits in webview memory.
+        // (A `blob:` iframe is also refused by the app CSP's frame-src.)
+        const path = cachePathRef.current ?? await materializeAttachment(toAttachmentRef(attachment));
+        cachePathRef.current = path;
+        const assetSrc = await toAssetUrl(path);
+        if (assetSrc) {
+          isObjectUrlRef.current = false;
+          setBlobUrl(assetSrc);
+          return;
+        }
+      }
       const bytes = await fetchData();
       if (isOffice) {
         setPreviewBytes(bytes);
@@ -337,6 +352,7 @@ export function AttachmentPreview({
           ? "application/pdf"
           : (attachment.mime_type ?? "application/octet-stream");
         const blob = new Blob([bytes.buffer as ArrayBuffer], { type: effectiveMime });
+        isObjectUrlRef.current = true;
         setBlobUrl(URL.createObjectURL(blob));
       }
     } catch (err) {
@@ -396,7 +412,7 @@ export function AttachmentPreview({
   };
 
   const handleClose = () => {
-    if (blobUrl) URL.revokeObjectURL(blobUrl);
+    if (blobUrl && isObjectUrlRef.current) URL.revokeObjectURL(blobUrl);
     onClose();
   };
 
@@ -541,6 +557,21 @@ export function AttachmentPreview({
       {content}
     </Modal>
   );
+}
+
+/**
+ * Absolute cache path → `asset://` URL the webview may load directly, or null
+ * outside Tauri (tests / browser dev), where the caller falls back to a blob.
+ * The asset protocol scope covers `$APPDATA/attachment_cache/**`.
+ */
+async function toAssetUrl(path: string): Promise<string | null> {
+  if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) return null;
+  try {
+    const { convertFileSrc } = await import("@tauri-apps/api/core");
+    return convertFileSrc(path);
+  } catch {
+    return null;
+  }
 }
 
 function TextPreview({ url, fill = false }: { url: string; fill?: boolean }) {
