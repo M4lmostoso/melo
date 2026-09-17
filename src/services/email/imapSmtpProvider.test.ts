@@ -141,6 +141,11 @@ describe("ImapSmtpProvider", () => {
     vi.mocked(enqueuePendingOperation).mockResolvedValue("op-1");
     vi.mocked(imapSearchMessageId).mockResolvedValue([]);
     provider = new ImapSmtpProvider("acc-1");
+    // The Sent-folder probe waits seconds between retries in production; here it
+    // only has to run the same number of times.
+    (provider as unknown as { sentProbeDelaysMs: number[] }).sentProbeDelaysMs = [
+      0, 0, 0, 0,
+    ];
 
     vi.mocked(getAccount).mockResolvedValue(mockAccount as never);
     vi.mocked(buildImapConfig).mockReturnValue(mockImapConfig);
@@ -749,6 +754,52 @@ describe("ImapSmtpProvider", () => {
 
       expect(imapAppendMessage).toHaveBeenCalled();
       expect(result.sendUnconfirmed).toBe(true);
+    });
+
+    // 2026-09-16: a 14 MB mail Exchange had already sent was reported
+    // UNCONFIRMED because the copy was not in sentitems the second after the
+    // 250. "Filed inside the SMTP transaction" is not "searchable over IMAP
+    // immediately" — the probe has to wait for it before calling a delivery into
+    // question, or the user re-sends a mail that already went out.
+    it("waits for the Sent copy a server files slowly instead of flagging the send", async () => {
+      vi.mocked(smtpSendEmail).mockResolvedValue({ success: true, message: "OK" });
+      vi.mocked(findSpecialFolder).mockResolvedValue("Sent");
+      vi.mocked(getSetting).mockResolvedValue("1"); // server files its own copies
+      vi.mocked(imapSearchMessageId)
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+        .mockResolvedValue([4242]);
+
+      const result = await provider.sendMessage(rawBase64Url);
+
+      expect(result.sendUnconfirmed).toBe(false);
+      expect(imapAppendMessage).not.toHaveBeenCalled();
+      expect(result.id).toBe("imap-acc-1-Sent-4242");
+    });
+
+    // Same incident, the other half: the APPEND of that 14 MB message was
+    // refused (ErrorMimeContentInvalid) minutes after the mail had gone out. The
+    // APPEND error says nothing about the delivery, so the folder gets one more
+    // look before the send is called into question.
+    it("adopts a copy that turned up in Sent after the APPEND failed", async () => {
+      vi.mocked(smtpSendEmail).mockResolvedValue({ success: true, message: "OK" });
+      vi.mocked(findSpecialFolder).mockResolvedValue("Sent");
+      vi.mocked(imapSearchMessageId).mockResolvedValueOnce([]).mockResolvedValue([77]);
+      vi.mocked(imapAppendMessage).mockRejectedValue(
+        new Error("APPEND failed: ErrorMimeContentInvalid Invalid MIME content."),
+      );
+
+      const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+      const result = await provider.sendMessage(rawBase64Url);
+      spy.mockRestore();
+
+      expect(result.sendUnconfirmed).toBe(false);
+      expect(result.id).toBe("imap-acc-1-Sent-77");
+      expect(upsertMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ imapUid: 77, imapFolder: "Sent" }),
+      );
+      // Delivered AND filed: nothing left for the recovery queue to reconcile.
+      expect(enqueuePendingOperation).not.toHaveBeenCalled();
     });
 
     it("keeps a send confirmed on a server that files nothing itself", async () => {

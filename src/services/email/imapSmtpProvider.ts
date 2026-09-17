@@ -336,6 +336,12 @@ export class ImapSmtpProvider implements EmailProvider {
     return `smtp_files_sent_copy_${this.accountId}`;
   }
 
+  /**
+   * Backoff between Sent-folder probes (see `findServerSentCopy`). A field, not
+   * a literal, so tests can collapse it to zero instead of waiting it out.
+   */
+  protected sentProbeDelaysMs = [0, 2000, 5000, 8000];
+
   private async getSmtpConfig(): Promise<SmtpConfig> {
     const account = await this.getAccount();
     if (account.auth_method === "oauth2") {
@@ -936,33 +942,49 @@ export class ImapSmtpProvider implements EmailProvider {
    * Did the SMTP server already put this message in the Sent folder? Returns
    * its UID, or 0 if the copy is not there and we have to APPEND it ourselves.
    *
-   * A server that files the copy commits it inside the SMTP transaction, so by
-   * the time we hold a 250 one immediate search settles it — no delay, no
-   * retry, nothing added to the send path of servers that file nothing. A
-   * failed search returns 0: a duplicate in Sent is annoying, a sent message
-   * with no copy anywhere is not recoverable.
+   * A server that files the copy commits it inside the SMTP transaction, so on a
+   * server that files nothing one immediate search settles it — no delay, no
+   * retry, nothing added to that send path. A failed search returns 0: a
+   * duplicate in Sent is annoying, a sent message with no copy anywhere is not
+   * recoverable.
+   *
+   * `retries` buys time for servers that DO file the copy. "Inside the SMTP
+   * transaction" is not "visible over IMAP the same second": Exchange behind
+   * DavMail answers 250 as soon as it has taken the item, and a multi-megabyte
+   * message can take tens of seconds to surface in sentitems. Probing once and
+   * concluding "no copy" declared a 14 MB mail UNCONFIRMED on 2026-09-16 that
+   * had in fact gone out — and the user, warned it might not have, sent it
+   * twice. Waiting here is only ever the difference between a correct answer
+   * and a false alarm, so it applies exactly where a miss would be damning.
    */
   private async findServerSentCopy(
     imapConfig: ImapConfig,
     sentFolder: string,
     rawBase64Url: string,
+    retries = 0,
   ): Promise<number> {
     const raw = base64UrlDecode(rawBase64Url);
     const rfcId = raw.match(/^message-id:\s*<?([^>\r\n]+)>?/im)?.[1]?.trim();
     if (!rfcId) return 0;
 
-    try {
-      const uids = await imapSearchMessageId(imapConfig, sentFolder, rfcId);
-      if (uids.length > 0) {
-        const uid = Math.max(...uids);
-        console.log(`[imap_] send: server already filed the Sent copy (uid=${uid}) — no APPEND`);
-        // Remember the server does this. On a later send, the copy NOT being
-        // there becomes evidence that the message never went out.
-        void setSetting(this.filesOwnSentCopyKey, "1").catch(() => {});
-        return uid;
+    const delaysMs = this.sentProbeDelaysMs.slice(0, retries + 1);
+    for (let attempt = 0; attempt < delaysMs.length; attempt++) {
+      if (delaysMs[attempt]! > 0) {
+        await new Promise((resolve) => setTimeout(resolve, delaysMs[attempt]!));
       }
-    } catch (err) {
-      console.warn("[IMAP] Sent-folder probe failed before APPEND:", err);
+      try {
+        const uids = await imapSearchMessageId(imapConfig, sentFolder, rfcId);
+        if (uids.length > 0) {
+          const uid = Math.max(...uids);
+          console.log(`[imap_] send: server already filed the Sent copy (uid=${uid}) — no APPEND`);
+          // Remember the server does this. On a later send, the copy NOT being
+          // there becomes evidence that the message never went out.
+          void setSetting(this.filesOwnSentCopyKey, "1").catch(() => {});
+          return uid;
+        }
+      } catch (err) {
+        console.warn("[IMAP] Sent-folder probe failed before APPEND:", err);
+      }
     }
     return 0;
   }
@@ -994,16 +1016,29 @@ export class ImapSmtpProvider implements EmailProvider {
     // it the send is UNCONFIRMED and must never be presented as sent, which is
     // how a mail Exchange had refused sat in Sent looking perfectly delivered.
     let serverCopyConfirmed = false;
+    // Kept outside the try so the failure path below can re-probe the folder.
+    let imapConfig: ImapConfig | undefined;
+    let sentFolder = "Sent";
     try {
-      const imapConfig = await this.getImapConfig();
-      const sentFolder =
-        (await findSpecialFolder(this.accountId, "\\Sent")) ?? "Sent";
+      imapConfig = await this.getImapConfig();
+      sentFolder = (await findSpecialFolder(this.accountId, "\\Sent")) ?? "Sent";
       // Many SMTP servers file the Sent copy themselves (DavMail/Exchange with
       // davmail.smtpSaveInSent, most webmail relays). APPENDing on top of that
       // puts a SECOND copy in the server's Sent folder — invisible in Melo,
       // because the local row de-dupes by Message-ID, but every sent message
       // shows up twice in Outlook/OWA. So look before appending.
-      let uid = await this.findServerSentCopy(imapConfig, sentFolder, rawBase64Url);
+      //
+      // On an account whose server is known to file the copy itself, a miss is
+      // not just "APPEND ourselves" — it is the evidence that turns a delivered
+      // mail into an UNCONFIRMED one. So there we wait for the copy instead of
+      // taking the first empty search as an answer.
+      const filesOwnCopy = (await getSetting(this.filesOwnSentCopyKey)) === "1";
+      let uid = await this.findServerSentCopy(
+        imapConfig,
+        sentFolder,
+        rawBase64Url,
+        filesOwnCopy ? 3 : 0,
+      );
       if (uid > 0) {
         // The SMTP server filed the copy itself, inside the transaction that
         // accepted the mail. That is real evidence of a delivery.
@@ -1016,7 +1051,6 @@ export class ImapSmtpProvider implements EmailProvider {
         // the tell that the message was refused. That is how three sends
         // Exchange rejected for an unresolvable recipient still ended up looking
         // perfectly sent, in Melo and in Outlook alike.
-        const filesOwnCopy = (await getSetting(this.filesOwnSentCopyKey)) === "1";
         uid = await imapAppendMessage(imapConfig, sentFolder, rawBase64Url, "(\\Seen)");
         serverCopyConfirmed = !filesOwnCopy;
       }
@@ -1060,18 +1094,47 @@ export class ImapSmtpProvider implements EmailProvider {
         "[IMAP] Failed to copy sent message to Sent folder on server:",
         err,
       );
-      // Keep the content no matter what — never leave the user staring at an
-      // empty Sent folder. But the copy is nowhere on the server, so the row is
-      // written flagged: the UI shows it as unconfirmed rather than as sent, and
-      // the flag clears as soon as a copy turns up (recovery op or delta sync).
-      sentCopySaved = await this.persistSentCopy(
-        rawBase64Url,
-        messageId,
-        _threadId,
-        undefined,
-        undefined,
-        true,
-      );
+      // The copy may be on the server regardless of this error: the SMTP server
+      // may have filed it more slowly than the probe above looked, or the APPEND
+      // may have landed and failed on the way back. Look once more before
+      // telling the user a delivered mail might not have gone out — that is what
+      // happened to the 14 MB send of 2026-09-16, whose APPEND Exchange refused
+      // (ErrorMimeContentInvalid) minutes after it had already sent the mail.
+      let recoveredUid = 0;
+      if (imapConfig) {
+        recoveredUid = await this.findServerSentCopy(
+          imapConfig,
+          sentFolder,
+          rawBase64Url,
+          2,
+        ).catch(() => 0);
+      }
+      if (recoveredUid > 0) {
+        appendFailed = false;
+        serverCopyConfirmed = true;
+        messageId = `imap-${this.accountId}-${sentFolder}-${recoveredUid}`;
+        sentCopySaved = await this.persistSentCopy(
+          rawBase64Url,
+          messageId,
+          _threadId,
+          sentFolder,
+          recoveredUid,
+          false,
+        );
+      } else {
+        // Keep the content no matter what — never leave the user staring at an
+        // empty Sent folder. But the copy is nowhere on the server, so the row is
+        // written flagged: the UI shows it as unconfirmed rather than as sent, and
+        // the flag clears as soon as a copy turns up (recovery op or delta sync).
+        sentCopySaved = await this.persistSentCopy(
+          rawBase64Url,
+          messageId,
+          _threadId,
+          undefined,
+          undefined,
+          true,
+        );
+      }
     }
 
     // Queue the recovery whenever the sent copy is not fully in place: the server
