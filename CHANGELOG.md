@@ -4,6 +4,20 @@
 
 ---
 
+## [0.1.11](https://github.com/M4lmostoso/melo/compare/v0.1.10...v0.1.11) (2026-09-18)
+
+
+### Features
+
+* **ui:** optimize PDF attachment preview using asset protocol ([d9527c8](https://github.com/M4lmostoso/melo/commit/d9527c87e399767e317c35df57bfbb74ee3b2090))
+
+
+### Bug Fixes
+
+* **email:** implement retry logic for server-side Sent folder filing ([3f4abda](https://github.com/M4lmostoso/melo/commit/3f4abdaf96b3827815b5bd5e18fd127fc659596f))
+* **ui:** resolve window leak and visibility issues on close ([d3b9320](https://github.com/M4lmostoso/melo/commit/d3b9320e7e5a5000201a1baa933497a5de110528))
+* **unsubscribe:** restore the whole unsubscribe surface on IMAP accounts ([e6474bd](https://github.com/M4lmostoso/melo/commit/e6474bd79693f632f4303c8dab1daf87775e0c9a))
+
 ## [0.1.10](https://github.com/M4lmostoso/melo/compare/v0.1.9...v0.1.10) (2026-09-11)
 
 
