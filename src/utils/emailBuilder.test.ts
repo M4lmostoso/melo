@@ -318,3 +318,23 @@ describe("buildRawEmail — 7-bit safety (Exchange ErrorMimeContentInvalid)", ()
     );
   });
 });
+
+describe("emailBuilder — Lastname, Firstname recipients", () => {
+  it("keeps comma-bearing display names as one quoted recipient", () => {
+    const raw = buildRawEmail({
+      from: "me@example.com",
+      to: ["Tarwe, Anne-Catherine <anne-catherine.tarwe@suez.com>"],
+      cc: [
+        "Avognon, Erwan Steve <erwan-steve.avognon@suez.com>",
+        "Adjevi, Jerome (ext) <jerome.adjevi.ext@suez.com>",
+      ],
+      subject: "Re: test",
+      htmlBody: "<p>hi</p>",
+    });
+    const decoded = atob(raw.replace(/-/g, "+").replace(/_/g, "/")).replace(/\r\n /g, " ");
+    expect(decoded).toContain('To: "Tarwe, Anne-Catherine" <anne-catherine.tarwe@suez.com>');
+    expect(decoded).toContain(
+      'Cc: "Avognon, Erwan Steve" <erwan-steve.avognon@suez.com>, "Adjevi, Jerome (ext)" <jerome.adjevi.ext@suez.com>',
+    );
+  });
+});

@@ -2,6 +2,7 @@
  * Build an RFC 2822 email message and encode as base64url for the Gmail API.
  */
 import { isInternalPlaceholderId } from "@/services/imap/syntheticMessageId";
+import { parseAddressList } from "@/utils/emailUtils";
 
 export interface EmailAttachment {
   filename: string;
@@ -87,21 +88,19 @@ function encodeHeaderText(text: string): string {
  * addr-spec untouched. Bare addresses pass through unchanged.
  */
 function encodeAddressHeader(value: string): string {
-  return value
-    .split(",")
-    .map((part) => {
-      const mailbox = part.trim();
-      const match = mailbox.match(/^(.*?)\s*<([^>]+)>$/);
-      if (!match) return mailbox;
-      const name = match[1]!.replace(/^"|"$/g, "").trim();
-      if (!name) return `<${match[2]!}>`;
+  // parseAddressList, not split(","): "Avognon, Erwan Steve <e@x>" (Exchange's
+  // "Lastname, Firstname") would otherwise emit a bogus "Avognon" recipient and
+  // strip the surname from the real one.
+  return parseAddressList(value)
+    .map(({ name, email }) => {
+      if (!name) return email;
       if (isAscii(name)) {
         // Quote names carrying RFC 5322 specials; an encoded word must not be quoted.
         return /[()<>@,;:\\".[\]]/.test(name)
-          ? `"${name.replace(/(["\\])/g, "\\$1")}" <${match[2]!}>`
-          : `${name} <${match[2]!}>`;
+          ? `"${name.replace(/(["\\])/g, "\\$1")}" <${email}>`
+          : `${name} <${email}>`;
       }
-      return `${encodeHeaderText(name)} <${match[2]!}>`;
+      return `${encodeHeaderText(name)} <${email}>`;
     })
     .join(", ");
 }

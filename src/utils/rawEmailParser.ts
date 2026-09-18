@@ -1,3 +1,5 @@
+import { parseAddressList } from "@/utils/emailUtils";
+
 export interface ParsedEmail {
   from: string;
   to: string[];
@@ -54,13 +56,10 @@ export function parseRawEmail(base64url: string): ParsedEmail {
       }
     }
 
-    const splitAddresses = (h: string | undefined): string[] =>
-      h ? h.split(",").map((a) => a.trim()).filter(Boolean) : [];
-
     return {
       from: headers["from"] ?? "",
-      to: splitAddresses(headers["to"]),
-      cc: splitAddresses(headers["cc"]),
+      to: splitAddressesPublic(headers["to"]),
+      cc: splitAddressesPublic(headers["cc"]),
       subject: headers["subject"] ?? "",
       bodyHtml: extractHtmlPart(body, headers["content-type"] ?? ""),
       inReplyTo: headers["in-reply-to"] ?? null,
@@ -235,8 +234,9 @@ function walkLeaves(raw: string, leaves: MimeLeaf[]): void {
   });
 }
 
+/** Quote-aware: `"Doe, John" <j@x>` is one recipient, not two. */
 function splitAddressesPublic(h: string | undefined): string[] {
-  return h ? h.split(",").map((a) => a.trim()).filter(Boolean) : [];
+  return parseAddressList(h).map(({ name, email }) => (name ? `${name} <${email}>` : email));
 }
 
 export function parseRawEmailFull(base64url: string): ParsedEmailFull {
