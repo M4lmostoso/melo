@@ -341,3 +341,19 @@ describe("transformHtml — quote collapsing", () => {
     expect(out).not.toContain("wrote:");
   });
 });
+
+describe("transformHtml — quoted display name in the attribution", () => {
+  it('keeps date and sender apart for an RFC-quoted "Lastname, Firstname" name', () => {
+    const html =
+      "<p>my answer</p>" +
+      '<p>On 23/09/2026, 10:28:55, &quot;Melki, Benjamin&quot; &lt;benjamin.melki@suez.com&gt; wrote:</p>' +
+      "<blockquote>quoted body</blockquote>";
+    const out = transformHtml(html);
+    expect(toggles(out)).toBe(1);
+    // Sender box shows the whole name and the address, not a name split at its comma.
+    expect(out).toContain("Melki, Benjamin");
+    expect(out).toContain("benjamin.melki@suez.com");
+    expect(out).toContain("23/09/2026, 10:28:55");
+    expect(out).not.toContain("wrote:");
+  });
+});

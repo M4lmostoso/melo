@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect, forwardRef, useImperativeHandle } from "react";
 import { t } from "@/i18n";
 import { searchContacts, type DbContact } from "@/services/db/contacts";
+import { parseAddressList } from "@/utils/emailUtils";
 
 interface AddressInputProps {
   label: string;
@@ -14,6 +15,17 @@ interface AddressInputProps {
 
 export interface AddressInputHandle {
   focus: () => void;
+}
+
+/**
+ * Chip text: the display name when the entry carries one, else the bare address.
+ * Shows "Melki, Benjamin" rather than the raw, quote-laden
+ * `"Melki, Benjamin" <benjamin.melki@suez.com>`; the full value stays in the title.
+ */
+function chipLabel(addr: string): string {
+  const parsed = parseAddressList(addr)[0];
+  if (!parsed) return addr;
+  return parsed.name ?? parsed.email;
 }
 
 export const AddressInput = forwardRef<AddressInputHandle, AddressInputProps>(
@@ -133,7 +145,10 @@ function AddressInput({
       onTabNext?.();
       return;
     }
-    if (e.key === "Enter" || e.key === ",") {
+    // A comma only ends a recipient once the input holds an address: commas typed
+    // before one belong to a display name ("Melki, Benjamin <b@x>"), and
+    // committing there produced a mailbox-less "Melki" chip.
+    if (e.key === "Enter" || (e.key === "," && inputValue.includes("@"))) {
       e.preventDefault();
       if (showSuggestions && selectedIdx >= 0) {
         addContact(suggestions[selectedIdx]!);
@@ -171,8 +186,9 @@ function AddressInput({
             draggable
             onDragStart={(e) => handleDragStart(e, addr)}
             className="inline-flex items-center gap-1 bg-accent-light text-accent text-xs px-2 py-0.5 rounded-full cursor-grab active:cursor-grabbing select-none"
+            title={addr}
           >
-            {addr}
+            {chipLabel(addr)}
             <button
               onClick={() => onChange(addresses.filter((a) => a !== addr))}
               className="hover:text-danger text-[0.625rem] leading-none"

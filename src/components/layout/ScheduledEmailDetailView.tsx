@@ -16,6 +16,7 @@ import { DateTimePickerDialog } from "@/components/ui/DateTimePickerDialog";
 import { getSchedulePresets } from "@/utils/schedulePresets";
 import { base64ToBytes as decodeBase64 } from "@/utils/fileUtils";
 import { t } from "@/i18n";
+import { splitAddressList } from "@/utils/emailUtils";
 
 type ScheduledAttachment = { filename: string; mimeType: string; content: string };
 
@@ -164,14 +165,14 @@ export function ScheduledEmailDetailView() {
   if (!email) return null;
 
   const account = accounts.find((a) => a.id === email.account_id) ?? null;
-  const recipients = email.to_addresses.split(",").map((s) => s.trim()).filter(Boolean);
-  const ccList = email.cc_addresses?.split(",").map((s) => s.trim()).filter(Boolean) ?? [];
-  const bccList = email.bcc_addresses?.split(",").map((s) => s.trim()).filter(Boolean) ?? [];
+  const recipients = splitAddressList(email.to_addresses);
+  const ccList = splitAddressList(email.cc_addresses);
+  const bccList = splitAddressList(email.bcc_addresses);
 
   const handleEdit = () => {
-    const to = email.to_addresses.split(",").map((s) => s.trim()).filter(Boolean);
-    const cc = email.cc_addresses ? email.cc_addresses.split(",").map((s) => s.trim()).filter(Boolean) : [];
-    const bcc = email.bcc_addresses ? email.bcc_addresses.split(",").map((s) => s.trim()).filter(Boolean) : [];
+    const to = splitAddressList(email.to_addresses);
+    const cc = splitAddressList(email.cc_addresses);
+    const bcc = splitAddressList(email.bcc_addresses);
     openComposer({
       mode: "new",
       to,

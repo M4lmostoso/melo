@@ -894,7 +894,16 @@
     "doneEditingQuote": "Done",
     "stickyColorTip": "Text color — stays selected across lines until you change it",
     "stickyColorHint": "Pick a color to type your inline answers",
-    "stickyColorOn": "Color stays selected as you type"
+    "stickyColorOn": "Color stays selected as you type",
+    "quote": {
+      "attribution": "On {date}, {sender} wrote:",
+      "from": "From:",
+      "date": "Date:",
+      "subject": "Subject:",
+      "to": "To:",
+      "forwardedHeader": "---------- Forwarded message ---------",
+      "previousHeader": "---------- Previous message ---------"
+    }
   },
   "search": {
     "commandPalette": {

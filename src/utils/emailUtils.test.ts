@@ -1,5 +1,7 @@
 import {
   buildReplyAllRecipients,
+  formatAddress,
+  splitAddressList,
   buildReplyRecipients,
   normalizeEmail,
   parseAddressList,
@@ -103,6 +105,45 @@ describe("parseAddressList", () => {
   });
 });
 
+describe("formatAddress / splitAddressList", () => {
+  it("quotes a display name carrying an unquoted comma", () => {
+    expect(formatAddress({ name: "Melki, Benjamin", email: "b@suez.com" })).toBe(
+      '"Melki, Benjamin" <b@suez.com>',
+    );
+  });
+
+  it("leaves a plain name unquoted and a nameless address bare", () => {
+    expect(formatAddress({ name: "Anna Bianchi", email: "a@x.com" })).toBe("Anna Bianchi <a@x.com>");
+    expect(formatAddress({ name: null, email: "a@x.com" })).toBe("a@x.com");
+  });
+
+  it("escapes quotes already present in the name", () => {
+    expect(formatAddress({ name: 'He "Ben", Melki', email: "b@x.com" })).toBe(
+      '"He \\"Ben\\", Melki" <b@x.com>',
+    );
+  });
+
+  it("splits a stored header into one entry per recipient, not per comma", () => {
+    expect(
+      splitAddressList("Melki, Benjamin <b@suez.com>, Anna Bianchi <a@x.com>, plain@y.com"),
+    ).toEqual([
+      '"Melki, Benjamin" <b@suez.com>',
+      "Anna Bianchi <a@x.com>",
+      "plain@y.com",
+    ]);
+  });
+
+  it("round-trips: re-splitting its own output keeps the recipient count", () => {
+    const once = splitAddressList("Melki, Benjamin <b@suez.com>");
+    expect(splitAddressList(once.join(", "))).toEqual(once);
+  });
+
+  it("returns [] for empty input", () => {
+    expect(splitAddressList(null)).toEqual([]);
+    expect(splitAddressList("")).toEqual([]);
+  });
+});
+
 describe("buildReplyAllRecipients", () => {
   it("keeps 'Lastname, Firstname <email>' recipients intact (no comma split)", () => {
     const { to, cc } = buildReplyAllRecipients({
@@ -112,10 +153,12 @@ describe("buildReplyAllRecipients", () => {
       ccHeader: null,
       selfEmails: ["me@gmail.com"],
     });
+    // The comma-bearing display name comes back *quoted* — a bare
+    // "Chevalier, Francois <...>" chip re-splits into two on the next parse.
     expect(to).toEqual([
       "sender@x.com",
-      "Chevalier, Francois <francois.chevalier@suez.com>",
-      "Valente, Edoardo <E.Valente@termomeccanica.com>",
+      '"Chevalier, Francois" <francois.chevalier@suez.com>',
+      '"Valente, Edoardo" <E.Valente@termomeccanica.com>',
     ]);
     expect(cc).toEqual([]);
   });
@@ -190,7 +233,7 @@ describe("buildReplyRecipients", () => {
       toHeader: "Chevalier, Francois <francois.chevalier@suez.com>",
       selfEmails: ["me@gmail.com"],
     });
-    expect(to).toEqual(["Chevalier, Francois <francois.chevalier@suez.com>"]);
+    expect(to).toEqual(['"Chevalier, Francois" <francois.chevalier@suez.com>']);
   });
 
   it("returns an empty To when a self-sent message has no other recipients", () => {

@@ -19,7 +19,7 @@ import { getAllowlistedSenders } from "@/services/db/imageAllowlist";
 import { normalizeEmail, buildReplyAllRecipients, buildReplyRecipients } from "@/utils/emailUtils";
 import { VolumeX, LockKeyhole } from "lucide-react";
 import { escapeHtml, sanitizeHtml } from "@/utils/sanitize";
-import { restoreRemoteImages } from "@/utils/imageBlocker";
+import { buildReplyQuote, buildForwardQuote } from "@/utils/quoteBuilder";
 import { isNoReplyAddress } from "@/utils/noReply";
 import { getDefaultSignature } from "@/services/db/signatures";
 import { ThreadSummary } from "./ThreadSummary";
@@ -237,7 +237,7 @@ export function ThreadView({ thread }: ThreadViewProps) {
       mode: "reply",
       to: replyToList,
       subject: `Re: ${msg.subject ?? ""}`,
-      quotedHtml: buildThreadQuote(quotedMessages),
+      quotedHtml: buildReplyQuote(quotedMessages),
       threadId: msg.thread_id,
       inReplyToMessageId: rfcMsgId,
       references: refs,
@@ -270,7 +270,7 @@ export function ThreadView({ thread }: ThreadViewProps) {
       to: replyAllTo,
       cc: ccList,
       subject: `Re: ${msg.subject ?? ""}`,
-      quotedHtml: buildThreadQuote(quotedMessages),
+      quotedHtml: buildReplyQuote(quotedMessages),
       threadId: msg.thread_id,
       inReplyToMessageId: rfcMsgId,
       references: refs,
@@ -294,7 +294,7 @@ export function ThreadView({ thread }: ThreadViewProps) {
       mode: "forward",
       to: [],
       subject: `Fwd: ${msg.subject ?? thread.subject ?? ""}`,
-      quotedHtml: buildThreadForwardQuote(quotedMessages),
+      quotedHtml: buildForwardQuote(quotedMessages, { restoreImages: true }),
       threadId: msg.thread_id,
       inReplyToMessageId: rfcMsgId,
       references: refs,
@@ -885,29 +885,4 @@ const handlePrint = useCallback(async () => {
       )}
     </div>
   );
-}
-
-function buildThreadQuote(msgs: DbMessage[]): string {
-  if (msgs.length === 0) return "";
-  return "<br><br>" + [...msgs].reverse().map(msg => {
-    const date = new Date(msg.date).toLocaleString();
-    const from = msg.from_name
-      ? `${escapeHtml(msg.from_name)} &lt;${escapeHtml(msg.from_address ?? "")}&gt;`
-      : escapeHtml(msg.from_address ?? "Unknown");
-    const body = msg.body_html ? sanitizeHtml(msg.body_html) : escapeHtml(msg.body_text ?? "");
-    return `<div style="border-left:2px solid #ccc;padding-left:12px;margin-left:0;color:#666;margin-bottom:8px">On ${date}, ${from} wrote:<br>${body}</div>`;
-  }).join("");
-}
-
-function buildThreadForwardQuote(msgs: DbMessage[]): string {
-  if (msgs.length === 0) return "";
-  // Newest message first (standard email forward convention)
-  const parts = [...msgs].reverse().map(msg => {
-    const date = new Date(msg.date).toLocaleString();
-    // Restore blocked remote images so they appear correctly in the forwarded email
-    const rawHtml = msg.body_html ? restoreRemoteImages(msg.body_html) : null;
-    const body = rawHtml ? sanitizeHtml(rawHtml) : escapeHtml(msg.body_text ?? "");
-    return `From: ${escapeHtml(msg.from_name ?? "")} &lt;${escapeHtml(msg.from_address ?? "")}&gt;<br>Date: ${date}<br>Subject: ${escapeHtml(msg.subject ?? "")}<br>To: ${escapeHtml(msg.to_addresses ?? "")}<br><br>${body}`;
-  });
-  return `<br><br>---------- Forwarded message ---------<br><br>${parts.join("<br><br>---------- Previous message ---------<br><br>")}`;
 }

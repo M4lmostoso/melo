@@ -34,6 +34,7 @@ import { Archive, Trash2, X, Ban, ChevronRight, Package, FolderSearch, Clock, Ch
 import { EmailListEmptyState } from "./EmailListEmptyState";
 import { OutgoingQueueView } from "./OutgoingQueueView";
 import { ScheduledEmailListView } from "./ScheduledEmailListView";
+import { splitAddressList } from "@/utils/emailUtils";
 
 const PAGE_SIZE = 50;
 
@@ -169,15 +170,11 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
         }
       }
 
-      const to = draftMsg.to_addresses
-        ? draftMsg.to_addresses.split(",").map((a) => a.trim()).filter(Boolean)
-        : [];
-      const cc = draftMsg.cc_addresses
-        ? draftMsg.cc_addresses.split(",").map((a) => a.trim()).filter(Boolean)
-        : [];
-      const bcc = draftMsg.bcc_addresses
-        ? draftMsg.bcc_addresses.split(",").map((a) => a.trim()).filter(Boolean)
-        : [];
+      // splitAddressList, not split(","): a stored "Melki, Benjamin <b@x>" would
+      // otherwise reopen as a mailbox-less "Melki" chip plus "Benjamin <b@x>".
+      const to = splitAddressList(draftMsg.to_addresses);
+      const cc = splitAddressList(draftMsg.cc_addresses);
+      const bcc = splitAddressList(draftMsg.bcc_addresses);
 
       openComposer({
         mode: "new",

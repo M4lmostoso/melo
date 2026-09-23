@@ -8,6 +8,7 @@ import { createBackgroundChecker } from "../backgroundCheckers";
 import { sendEmail } from "../emailActions";
 import { useOutgoingStore } from "@/stores/outgoingStore";
 import { t } from "@/i18n";
+import { splitAddressList } from "@/utils/emailUtils";
 
 function notifyScheduledFailed(subject: string | null): void {
   import("@tauri-apps/plugin-notification")
@@ -52,13 +53,9 @@ async function checkScheduledEmails(): Promise<void> {
         }
       }
 
-      const toList = email.to_addresses.split(",").map((a) => a.trim());
-      const ccList = email.cc_addresses
-        ? email.cc_addresses.split(",").map((a) => a.trim())
-        : [];
-      const bccList = email.bcc_addresses
-        ? email.bcc_addresses.split(",").map((a) => a.trim())
-        : [];
+      const toList = splitAddressList(email.to_addresses);
+      const ccList = splitAddressList(email.cc_addresses);
+      const bccList = splitAddressList(email.bcc_addresses);
 
       const raw = buildRawEmail({
         from: account.email,

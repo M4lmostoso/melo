@@ -894,7 +894,16 @@
     "doneEditingQuote": "Fatto",
     "stickyColorTip": "Colore testo — resta selezionato riga dopo riga finché non lo cambi",
     "stickyColorHint": "Scegli un colore per scrivere le risposte in linea",
-    "stickyColorOn": "Il colore resta selezionato mentre scrivi"
+    "stickyColorOn": "Il colore resta selezionato mentre scrivi",
+    "quote": {
+      "attribution": "Il {date}, {sender} ha scritto:",
+      "from": "Da:",
+      "date": "Data:",
+      "subject": "Oggetto:",
+      "to": "A:",
+      "forwardedHeader": "---------- Messaggio inoltrato ---------",
+      "previousHeader": "---------- Messaggio precedente ---------"
+    }
   },
   "search": {
     "commandPalette": {

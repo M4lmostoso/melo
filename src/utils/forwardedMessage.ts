@@ -199,11 +199,31 @@ interface Attribution {
 const ATTRIB_RE =
   /^(?:on|il|le|am|el|em)\s+(.+),\s+(?:(.+?)\s+<([^>@\s]+@[^>\s]+)>|([^@\s<>]+@[^@\s<>,]+))\s*,?\s*(?:wrote|ha scritto|a [eé]crit|schrieb|escribi[oó]|escreveu)\s*:[ \t]*$/i;
 
+/**
+ * Same line, but with an RFC-quoted display name:
+ *   `On 23/09/2026, 10:28:55, "Melki, Benjamin" <b@suez.com> wrote:`
+ * Tried first: ATTRIB_RE's greedy date would eat the opening quote and split the
+ * name at its own comma ("Melki" into the date, `Benjamin"` as the name).
+ * The date group is lazy here — it stops at the first `, "` that a full sender
+ * follows, and a date's own commas are never followed by a quote.
+ */
+const ATTRIB_QUOTED_RE =
+  /^(?:on|il|le|am|el|em)\s+(.+?),\s+"((?:[^"\\]|\\.)*)"\s+<([^>@\s]+@[^>\s]+)>\s*,?\s*(?:wrote|ha scritto|a [eé]crit|schrieb|escribi[oó]|escreveu)\s*:[ \t]*$/i;
+
 function parseAttribution(text: string): Attribution | null {
   // Outlook's HTML→text conversion appends the link target after the address:
   // "Name <addr@x.it<mailto:addr@x.it>>". The trailing ">" left over from the inner
   // angle brackets breaks the sender group, so drop the "<mailto:…>" artifact first.
-  const m = text.trim().replace(/<mailto:[^<>]*>/gi, "").match(ATTRIB_RE);
+  const cleaned = text.trim().replace(/<mailto:[^<>]*>/gi, "");
+  const q = cleaned.match(ATTRIB_QUOTED_RE);
+  if (q) {
+    return {
+      date: (q[1] ?? "").trim(),
+      name: (q[2] ?? "").replace(/\\(["\\])/g, "$1").trim(),
+      email: (q[3] ?? "").trim(),
+    };
+  }
+  const m = cleaned.match(ATTRIB_RE);
   if (!m) return null;
   // m[2]+m[3] = Name <email>; m[4] = bare email (no name)
   const email = (m[3] ?? m[4] ?? "").trim();

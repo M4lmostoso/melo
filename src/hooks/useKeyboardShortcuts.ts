@@ -9,34 +9,12 @@ import { navigateToLabel, navigateToThread, navigateBack, getActiveLabel, getSel
 import { archiveThread, trashThread, permanentDeleteThread, starThread, spamThread, markThreadRead, deleteDraftThread, deleteSingleMessage } from "@/services/emailActions";
 import { deleteThread as deleteThreadFromDb, pinThread as pinThreadDb, unpinThread as unpinThreadDb, muteThread as muteThreadDb, unmuteThread as unmuteThreadDb } from "@/services/db/threads";
 import { logInteraction } from "@/services/ai/reputationEngine";
-import { getMessagesForThread, type DbMessage } from "@/services/db/messages";
-import { escapeHtml, sanitizeHtml } from "@/utils/sanitize";
+import { getMessagesForThread } from "@/services/db/messages";
 import { parseUnsubscribeUrl } from "@/components/email/MessageItem";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { triggerSync } from "@/services/gmail/syncManager";
 import { buildReplyAllRecipients } from "@/utils/emailUtils";
-
-function buildReplyQuote(msgs: DbMessage[]): string {
-  if (msgs.length === 0) return "";
-  return "<br><br>" + [...msgs].reverse().map(msg => {
-    const date = new Date(msg.date).toLocaleString();
-    const from = msg.from_name
-      ? `${escapeHtml(msg.from_name)} &lt;${escapeHtml(msg.from_address ?? "")}&gt;`
-      : escapeHtml(msg.from_address ?? "Unknown");
-    const body = msg.body_html ? sanitizeHtml(msg.body_html) : escapeHtml(msg.body_text ?? "");
-    return `<div style="border-left:2px solid #ccc;padding-left:12px;margin-left:0;color:#666;margin-bottom:8px">On ${date}, ${from} wrote:<br>${body}</div>`;
-  }).join("");
-}
-
-function buildForwardQuote(msgs: DbMessage[]): string {
-  if (msgs.length === 0) return "";
-  const parts = msgs.map(msg => {
-    const date = new Date(msg.date).toLocaleString();
-    const body = msg.body_html ? sanitizeHtml(msg.body_html) : escapeHtml(msg.body_text ?? "");
-    return `From: ${escapeHtml(msg.from_name ?? "")} &lt;${escapeHtml(msg.from_address ?? "")}&gt;<br>Date: ${date}<br>Subject: ${escapeHtml(msg.subject ?? "")}<br>To: ${escapeHtml(msg.to_addresses ?? "")}<br><br>${body}`;
-  });
-  return `<br><br>---------- Forwarded message ---------<br><br>${parts.join("<br><br>---------- Previous message ---------<br><br>")}`;
-}
+import { buildReplyQuote, buildForwardQuote } from "@/utils/quoteBuilder";
 
 /**
  * Parse a key binding string and check if it matches a keyboard event.

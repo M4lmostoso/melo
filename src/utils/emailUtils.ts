@@ -155,15 +155,13 @@ export function buildReplyAllRecipients(opts: {
   }
 
   const seen = new Set<string>();
-  const format = (addr: ParsedAddress): string =>
-    addr.name ? `${addr.name} <${addr.email}>` : addr.email;
 
   const collect = (header: string | null | undefined, out: string[]) => {
     for (const addr of parseAddressList(header)) {
       const key = normalizeEmail(addr.email);
       if (!key || self.has(key) || seen.has(key)) continue;
       seen.add(key);
-      out.push(format(addr));
+      out.push(formatAddress(addr));
     }
   };
 
@@ -209,15 +207,13 @@ export function buildReplyRecipients(opts: {
 
   // Reply to a message I sent — continue the conversation with the original
   // recipients, not myself.
-  const format = (addr: ParsedAddress): string =>
-    addr.name ? `${addr.name} <${addr.email}>` : addr.email;
   const seen = new Set<string>();
   const to: string[] = [];
   for (const addr of parseAddressList(opts.toHeader)) {
     const key = normalizeEmail(addr.email);
     if (!key || self.has(key) || seen.has(key)) continue;
     seen.add(key);
-    to.push(format(addr));
+    to.push(formatAddress(addr));
   }
   return { to };
 }
@@ -232,4 +228,31 @@ export function resolveRecipientLabel(
   contactsMap: Record<string, string>,
 ): string {
   return contactsMap[addr.email.toLowerCase()] || addr.name || addr.email;
+}
+
+/**
+ * Format a parsed address back into a single RFC address string.
+ * A display name carrying RFC 5322 specials (most often the unquoted comma of
+ * Exchange's "Lastname, Firstname") is quoted, so the result can be re-parsed —
+ * or shown as one chip — without splitting into two bogus recipients.
+ */
+export function formatAddress(addr: ParsedAddress): string {
+  if (!addr.name) return addr.email;
+  const name = /[()<>@,;:\\".[\]]/.test(addr.name)
+    ? `"${addr.name.replace(/(["\\])/g, "\\$1")}"`
+    : addr.name;
+  return `${name} <${addr.email}>`;
+}
+
+/**
+ * Split an address-list header into one entry per recipient.
+ *
+ * Use this instead of `header.split(",")` anywhere a stored To/Cc/Bcc string is
+ * turned back into composer chips (reopening a draft or a scheduled email) or
+ * into a recipient list for sending: a naive split turns
+ * `Melki, Benjamin <benjamin.melki@suez.com>` into a mailbox-less "Melki" plus
+ * "Benjamin <...>" — two chips, one of them undeliverable.
+ */
+export function splitAddressList(header: string | null | undefined): string[] {
+  return parseAddressList(header).map(formatAddress);
 }

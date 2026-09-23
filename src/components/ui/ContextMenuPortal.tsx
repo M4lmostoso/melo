@@ -48,32 +48,8 @@ import {
 import { triggerSync } from "@/services/gmail/syncManager";
 import { useUIStore } from "@/stores/uiStore";
 import { setThreadCategory, ALL_CATEGORIES } from "@/services/db/threadCategories";
-import { buildReplyAllRecipients } from "@/utils/emailUtils";
-import { escapeHtml, sanitizeHtml } from "@/utils/sanitize";
-
-type QuotedMsg = { from_name: string | null; from_address: string | null; date: string | number; subject?: string | null; to_addresses?: string | null; body_html: string | null; body_text: string | null };
-
-function buildQuote(msgs: QuotedMsg[]): string {
-  if (msgs.length === 0) return "";
-  return "<br><br>" + [...msgs].reverse().map(msg => {
-    const date = new Date(msg.date).toLocaleString();
-    const from = msg.from_name
-      ? `${escapeHtml(msg.from_name)} &lt;${escapeHtml(msg.from_address ?? "")}&gt;`
-      : escapeHtml(msg.from_address ?? "Unknown");
-    const body = msg.body_html ? sanitizeHtml(msg.body_html) : escapeHtml(msg.body_text ?? "");
-    return `<div style="border-left:2px solid #ccc;padding-left:12px;margin-left:0;color:#666;margin-bottom:8px">On ${date}, ${from} wrote:<br>${body}</div>`;
-  }).join("");
-}
-
-function buildForwardQuote(msgs: QuotedMsg[]): string {
-  if (msgs.length === 0) return "";
-  const parts = msgs.map(msg => {
-    const date = new Date(msg.date).toLocaleString();
-    const body = msg.body_html ? sanitizeHtml(msg.body_html) : escapeHtml(msg.body_text ?? "");
-    return `From: ${escapeHtml(msg.from_name ?? "")} &lt;${escapeHtml(msg.from_address ?? "")}&gt;<br>Date: ${date}<br>Subject: ${escapeHtml(msg.subject ?? "")}<br>To: ${escapeHtml(msg.to_addresses ?? "")}<br><br>${body}`;
-  });
-  return `<br><br>---------- Forwarded message ---------<br><br>${parts.join("<br><br>---------- Previous message ---------<br><br>")}`;
-}
+import { buildReplyAllRecipients, splitAddressList } from "@/utils/emailUtils";
+import { buildReplyQuote, buildForwardQuote, type QuotableMessage } from "@/utils/quoteBuilder";
 
 export function ContextMenuPortal() {
   const menuType = useContextMenuStore((s) => s.menuType);
@@ -289,7 +265,7 @@ function ThreadMenu({
       mode: "reply",
       to: replyTo ? [replyTo] : [],
       subject: `Re: ${lastMessage.subject ?? ""}`,
-      quotedHtml: buildQuote(messages),
+      quotedHtml: buildReplyQuote(messages),
       threadId: lastMessage.thread_id,
       inReplyToMessageId: lastMessage.message_id_header ?? null,
     });
@@ -308,7 +284,7 @@ function ThreadMenu({
       to,
       cc,
       subject: `Re: ${lastMessage.subject ?? ""}`,
-      quotedHtml: buildQuote(messages),
+      quotedHtml: buildReplyQuote(messages),
       threadId: lastMessage.thread_id,
       inReplyToMessageId: lastMessage.message_id_header ?? null,
     });
@@ -672,7 +648,7 @@ function MessageMenu({
 
   const handleReply = async () => {
     const replyAddr = replyTo ?? fromAddress;
-    let msgs: QuotedMsg[] = [msg];
+    let msgs: QuotableMessage[] = [msg];
     let rfcMsgId: string | null = null;
     if (accountId) {
       try {
@@ -686,7 +662,7 @@ function MessageMenu({
       mode: "reply",
       to: replyAddr ? [replyAddr] : [],
       subject: `Re: ${subject ?? ""}`,
-      quotedHtml: buildQuote(msgs),
+      quotedHtml: buildReplyQuote(msgs),
       threadId,
       inReplyToMessageId: rfcMsgId,
     });
@@ -696,7 +672,7 @@ function MessageMenu({
     const replyAddr = replyTo ?? fromAddress;
     const myEmails = useAccountStore.getState().accounts.map(a => a.email);
     const { to, cc } = buildReplyAllRecipients({ replyTo: replyAddr, toHeader: toAddresses, ccHeader: ccAddresses, selfEmails: myEmails });
-    let msgs: QuotedMsg[] = [msg];
+    let msgs: QuotableMessage[] = [msg];
     let rfcMsgId: string | null = null;
     if (accountId) {
       try {
@@ -711,14 +687,14 @@ function MessageMenu({
       to,
       cc,
       subject: `Re: ${subject ?? ""}`,
-      quotedHtml: buildQuote(msgs),
+      quotedHtml: buildReplyQuote(msgs),
       threadId,
       inReplyToMessageId: rfcMsgId,
     });
   };
 
   const handleForward = async () => {
-    let msgs: QuotedMsg[] = [msg];
+    let msgs: QuotableMessage[] = [msg];
     let rfcMsgId: string | null = null;
     if (accountId) {
       try {
@@ -835,9 +811,9 @@ function ScheduledEmailMenu({
   const [showReschedule, setShowReschedule] = useState(false);
 
   const handleEdit = useCallback(() => {
-    const to = email.to_addresses.split(",").map((s) => s.trim()).filter(Boolean);
-    const cc = email.cc_addresses ? email.cc_addresses.split(",").map((s) => s.trim()).filter(Boolean) : [];
-    const bcc = email.bcc_addresses ? email.bcc_addresses.split(",").map((s) => s.trim()).filter(Boolean) : [];
+    const to = splitAddressList(email.to_addresses);
+    const cc = splitAddressList(email.cc_addresses);
+    const bcc = splitAddressList(email.bcc_addresses);
     openComposer({ mode: "new", to, cc, bcc, subject: email.subject ?? "", bodyHtml: email.body_html, threadId: email.thread_id, accountId: email.account_id });
     updateScheduledEmailStatus(email.id, "cancelled")
       .then(() => refreshScheduledCounts(accounts.map((a) => a.id)))

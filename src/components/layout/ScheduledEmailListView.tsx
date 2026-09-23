@@ -18,6 +18,7 @@ import { ScheduledEmptyIllustration } from "@/components/ui/illustrations";
 import { DateTimePickerDialog } from "@/components/ui/DateTimePickerDialog";
 import { getSchedulePresets } from "@/utils/schedulePresets";
 import { t } from "@/i18n";
+import { splitAddressList } from "@/utils/emailUtils";
 
 interface ScheduledEmailListViewProps {
   accountId: string | null;
@@ -69,10 +70,7 @@ function ScheduledItem({
   onContextMenu: (e: React.MouseEvent, email: DbScheduledEmail) => void;
 }) {
   const emailDensity = useUIStore((s) => s.emailDensity);
-  const recipients = email.to_addresses
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
+  const recipients = splitAddressList(email.to_addresses);
 
   const bodyPreview = stripHtml(email.body_html).trim().split("\n").find((l) => l.trim()) ?? "";
 
@@ -229,9 +227,9 @@ export function ScheduledEmailListView({ accountId }: ScheduledEmailListViewProp
   }, [openMenu]);
 
   const handleContextEdit = useCallback((email: DbScheduledEmail) => {
-    const to = email.to_addresses.split(",").map((s) => s.trim()).filter(Boolean);
-    const cc = email.cc_addresses ? email.cc_addresses.split(",").map((s) => s.trim()).filter(Boolean) : [];
-    const bcc = email.bcc_addresses ? email.bcc_addresses.split(",").map((s) => s.trim()).filter(Boolean) : [];
+    const to = splitAddressList(email.to_addresses);
+    const cc = splitAddressList(email.cc_addresses);
+    const bcc = splitAddressList(email.bcc_addresses);
     openComposer({ mode: "new", to, cc, bcc, subject: email.subject ?? "", bodyHtml: email.body_html, threadId: email.thread_id, accountId: email.account_id });
     updateScheduledEmailStatus(email.id, "cancelled")
       .then(() => refreshScheduledCounts(accounts.map((a) => a.id)))

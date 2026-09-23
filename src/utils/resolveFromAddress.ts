@@ -1,4 +1,5 @@
 import type { SendAsAlias } from "@/services/db/sendAsAliases";
+import { parseAddressList, normalizeEmail } from "@/utils/emailUtils";
 
 /**
  * Resolve which send-as alias to use as the "From" address.
@@ -17,18 +18,15 @@ export function resolveFromAddress(
 ): SendAsAlias | null {
   if (aliases.length === 0) return null;
 
-  // Collect all addresses from To and CC into a normalized set
+  // Collect all addresses from To and CC into a normalized set.
+  // parseAddressList, not split(","): the alias is matched against the bare
+  // mailbox, so a header entry like "Melki, Benjamin <b@x>" (display name and
+  // brackets included) has to be parsed, not compared as a raw string.
   const recipientEmails = new Set<string>();
-  if (toAddresses) {
-    for (const addr of toAddresses.split(",")) {
-      const trimmed = addr.trim().toLowerCase();
-      if (trimmed) recipientEmails.add(trimmed);
-    }
-  }
-  if (ccAddresses) {
-    for (const addr of ccAddresses.split(",")) {
-      const trimmed = addr.trim().toLowerCase();
-      if (trimmed) recipientEmails.add(trimmed);
+  for (const header of [toAddresses, ccAddresses]) {
+    for (const addr of parseAddressList(header)) {
+      const normalized = normalizeEmail(addr.email);
+      if (normalized) recipientEmails.add(normalized);
     }
   }
 
