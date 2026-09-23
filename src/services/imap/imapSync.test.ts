@@ -1000,6 +1000,33 @@ describe("computeThreadLabels — trashed unread must not flag the thread UNREAD
     expect(labels).not.toContain("UNREAD");
   });
 
+  // Regression: a draft's From is always the account itself, so the "last message
+  // is from me" rule filed every autosaved draft copy under Sent — mail that had
+  // never been sent showed up in the Sent folder while still being a draft.
+  it("does not add SENT for a thread that only holds a draft", () => {
+    const labels = computeThreadLabels(
+      [header({ local_id: "d1", label_id: "DRAFT", is_draft: true, from_address: "me@example.com" })],
+      new Map(),
+      "me@example.com",
+      false,
+    );
+    expect(labels).toContain("DRAFT");
+    expect(labels).not.toContain("SENT");
+  });
+
+  it("still adds SENT when a real sent message precedes a parked reply draft", () => {
+    const labels = computeThreadLabels(
+      [
+        header({ local_id: "m1", date: 1000, label_id: "SENT", from_address: "me@example.com" }),
+        header({ local_id: "d1", date: 2000, label_id: "DRAFT", is_draft: true, from_address: "me@example.com" }),
+      ],
+      new Map(),
+      "me@example.com",
+      false,
+    );
+    expect(labels).toContain("SENT");
+  });
+
   it("still adds UNREAD for a live unread message", () => {
     const labels = computeThreadLabels(
       [header({ local_id: "m1", is_read: false, label_id: "INBOX" })],

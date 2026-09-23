@@ -212,12 +212,16 @@ export function computeThreadLabels(
   }
 
   // messages are already sorted by date ascending (caller guarantees this)
-  const last = messages[messages.length - 1]!;
   const isFromMe = (addr: string | null) =>
     !!addr && addr.toLowerCase() === lowerAccountEmail;
 
-  // SENT: last message in the thread was sent by me
-  if (isFromMe(last.from_address)) {
+  // SENT: last NON-DRAFT message in the thread was sent by me. Drafts must be
+  // excluded: their From is always the account itself, so an autosaved draft
+  // (one server copy per APPEND, each landing in its own thread) showed up in
+  // the Sent folder for mail that had never been sent — and stayed there as a
+  // ghost after the draft was swept.
+  const lastSent = [...messages].reverse().find((m) => !m.is_draft);
+  if (lastSent && isFromMe(lastSent.from_address)) {
     allLabels.add("SENT");
   }
 

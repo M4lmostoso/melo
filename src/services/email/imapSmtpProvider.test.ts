@@ -551,6 +551,32 @@ describe("ImapSmtpProvider", () => {
       expect(result.id).toMatch(/^imap-acc-1-/);
     });
 
+    // Regression: the composer passes the draft's threadId, and discarding that
+    // draft at send time deletes the now-empty thread row. messages has a FK on
+    // (account_id, thread_id), so the Sent copy hit "FOREIGN KEY constraint
+    // failed" on all three persistSentCopy attempts and a delivered 7.7 MB email
+    // was left with no local copy at all.
+    it("recreates the thread row when the supplied thread no longer exists", async () => {
+      vi.mocked(smtpSendEmail).mockResolvedValue({ success: true, message: "OK" });
+      vi.mocked(findSpecialFolder).mockResolvedValue("Sent");
+      vi.mocked(imapAppendMessage).mockResolvedValue(100);
+      const { getDb } = await import("../db/connection");
+      vi.mocked(getDb).mockResolvedValue({
+        // COUNT(*) on a thread that was deleted with the draft.
+        select: vi.fn(async () => [{ c: 0 }]),
+        execute: vi.fn(async () => ({ rowsAffected: 0 })),
+      } as never);
+
+      await provider.sendMessage(rawBase64Url, "vanished-thread-1");
+
+      expect(upsertThread).toHaveBeenCalledWith(
+        expect.objectContaining({ id: "vanished-thread-1", accountId: "acc-1" }),
+      );
+      expect(upsertMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ threadId: "vanished-thread-1" }),
+      );
+    });
+
     it("throws if SMTP send fails", async () => {
       vi.mocked(smtpSendEmail).mockResolvedValue({
         success: false,

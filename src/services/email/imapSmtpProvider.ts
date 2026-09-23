@@ -1338,7 +1338,27 @@ export class ImapSmtpProvider implements EmailProvider {
     const rawAttachments = extractRawMimeAttachments(raw);
     const hasAttachments = rawAttachments.some((a) => !a.isInline);
 
-    if (!threadId) {
+    // A caller-supplied threadId is NOT proof the thread row still exists: the
+    // composer passes the draft's thread, and discarding/tombstoning that draft at
+    // send time deletes the (now empty) thread row. messages has a FK on
+    // (account_id, thread_id), so inserting against a vanished thread fails with
+    // "FOREIGN KEY constraint failed" — all three persistSentCopy attempts die and
+    // a delivered email is left with no local copy. Create the row when it is gone.
+    let threadRowMissing = false;
+    if (threadId) {
+      try {
+        const db = await getDb();
+        const rows = await db.select<{ c: number }[]>(
+          "SELECT COUNT(*) as c FROM threads WHERE account_id = $1 AND id = $2",
+          [this.accountId, threadId],
+        );
+        threadRowMissing = rows.length > 0 && (rows[0]?.c ?? 1) === 0;
+      } catch {
+        // Can't tell — fall through and let the insert decide.
+      }
+    }
+
+    if (!threadId || threadRowMissing) {
       // New thread: create thread record + SENT label
       await upsertThread({
         id: effectiveThreadId,

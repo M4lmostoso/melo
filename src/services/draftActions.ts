@@ -176,17 +176,34 @@ export async function sweepKilledDrafts(accountId: string): Promise<number> {
       accountId,
       row.id,
     ]);
-    const remaining = await db.select<{ c: number }[]>(
-      "SELECT COUNT(*) as c FROM messages WHERE account_id = $1 AND thread_id = $2 AND is_draft = 1",
+    const remaining = await db.select<{ total: number; drafts: number }[]>(
+      `SELECT COUNT(*) as total, COALESCE(SUM(is_draft), 0) as drafts
+       FROM messages WHERE account_id = $1 AND thread_id = $2`,
       [accountId, row.thread_id],
     );
-    if ((remaining[0]?.c ?? 0) === 0) {
+    const total = remaining[0]?.total ?? 0;
+    if ((remaining[0]?.drafts ?? 0) === 0) {
       await db.execute(
         "DELETE FROM thread_labels WHERE account_id = $1 AND thread_id = $2 AND label_id = 'DRAFT'",
         [accountId, row.thread_id],
       );
     }
-    await recalculateThreadStats(accountId, row.thread_id).catch(() => {});
+    if (total === 0) {
+      // Nothing left in the thread: drop the row entirely. recalculateThreadStats
+      // COALESCEs subject/snippet/date to their old values, so an empty thread
+      // survives as a ghost card with no participants ("Unknown") in the list —
+      // one per server draft copy the autosave appended before the send.
+      await db.execute(
+        "DELETE FROM thread_labels WHERE account_id = $1 AND thread_id = $2",
+        [accountId, row.thread_id],
+      );
+      await db.execute("DELETE FROM threads WHERE account_id = $1 AND id = $2", [
+        accountId,
+        row.thread_id,
+      ]);
+    } else {
+      await recalculateThreadStats(accountId, row.thread_id).catch(() => {});
+    }
   }
 
   console.log(`[sweepKilledDrafts] removed ${rows.length} phantom draft(s) for ${accountId}`);
