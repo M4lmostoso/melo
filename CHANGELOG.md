@@ -4,6 +4,13 @@
 
 ---
 
+## [0.1.12](https://github.com/M4lmostoso/melo/compare/v0.1.11...v0.1.12) (2026-09-23)
+
+
+### Bug Fixes
+
+* **email:** prevent thread deletion and incorrect SENT labeling ([a66dcf6](https://github.com/M4lmostoso/melo/commit/a66dcf607a015261d201a892b68a03a2f9de3910))
+
 ## [0.1.11](https://github.com/M4lmostoso/melo/compare/v0.1.10...v0.1.11) (2026-09-23)
 
 
