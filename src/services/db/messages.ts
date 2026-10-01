@@ -519,17 +519,22 @@ export async function getRecentSentMessagesToAddress(
 }
 
 /**
- * Remove ghost draft messages: is_draft=1 rows that were left behind after a send
- * or discard. Two cases are handled:
+ * Remove ghost draft messages: is_draft=1 rows left behind after the draft was
+ * SENT. The proof of a ghost is the sent copy itself: a non-draft message in the
+ * same thread, from the same sender, dated at or after the draft. A draft the
+ * user parked is by definition newer than anything they sent in that thread, so
+ * it never matches.
  *
- * 1. Thread has no DRAFT label at all — draft was sent/discarded but the row wasn't
- *    cleaned up.
- * 2. Thread has DRAFT label AND also has INBOX or SENT label — the draft is a stuck
- *    reply draft in an inbox thread. A reply draft that is still being composed lives
- *    only in the composer store (in memory); if the thread is in INBOX/SENT, any
- *    is_draft=1 row older than 5 minutes is orphaned.
+ * This used to also delete (1) any draft whose thread lacked the DRAFT label and
+ * (2) any draft older than 5 minutes in an INBOX/SENT thread, on the theory that
+ * an in-progress reply draft "lives only in the composer store". It does not: the
+ * IMAP autosave writes its stable row into the ORIGINAL thread, and the Rust sync
+ * sink rebuilds a thread's labels (dropping DRAFT) whenever new mail lands in it.
+ * Every parked reply draft was therefore wiped at the next startup — local-only,
+ * so a draft whose server APPEND never happened was lost for good.
  *
- * Both cases produce is_read=0 rows that silently inflate unread counts.
+ * Surviving drafts whose thread lost the DRAFT label get it back, so they show up
+ * in Drafts again instead of being invisible.
  */
 export async function purgeGhostDrafts(): Promise<number> {
   const db = await getDb();
@@ -538,29 +543,17 @@ export async function purgeGhostDrafts(): Promise<number> {
   const rows = await db.select<{ id: string }[]>(
     `SELECT m.id FROM messages m
      WHERE m.is_draft = 1
-       AND (
-         -- Case 1: thread has no DRAFT label at all
-         NOT EXISTS (
-           SELECT 1 FROM thread_labels tl
-           WHERE tl.account_id = m.account_id
-             AND tl.thread_id = m.thread_id
-             AND tl.label_id = 'DRAFT'
-         )
-         OR
-         -- Case 2: thread is in INBOX/SENT — reply draft that was never cleaned up
-         (
-           m.date < $1
-           AND EXISTS (
-             SELECT 1 FROM thread_labels tl2
-             WHERE tl2.account_id = m.account_id
-               AND tl2.thread_id = m.thread_id
-               AND tl2.label_id IN ('INBOX', 'SENT')
-           )
-         )
+       AND m.date < $1
+       AND EXISTS (
+         SELECT 1 FROM messages s
+         WHERE s.account_id = m.account_id
+           AND s.thread_id = m.thread_id
+           AND s.is_draft = 0
+           AND s.date >= m.date
+           AND LOWER(s.from_address) = LOWER(m.from_address)
        )`,
     [fiveMinutesAgo],
   );
-  if (rows.length === 0) return 0;
   const ids = rows.map((r) => r.id);
   const CHUNK = 500;
   for (let i = 0; i < ids.length; i += CHUNK) {
@@ -580,7 +573,17 @@ export async function purgeGhostDrafts(): Promise<number> {
            AND m.is_draft = 1
        )`,
   );
-  console.log(`[db] purgeGhostDrafts: removed ${ids.length} stale draft message(s)`);
+  // Restore the DRAFT label on threads that still hold a live draft
+  await db.execute(
+    `INSERT OR IGNORE INTO thread_labels (account_id, thread_id, label_id)
+     SELECT DISTINCT m.account_id, m.thread_id, 'DRAFT'
+     FROM messages m
+     JOIN threads t ON t.account_id = m.account_id AND t.id = m.thread_id
+     WHERE m.is_draft = 1 AND m.is_trashed = 0`,
+  );
+  if (ids.length > 0) {
+    console.log(`[db] purgeGhostDrafts: removed ${ids.length} stale draft message(s)`);
+  }
   return ids.length;
 }
 

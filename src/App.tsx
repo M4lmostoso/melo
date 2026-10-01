@@ -693,7 +693,11 @@ export default function App() {
           // schedule prompt sync+sweep passes to clear it within seconds.
           schedulePostSendPhantomSweep(p.accountId);
           // Remove the SQLite persistence key so the composer doesn't restore a stale
-          // draft on the next open. The key encodes threadId (for replies) or "new".
+          // draft on the next open. Gmail keys are per composer session (localDraftId);
+          // the legacy threadId/"new" form is cleared too.
+          if (p.localDraftId) {
+            await deleteSetting(`v_draft_${p.accountId}_${p.localDraftId}`).catch(() => {});
+          }
           const persistKey = `v_draft_${p.accountId}_${p.threadId ?? "new"}`;
           await deleteSetting(persistKey).catch(() => {});
           if (p.sendAndArchive && p.threadId) {

@@ -158,7 +158,7 @@ async function saveLocal(): Promise<void> {
       subject: state.subject || null,
       snippet: "",
       date: now,
-      isRead: false,
+      isRead: true, // you authored it — an unread draft row inflates unread counts
       isStarred: false,
       bodyHtml: state.bodyHtml.slice(0, 50000),
       bodyText: null,
@@ -374,79 +374,70 @@ async function saveGmail(): Promise<void> {
     const key = getPersistenceKey(accountId);
     lastPersistenceKey = key;
 
-    if (state.draftId) {
+    const adopt = async (draftId: string, threadId: string | undefined, knownId: string | null) => {
       if (isDiscarding) return;
-      const oldDraftId = state.draftId;
-      const result = await updateDraftAction(accountId, oldDraftId, raw, state.threadId ?? undefined);
-      if (result.data && typeof result.data === "object" && "draftId" in result.data) {
-        const data = result.data as { draftId: string; threadId?: string };
-        if (data.draftId !== oldDraftId) {
-          state.setDraftId(data.draftId);
-          if (!isDiscarding) {
-            await setSetting(key, data.draftId);
-          }
-        }
+      if (draftId !== state.draftId) state.setDraftId(draftId);
+      if (draftId !== knownId || !state.draftId) await setSetting(key, draftId);
+      if (threadId && !useComposerStore.getState().threadId) {
+        useComposerStore.setState({ threadId });
       }
-    } else {
-      const persistedId = await getSetting(key);
-      if (persistedId) {
-        try {
-          if (isDiscarding) return;
-          const result = await updateDraftAction(accountId, persistedId, raw, state.threadId ?? undefined);
-          if (result.data && typeof result.data === "object" && "draftId" in result.data) {
-            const data = result.data as { draftId: string; threadId?: string };
-            state.setDraftId(data.draftId);
-            if (!isDiscarding) {
-              await setSetting(key, data.draftId);
-              if (data.threadId && !state.threadId) {
-                useComposerStore.setState({ threadId: data.threadId });
-              }
-            }
-          } else if (!isDiscarding) {
-            state.setDraftId(persistedId);
-          }
-        } catch {
-          if (isDiscarding) return;
-          const result = await createDraftAction(accountId, raw, state.threadId ?? undefined);
-          if (result.data && typeof result.data === "object" && "draftId" in result.data) {
-            const data = result.data as { draftId: string; threadId?: string };
-            state.setDraftId(data.draftId);
-            if (!isDiscarding) {
-              await setSetting(key, data.draftId);
-              if (data.threadId && !state.threadId) {
-                useComposerStore.setState({ threadId: data.threadId });
-              }
-            }
-          }
-        }
+    };
+
+    // The draft id to update: the one this session already holds, else the one a
+    // previous session persisted for this thread. The persisted id can be dead —
+    // the draft was sent, deleted in Gmail, or the key outlived its composer — and
+    // Gmail answers 404. updateDraft reports that as success:false (it does not
+    // throw), and the old code adopted the dead id anyway: every later autosave
+    // went to the same missing draft, 145 failures in one afternoon, while the
+    // composer kept showing "Draft saved". The text lived only in memory and was
+    // gone at the next restart. A rejected update therefore falls through to a
+    // fresh createDraft — a stray duplicate is recoverable, a lost draft is not.
+    const knownId = state.draftId ?? (await getSetting(key));
+    let saved = false;
+
+    if (knownId) {
+      if (isDiscarding) return;
+      const result = await updateDraftAction(accountId, knownId, raw, state.threadId ?? undefined);
+      if (result.success) {
+        saved = true;
+        const data = result.data as { draftId?: string; threadId?: string } | undefined;
+        await adopt(data?.draftId ?? knownId, data?.threadId, knownId);
       } else {
-        if (isDiscarding) return;
-        const result = await createDraftAction(accountId, raw, state.threadId ?? undefined);
-        if (result.data && typeof result.data === "object" && "draftId" in result.data) {
-          const data = result.data as { draftId: string; threadId?: string };
-          state.setDraftId(data.draftId);
-          if (!isDiscarding) {
-            await setSetting(key, data.draftId);
-            if (data.threadId && !state.threadId) {
-              useComposerStore.setState({ threadId: data.threadId });
-            }
-          }
-        }
+        console.warn(
+          `[draftAutoSave] Gmail draft ${knownId} rejected (${result.error ?? "unknown"}) — creating a new draft`,
+        );
+        if (state.draftId === knownId) state.setDraftId(null);
       }
+    }
+
+    if (!saved) {
+      if (isDiscarding) return;
+      const result = await createDraftAction(accountId, raw, state.threadId ?? undefined);
+      if (!result.success) throw new Error(result.error ?? "createDraft failed");
+      const data = result.data as { draftId?: string; threadId?: string } | undefined;
+      if (data?.draftId) await adopt(data.draftId, data.threadId, knownId);
     }
 
     if (!isDiscarding) state.setLastSavedAt(Date.now());
   } catch (err) {
     console.error("[draftAutoSave] Gmail save failed:", err);
+    // Never leave an earlier "Draft saved" on screen over a save that failed.
+    if (!isDiscarding) state.setLastSavedAt(null);
   } finally {
     isSaveLocalInFlight = false;
     state.setIsSaving(false);
   }
 }
 
+// Keyed by the composer session (localDraftId, a fresh UUID per openComposer), not by
+// thread: a thread- or "new"-keyed id outlived its composer whenever the window died
+// without stopAutoSave (restart, crash), and the next composer on that thread — or ANY
+// next new message — adopted it. Dead, it 404'd every save; alive, the new composer
+// silently overwrote someone else's parked draft. Reopening a parked draft never needed
+// this key: EmailList resolves its real id via listDrafts and passes it as draftId.
 function getPersistenceKey(accountId: string): string {
   const state = useComposerStore.getState();
-  return `v_draft_${accountId}_${state.threadId ?? "new"}`;
+  return `v_draft_${accountId}_${state.localDraftId ?? state.threadId ?? "new"}`;
 }
 
 // ---------------------------------------------------------------------------
