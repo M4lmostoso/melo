@@ -10,7 +10,7 @@ import { useUIStore } from "@/stores/uiStore";
 import { sendEmail, archiveThread } from "@/services/emailActions";
 import { buildRawEmail } from "@/utils/emailBuilder";
 import { buildReplyAllRecipients, buildReplyRecipients } from "@/utils/emailUtils";
-import { upsertContact } from "@/services/db/contacts";
+import { applyContactNames, upsertContact } from "@/services/db/contacts";
 import { getSetting } from "@/services/db/settings";
 import { getDefaultSignature } from "@/services/db/signatures";
 import {
@@ -179,11 +179,16 @@ export function InlineReply({ thread, messages, accountId, noReply, onSent, onFo
 
   const handleSend = useCallback(async () => {
     if (!activeAccount || !editor || sending) return;
-    const { to, cc } = getRecipients();
-    if (to.length === 0 && mode !== "forward") return;
+    const recipients = getRecipients();
+    if (recipients.to.length === 0 && mode !== "forward") return;
 
     setSending(true);
     try {
+      // Stored contact names win over the ones in the replied-to headers.
+      const [to, cc] = await Promise.all([
+        applyContactNames(recipients.to),
+        applyContactNames(recipients.cc),
+      ]);
       let html = editor.getHTML();
       if (signatureHtml) {
         html += `<div style="margin-top:16px;border-top:1px solid #e5e5e5;padding-top:12px">${signatureHtml}</div>`;

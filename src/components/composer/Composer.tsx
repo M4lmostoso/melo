@@ -38,7 +38,7 @@ import {
 } from "@/services/emailActions";
 import { buildRawEmail } from "@/utils/emailBuilder";
 import { useOutgoingStore } from "@/stores/outgoingStore";
-import { upsertContact } from "@/services/db/contacts";
+import { applyContactNames, upsertContact } from "@/services/db/contacts";
 import { getSetting } from "@/services/db/settings";
 import {
   enqueueUndoSend,
@@ -549,6 +549,13 @@ const getFullHtml = useCallback(() => {
     if (state.to.length === 0) return;
     sendingRef.current = true;
     state.setIsSending(true);
+    // Names the user stored for these contacts win over the ones the addresses
+    // carried in the replied-to message's headers.
+    const [to, cc, bcc] = await Promise.all([
+      applyContactNames(state.to),
+      applyContactNames(state.cc),
+      applyContactNames(state.bcc),
+    ]);
     const html = getFullHtml();
     const senderEmail = state.fromEmail ?? activeAccount.email;
     // fromEmail only stores the alias's bare address (composerStore has no
@@ -563,9 +570,9 @@ const getFullHtml = useCallback(() => {
     const from = senderName ? `${senderName} <${senderEmail}>` : senderEmail;
     const raw = buildRawEmail({
       from,
-      to: state.to,
-      cc: state.cc.length > 0 ? state.cc : undefined,
-      bcc: state.bcc.length > 0 ? state.bcc : undefined,
+      to,
+      cc: cc.length > 0 ? cc : undefined,
+      bcc: bcc.length > 0 ? bcc : undefined,
       subject: state.subject,
       htmlBody: html,
       inReplyTo: state.inReplyToMessageId ?? undefined,
@@ -644,9 +651,9 @@ const getFullHtml = useCallback(() => {
     useOutgoingStore.getState().addEmail({
       id: outgoingId,
       accountId: effectiveAccountId,
-      to: [...state.to],
-      cc: [...state.cc],
-      bcc: [...state.bcc],
+      to: [...to],
+      cc: [...cc],
+      bcc: [...bcc],
       subject: state.subject,
       bodyHtml: html,
       threadId: state.threadId,
@@ -687,10 +694,10 @@ const getFullHtml = useCallback(() => {
             // For Gmail: null (no local row was created).
             localDraftId: state.localDraftId ?? null,
             sendAndArchive: useUIStore.getState().sendAndArchive,
-            contacts: [...state.to, ...state.cc, ...state.bcc],
-            to: [...state.to],
-            cc: [...state.cc],
-            bcc: [...state.bcc],
+            contacts: [...to, ...cc, ...bcc],
+            to: [...to],
+            cc: [...cc],
+            bcc: [...bcc],
             subject: state.subject,
             bodyHtml: html,
             inReplyToMessageId: state.inReplyToMessageId ?? null,
@@ -743,7 +750,7 @@ const getFullHtml = useCallback(() => {
               if (useUIStore.getState().sendAndArchive && state.threadId) {
                 await archiveThread(effectiveAccountId, state.threadId, []).catch(() => {});
               }
-              for (const addr of [...state.to, ...state.cc, ...state.bcc])
+              for (const addr of [...to, ...cc, ...bcc])
                 await upsertContact(addr, null);
             } catch (err) {
               console.error("Failed to send email:", err);
@@ -827,12 +834,17 @@ const getFullHtml = useCallback(() => {
     state.setIsSending(true);
     setScheduleError(null);
     try {
+      const [to, cc, bcc] = await Promise.all([
+        applyContactNames(state.to),
+        applyContactNames(state.cc),
+        applyContactNames(state.bcc),
+      ]);
       const html = getFullHtml();
       const scheduledId = await insertScheduledEmail({
         accountId: effectiveAccountId,
-        toAddresses: state.to.join(", "),
-        ccAddresses: state.cc.length > 0 ? state.cc.join(", ") : null,
-        bccAddresses: state.bcc.length > 0 ? state.bcc.join(", ") : null,
+        toAddresses: to.join(", "),
+        ccAddresses: cc.length > 0 ? cc.join(", ") : null,
+        bccAddresses: bcc.length > 0 ? bcc.join(", ") : null,
         subject: state.subject,
         bodyHtml: html,
         replyToMessageId: state.inReplyToMessageId,

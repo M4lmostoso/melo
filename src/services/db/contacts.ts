@@ -1,5 +1,10 @@
 import { getDb, selectFirstBy } from "./connection";
-import { normalizeEmail } from "@/utils/emailUtils";
+import {
+  formatAddress,
+  normalizeEmail,
+  parseAddressList,
+  type ParsedAddress,
+} from "@/utils/emailUtils";
 
 export interface DbContact {
   id: string;
@@ -64,6 +69,55 @@ export async function searchContacts(
      LIMIT $2`,
     [pattern, limit],
   );
+}
+
+/**
+ * Stored contact names (contacts.display_name) for the given addresses,
+ * keyed by normalized email. Addresses with no stored name are absent.
+ */
+export async function getContactNames(
+  emails: string[],
+): Promise<Record<string, string>> {
+  const unique = [...new Set(emails.map(normalizeEmail).filter(Boolean))];
+  if (unique.length === 0) return {};
+  const db = await getDb();
+  const placeholders = unique.map((_, i) => `$${i + 1}`).join(", ");
+  const rows = await db.select<{ email: string; display_name: string }[]>(
+    `SELECT email, display_name FROM contacts
+     WHERE email IN (${placeholders})
+       AND display_name IS NOT NULL AND TRIM(display_name) != ''`,
+    unique,
+  );
+  const map: Record<string, string> = {};
+  for (const r of rows) map[r.email.toLowerCase()] = r.display_name.trim();
+  return map;
+}
+
+/**
+ * Rewrite recipient entries so the display name is the one stored in the
+ * contacts DB, not the one the address carried in a message header. A reply
+ * prefills `"Rossi Mario (EXT)" <m@x>` from the original mail even after the
+ * user renamed the contact — the user's edit must win in chips and on the wire.
+ * Entries without a stored name keep their own; on DB error the input is
+ * returned unchanged (a name lookup must never block a send).
+ */
+export async function applyContactNames(addresses: string[]): Promise<string[]> {
+  if (addresses.length === 0) return addresses;
+  try {
+    const parsed = addresses.map((a) => parseAddressList(a)[0] ?? null);
+    const names = await getContactNames(
+      parsed.filter((p): p is ParsedAddress => p !== null).map((p) => p.email),
+    );
+    return addresses.map((orig, i) => {
+      const p = parsed[i];
+      const stored = p ? names[p.email.toLowerCase()] : undefined;
+      if (!p || !stored || stored === p.name) return orig;
+      return formatAddress({ name: stored, email: p.email });
+    });
+  } catch (err) {
+    console.warn("[contacts] applyContactNames failed, keeping header names:", err);
+    return addresses;
+  }
 }
 
 /**

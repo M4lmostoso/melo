@@ -13,6 +13,7 @@ import {
   getAllContacts, updateContact, deleteContact,
   updateContactNotes, getAttachmentsFromContact,
   getContactsFromSameDomain, getLatestAuthResult,
+  applyContactNames,
 } from "./contacts";
 import { createMockDb } from "@/test/mocks";
 
@@ -22,6 +23,44 @@ describe("contacts service", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(getDb).mockResolvedValue(mockDb as unknown as Awaited<ReturnType<typeof getDb>>);
+  });
+
+  describe("applyContactNames", () => {
+    it("replaces the header name with the stored contact name", async () => {
+      mockDb.select.mockResolvedValueOnce([
+        { email: "mario@x.it", display_name: "Mario Rossi" },
+      ]);
+      const out = await applyContactNames([
+        '"ROSSI Mario (EXT)" <Mario@x.it>',
+        "Anna <anna@y.it>",
+        "bare@z.it",
+      ]);
+      expect(out).toEqual(["Mario Rossi <Mario@x.it>", "Anna <anna@y.it>", "bare@z.it"]);
+      expect(mockDb.select).toHaveBeenCalledWith(
+        expect.stringContaining("FROM contacts"),
+        ["mario@x.it", "anna@y.it", "bare@z.it"],
+      );
+    });
+
+    it("adds the stored name to a bare address and quotes specials", async () => {
+      mockDb.select.mockResolvedValueOnce([
+        { email: "b@suez.com", display_name: "Melki, Benjamin" },
+      ]);
+      expect(await applyContactNames(["b@suez.com"])).toEqual([
+        '"Melki, Benjamin" <b@suez.com>',
+      ]);
+    });
+
+    it("keeps the input unchanged when the lookup fails", async () => {
+      mockDb.select.mockRejectedValueOnce(new Error("db locked"));
+      const input = ["Anna <anna@y.it>"];
+      expect(await applyContactNames(input)).toEqual(input);
+    });
+
+    it("skips the query for an empty list", async () => {
+      expect(await applyContactNames([])).toEqual([]);
+      expect(mockDb.select).not.toHaveBeenCalled();
+    });
   });
 
   describe("getAllContacts", () => {

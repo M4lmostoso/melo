@@ -6,6 +6,7 @@ import { AddressInput } from "./AddressInput";
 const mockSearchContacts = vi.fn().mockResolvedValue([]);
 vi.mock("@/services/db/contacts", () => ({
   searchContacts: (...args: unknown[]) => mockSearchContacts(...args),
+  getContactNames: () => Promise.resolve({}),
 }));
 
 describe("AddressInput debounce behavior", () => {

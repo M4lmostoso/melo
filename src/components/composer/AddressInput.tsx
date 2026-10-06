@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback, useEffect, forwardRef, useImperativeHandle } from "react";
 import { t } from "@/i18n";
-import { searchContacts, type DbContact } from "@/services/db/contacts";
+import { getContactNames, searchContacts, type DbContact } from "@/services/db/contacts";
 import { parseAddressList } from "@/utils/emailUtils";
 
 interface AddressInputProps {
@@ -18,14 +18,16 @@ export interface AddressInputHandle {
 }
 
 /**
- * Chip text: the display name when the entry carries one, else the bare address.
- * Shows "Melki, Benjamin" rather than the raw, quote-laden
- * `"Melki, Benjamin" <benjamin.melki@suez.com>`; the full value stays in the title.
+ * Chip text: the contact's stored name when the DB has one, else the display
+ * name the entry carries, else the bare address. Shows "Melki, Benjamin" rather
+ * than the raw, quote-laden `"Melki, Benjamin" <benjamin.melki@suez.com>`; the
+ * full value stays in the title. The stored name wins so a reply prefilled from
+ * a message header shows the name the user gave the contact.
  */
-function chipLabel(addr: string): string {
+function chipLabel(addr: string, storedNames: Record<string, string>): string {
   const parsed = parseAddressList(addr)[0];
   if (!parsed) return addr;
-  return parsed.name ?? parsed.email;
+  return storedNames[parsed.email.toLowerCase()] ?? parsed.name ?? parsed.email;
 }
 
 export const AddressInput = forwardRef<AddressInputHandle, AddressInputProps>(
@@ -44,6 +46,7 @@ function AddressInput({
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedIdx, setSelectedIdx] = useState(-1);
   const [isDragOver, setIsDragOver] = useState(false);
+  const [storedNames, setStoredNames] = useState<Record<string, string>>({});
   const inputRef = useRef<HTMLInputElement>(null);
   const blurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -51,6 +54,16 @@ function AddressInput({
   useImperativeHandle(ref, () => ({
     focus: () => inputRef.current?.focus(),
   }));
+
+  useEffect(() => {
+    if (addresses.length === 0) return;
+    let cancelled = false;
+    const emails = addresses.map((a) => parseAddressList(a)[0]?.email ?? a);
+    getContactNames(emails)
+      .then((names) => { if (!cancelled) setStoredNames(names); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [addresses]);
 
   useEffect(() => {
     return () => {
@@ -188,7 +201,7 @@ function AddressInput({
             className="inline-flex items-center gap-1 bg-accent-light text-accent text-xs px-2 py-0.5 rounded-full cursor-grab active:cursor-grabbing select-none"
             title={addr}
           >
-            {chipLabel(addr)}
+            {chipLabel(addr, storedNames)}
             <button
               onClick={() => onChange(addresses.filter((a) => a !== addr))}
               className="hover:text-danger text-[0.625rem] leading-none"
