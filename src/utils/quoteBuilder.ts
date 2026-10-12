@@ -61,7 +61,9 @@ export function buildReplyQuote(msgs: QuotableMessage[]): string {
  */
 export function buildForwardQuote(msgs: QuotableMessage[], opts?: { restoreImages?: boolean }): string {
   if (msgs.length === 0) return "";
-  const parts = msgs.map((msg) => {
+  // Callers pass the thread in chronological order, ending with the message
+  // being forwarded — that one must open the quote, not the oldest in the chain.
+  const parts = [...msgs].reverse().map((msg) => {
     const date = new Date(msg.date).toLocaleString();
     const rawHtml = msg.body_html
       ? opts?.restoreImages

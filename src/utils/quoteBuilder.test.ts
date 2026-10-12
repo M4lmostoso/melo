@@ -56,6 +56,16 @@ describe("buildForwardQuote", () => {
     expect(html).toContain("---------- Previous message ---------");
   });
 
+  it("puts the forwarded (last) message first, earlier ones after", () => {
+    const theirs = msg({ body_html: "<p>their earlier mail</p>", from_address: "jf@x.fr" });
+    const mine = msg({ body_html: "<p>my reply</p>", from_address: "me@x.it" });
+    const html = buildForwardQuote([theirs, mine]);
+    const fwdHeader = html.indexOf("---------- Forwarded message ---------");
+    expect(html.indexOf("my reply")).toBeGreaterThan(fwdHeader);
+    expect(html.indexOf("my reply")).toBeLessThan(html.indexOf("---------- Previous message ---------"));
+    expect(html.indexOf("their earlier mail")).toBeGreaterThan(html.indexOf("---------- Previous message ---------"));
+  });
+
   it("returns '' for no messages", () => {
     expect(buildForwardQuote([])).toBe("");
   });
