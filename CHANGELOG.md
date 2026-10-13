@@ -4,6 +4,21 @@
 
 ---
 
+## [0.1.12](https://github.com/M4lmostoso/melo/compare/v0.1.11...v0.1.12) (2026-10-13)
+
+
+### Features
+
+* **contacts:** prioritize stored contact names in composer and chips ([66843fd](https://github.com/M4lmostoso/melo/commit/66843fd726823d5a9d45597e05a2241fd517fc6c))
+* reverse message order in buildForwardQuote to place the forwarded message first ([a10f931](https://github.com/M4lmostoso/melo/commit/a10f9315d75a171b5e8d5cdcabaf523f398b6cfc))
+
+
+### Bug Fixes
+
+* **composer:** improve draft persistence and prevent accidental deletion ([5fbf32c](https://github.com/M4lmostoso/melo/commit/5fbf32ce7d6c7648e5319c1fb17d9fdefa6f4f44))
+* **email:** prevent thread deletion and incorrect SENT labeling ([a66dcf6](https://github.com/M4lmostoso/melo/commit/a66dcf607a015261d201a892b68a03a2f9de3910))
+* prevent skeleton flash on background refresh of empty email folders ([61cba2b](https://github.com/M4lmostoso/melo/commit/61cba2b64bb070ab779b81f0bd4f111a577b6e65))
+
 ## [0.1.11](https://github.com/M4lmostoso/melo/compare/v0.1.10...v0.1.11) (2026-09-23)
 
 
