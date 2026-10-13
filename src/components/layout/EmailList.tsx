@@ -113,6 +113,14 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   // Track the label that was last loaded to detect navigation vs. in-place refresh
   const loadedLabelRef = useRef<string>("");
+  // Label whose first load has completed. The skeleton is shown only until this
+  // matches the current label: a background refresh (melo-sync-done) of an empty
+  // folder must keep showing the empty state, not flash the skeleton.
+  const [settledLabel, setSettledLabel] = useState<string>("");
+  const currentLabelKey = `${activeLabel}::${activeAccountId ?? ""}::${activeCategory}`;
+  useEffect(() => {
+    if (!isLoading) setSettledLabel(loadedLabelRef.current);
+  }, [isLoading]);
   const [categoryMap, setCategoryMap] = useState<Map<string, string>>(() => new Map());
   const [categoryUnreadCounts, setCategoryUnreadCounts] = useState<Map<string, number>>(() => new Map());
   const [followUpThreadIds, setFollowUpThreadIds] = useState<Set<string>>(() => new Set());
@@ -1223,7 +1231,7 @@ export function EmailList({ width, listRef }: { width?: number; listRef?: React.
 
       {/* Thread list */}
       <div ref={scrollContainerRef} className={`flex-1 overflow-y-auto thread-list-scroll ${activeLabel === "outgoing" || activeLabel === "scheduled" ? "hidden" : ""}`}>
-        {(isLoading && threads.length === 0) || (searchLoading && !isSearchActive) ? (
+        {(isLoading && threads.length === 0 && settledLabel !== currentLabelKey) || (searchLoading && !isSearchActive) ? (
           <EmailListSkeleton />
         ) : filteredThreads.length === 0 && (isSearchActive || bundleRules.length === 0) ? (
           <EmailListEmptyState
