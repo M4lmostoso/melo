@@ -14,12 +14,29 @@ export interface ParsedUnsubscribe {
 export interface SubscriptionEntry {
   from_address: string;
   from_name: string | null;
-  latest_unsubscribe_header: string;
+  /** NULL for senders detected only by category — their opt-out link lives in the body. */
+  latest_unsubscribe_header: string | null;
   latest_unsubscribe_post: string | null;
   message_count: number;
+  count_30d: number;
+  count_90d: number;
+  read_count: number;
   latest_date: number;
   status: string | null;
 }
+
+/** What happens to a sender's existing mail once the opt-out went through. */
+export type SenderCleanup = "archive" | "trash";
+
+/**
+ * Link texts (and URL fragments) that mark an opt-out link in a mail body.
+ * Strong matches are real unsubscribe links; weak ones are preference centres,
+ * used only when nothing stronger is on the page.
+ */
+const STRONG_UNSUBSCRIBE_RE =
+  /unsubscri|opt[\s_-]?out|disiscri|cancella(?:re)?\s+(?:l['’]\s*)?iscrizione|annulla(?:re)?\s+(?:l['’]\s*)?iscrizione|non\s+ricevere\s+più|abmelden|abbestellen|désabonn|desabonn|désinscri|darse\s+de\s+baja|cancelar\s+(?:la\s+)?suscripci/i;
+const WEAK_UNSUBSCRIBE_RE =
+  /(?:manage|update|email|e-mail)\s+(?:your\s+)?(?:email\s+)?(?:preferences|subscriptions?)|gestisci\s+(?:le\s+)?(?:tue\s+)?(?:preferenze|iscrizion)|preferenze\s+(?:e-?mail|di\s+iscrizione)/i;
 
 /**
  * Parse List-Unsubscribe and List-Unsubscribe-Post headers into actionable data.
@@ -40,20 +57,74 @@ export function parseUnsubscribeHeaders(
 }
 
 /**
+ * Find the opt-out link in an HTML mail body: the footer "unsubscribe" link a
+ * sender without a List-Unsubscribe header still has to carry.
+ *
+ * Only http(s) links are returned, and the caller only ever *opens* them in the
+ * browser — never fetches them — so a mis-detected link costs one wrong page,
+ * not a silent request on the user's behalf.
+ */
+export function findUnsubscribeLinkInHtml(html: string): string | null {
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  let weak: string | null = null;
+  for (const a of Array.from(doc.querySelectorAll("a[href]"))) {
+    const href = a.getAttribute("href")?.trim() ?? "";
+    if (!/^https?:\/\//i.test(href)) continue;
+    const label = `${a.textContent ?? ""} ${a.getAttribute("title") ?? ""}`.replace(/\s+/g, " ");
+    if (STRONG_UNSUBSCRIBE_RE.test(label)) return href;
+    if (!weak && (WEAK_UNSUBSCRIBE_RE.test(label) || STRONG_UNSUBSCRIBE_RE.test(href))) {
+      weak = href;
+    }
+  }
+  return weak;
+}
+
+/**
+ * Look through the sender's most recent cached bodies for an opt-out link.
+ * Bodies not yet downloaded are simply skipped — no network here.
+ */
+export async function findBodyUnsubscribeLink(
+  accountId: string,
+  fromAddress: string,
+): Promise<string | null> {
+  const db = await getDb();
+  const rows = await db.select<{ body_html: string }[]>(
+    `SELECT body_html FROM messages
+      WHERE account_id = $1 AND LOWER(from_address) = $2
+        AND body_html IS NOT NULL AND COALESCE(is_draft, 0) = 0
+      ORDER BY date DESC
+      LIMIT 5`,
+    [accountId, normalizeEmail(fromAddress)],
+  );
+  for (const row of rows) {
+    const link = findUnsubscribeLinkInHtml(row.body_html);
+    if (link) return link;
+  }
+  return null;
+}
+
+/**
  * Execute unsubscribe using the best available method:
  * 1. RFC 8058 one-click POST (no browser needed)
- * 2. mailto via Gmail API
- * 3. Fallback: open URL in browser
+ * 2. mailto via the account's provider
+ * 3. Fallback: open the header URL in the browser
+ * 4. No header at all: open the opt-out link found in the mail body
+ *
+ * `cleanup` overrides what happens to the sender's existing mail on success;
+ * when omitted the `auto_archive_after_unsubscribe` setting decides.
  */
 export async function executeUnsubscribe(
   accountId: string,
   threadId: string,
   fromAddress: string,
   fromName: string | null,
-  listUnsubscribe: string,
+  listUnsubscribe: string | null,
   listUnsubscribePost: string | null,
-): Promise<{ method: string; success: boolean }> {
-  const parsed = parseUnsubscribeHeaders(listUnsubscribe, listUnsubscribePost);
+  cleanup?: SenderCleanup | "none",
+): Promise<{ method: string; success: boolean; cleaned: number }> {
+  const parsed = listUnsubscribe
+    ? parseUnsubscribeHeaders(listUnsubscribe, listUnsubscribePost)
+    : { httpUrl: null, mailtoAddress: null, hasOneClick: false };
 
   let method = "browser";
   let success = false;
@@ -115,6 +186,21 @@ export async function executeUnsubscribe(
     }
   }
 
+  // Method 4: no usable header — the opt-out link in the body
+  let bodyLink: string | null = null;
+  if (!success && !parsed.httpUrl && !parsed.mailtoAddress) {
+    try {
+      bodyLink = await findBodyUnsubscribeLink(accountId, fromAddress);
+      if (bodyLink) {
+        await openUrl(bodyLink);
+        method = "browser_body";
+        success = true;
+      }
+    } catch (err) {
+      console.error("Body-link unsubscribe failed:", err);
+    }
+  }
+
   // Record the action
   await recordUnsubscribeAction(
     accountId,
@@ -122,19 +208,24 @@ export async function executeUnsubscribe(
     fromAddress,
     fromName,
     method,
-    parsed.httpUrl ?? parsed.mailtoAddress ?? listUnsubscribe,
+    parsed.httpUrl ?? parsed.mailtoAddress ?? bodyLink ?? listUnsubscribe ?? "",
     success ? "unsubscribed" : "failed",
   );
 
-  if (success) {
+  let cleaned = 0;
+  if (success && cleanup !== "none") {
     // Best-effort: a failed cleanup must not turn a completed unsubscribe into
     // a reported failure.
-    await archiveAfterUnsubscribe(accountId, fromAddress).catch((err) =>
-      console.error("[unsubscribe] post-unsubscribe archive failed:", err),
-    );
+    cleaned = await (cleanup
+      ? cleanupSenderMail(accountId, fromAddress, cleanup)
+      : archiveAfterUnsubscribe(accountId, fromAddress)
+    ).catch((err) => {
+      console.error("[unsubscribe] post-unsubscribe cleanup failed:", err);
+      return 0;
+    });
   }
 
-  return { method, success };
+  return { method, success, cleaned };
 }
 
 /**
@@ -153,8 +244,39 @@ export async function archiveAfterUnsubscribe(
   fromAddress: string,
 ): Promise<number> {
   if ((await getSetting("auto_archive_after_unsubscribe")) !== "true") return 0;
+  return cleanupSenderMail(accountId, fromAddress, "archive");
+}
 
+/**
+ * Move a sender's existing mail out of the way, through `archiveThread` /
+ * `trashThread` so the change is optimistic, queued when offline, and correct
+ * for both Gmail and IMAP.
+ *
+ * - archive: threads of theirs still in the INBOX.
+ * - trash: every non-trashed thread made up *only* of their mail — a thread
+ *   where someone else (the user included) also wrote is left alone, so a
+ *   reply to a newsletter never ends up in the Trash with it.
+ */
+export async function cleanupSenderMail(
+  accountId: string,
+  fromAddress: string,
+  mode: SenderCleanup,
+): Promise<number> {
   const db = await getDb();
+  const sender = normalizeEmail(fromAddress);
+  const scope =
+    mode === "archive"
+      ? `AND EXISTS (
+          SELECT 1 FROM thread_labels tl
+           WHERE tl.thread_id = m.thread_id AND tl.account_id = m.account_id
+             AND tl.label_id = 'INBOX'
+        )`
+      : `AND NOT EXISTS (
+          SELECT 1 FROM messages o
+           WHERE o.account_id = m.account_id AND o.thread_id = m.thread_id
+             AND COALESCE(o.is_draft, 0) = 0
+             AND LOWER(COALESCE(o.from_address, '')) <> $2
+        )`;
   const rows = await db.select<{ thread_id: string; message_ids: string }[]>(
     `SELECT m.thread_id, GROUP_CONCAT(m.id) as message_ids
        FROM messages m
@@ -163,34 +285,29 @@ export async function archiveAfterUnsubscribe(
         AND LOWER(m.from_address) = $2
         AND COALESCE(m.is_trashed, 0) = 0
         AND COALESCE(m.is_draft, 0) = 0
-        AND EXISTS (
-          SELECT 1 FROM thread_labels tl
-           WHERE tl.thread_id = t.id AND tl.account_id = t.account_id
-             AND tl.label_id = 'INBOX'
-        )
+        ${scope}
       GROUP BY m.thread_id`,
-    [accountId, normalizeEmail(fromAddress)],
+    [accountId, sender],
   );
 
-  const { archiveThread } = await import("../emailActions");
-  let archived = 0;
+  const { archiveThread, trashThread } = await import("../emailActions");
+  const act = mode === "archive" ? archiveThread : trashThread;
+  let done = 0;
   for (const row of rows) {
     const messageIds = (row.message_ids ?? "").split(",").filter(Boolean);
     if (messageIds.length === 0) continue;
     try {
-      await archiveThread(accountId, row.thread_id, messageIds);
-      archived++;
+      await act(accountId, row.thread_id, messageIds);
+      done++;
     } catch (err) {
-      console.error(`[unsubscribe] archive of thread ${row.thread_id} failed:`, err);
+      console.error(`[unsubscribe] ${mode} of thread ${row.thread_id} failed:`, err);
     }
   }
 
-  if (archived > 0) {
-    console.log(
-      `[unsubscribe] archived ${archived} thread(s) from ${fromAddress} after unsubscribe`,
-    );
+  if (done > 0) {
+    console.log(`[unsubscribe] ${mode}d ${done} thread(s) from ${fromAddress}`);
   }
-  return archived;
+  return done;
 }
 
 async function recordUnsubscribeAction(
@@ -215,26 +332,60 @@ async function recordUnsubscribeAction(
 }
 
 /**
- * Get all detectable newsletter/promo subscriptions for an account.
+ * Get all detectable newsletter/promo subscriptions for an account, one row per
+ * sender with volume and open-rate stats.
+ *
+ * A sender qualifies through a List-Unsubscribe header OR through a thread
+ * categorised Promotions/Newsletters — the latter covers senders whose opt-out
+ * lives only in the body (`findBodyUnsubscribeLink`).
  */
-export async function getSubscriptions(accountId: string): Promise<SubscriptionEntry[]> {
+export async function getSubscriptions(
+  accountId: string,
+  now: number = Date.now(),
+): Promise<SubscriptionEntry[]> {
   const db = await getDb();
+  const day = 86_400_000;
   return db.select<SubscriptionEntry[]>(
-    `SELECT
-       m.from_address,
-       MAX(m.from_name) as from_name,
-       MAX(m.list_unsubscribe) as latest_unsubscribe_header,
-       MAX(m.list_unsubscribe_post) as latest_unsubscribe_post,
-       COUNT(*) as message_count,
-       MAX(m.date) as latest_date,
-       ua.status
-     FROM messages m
-     LEFT JOIN unsubscribe_actions ua ON ua.account_id = m.account_id AND ua.from_address = LOWER(m.from_address)
-     WHERE m.account_id = $1 AND m.list_unsubscribe IS NOT NULL
-     GROUP BY LOWER(m.from_address)
-     ORDER BY MAX(m.date) DESC`,
-    [accountId],
+    `WITH sm AS (
+       SELECT
+         LOWER(m.from_address) AS addr,
+         m.from_name, m.list_unsubscribe, m.list_unsubscribe_post, m.is_read,
+         -- IMAP stores seconds, Gmail milliseconds (see utils/date.ts toMs)
+         CASE WHEN m.date < 10000000000 THEN m.date * 1000 ELSE m.date END AS ms
+       FROM messages m
+       LEFT JOIN thread_categories tc
+         ON tc.account_id = m.account_id AND tc.thread_id = m.thread_id
+       WHERE m.account_id = $1
+         AND m.from_address IS NOT NULL
+         AND COALESCE(m.is_draft, 0) = 0
+         AND (m.list_unsubscribe IS NOT NULL
+              OR tc.category IN ('Promotions', 'Newsletters'))
+     )
+     SELECT
+       sm.addr AS from_address,
+       MAX(sm.from_name) AS from_name,
+       MAX(sm.list_unsubscribe) AS latest_unsubscribe_header,
+       MAX(sm.list_unsubscribe_post) AS latest_unsubscribe_post,
+       COUNT(*) AS message_count,
+       SUM(CASE WHEN sm.ms >= $2 THEN 1 ELSE 0 END) AS count_30d,
+       SUM(CASE WHEN sm.ms >= $3 THEN 1 ELSE 0 END) AS count_90d,
+       SUM(COALESCE(sm.is_read, 0)) AS read_count,
+       MAX(sm.ms) AS latest_date,
+       MAX(ua.status) AS status
+     FROM sm
+     LEFT JOIN unsubscribe_actions ua ON ua.account_id = $1 AND ua.from_address = sm.addr
+     GROUP BY sm.addr
+     ORDER BY MAX(sm.ms) DESC`,
+    [accountId, now - 30 * day, now - 90 * day],
   );
+}
+
+/**
+ * True when a sender looks like noise the user ignores: a steady stream of mail
+ * and none of it opened.
+ */
+export function isUnsubscribeSuggested(sub: SubscriptionEntry): boolean {
+  return sub.status !== "unsubscribed" && sub.message_count >= 5 && sub.read_count === 0;
 }
 
 /**

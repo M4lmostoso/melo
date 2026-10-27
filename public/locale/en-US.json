@@ -1126,7 +1126,38 @@
       "unsubscribeBulk": "Unsubscribe ({count})",
       "autoArchive": "Archive mail after unsubscribing",
       "autoArchiveDesc": "When you unsubscribe from a sender, move the mail they already sent out of the inbox. Archived, never deleted.",
-      "emailCount": "{count} emails"
+      "emailCount": "{count} emails",
+      "account": "Account",
+      "sortLabel": "Sort senders",
+      "sortRecent": "Most recent",
+      "sortVolume": "Most mail (30 days)",
+      "sortIgnored": "Least opened",
+      "filterAll": "All",
+      "filterSuggested": "Never opened ({count})",
+      "filterUnsubscribed": "Unsubscribed",
+      "last30d": "{count} in 30 days",
+      "volumeTitle": "{d90} in the last 90 days, {total} in total",
+      "openRate": "{percent}% opened",
+      "suggested": "Never opened",
+      "suggestedTitle": "You received {count} emails from this sender and opened none of them.",
+      "bodyLink": "Link in body",
+      "bodyLinkTitle": "This sender has no List-Unsubscribe header: Melo opens the opt-out link found in the email body in your browser.",
+      "openOptOut": "Open opt-out page",
+      "moreActions": "More actions",
+      "unsubscribeOnly": "Unsubscribe only (keep mail)",
+      "unsubscribeArchive": "Unsubscribe & archive",
+      "unsubscribeTrash": "Unsubscribe & delete",
+      "archiveMail": "Archive their inbox mail",
+      "trashMail": "Move their mail to Trash",
+      "confirmTrashTitle": "Move to Trash?",
+      "confirmTrashMessage": "Every conversation from {sender} will be moved to the Trash. Conversations where you or someone else also wrote are kept.",
+      "confirmTrashMessageBulk": "Every conversation from the {count} selected senders will be moved to the Trash. Conversations where you or someone else also wrote are kept.",
+      "confirmTrashButton": "Move to Trash",
+      "toastDone": "Unsubscribed from {sender}.",
+      "toastBrowser": "Opened the opt-out page for {sender} in your browser — confirm there if asked.",
+      "toastFailed": "Couldn't unsubscribe from {sender}: no working opt-out method or link found.",
+      "toastCleanedArchived": "{count} conversations archived.",
+      "toastCleanedTrashed": "{count} conversations moved to Trash."
     },
     "quickStepEditor": {
       "title": "Quick Steps",
@@ -1639,7 +1670,7 @@
         "subscriptions": "Subscriptions"
       },
       "contactsDesc": "Contacts are automatically added when you send or receive emails. Edit display names or remove contacts below.",
-      "subscriptionsDesc": "View all detected newsletter and promotional senders. Unsubscribe using RFC 8058 one-click POST, mailto, or browser fallback."
+      "subscriptionsDesc": "Newsletter and promotional senders, with volume and how many you actually open. Unsubscribe via RFC 8058 one-click POST, mailto, or the opt-out link in the email body — and archive or trash their old mail in the same click."
     },
     "ai": {
       "sections": {

@@ -1126,7 +1126,38 @@
       "unsubscribeBulk": "Cancella iscrizione ({count})",
       "autoArchive": "Archivia la posta dopo la disiscrizione",
       "autoArchiveDesc": "Quando ti disiscrivi da un mittente, sposta fuori dalla posta in arrivo le email che ti ha già inviato. Archiviate, mai eliminate.",
-      "emailCount": "{count} email"
+      "emailCount": "{count} email",
+      "account": "Account",
+      "sortLabel": "Ordina mittenti",
+      "sortRecent": "Più recenti",
+      "sortVolume": "Più mail (30 giorni)",
+      "sortIgnored": "Meno aperte",
+      "filterAll": "Tutti",
+      "filterSuggested": "Mai aperte ({count})",
+      "filterUnsubscribed": "Disiscritti",
+      "last30d": "{count} in 30 giorni",
+      "volumeTitle": "{d90} negli ultimi 90 giorni, {total} in totale",
+      "openRate": "{percent}% aperte",
+      "suggested": "Mai aperte",
+      "suggestedTitle": "Hai ricevuto {count} email da questo mittente e non ne hai aperta nessuna.",
+      "bodyLink": "Link nel testo",
+      "bodyLinkTitle": "Questo mittente non ha l'header List-Unsubscribe: Melo apre nel browser il link di disiscrizione trovato nel corpo della mail.",
+      "openOptOut": "Apri pagina di disiscrizione",
+      "moreActions": "Altre azioni",
+      "unsubscribeOnly": "Solo disiscriviti (tieni le mail)",
+      "unsubscribeArchive": "Disiscriviti e archivia",
+      "unsubscribeTrash": "Disiscriviti ed elimina",
+      "archiveMail": "Archivia le sue mail in arrivo",
+      "trashMail": "Sposta le sue mail nel Cestino",
+      "confirmTrashTitle": "Spostare nel Cestino?",
+      "confirmTrashMessage": "Tutte le conversazioni di {sender} verranno spostate nel Cestino. Le conversazioni in cui hai scritto tu o qualcun altro vengono mantenute.",
+      "confirmTrashMessageBulk": "Tutte le conversazioni dei {count} mittenti selezionati verranno spostate nel Cestino. Le conversazioni in cui hai scritto tu o qualcun altro vengono mantenute.",
+      "confirmTrashButton": "Sposta nel Cestino",
+      "toastDone": "Disiscrizione da {sender} completata.",
+      "toastBrowser": "Pagina di disiscrizione di {sender} aperta nel browser — conferma lì se richiesto.",
+      "toastFailed": "Impossibile disiscriversi da {sender}: nessun metodo o link di disiscrizione funzionante.",
+      "toastCleanedArchived": "{count} conversazioni archiviate.",
+      "toastCleanedTrashed": "{count} conversazioni spostate nel Cestino."
     },
     "quickStepEditor": {
       "title": "Azioni rapide",
@@ -1639,7 +1670,7 @@
         "subscriptions": "Iscrizioni"
       },
       "contactsDesc": "I contatti vengono aggiunti automaticamente quando invii o ricevi email. Modifica i nomi visualizzati o rimuovi contatti qui sotto.",
-      "subscriptionsDesc": "Visualizza tutti i mittenti di newsletter e promozionali rilevati. Cancella l'iscrizione tramite POST RFC 8058 con un clic, mailto o fallback browser."
+      "subscriptionsDesc": "Mittenti di newsletter e promozioni, con volume e quante ne apri davvero. Disiscriviti con il one-click RFC 8058, via mailto o con il link di disiscrizione nel corpo della mail — e archivia o cestina le vecchie mail con lo stesso clic."
     },
     "ai": {
       "sections": {

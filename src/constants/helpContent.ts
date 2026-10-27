@@ -1,5 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import {
+  ListX,
   Mail,
   PenLine,
   Search,
@@ -908,6 +909,22 @@ export const HELP_CATEGORIES: HelpCategory[] = [
           { text: "Settings > People > Subscriptions can unsubscribe from many senders at once." },
           { text: "Archive mail after unsubscribing (Settings > People) clears the sender's remaining inbox mail. It archives, never deletes." },
           { text: "To keep whole categories out of the inbox, use auto-archive in Settings > AI." },
+        ],
+        relatedSettingsTab: "people",
+      },
+      {
+        id: "subscription-manager",
+        icon: ListX,
+        title: "Subscriptions control center",
+        summary: "Review every newsletter sender and clean up in one place.",
+        description:
+          "Settings > People > Subscriptions lists every newsletter and promotional sender for the chosen account, with how much they sent in the last 30 days, how many of their emails you actually opened, and when the last one arrived. Senders you never open are flagged so you can spot the noise. From each row you can unsubscribe and, in the same click, archive or delete the mail they already sent.",
+        tips: [
+          { text: "Use the \"Never opened\" filter or sort by \"Least opened\" to find what to drop first." },
+          { text: "No unsubscribe header? Melo finds the opt-out link in the email itself and opens it in your browser." },
+          { text: "\"Unsubscribe & delete\" only trashes conversations made up entirely of that sender's mail — threads you replied to stay put." },
+          { text: "Already unsubscribed senders keep Archive and Trash buttons to clear out their old mail." },
+          { text: "Select several senders to unsubscribe from all of them at once." },
         ],
         relatedSettingsTab: "people",
       },

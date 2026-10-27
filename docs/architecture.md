@@ -173,7 +173,7 @@ All business logic lives in `src/services/` as plain async functions (except `Gm
 | `notifications/` | OS notifications with VIP filtering |
 | `contacts/` | Gravatar integration |
 | `attachments/` | Local attachment caching, pre-cache recent attachments |
-| `unsubscribe/` | One-click unsubscribe (RFC 8058), subscription manager, header backfill, post-unsubscribe archiving |
+| `unsubscribe/` | One-click unsubscribe (RFC 8058), subscription manager (per-sender volume/open-rate stats), body-link opt-out fallback, header backfill, post-unsubscribe archive/trash cleanup |
 | `quickSteps/` | Custom action chains with executor engine |
 | `queue/` | Offline queue processor with exponential backoff |
 | `tasks/` | Task recurrence manager |
