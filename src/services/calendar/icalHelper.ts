@@ -579,6 +579,37 @@ function pickVEventLine(eventLines: string[], propName: string): string | null {
   return null;
 }
 
+export interface ReplyResponder {
+  email: string;
+  displayName: string | null;
+  /** Lowercase PARTSTAT ("accepted", "declined", "tentative", ...) or null if absent. */
+  partstat: string | null;
+}
+
+/**
+ * Pick the responding attendee out of a METHOD:REPLY event. iTIP REPLY carries
+ * exactly one ATTENDEE (the responder); if a server echoes more, prefer the one
+ * that is not the organizer and actually carries a PARTSTAT.
+ */
+export function getReplyResponder(event: CalendarEventData): ReplyResponder | null {
+  if (!event.attendeesJson) return null;
+  let attendees: { email: string; displayName?: string; responseStatus?: string }[];
+  try {
+    attendees = JSON.parse(event.attendeesJson);
+  } catch {
+    return null;
+  }
+  const organizer = event.organizerEmail?.toLowerCase();
+  const candidates = attendees.filter((a) => a.email.toLowerCase() !== organizer);
+  const pick = candidates.find((a) => a.responseStatus) ?? candidates[0] ?? attendees[0];
+  if (!pick) return null;
+  return {
+    email: pick.email,
+    displayName: pick.displayName ?? null,
+    partstat: pick.responseStatus ?? null,
+  };
+}
+
 /** Quote an iCalendar parameter value if it contains characters that require it. */
 function quoteParamValue(value: string): string {
   return /[,;:]/.test(value) ? `"${value.replace(/"/g, "")}"` : value;

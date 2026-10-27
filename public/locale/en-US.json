@@ -2340,7 +2340,14 @@
     "invitation": "Calendar invitation",
     "defaultTitle": "Meeting Invitation",
     "join": "Join",
-    "joinNow": "Join Now"
+    "joinNow": "Join Now",
+    "replyGeneric": "Response to invitation",
+    "replyYouAccepted": "You accepted this invitation",
+    "replyYouDeclined": "You declined this invitation",
+    "replyYouTentative": "You tentatively accepted this invitation",
+    "replyAccepted": "{name} accepted",
+    "replyDeclined": "{name} declined",
+    "replyTentative": "{name} tentatively accepted"
   },
   "inlineReply": {
     "placeholder": "Write a reply...",

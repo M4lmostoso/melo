@@ -1,4 +1,4 @@
-import { generateVEvent, parseVEvent, generateRsvpReply, expandVEvents, extractMeetingUrl } from "./icalHelper";
+import { generateVEvent, parseVEvent, generateRsvpReply, expandVEvents, extractMeetingUrl, getReplyResponder } from "./icalHelper";
 import type { CreateEventInput } from "./types";
 
 beforeEach(() => {
@@ -719,5 +719,49 @@ describe("extractMeetingUrl", () => {
 
   it("returns null when the event has no conference link", () => {
     expect(extractMeetingUrl("BEGIN:VEVENT\nSUMMARY:Coffee\nEND:VEVENT")).toBeNull();
+  });
+});
+
+describe("getReplyResponder", () => {
+  it("returns the responding attendee of an Exchange METHOD:REPLY", () => {
+    const ical = [
+      "BEGIN:VCALENDAR",
+      "METHOD:REPLY",
+      "BEGIN:VEVENT",
+      "UID:040000008200E00074C5B7101A82E008",
+      "SUMMARY;LANGUAGE=fr-FR:Réunion de démarrage",
+      "DTSTART;TZID=Romance Standard Time:20261104T093000",
+      "DTEND;TZID=Romance Standard Time:20261104T160000",
+      "ORGANIZER;CN=Marion CLAUDET:mailto:mclaudet@valdech.fr",
+      "ATTENDEE;PARTSTAT=ACCEPTED;CN=\"Landenna, Mirko\":mailto:m.landenna@termomeccanica.com",
+      "END:VEVENT",
+      "END:VCALENDAR",
+    ].join("\r\n");
+
+    expect(getReplyResponder(parseVEvent(ical))).toEqual({
+      email: "m.landenna@termomeccanica.com",
+      displayName: "Landenna, Mirko",
+      partstat: "accepted",
+    });
+  });
+
+  it("skips an echoed organizer and prefers the attendee carrying a PARTSTAT", () => {
+    const ical = [
+      "BEGIN:VEVENT",
+      "UID:r-2",
+      "ORGANIZER:mailto:boss@example.com",
+      "ATTENDEE;CN=Boss:mailto:boss@example.com",
+      "ATTENDEE:mailto:other@example.com",
+      "ATTENDEE;PARTSTAT=DECLINED:mailto:me@example.com",
+      "END:VEVENT",
+    ].join("\r\n");
+
+    expect(getReplyResponder(parseVEvent(ical))?.email).toBe("me@example.com");
+    expect(getReplyResponder(parseVEvent(ical))?.partstat).toBe("declined");
+  });
+
+  it("returns null when the reply has no attendee", () => {
+    const ical = "BEGIN:VEVENT\r\nUID:r-3\r\nEND:VEVENT";
+    expect(getReplyResponder(parseVEvent(ical))).toBeNull();
   });
 });

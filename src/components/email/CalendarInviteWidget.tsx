@@ -5,6 +5,7 @@ import type { DbAttachment } from "@/services/db/attachments";
 import type { Account } from "@/stores/accountStore";
 import type { CalendarEventData } from "@/services/calendar/types";
 import { loadInvite, respondToInvite, type RsvpPartstat } from "@/services/calendar/calendarInviteService";
+import { getReplyResponder, type ReplyResponder } from "@/services/calendar/icalHelper";
 
 interface CalendarInviteWidgetProps {
   attachment: DbAttachment;
@@ -13,7 +14,7 @@ interface CalendarInviteWidgetProps {
   account: Account;
 }
 
-type LoadState = "loading" | "ready" | "cancelled" | "error";
+type LoadState = "loading" | "ready" | "cancelled" | "reply" | "error";
 
 function formatEventDate(startTime: number, endTime: number, isAllDay: boolean): string {
   const start = new Date(startTime * 1000);
@@ -48,6 +49,27 @@ const RSVP_LABELS: Record<RsvpPartstat, string> = {
   TENTATIVE: t("calendarInvite.tentative"),
 };
 
+const REPLY_ICONS: Record<RsvpPartstat, React.ReactNode> = {
+  ACCEPTED: <Check size={14} />,
+  DECLINED: <X size={14} />,
+  TENTATIVE: <Minus size={14} />,
+};
+
+// Exchange copies the reply's subject into SUMMARY ("Accepted: <title>"); the
+// headline already says that, so drop the prefix (EN/FR/IT/ES/DE variants).
+const REPLY_SUMMARY_PREFIX = /^(accepted|declined|tentative|accepté|refusé|provisoire|accettato|rifiutato|provvisorio|aceptado|rechazado|zugesagt|abgelehnt|mit vorbehalt):\s*/i;
+
+/** Headline for a METHOD:REPLY card: "You accepted…" for our own reply, "<name> accepted" otherwise. */
+function replyHeadline(responder: ReplyResponder | null, partstat: RsvpPartstat | null, accountEmail: string): string {
+  if (!responder || !partstat) return t("calendarInvite.replyGeneric");
+  const isSelf = responder.email.toLowerCase() === accountEmail.toLowerCase();
+  if (isSelf) {
+    return t({ ACCEPTED: "calendarInvite.replyYouAccepted", DECLINED: "calendarInvite.replyYouDeclined", TENTATIVE: "calendarInvite.replyYouTentative" }[partstat]);
+  }
+  const name = responder.displayName ?? responder.email;
+  return t({ ACCEPTED: "calendarInvite.replyAccepted", DECLINED: "calendarInvite.replyDeclined", TENTATIVE: "calendarInvite.replyTentative" }[partstat], { name });
+}
+
 const RSVP_COLORS: Record<RsvpPartstat, string> = {
   ACCEPTED: "text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-900/20",
   DECLINED: "text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20",
@@ -68,7 +90,9 @@ export function CalendarInviteWidget({ attachment, messageId, threadId, account 
     loadInvite(attachment, messageId)
       .then(({ event: ev, meetingUrl: url, rsvpStatus: status, method, icsText: text }) => {
         if (cancelled) return;
-        if (method === "REPLY") { setLoadState("error"); return; }
+        // A REPLY (someone's — or our own — answer to an invite) usually has an
+        // empty body: Exchange sends "Accepted" without text. Show who answered what.
+        if (method === "REPLY") { setEvent(ev); setLoadState("reply"); return; }
         if (method === "CANCEL") { setEvent(ev); setLoadState("cancelled"); return; }
         setEvent(ev);
         setMeetingUrl(url);
@@ -103,9 +127,36 @@ export function CalendarInviteWidget({ attachment, messageId, threadId, account 
     );
   }
 
-  if (loadState === "error" || (!event && loadState !== "cancelled")) return null;
+  if (loadState === "error" || !event) return null;
 
-  if (loadState === "cancelled" && event) {
+  if (loadState === "reply") {
+    const responder = getReplyResponder(event);
+    const upper = responder?.partstat?.toUpperCase();
+    const partstat = upper && upper in RSVP_COLORS ? (upper as RsvpPartstat) : null;
+    return (
+      <div className="mb-4 rounded-xl border border-border-primary bg-bg-secondary px-4 py-3 flex items-start gap-3">
+        <div className={`flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center ${partstat ? RSVP_COLORS[partstat] : "bg-bg-tertiary text-text-tertiary"}`}>
+          {partstat ? REPLY_ICONS[partstat] : <Calendar size={14} />}
+        </div>
+        <div className="min-w-0 space-y-0.5">
+          <div className="font-semibold text-text-primary text-sm">
+            {replyHeadline(responder, partstat, account.email)}
+          </div>
+          <div className="text-xs text-text-secondary truncate">
+            {event.summary?.replace(REPLY_SUMMARY_PREFIX, "") || t("calendarInvite.defaultTitle")}
+          </div>
+          {event.startTime > 0 && (
+            <div className="flex items-center gap-1.5 text-xs text-text-tertiary">
+              <Clock size={12} className="flex-shrink-0" />
+              <span>{formatEventDate(event.startTime, event.endTime, event.isAllDay)}</span>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (loadState === "cancelled") {
     return (
       <div className="mb-4 rounded-xl border border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-950/30 px-4 py-3 flex items-start gap-3">
         <AlertCircle size={16} className="text-red-500 mt-0.5 flex-shrink-0" />
@@ -120,8 +171,6 @@ export function CalendarInviteWidget({ attachment, messageId, threadId, account 
       </div>
     );
   }
-
-  if (!event) return null;
 
   const normalizedStatus = rsvpStatus?.toUpperCase() as RsvpPartstat | undefined;
   const hasRsvped = normalizedStatus && normalizedStatus in RSVP_LABELS;

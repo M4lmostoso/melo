@@ -2340,7 +2340,14 @@
     "invitation": "Invito al calendario",
     "defaultTitle": "Invito a riunione",
     "join": "Partecipa",
-    "joinNow": "Partecipa ora"
+    "joinNow": "Partecipa ora",
+    "replyGeneric": "Risposta all'invito",
+    "replyYouAccepted": "Hai accettato l'invito",
+    "replyYouDeclined": "Hai rifiutato l'invito",
+    "replyYouTentative": "Hai risposto forse all'invito",
+    "replyAccepted": "{name} ha accettato",
+    "replyDeclined": "{name} ha rifiutato",
+    "replyTentative": "{name} ha risposto forse"
   },
   "inlineReply": {
     "placeholder": "Scrivi una risposta...",
