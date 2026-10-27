@@ -4,6 +4,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { fetch } from "@tauri-apps/plugin-http";
 import { getCurrentUnixTimestamp } from "@/utils/timestamp";
 import { normalizeEmail } from "@/utils/emailUtils";
+import { findUnsubscribeLinkInHtml } from "./unsubscribeLinks";
 
 export interface ParsedUnsubscribe {
   httpUrl: string | null;
@@ -29,16 +30,6 @@ export interface SubscriptionEntry {
 export type SenderCleanup = "archive" | "trash";
 
 /**
- * Link texts (and URL fragments) that mark an opt-out link in a mail body.
- * Strong matches are real unsubscribe links; weak ones are preference centres,
- * used only when nothing stronger is on the page.
- */
-const STRONG_UNSUBSCRIBE_RE =
-  /unsubscri|opt[\s_-]?out|disiscri|cancella(?:re)?\s+(?:l['’]\s*)?iscrizione|annulla(?:re)?\s+(?:l['’]\s*)?iscrizione|non\s+ricevere\s+più|abmelden|abbestellen|désabonn|desabonn|désinscri|darse\s+de\s+baja|cancelar\s+(?:la\s+)?suscripci/i;
-const WEAK_UNSUBSCRIBE_RE =
-  /(?:manage|update|email|e-mail)\s+(?:your\s+)?(?:email\s+)?(?:preferences|subscriptions?)|gestisci\s+(?:le\s+)?(?:tue\s+)?(?:preferenze|iscrizion)|preferenze\s+(?:e-?mail|di\s+iscrizione)/i;
-
-/**
  * Parse List-Unsubscribe and List-Unsubscribe-Post headers into actionable data.
  */
 export function parseUnsubscribeHeaders(
@@ -57,31 +48,9 @@ export function parseUnsubscribeHeaders(
 }
 
 /**
- * Find the opt-out link in an HTML mail body: the footer "unsubscribe" link a
- * sender without a List-Unsubscribe header still has to carry.
- *
- * Only http(s) links are returned, and the caller only ever *opens* them in the
- * browser — never fetches them — so a mis-detected link costs one wrong page,
- * not a silent request on the user's behalf.
- */
-export function findUnsubscribeLinkInHtml(html: string): string | null {
-  const doc = new DOMParser().parseFromString(html, "text/html");
-  let weak: string | null = null;
-  for (const a of Array.from(doc.querySelectorAll("a[href]"))) {
-    const href = a.getAttribute("href")?.trim() ?? "";
-    if (!/^https?:\/\//i.test(href)) continue;
-    const label = `${a.textContent ?? ""} ${a.getAttribute("title") ?? ""}`.replace(/\s+/g, " ");
-    if (STRONG_UNSUBSCRIBE_RE.test(label)) return href;
-    if (!weak && (WEAK_UNSUBSCRIBE_RE.test(label) || STRONG_UNSUBSCRIBE_RE.test(href))) {
-      weak = href;
-    }
-  }
-  return weak;
-}
-
-/**
  * Look through the sender's most recent cached bodies for an opt-out link.
- * Bodies not yet downloaded are simply skipped — no network here.
+ * Bodies not yet downloaded are simply skipped — no network here. Spam is
+ * never scanned (see `findThreadUnsubscribeTarget`).
  */
 export async function findBodyUnsubscribeLink(
   accountId: string,
@@ -92,6 +61,11 @@ export async function findBodyUnsubscribeLink(
     `SELECT body_html FROM messages
       WHERE account_id = $1 AND LOWER(from_address) = $2
         AND body_html IS NOT NULL AND COALESCE(is_draft, 0) = 0
+        AND NOT EXISTS (
+          SELECT 1 FROM thread_labels tl
+           WHERE tl.account_id = messages.account_id AND tl.thread_id = messages.thread_id
+             AND tl.label_id = 'SPAM'
+        )
       ORDER BY date DESC
       LIMIT 5`,
     [accountId, normalizeEmail(fromAddress)],
@@ -112,6 +86,8 @@ export async function findBodyUnsubscribeLink(
  *
  * `cleanup` overrides what happens to the sender's existing mail on success;
  * when omitted the `auto_archive_after_unsubscribe` setting decides.
+ * `bodyLink` is an opt-out link the caller already found in the body (step 4);
+ * without it the sender's recent cached bodies are searched.
  */
 export async function executeUnsubscribe(
   accountId: string,
@@ -120,7 +96,7 @@ export async function executeUnsubscribe(
   fromName: string | null,
   listUnsubscribe: string | null,
   listUnsubscribePost: string | null,
-  cleanup?: SenderCleanup | "none",
+  { cleanup, bodyLink: knownBodyLink }: { cleanup?: SenderCleanup | "none"; bodyLink?: string | null } = {},
 ): Promise<{ method: string; success: boolean; cleaned: number }> {
   const parsed = listUnsubscribe
     ? parseUnsubscribeHeaders(listUnsubscribe, listUnsubscribePost)
@@ -190,7 +166,7 @@ export async function executeUnsubscribe(
   let bodyLink: string | null = null;
   if (!success && !parsed.httpUrl && !parsed.mailtoAddress) {
     try {
-      bodyLink = await findBodyUnsubscribeLink(accountId, fromAddress);
+      bodyLink = knownBodyLink ?? (await findBodyUnsubscribeLink(accountId, fromAddress));
       if (bodyLink) {
         await openUrl(bodyLink);
         method = "browser_body";

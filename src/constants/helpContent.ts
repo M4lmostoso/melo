@@ -905,6 +905,7 @@ export const HELP_CATEGORIES: HelpCategory[] = [
           { text: "Unsubscribe from the current thread", shortcut: "u" },
           { text: "Uses RFC 8058 one-click unsubscribe when available." },
           { text: "Falls back to mailto: unsubscribe if one-click isn't supported." },
+          { text: "No unsubscribe header? If the email itself has an unsubscribe link, the button (and u) opens it in your browser. Never offered for spam — that would only confirm your address to the spammer." },
           { text: "View unsubscribe history in Settings > People." },
           { text: "Settings > People > Subscriptions can unsubscribe from many senders at once." },
           { text: "Archive mail after unsubscribing (Settings > People) clears the sender's remaining inbox mail. It archives, never deletes." },
@@ -921,7 +922,7 @@ export const HELP_CATEGORIES: HelpCategory[] = [
           "Settings > People > Subscriptions lists every newsletter and promotional sender for the chosen account, with how much they sent in the last 30 days, how many of their emails you actually opened, and when the last one arrived. Senders you never open are flagged so you can spot the noise. From each row you can unsubscribe and, in the same click, archive or delete the mail they already sent.",
         tips: [
           { text: "Use the \"Never opened\" filter or sort by \"Least opened\" to find what to drop first." },
-          { text: "No unsubscribe header? Melo finds the opt-out link in the email itself and opens it in your browser." },
+          { text: "No unsubscribe header? Melo finds the opt-out link in the email itself and opens it in your browser. Senders with no link at all (receipts, notifications) show \"No opt-out link\" and keep only Archive and Trash." },
           { text: "\"Unsubscribe & delete\" only trashes conversations made up entirely of that sender's mail — threads you replied to stay put." },
           { text: "Already unsubscribed senders keep Archive and Trash buttons to clear out their old mail." },
           { text: "Select several senders to unsubscribe from all of them at once." },

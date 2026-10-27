@@ -6,11 +6,13 @@ import {
   getSubscriptions,
   executeUnsubscribe,
   cleanupSenderMail,
+  findBodyUnsubscribeLink,
   isUnsubscribeSuggested,
   parseUnsubscribeHeaders,
   type SenderCleanup,
   type SubscriptionEntry,
 } from "@/services/unsubscribe/unsubscribeManager";
+import { describeUnsubscribeResult } from "@/services/unsubscribe/unsubscribeLinks";
 import {
   MailMinus,
   Search,
@@ -129,6 +131,11 @@ export function SubscriptionManager() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [autoArchive, setAutoArchive] = useState(true);
   const [trashConfirm, setTrashConfirm] = useState<TrashConfirm | null>(null);
+  /**
+   * Opt-out links of header-less senders, resolved in the background after the
+   * list loads: absent = still checking, null = none in their cached mail.
+   */
+  const [bodyLinks, setBodyLinks] = useState<Map<string, string | null>>(() => new Map());
 
   useEffect(() => {
     if (!accountId && activeAccountId) setAccountId(activeAccountId);
@@ -144,11 +151,38 @@ export function SubscriptionManager() {
     if (!accountId) return;
     setLoading(true);
     setSelectedIds(new Set());
+    setBodyLinks(new Map());
+    let cancelled = false;
     getSubscriptions(accountId)
-      .then((subs) => setSubscriptions(subs))
-      .catch((err) => console.error("Failed to load subscriptions:", err))
-      .finally(() => setLoading(false));
+      .then(async (subs) => {
+        if (cancelled) return;
+        setSubscriptions(subs);
+        setLoading(false);
+        // One sender at a time, after the list is on screen: the scan parses
+        // HTML on the main thread and must never delay the list itself.
+        for (const sub of subs) {
+          if (cancelled) return;
+          if (sub.latest_unsubscribe_header || sub.status === "unsubscribed") continue;
+          const link = await findBodyUnsubscribeLink(accountId, sub.from_address).catch(() => null);
+          if (cancelled) return;
+          setBodyLinks((prev) => new Map(prev).set(sub.from_address, link));
+        }
+      })
+      .catch((err) => {
+        console.error("Failed to load subscriptions:", err);
+        setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [accountId]);
+
+  /** Header-less sender whose cached mail has no opt-out link at all. */
+  const hasNoOptOut = useCallback(
+    (s: SubscriptionEntry) =>
+      !s.latest_unsubscribe_header && bodyLinks.has(s.from_address) && bodyLinks.get(s.from_address) === null,
+    [bodyLinks],
+  );
 
   const setBusy = (addr: string, busy: boolean) =>
     setBusyIds((prev) => {
@@ -184,10 +218,13 @@ export function SubscriptionManager() {
         sub.from_name,
         sub.latest_unsubscribe_header,
         sub.latest_unsubscribe_post,
-        action.cleanup,
+        { cleanup: action.cleanup, bodyLink: bodyLinks.get(sub.from_address) },
       );
+      const outcome = describeUnsubscribeResult(result, sender);
+      const kind = outcome.kind;
+      let message = outcome.message;
       if (!result.success) {
-        showToast("error", t("settings.subscriptionManager.toastFailed", { sender }));
+        showToast(kind, message);
         return;
       }
       setSubscriptions((prev) =>
@@ -195,10 +232,6 @@ export function SubscriptionManager() {
           s.from_address === sub.from_address ? { ...s, status: "unsubscribed" } : s,
         ),
       );
-      const opened = result.method === "browser" || result.method === "browser_body";
-      let message = opened
-        ? t("settings.subscriptionManager.toastBrowser", { sender })
-        : t("settings.subscriptionManager.toastDone", { sender });
       if (result.cleaned > 0) {
         message += " " + t(
           action.cleanup === "trash"
@@ -207,14 +240,14 @@ export function SubscriptionManager() {
           { count: result.cleaned, sender },
         );
       }
-      showToast("info", message);
+      showToast(kind, message);
     } catch (err) {
       console.error("Failed to unsubscribe:", err);
       showToast("error", t("settings.subscriptionManager.toastFailed", { sender }));
     } finally {
       setBusy(sub.from_address, false);
     }
-  }, [accountId, showToast]);
+  }, [accountId, showToast, bodyLinks]);
 
   const runOnSenders = useCallback(async (senders: SubscriptionEntry[], action: MenuAction) => {
     for (const sub of senders) {
@@ -231,8 +264,11 @@ export function SubscriptionManager() {
   };
 
   const selectedSenders = useMemo(
-    () => subscriptions.filter((s) => selectedIds.has(s.from_address) && s.status !== "unsubscribed"),
-    [subscriptions, selectedIds],
+    () =>
+      subscriptions.filter(
+        (s) => selectedIds.has(s.from_address) && s.status !== "unsubscribed" && !hasNoOptOut(s),
+      ),
+    [subscriptions, selectedIds, hasNoOptOut],
   );
 
   const runBulk = (action: MenuAction) => {
@@ -378,6 +414,7 @@ export function SubscriptionManager() {
                 ? parseUnsubscribeHeaders(sub.latest_unsubscribe_header, sub.latest_unsubscribe_post)
                 : null;
               const isUnsubscribed = sub.status === "unsubscribed";
+              const noOptOut = !isUnsubscribed && hasNoOptOut(sub);
               const isBusy = busyIds.has(sub.from_address);
               const isSelected = selectedIds.has(sub.from_address);
               const suggested = isUnsubscribeSuggested(sub);
@@ -394,7 +431,7 @@ export function SubscriptionManager() {
                     type="checkbox"
                     checked={isSelected}
                     onChange={() => toggleSelect(sub.from_address)}
-                    disabled={isUnsubscribed}
+                    disabled={isUnsubscribed || noOptOut}
                     aria-label={senderLabel(sub)}
                     className="shrink-0 accent-accent"
                   />
@@ -420,7 +457,7 @@ export function SubscriptionManager() {
                           {t("settings.subscriptionManager.oneClick")}
                         </span>
                       )}
-                      {!isUnsubscribed && !parsed && (
+                      {!isUnsubscribed && !parsed && !noOptOut && (
                         <span
                           className="text-[0.625rem] px-1.5 rounded-full bg-bg-tertiary text-text-secondary shrink-0"
                           title={t("settings.subscriptionManager.bodyLinkTitle")}
@@ -448,8 +485,17 @@ export function SubscriptionManager() {
                       <span className="shrink-0">{formatRelativeDate(sub.latest_date)}</span>
                     </div>
                   </div>
-                  {isUnsubscribed ? (
+                  {isUnsubscribed || noOptOut ? (
                     <div className="flex items-center gap-1 shrink-0">
+                      {noOptOut && (
+                        <span
+                          title={t("settings.subscriptionManager.noOptOutTitle")}
+                          className="flex items-center gap-1 px-2.5 py-1 text-xs text-text-tertiary bg-bg-tertiary/60 rounded-md border border-border-primary opacity-60 cursor-not-allowed"
+                        >
+                          <MailMinus size={12} />
+                          {t("settings.subscriptionManager.noOptOut")}
+                        </span>
+                      )}
                       <button
                         onClick={() => requestAction([sub], { kind: "cleanup", cleanup: "archive" })}
                         disabled={isBusy}

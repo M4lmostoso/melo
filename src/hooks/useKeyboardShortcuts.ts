@@ -10,8 +10,8 @@ import { archiveThread, trashThread, permanentDeleteThread, starThread, spamThre
 import { deleteThread as deleteThreadFromDb, pinThread as pinThreadDb, unpinThread as unpinThreadDb, muteThread as muteThreadDb, unmuteThread as unmuteThreadDb } from "@/services/db/threads";
 import { logInteraction } from "@/services/ai/reputationEngine";
 import { getMessagesForThread } from "@/services/db/messages";
-import { parseUnsubscribeUrl } from "@/components/email/MessageItem";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { describeUnsubscribeResult, findThreadUnsubscribeTarget } from "@/services/unsubscribe/unsubscribeLinks";
+import { useToastStore } from "@/stores/toastStore";
 import { triggerSync } from "@/services/gmail/syncManager";
 import { buildReplyAllRecipients } from "@/utils/emailUtils";
 import { buildReplyQuote, buildForwardQuote } from "@/utils/quoteBuilder";
@@ -511,14 +511,35 @@ case "action.reply": {
     case "action.unsubscribe": {
       if (selectedId && activeAccountId) {
         try {
+          // Same path as the action-bar button: one-click POST / mailto /
+          // browser, and the opt-out link in the body when there is no header.
+          // It used to open the header URL raw (mailto: included), skipping
+          // RFC 8058 and leaving no record in unsubscribe_actions.
           const msgs = await getMessagesForThread(activeAccountId, selectedId);
-          const unsubMsg = msgs.find((m) => m.list_unsubscribe);
-          if (unsubMsg) {
-            const url = parseUnsubscribeUrl(unsubMsg.list_unsubscribe!);
-            if (url) {
-              await openUrl(url);
-              await archiveThread(activeAccountId, selectedId, []);
-            }
+          const ownEmail = useAccountStore.getState().accounts.find((a) => a.id === activeAccountId)?.email;
+          const isSpam = !!useThreadStore
+            .getState()
+            .threads.find((th) => th.id === selectedId)
+            ?.labelIds.includes("SPAM");
+          const target = findThreadUnsubscribeTarget(msgs, { ownEmail, isSpam });
+          if (target) {
+            const { message, bodyLink } = target;
+            const { executeUnsubscribe } = await import("@/services/unsubscribe/unsubscribeManager");
+            const result = await executeUnsubscribe(
+              activeAccountId,
+              selectedId,
+              message.from_address ?? "unknown",
+              message.from_name,
+              message.list_unsubscribe,
+              message.list_unsubscribe_post,
+              { bodyLink },
+            );
+            const { kind, message: text } = describeUnsubscribeResult(
+              result,
+              message.from_name ?? message.from_address ?? "",
+            );
+            useToastStore.getState().showToast(kind, text);
+            if (result.success) await archiveThread(activeAccountId, selectedId, []);
           }
         } catch (err) {
           console.error("Unsubscribe failed:", err);

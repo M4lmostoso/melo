@@ -1122,7 +1122,7 @@
       "noActiveAccount": "No active account selected.",
       "loading": "Loading subscriptions...",
       "searchPlaceholder": "Search senders...",
-      "sendersDetected": "{count} senders detected with unsubscribe headers.",
+      "sendersDetected": "{count} newsletter and promotional senders detected.",
       "unsubscribeBulk": "Unsubscribe ({count})",
       "autoArchive": "Archive mail after unsubscribing",
       "autoArchiveDesc": "When you unsubscribe from a sender, move the mail they already sent out of the inbox. Archived, never deleted.",
@@ -1157,7 +1157,9 @@
       "toastBrowser": "Opened the opt-out page for {sender} in your browser — confirm there if asked.",
       "toastFailed": "Couldn't unsubscribe from {sender}: no working opt-out method or link found.",
       "toastCleanedArchived": "{count} conversations archived.",
-      "toastCleanedTrashed": "{count} conversations moved to Trash."
+      "toastCleanedTrashed": "{count} conversations moved to Trash.",
+      "noOptOut": "No opt-out link",
+      "noOptOutTitle": "No unsubscribe link found in this sender's emails — probably transactional mail (receipts, notifications). You can still archive or delete it."
     },
     "quickStepEditor": {
       "title": "Quick Steps",
@@ -2084,7 +2086,8 @@
     "hideTaskPanel": "Hide task panel",
     "showTaskPanel": "Show task panel",
     "hideContactSidebar": "Hide contact sidebar",
-    "showContactSidebar": "Show contact sidebar"
+    "showContactSidebar": "Show contact sidebar",
+    "unsubscribeBodyLink": "Unsubscribe — opens the opt-out link from the email in your browser (u)"
   },
   "threadCard": {
     "unknown": "Unknown",
@@ -2124,7 +2127,8 @@
     "unsubscribing": "Unsubscribing...",
     "unsubscribed": "Unsubscribed",
     "unsubscribeFailed": "Unsubscribe failed — click to retry",
-    "viewContact": "View contact"
+    "viewContact": "View contact",
+    "unsubscribeBodyLink": "Unsubscribe (opens the link in your browser)"
   },
   "emailList": {
     "noEmails": "No emails found",

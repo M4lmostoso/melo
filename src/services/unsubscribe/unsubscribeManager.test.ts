@@ -46,11 +46,11 @@ import {
   executeUnsubscribe,
   archiveAfterUnsubscribe,
   cleanupSenderMail,
-  findUnsubscribeLinkInHtml,
   getSubscriptions,
   isUnsubscribeSuggested,
   type SubscriptionEntry,
 } from "./unsubscribeManager";
+import { findUnsubscribeLinkInHtml, findThreadUnsubscribeTarget } from "./unsubscribeLinks";
 
 describe("parseUnsubscribeHeaders", () => {
   it("keeps both targets of a real header", () => {
@@ -260,7 +260,7 @@ describe("executeUnsubscribe without a List-Unsubscribe header", () => {
   it("fails cleanly when no cached body carries a link", async () => {
     mockSelect.mockResolvedValueOnce([]);
 
-    const result = await executeUnsubscribe("acc1", "", "news@example.com", "News", null, null, "trash");
+    const result = await executeUnsubscribe("acc1", "", "news@example.com", "News", null, null, { cleanup: "trash" });
 
     expect(result.success).toBe(false);
     expect(mockOpenUrl).not.toHaveBeenCalled();
@@ -295,7 +295,7 @@ describe("cleanupSenderMail", () => {
 
     const result = await executeUnsubscribe(
       "acc1", "", "news@example.com", "News",
-      "<https://list.example.com/u>", "List-Unsubscribe=One-Click", "trash",
+      "<https://list.example.com/u>", "List-Unsubscribe=One-Click", { cleanup: "trash" },
     );
 
     expect(result).toEqual({ method: "http_post", success: true, cleaned: 1 });
@@ -309,7 +309,7 @@ describe("cleanupSenderMail", () => {
 
     const result = await executeUnsubscribe(
       "acc1", "", "news@example.com", "News",
-      "<https://list.example.com/u>", "List-Unsubscribe=One-Click", "none",
+      "<https://list.example.com/u>", "List-Unsubscribe=One-Click", { cleanup: "none" },
     );
 
     expect(result.cleaned).toBe(0);
@@ -344,5 +344,83 @@ describe("isUnsubscribeSuggested", () => {
     expect(isUnsubscribeSuggested({ ...base, read_count: 1 })).toBe(false);
     expect(isUnsubscribeSuggested({ ...base, message_count: 2 })).toBe(false);
     expect(isUnsubscribeSuggested({ ...base, status: "unsubscribed" })).toBe(false);
+  });
+});
+
+describe("findUnsubscribeLinkInHtml — reading-pane safety", () => {
+  it("ignores an opt-out link inside quoted text", () => {
+    const html = `<p>Thanks, see below</p>
+      <blockquote><a href="https://news.example.com/u">Unsubscribe</a></blockquote>
+      <div class="gmail_quote"><a href="https://news.example.com/u2">Unsubscribe</a></div>`;
+    expect(findUnsubscribeLinkInHtml(html)).toBeNull();
+  });
+
+  it("strongOnly drops the preference-centre fallback", () => {
+    const html = `<a href="https://e.example.com/prefs">Manage your preferences</a>`;
+    expect(findUnsubscribeLinkInHtml(html)).toBe("https://e.example.com/prefs");
+    expect(findUnsubscribeLinkInHtml(html, { strongOnly: true })).toBeNull();
+  });
+});
+
+describe("findThreadUnsubscribeTarget", () => {
+  const msg = (over: Partial<Parameters<typeof findThreadUnsubscribeTarget>[0][number]>) => ({
+    from_address: "news@example.com",
+    from_name: "News",
+    list_unsubscribe: null,
+    list_unsubscribe_post: null,
+    body_html: null,
+    is_draft: 0,
+    ...over,
+  });
+
+  it("prefers a List-Unsubscribe header over any body link", () => {
+    const withBody = msg({ body_html: `<a href="https://x.example/u">Unsubscribe</a>` });
+    const withHeader = msg({ list_unsubscribe: "<https://list.example.com/u>" });
+    const target = findThreadUnsubscribeTarget([withBody, withHeader]);
+    expect(target?.message).toBe(withHeader);
+    expect(target?.bodyLink).toBeNull();
+  });
+
+  it("falls back to the newest non-own body link", () => {
+    const older = msg({ body_html: `<a href="https://x.example/old">Unsubscribe</a>` });
+    const newer = msg({ body_html: `<a href="https://x.example/new">Disiscriviti</a>` });
+    const mine = msg({
+      from_address: "Me@Example.com",
+      body_html: `<a href="https://x.example/mine">Unsubscribe</a>`,
+    });
+    const target = findThreadUnsubscribeTarget([older, newer, mine], { ownEmail: "me@example.com" });
+    expect(target?.bodyLink).toBe("https://x.example/new");
+    expect(target?.message).toBe(newer);
+  });
+
+  it("never offers a body link for spam, but keeps a real header", () => {
+    const body = msg({ body_html: `<a href="https://x.example/u">Unsubscribe</a>` });
+    expect(findThreadUnsubscribeTarget([body], { isSpam: true })).toBeNull();
+    const header = msg({ list_unsubscribe: "<https://list.example.com/u>" });
+    expect(findThreadUnsubscribeTarget([header], { isSpam: true })?.message).toBe(header);
+  });
+
+  it("skips drafts and returns null when nothing qualifies", () => {
+    const draft = msg({ is_draft: 1, body_html: `<a href="https://x.example/u">Unsubscribe</a>` });
+    const plain = msg({ body_html: `<p>Hello</p>` });
+    expect(findThreadUnsubscribeTarget([draft, plain])).toBeNull();
+  });
+});
+
+describe("executeUnsubscribe with a caller-supplied body link", () => {
+  it("opens it without scanning the database", async () => {
+    vi.clearAllMocks();
+    mockExecute.mockResolvedValue({ rowsAffected: 1 });
+    mockGetSetting.mockResolvedValue("false");
+    mockOpenUrl.mockResolvedValue(undefined);
+
+    const result = await executeUnsubscribe(
+      "acc1", "t1", "news@example.com", "News", null, null,
+      { bodyLink: "https://news.example.com/known" },
+    );
+
+    expect(result).toEqual({ method: "browser_body", success: true, cleaned: 0 });
+    expect(mockOpenUrl).toHaveBeenCalledWith("https://news.example.com/known");
+    expect(mockSelect).not.toHaveBeenCalled();
   });
 });

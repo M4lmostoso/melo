@@ -1122,7 +1122,7 @@
       "noActiveAccount": "Nessun account attivo selezionato.",
       "loading": "Caricamento iscrizioni...",
       "searchPlaceholder": "Cerca mittenti...",
-      "sendersDetected": "{count} mittenti rilevati con intestazioni di disiscrizione.",
+      "sendersDetected": "{count} mittenti di newsletter e promozioni rilevati.",
       "unsubscribeBulk": "Cancella iscrizione ({count})",
       "autoArchive": "Archivia la posta dopo la disiscrizione",
       "autoArchiveDesc": "Quando ti disiscrivi da un mittente, sposta fuori dalla posta in arrivo le email che ti ha già inviato. Archiviate, mai eliminate.",
@@ -1157,7 +1157,9 @@
       "toastBrowser": "Pagina di disiscrizione di {sender} aperta nel browser — conferma lì se richiesto.",
       "toastFailed": "Impossibile disiscriversi da {sender}: nessun metodo o link di disiscrizione funzionante.",
       "toastCleanedArchived": "{count} conversazioni archiviate.",
-      "toastCleanedTrashed": "{count} conversazioni spostate nel Cestino."
+      "toastCleanedTrashed": "{count} conversazioni spostate nel Cestino.",
+      "noOptOut": "Nessun link",
+      "noOptOutTitle": "Nessun link di disiscrizione trovato nelle mail di questo mittente — probabilmente mail transazionali (ricevute, notifiche). Puoi comunque archiviarle o eliminarle."
     },
     "quickStepEditor": {
       "title": "Azioni rapide",
@@ -2084,7 +2086,8 @@
     "hideTaskPanel": "Nascondi pannello attività",
     "showTaskPanel": "Mostra pannello attività",
     "hideContactSidebar": "Nascondi barra laterale contatto",
-    "showContactSidebar": "Mostra barra laterale contatto"
+    "showContactSidebar": "Mostra barra laterale contatto",
+    "unsubscribeBodyLink": "Disiscriviti — apre nel browser il link di disiscrizione della mail (u)"
   },
   "threadCard": {
     "unknown": "Sconosciuto",
@@ -2124,7 +2127,8 @@
     "unsubscribeFailed": "Cancellazione iscrizione fallita — clicca per riprovare",
     "bcc": "Ccn:",
     "cc": "Cc:",
-    "viewContact": "Visualizza contatto"
+    "viewContact": "Visualizza contatto",
+    "unsubscribeBodyLink": "Disiscriviti (apre il link nel browser)"
   },
   "emailList": {
     "noEmails": "Nessuna email trovata",

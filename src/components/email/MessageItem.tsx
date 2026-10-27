@@ -18,6 +18,8 @@ import { parseAddressList, resolveRecipientLabel } from "@/utils/emailUtils";
 import { useUIStore } from "@/stores/uiStore";
 import { ContactChip } from "./ContactChip";
 import { t } from "@/i18n";
+import { describeUnsubscribeResult, findThreadUnsubscribeTarget } from "@/services/unsubscribe/unsubscribeLinks";
+import { useToastStore } from "@/stores/toastStore";
 
 /** Renders an address-list header (To/Cc/Bcc) as comma-separated, hoverable
  *  contact chips. */
@@ -506,16 +508,13 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
             />
           )}
 
-          {message.list_unsubscribe && (
-            <UnsubscribeLink
-              header={message.list_unsubscribe}
-              postHeader={message.list_unsubscribe_post}
-              accountId={accountId ?? message.account_id}
-              threadId={threadId ?? message.thread_id}
-              fromAddress={message.from_address}
-              fromName={message.from_name}
-            />
-          )}
+          <UnsubscribeLink
+            message={message}
+            ownEmail={account?.email ?? null}
+            isSpam={!!isSpam}
+            accountId={accountId ?? message.account_id}
+            threadId={threadId ?? message.thread_id}
+          />
 
           {calendarAttachment && account && (
             <CalendarInviteWidget
@@ -591,24 +590,33 @@ export function parseUnsubscribeUrl(header: string): string | null {
   return null;
 }
 
+/**
+ * Unsubscribe banner for one message: through its List-Unsubscribe header, or —
+ * when it has none — through a clear opt-out link in its own body (opened in
+ * the browser). Rendered only for expanded messages, so the body scan runs once
+ * per message actually being read.
+ */
 function UnsubscribeLink({
-  header,
-  postHeader,
+  message,
+  ownEmail,
+  isSpam,
   accountId,
   threadId,
-  fromAddress,
-  fromName,
 }: {
-  header: string;
-  postHeader?: string | null;
+  message: DbMessage;
+  ownEmail: string | null;
+  isSpam: boolean;
   accountId: string;
   threadId: string;
-  fromAddress: string | null;
-  fromName: string | null;
 }) {
-  const url = parseUnsubscribeUrl(header);
+  const target = useMemo(
+    () => findThreadUnsubscribeTarget([message], { ownEmail, isSpam }),
+    [message, ownEmail, isSpam],
+  );
+  const header = target?.message.list_unsubscribe ?? null;
+  const bodyLink = target?.bodyLink ?? null;
   const [status, setStatus] = useState<"idle" | "loading" | "done" | "failed">("idle");
-  if (!url) return null;
+  if (header ? !parseUnsubscribeUrl(header) : !bodyLink) return null;
 
   const handleClick = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -618,12 +626,21 @@ function UnsubscribeLink({
       const result = await executeUnsubscribe(
         accountId,
         threadId,
-        fromAddress ?? "unknown",
-        fromName,
+        message.from_address ?? "unknown",
+        message.from_name,
         header,
-        postHeader ?? null,
+        message.list_unsubscribe_post,
+        { bodyLink },
       );
       setStatus(result.success ? "done" : "failed");
+      if (bodyLink && result.success) {
+        // The page opened in the browser — say so, the opt-out isn't done yet.
+        const { kind, message: text } = describeUnsubscribeResult(
+          result,
+          message.from_name ?? message.from_address ?? "",
+        );
+        useToastStore.getState().showToast(kind, text);
+      }
     } catch (err) {
       console.error("Failed to unsubscribe:", err);
       setStatus("failed");
@@ -646,7 +663,7 @@ function UnsubscribeLink({
       {status === "loading" && t("messageItem.unsubscribing")}
       {status === "done" && t("messageItem.unsubscribed")}
       {status === "failed" && t("messageItem.unsubscribeFailed")}
-      {status === "idle" && t("messageItem.unsubscribe")}
+      {status === "idle" && (bodyLink ? t("messageItem.unsubscribeBodyLink") : t("messageItem.unsubscribe"))}
     </button>
   );
 }

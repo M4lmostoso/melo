@@ -65,7 +65,6 @@ vi.mock("@/services/db/threads", () => ({
 vi.mock("@/services/gmail/draftDeletion", () => ({ deleteDraftsForThread: vi.fn() }));
 vi.mock("@/services/gmail/tokenManager", () => ({ getGmailClient: vi.fn() }));
 vi.mock("@/services/db/messages", () => ({ getMessagesForThread: vi.fn() }));
-vi.mock("@/components/email/MessageItem", () => ({ parseUnsubscribeUrl: vi.fn() }));
 vi.mock("@tauri-apps/plugin-opener", () => ({ openUrl: vi.fn() }));
 vi.mock("@/services/gmail/syncManager", () => ({ triggerSync: vi.fn() }));
 

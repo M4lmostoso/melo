@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import type { Thread } from "@/stores/threadStore";
 import { useThreadStore } from "@/stores/threadStore";
 import { useAccountStore } from "@/stores/accountStore";
@@ -14,6 +14,11 @@ import type { DbMessage } from "@/services/db/messages";
 import { insertFollowUpReminder, getFollowUpForThread, cancelFollowUpForThread } from "@/services/db/followUpReminders";
 import { Button } from "@/components/ui/Button";
 import { t } from "@/i18n";
+import { useToastStore } from "@/stores/toastStore";
+import {
+  describeUnsubscribeResult,
+  findThreadUnsubscribeTarget,
+} from "@/services/unsubscribe/unsubscribeLinks";
 
 interface ActionBarProps {
   thread: Thread;
@@ -112,24 +117,42 @@ export function ActionBar({ thread, messages, noReply, defaultReplyMode = "reply
     await spamThread(accountId, thread.id, messages?.map(m => m.id) || [], !isSpamView);
   };
 
-  // Find the first message with an unsubscribe header
-  const unsubscribeMessage = messages?.find((m) => m.list_unsubscribe);
-  const hasUnsubscribe = !!unsubscribeMessage?.list_unsubscribe;
+  // What the thread can be unsubscribed through: a List-Unsubscribe header,
+  // else a clear opt-out link in a (non-own) message body.
+  const ownEmail = useAccountStore((s) => s.accounts.find((a) => a.id === accountId)?.email);
+  const unsubscribeTarget = useMemo(
+    () =>
+      messages
+        ? findThreadUnsubscribeTarget(messages, {
+            ownEmail,
+            isSpam: isSpamView || thread.labelIds.includes("SPAM"),
+          })
+        : null,
+    [messages, ownEmail, isSpamView, thread.labelIds],
+  );
+  const hasUnsubscribe = !!unsubscribeTarget;
   const [unsubscribeStatus, setUnsubscribeStatus] = useState<"idle" | "loading" | "done">("idle");
 
   const handleUnsubscribe = async () => {
-    if (!unsubscribeMessage?.list_unsubscribe || !accountId) return;
+    if (!unsubscribeTarget || !accountId) return;
+    const { message, bodyLink } = unsubscribeTarget;
     setUnsubscribeStatus("loading");
     try {
       const { executeUnsubscribe } = await import("@/services/unsubscribe/unsubscribeManager");
       const result = await executeUnsubscribe(
         accountId,
         thread.id,
-        unsubscribeMessage.from_address ?? "unknown",
-        unsubscribeMessage.from_name,
-        unsubscribeMessage.list_unsubscribe,
-        unsubscribeMessage.list_unsubscribe_post,
+        message.from_address ?? "unknown",
+        message.from_name,
+        message.list_unsubscribe,
+        message.list_unsubscribe_post,
+        { bodyLink },
       );
+      const { kind, message: text } = describeUnsubscribeResult(
+        result,
+        message.from_name ?? message.from_address ?? "",
+      );
+      useToastStore.getState().showToast(kind, text);
       if (result.success) {
         setUnsubscribeStatus("done");
         await archiveThread(accountId, thread.id, []);
@@ -320,7 +343,7 @@ export function ActionBar({ thread, messages, noReply, defaultReplyMode = "reply
             iconOnly
             icon={<MailMinus size={15} />}
             onClick={handleUnsubscribe}
-            title={unsubscribeStatus === "loading" ? t("actionBar.unsubscribing") : unsubscribeStatus === "done" ? t("actionBar.unsubscribed") : t("actionBar.unsubscribe")}
+            title={unsubscribeStatus === "loading" ? t("actionBar.unsubscribing") : unsubscribeStatus === "done" ? t("actionBar.unsubscribed") : unsubscribeTarget?.bodyLink ? t("actionBar.unsubscribeBodyLink") : t("actionBar.unsubscribe")}
             className={unsubscribeStatus === "done" ? "text-success" : ""}
           />
         )}
