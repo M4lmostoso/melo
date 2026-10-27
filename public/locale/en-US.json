@@ -591,6 +591,7 @@
       "noMatchingAttachments": "No matching attachments",
       "noMatchingAttachmentsHint": "Try adjusting your filters or search query",
       "loading": "Loading attachments...",
+      "loadMore": "Load more ({shown} of {total})",
       "unnamed": "Unnamed",
       "unknownSender": "Unknown",
       "actionPreview": "Preview",

@@ -467,7 +467,7 @@ export const HELP_CATEGORIES: HelpCategory[] = [
         title: "Result ordering",
         summary: "Relevance or date — and what relevance actually means.",
         description:
-          "Search results are ordered by relevance by default: a match in the subject or the sender counts for much more than one buried in the body of a long newsletter, recent mail is favoured over old, and starred or unread conversations get a small nudge. Use the sort button in the search bar to switch to a straight reverse-chronological listing when you would rather browse than pinpoint. Results show one row per conversation, and the words you searched for are highlighted in the subject and preview.",
+          "Search results are listed newest first by default. Use the sort button in the search bar to switch to relevance ordering when you would rather pinpoint than browse: a match in the subject or the sender then counts for much more than one buried in the body of a long newsletter, recent mail is favoured over old, and starred or unread conversations get a small nudge. Results show one row per conversation, and the words you searched for are highlighted in the subject and preview.",
         tips: [
           { text: "Click the sort icon in the search bar to toggle relevance ⇄ date" },
           { text: "Your choice is remembered between sessions" },
@@ -679,7 +679,7 @@ export const HELP_CATEGORIES: HelpCategory[] = [
         title: "Attachment library",
         summary: "Browse and search all your attachments in one place.",
         description:
-          "The Attachment Library gives you a searchable, filterable view of every attachment across all your emails. Find files without remembering which email they were in. Filter by file type (images, PDFs, documents, spreadsheets, archives), sender, date range, or file size. Switch between grid and list views. Preview images and PDFs inline, download files, or jump directly to the original email thread.",
+          "The Attachment Library gives you a searchable, filterable view of every attachment across all your emails. Find files without remembering which email they were in: every word you type must appear in the file name, the email subject or the sender (accents and capitals are ignored, so “perche” finds “Perché”), and the search covers your whole archive (mail in Trash or Spam is left out). Results are listed newest first, 200 at a time, with a button to load more. Filter by file type (images, PDFs, documents, spreadsheets, archives), sender, date range, or file size. Switch between grid and list views. Preview images and PDFs inline, download files, or jump directly to the original email thread.",
         tips: [
           { text: "Go to Attachments", shortcut: "g a" },
           { text: "Open Attachments from the sidebar navigation (Paperclip icon)." },

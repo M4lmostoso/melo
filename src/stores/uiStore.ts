@@ -128,7 +128,7 @@ export const useUIStore = create<UIState>((set) => ({
   contactSidebarTarget: null,
   readingPanePosition: "right",
   readFilter: "all",
-  searchSort: "relevance",
+  searchSort: "date",
   emailListWidth: 320,
   emailDensity: "default",
   defaultReplyMode: "reply",

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { AttachmentLibrary } from "./AttachmentLibrary";
 import type { AttachmentWithContext, AttachmentSender } from "@/services/db/attachments";
 
@@ -22,8 +22,9 @@ vi.mock("@/stores/accountStore", () => ({
 }));
 
 vi.mock("@/services/db/attachments", () => ({
-  getAttachmentsForAccount: vi.fn(() => Promise.resolve([])),
-  getAttachmentsForAccounts: vi.fn(() => Promise.resolve([])),
+  ATTACHMENT_PAGE_SIZE: 200,
+  searchAttachments: vi.fn(() => Promise.resolve([])),
+  countAttachments: vi.fn(() => Promise.resolve(0)),
   getAttachmentSenders: vi.fn(() => Promise.resolve([])),
   getAttachmentSendersForAccounts: vi.fn(() => Promise.resolve([])),
 }));
@@ -54,8 +55,8 @@ vi.mock("@/router/navigate", () => ({
 }));
 
 import {
-  getAttachmentsForAccount,
-  getAttachmentsForAccounts,
+  searchAttachments,
+  countAttachments,
   getAttachmentSenders,
   getAttachmentSendersForAccounts,
 } from "@/services/db/attachments";
@@ -109,7 +110,8 @@ describe("AttachmentLibrary", () => {
   });
 
   it("renders empty state when no attachments", async () => {
-    vi.mocked(getAttachmentsForAccount).mockResolvedValue([]);
+    vi.mocked(searchAttachments).mockResolvedValue([]);
+    vi.mocked(countAttachments).mockResolvedValue(0);
     vi.mocked(getAttachmentSenders).mockResolvedValue([]);
 
     render(<AttachmentLibrary />);
@@ -118,7 +120,8 @@ describe("AttachmentLibrary", () => {
   });
 
   it("renders attachments in grid view", async () => {
-    vi.mocked(getAttachmentsForAccount).mockResolvedValue(mockAttachments);
+    vi.mocked(searchAttachments).mockResolvedValue(mockAttachments);
+    vi.mocked(countAttachments).mockResolvedValue(mockAttachments.length);
     vi.mocked(getAttachmentSenders).mockResolvedValue(mockSenders);
 
     render(<AttachmentLibrary />);
@@ -128,7 +131,8 @@ describe("AttachmentLibrary", () => {
   });
 
   it("switches to list view", async () => {
-    vi.mocked(getAttachmentsForAccount).mockResolvedValue(mockAttachments);
+    vi.mocked(searchAttachments).mockResolvedValue(mockAttachments);
+    vi.mocked(countAttachments).mockResolvedValue(mockAttachments.length);
     vi.mocked(getAttachmentSenders).mockResolvedValue(mockSenders);
 
     render(<AttachmentLibrary />);
@@ -139,38 +143,66 @@ describe("AttachmentLibrary", () => {
     expect(screen.getByText("report.pdf")).toBeInTheDocument();
   });
 
-  it("filters by search query", async () => {
-    vi.mocked(getAttachmentsForAccount).mockResolvedValue(mockAttachments);
+  it("runs the search in the DB across the whole archive", async () => {
+    vi.mocked(searchAttachments).mockResolvedValue(mockAttachments);
+    vi.mocked(countAttachments).mockResolvedValue(mockAttachments.length);
     vi.mocked(getAttachmentSenders).mockResolvedValue(mockSenders);
 
     render(<AttachmentLibrary />);
     await screen.findByText("report.pdf");
 
+    vi.mocked(searchAttachments).mockResolvedValue([mockAttachments[0]!]);
+    vi.mocked(countAttachments).mockResolvedValue(1);
     fireEvent.change(screen.getByPlaceholderText("Search attachments..."), {
       target: { value: "report" },
     });
 
+    await waitFor(() => expect(screen.queryByText("photo.png")).not.toBeInTheDocument());
     expect(screen.getByText("report.pdf")).toBeInTheDocument();
-    expect(screen.queryByText("photo.png")).not.toBeInTheDocument();
+    expect(searchAttachments).toHaveBeenLastCalledWith(
+      ["acc-1"], expect.objectContaining({ query: "report" }), 200, 0,
+    );
   });
 
-  it("filters by type", async () => {
-    vi.mocked(getAttachmentsForAccount).mockResolvedValue(mockAttachments);
+  it("passes the type filter to the DB query", async () => {
+    vi.mocked(searchAttachments).mockResolvedValue(mockAttachments);
+    vi.mocked(countAttachments).mockResolvedValue(mockAttachments.length);
     vi.mocked(getAttachmentSenders).mockResolvedValue(mockSenders);
 
     render(<AttachmentLibrary />);
     await screen.findByText("report.pdf");
 
-    // Select "Images" type filter
-    const typeSelect = screen.getByDisplayValue("All types");
-    fireEvent.change(typeSelect, { target: { value: "images" } });
+    vi.mocked(searchAttachments).mockResolvedValue([mockAttachments[1]!]);
+    vi.mocked(countAttachments).mockResolvedValue(1);
+    fireEvent.change(screen.getByDisplayValue("All types"), { target: { value: "images" } });
 
-    expect(screen.queryByText("report.pdf")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByText("report.pdf")).not.toBeInTheDocument());
     expect(screen.getByText("photo.png")).toBeInTheDocument();
+    expect(searchAttachments).toHaveBeenLastCalledWith(
+      ["acc-1"], expect.objectContaining({ type: "images" }), 200, 0,
+    );
+  });
+
+  it("loads the next page when more matches exist than are shown", async () => {
+    vi.mocked(searchAttachments).mockResolvedValue([mockAttachments[0]!]);
+    vi.mocked(countAttachments).mockResolvedValue(2);
+    vi.mocked(getAttachmentSenders).mockResolvedValue(mockSenders);
+
+    render(<AttachmentLibrary />);
+    await screen.findByText("report.pdf");
+    expect(screen.getByText("(2)")).toBeInTheDocument();
+
+    vi.mocked(searchAttachments).mockResolvedValue([mockAttachments[1]!]);
+    fireEvent.click(screen.getByText("Load more (1 of 2)"));
+
+    expect(await screen.findByText("photo.png")).toBeInTheDocument();
+    expect(searchAttachments).toHaveBeenLastCalledWith(["acc-1"], expect.any(Object), 200, 1);
+    expect(screen.queryByText(/Load more/)).not.toBeInTheDocument();
   });
 
   it("shows correct count", async () => {
-    vi.mocked(getAttachmentsForAccount).mockResolvedValue(mockAttachments);
+    vi.mocked(searchAttachments).mockResolvedValue(mockAttachments);
+    vi.mocked(countAttachments).mockResolvedValue(mockAttachments.length);
     vi.mocked(getAttachmentSenders).mockResolvedValue(mockSenders);
 
     render(<AttachmentLibrary />);
@@ -180,7 +212,8 @@ describe("AttachmentLibrary", () => {
   });
 
   it("renders header with title", async () => {
-    vi.mocked(getAttachmentsForAccount).mockResolvedValue([]);
+    vi.mocked(searchAttachments).mockResolvedValue([]);
+    vi.mocked(countAttachments).mockResolvedValue(0);
     vi.mocked(getAttachmentSenders).mockResolvedValue([]);
 
     render(<AttachmentLibrary />);
@@ -199,13 +232,14 @@ describe("AttachmentLibrary", () => {
         activeAccountId: null,
       }),
     );
-    vi.mocked(getAttachmentsForAccounts).mockResolvedValue(mockAttachments);
+    vi.mocked(searchAttachments).mockResolvedValue(mockAttachments);
+    vi.mocked(countAttachments).mockResolvedValue(mockAttachments.length);
     vi.mocked(getAttachmentSendersForAccounts).mockResolvedValue(mockSenders);
 
     render(<AttachmentLibrary />);
     await screen.findByText("report.pdf");
 
-    expect(getAttachmentsForAccounts).toHaveBeenCalledWith(["acc-1", "acc-2"]);
+    expect(searchAttachments).toHaveBeenCalledWith(["acc-1", "acc-2"], expect.any(Object), 200, 0);
     // Per-account subdivision filter is offered.
     expect(screen.getByText("All accounts")).toBeInTheDocument();
   });

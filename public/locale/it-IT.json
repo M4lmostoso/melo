@@ -591,6 +591,7 @@
       "noMatchingAttachments": "Nessun allegato corrispondente",
       "noMatchingAttachmentsHint": "Prova a modificare i filtri o la ricerca",
       "loading": "Caricamento allegati...",
+      "loadMore": "Carica altri ({shown} di {total})",
       "unnamed": "Senza nome",
       "unknownSender": "Sconosciuto",
       "actionPreview": "Anteprima",

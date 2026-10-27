@@ -5,28 +5,29 @@ import { Paperclip, Search, LayoutGrid, List } from "lucide-react";
 import { t } from "@/i18n";
 import { useAccountStore } from "@/stores/accountStore";
 import {
-  getAttachmentsForAccount,
-  getAttachmentsForAccounts,
+  searchAttachments,
+  countAttachments,
+  ATTACHMENT_PAGE_SIZE,
   getAttachmentSenders,
   getAttachmentSendersForAccounts,
   type AttachmentWithContext,
   type AttachmentSender,
+  type AttachmentFilters,
+  type AttachmentTypeFilter as TypeFilter,
+  type AttachmentDateFilter as DateFilter,
+  type AttachmentSizeFilter as SizeFilter,
 } from "@/services/db/attachments";
 import { getEmailProvider } from "@/services/email/providerFactory";
 import { AttachmentPreview } from "@/components/email/AttachmentList";
 import { AttachmentGridItem } from "./AttachmentGridItem";
 import { AttachmentListItem } from "./AttachmentListItem";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { isImage, isPdf, isDocument, isSpreadsheet, isArchive } from "@/utils/fileTypeHelpers";
 import { navigateToLabel } from "@/router/navigate";
 import { useMultiSelect } from "@/hooks/useMultiSelect";
 import { useDragOut } from "@/hooks/useDragOut";
 import { toAttachmentRef, openAttachmentWithDefaultApp } from "@/services/attachments/attachmentActions";
 import { openAttachmentPreviewWindow } from "@/services/attachments/previewWindow";
 
-type TypeFilter = "all" | "images" | "pdfs" | "documents" | "spreadsheets" | "archives" | "other";
-type DateFilter = "all" | "today" | "week" | "month" | "year";
-type SizeFilter = "all" | "small" | "medium" | "large";
 type ViewMode = "grid" | "list";
 
 const TYPE_OPTIONS: { value: TypeFilter; label: () => string }[] = [
@@ -54,42 +55,8 @@ const SIZE_OPTIONS: { value: SizeFilter; label: () => string }[] = [
   { value: "large", label: () => t("attachments.library.sizeLarge") },
 ];
 
-function matchesType(att: AttachmentWithContext, filter: TypeFilter): boolean {
-  switch (filter) {
-    case "all": return true;
-    case "images": return isImage(att.mime_type);
-    case "pdfs": return isPdf(att.mime_type, att.filename);
-    case "documents": return isDocument(att.mime_type, att.filename);
-    case "spreadsheets": return isSpreadsheet(att.mime_type, att.filename);
-    case "archives": return isArchive(att.mime_type, att.filename);
-    case "other":
-      return !isImage(att.mime_type) && !isPdf(att.mime_type, att.filename) &&
-        !isDocument(att.mime_type, att.filename) && !isSpreadsheet(att.mime_type, att.filename) &&
-        !isArchive(att.mime_type, att.filename);
-  }
-}
-
-function matchesDate(att: AttachmentWithContext, filter: DateFilter): boolean {
-  if (filter === "all" || !att.date) return true;
-  const now = Date.now();
-  const diff = now - att.date;
-  switch (filter) {
-    case "today": return diff < 86_400_000;
-    case "week": return diff < 7 * 86_400_000;
-    case "month": return diff < 30 * 86_400_000;
-    case "year": return diff < 365 * 86_400_000;
-  }
-}
-
-function matchesSize(att: AttachmentWithContext, filter: SizeFilter): boolean {
-  if (filter === "all") return true;
-  const size = att.size ?? 0;
-  switch (filter) {
-    case "small": return size < 1_048_576;
-    case "medium": return size >= 1_048_576 && size <= 10_485_760;
-    case "large": return size > 10_485_760;
-  }
-}
+/** Keystroke debounce before the free-text search hits the DB. */
+const SEARCH_DEBOUNCE_MS = 200;
 
 export function AttachmentLibrary() {
   const accounts = useAccountStore((s) => s.accounts);
@@ -118,9 +85,12 @@ export function AttachmentLibrary() {
 
   const [attachments, setAttachments] = useState<AttachmentWithContext[]>([]);
   const [senders, setSenders] = useState<AttachmentSender[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const [senderFilter, setSenderFilter] = useState("all");
   const [accountFilter, setAccountFilter] = useState("all");
@@ -143,76 +113,136 @@ export function AttachmentLibrary() {
     return () => { unlisten.then((f) => f()); };
   }, []);
 
-  const loadData = useCallback(async (acctIds: string[]) => {
-    setLoading(true);
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedQuery(searchQuery), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(id);
+  }, [searchQuery]);
+
+  // Every filter runs in SQL, so search reaches the whole archive; the page
+  // size only caps how many matches are rendered at once.
+  const filters = useMemo<AttachmentFilters>(
+    () => ({
+      query: debouncedQuery,
+      type: typeFilter,
+      sender: senderFilter === "all" ? null : senderFilter,
+      date: dateFilter,
+      size: sizeFilter,
+    }),
+    [debouncedQuery, typeFilter, senderFilter, dateFilter, sizeFilter],
+  );
+  const hasActiveFilters =
+    debouncedQuery.trim() !== "" || typeFilter !== "all" || senderFilter !== "all" ||
+    accountFilter !== "all" || dateFilter !== "all" || sizeFilter !== "all";
+
+  // Keyed on the id string, not the array: a fresh `accounts` array from the
+  // store must not re-run the first-page load and throw away loaded pages.
+  const queryAccountIds = useMemo(
+    () => {
+      const ids = accountIdsKey ? accountIdsKey.split(",") : [];
+      return accountFilter === "all" ? ids : ids.filter((id) => id === accountFilter);
+    },
+    [accountIdsKey, accountFilter],
+  );
+
+  // Monotonic request id: a slow response for an old filter set must not
+  // overwrite the results of the one the user is looking at now.
+  const requestRef = useRef(0);
+  const loadedCountRef = useRef(0);
+  loadedCountRef.current = attachments.length;
+
+  const loadFirstPage = useCallback(
+    async (acctIds: string[], f: AttachmentFilters, limit: number, showSpinner: boolean) => {
+      const requestId = ++requestRef.current;
+      if (showSpinner) setLoading(true);
+      try {
+        const [atts, total] = await Promise.all([
+          searchAttachments(acctIds, f, limit, 0),
+          countAttachments(acctIds, f),
+        ]);
+        if (requestId !== requestRef.current) return;
+        setAttachments(atts);
+        setTotalCount(total);
+      } catch (err) {
+        console.error("Failed to load attachments:", err);
+      } finally {
+        if (requestId === requestRef.current) setLoading(false);
+      }
+    },
+    [],
+  );
+
+  const loadSenders = useCallback(async (acctIds: string[]) => {
     try {
       const single = acctIds.length === 1 ? acctIds[0] : null;
-      const [atts, snds] = await Promise.all([
-        single ? getAttachmentsForAccount(single) : getAttachmentsForAccounts(acctIds),
-        single ? getAttachmentSenders(single) : getAttachmentSendersForAccounts(acctIds),
-      ]);
-      setAttachments(atts);
-      setSenders(snds);
+      setSenders(await (single ? getAttachmentSenders(single) : getAttachmentSendersForAccounts(acctIds)));
     } catch (err) {
-      console.error("Failed to load attachments:", err);
-    } finally {
-      setLoading(false);
+      console.error("Failed to load attachment senders:", err);
     }
   }, []);
+
+  const loadMore = useCallback(async () => {
+    if (loadingMore) return;
+    const requestId = requestRef.current;
+    setLoadingMore(true);
+    try {
+      const more = await searchAttachments(queryAccountIds, filters, ATTACHMENT_PAGE_SIZE, attachments.length);
+      if (requestId !== requestRef.current) return;
+      setAttachments((prev) => [...prev, ...more]);
+    } catch (err) {
+      console.error("Failed to load more attachments:", err);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, queryAccountIds, filters, attachments.length]);
 
   // Reset the account subdivision filter when leaving unified view.
   useEffect(() => {
     if (!isUnified) setAccountFilter("all");
   }, [isUnified]);
 
-  // Load on account change
+  // Load senders on account change
   useEffect(() => {
-    if (visibleAccountIds.length > 0) {
-      loadData(visibleAccountIds);
+    if (visibleAccountIds.length > 0) loadSenders(visibleAccountIds);
+    else setSenders([]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountIdsKey, loadSenders]);
+
+  // (Re)load the first page whenever the account scope or a filter changes
+  useEffect(() => {
+    if (queryAccountIds.length > 0) {
+      // Spinner only on a cold load: refining a search keeps the old results
+      // on screen until the new ones arrive instead of flashing "Loading".
+      loadFirstPage(queryAccountIds, filters, ATTACHMENT_PAGE_SIZE, loadedCountRef.current === 0);
     } else {
+      requestRef.current++;
       setAttachments([]);
-      setSenders([]);
+      setTotalCount(0);
       setLoading(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accountIdsKey, loadData]);
+  }, [queryAccountIds, filters, loadFirstPage]);
 
-  // Refresh on sync
+  // Refresh on sync, keeping as many rows as are already on screen
   useEffect(() => {
     const handler = () => {
-      if (visibleAccountIds.length > 0) loadData(visibleAccountIds);
+      if (queryAccountIds.length === 0) return;
+      loadFirstPage(queryAccountIds, filters, Math.max(ATTACHMENT_PAGE_SIZE, loadedCountRef.current), false);
+      loadSenders(visibleAccountIds);
     };
     window.addEventListener("melo-sync-done", handler);
     return () => window.removeEventListener("melo-sync-done", handler);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accountIdsKey, loadData]);
+  }, [queryAccountIds, filters, loadFirstPage, loadSenders]);
 
-  const filtered = useMemo(() => {
-    const q = searchQuery.toLowerCase();
-    return attachments.filter((att) => {
-      if (q) {
-        const matchName = att.filename?.toLowerCase().includes(q);
-        const matchSubject = att.subject?.toLowerCase().includes(q);
-        const matchSender = att.from_name?.toLowerCase().includes(q) || att.from_address?.toLowerCase().includes(q);
-        if (!matchName && !matchSubject && !matchSender) return false;
-      }
-      if (!matchesType(att, typeFilter)) return false;
-      if (senderFilter !== "all" && att.from_address !== senderFilter) return false;
-      if (accountFilter !== "all" && att.account_id !== accountFilter) return false;
-      if (!matchesDate(att, dateFilter)) return false;
-      if (!matchesSize(att, sizeFilter)) return false;
-      return true;
-    });
-  }, [attachments, searchQuery, typeFilter, senderFilter, accountFilter, dateFilter, sizeFilter]);
+  const hasMore = attachments.length < totalCount;
 
-  const sel = useMultiSelect(filtered.map((a) => a.id));
+  const sel = useMultiSelect(attachments.map((a) => a.id));
 
   // Drag set: the whole selection if the pressed item is part of it, else itself.
   const drag = useDragOut((id) => {
     if (sel.isSelected(id)) {
-      return filtered.filter((a) => sel.selectedIds.has(a.id)).map(toAttachmentRef);
+      return attachments.filter((a) => sel.selectedIds.has(a.id)).map(toAttachmentRef);
     }
-    const att = filtered.find((a) => a.id === id);
+    const att = attachments.find((a) => a.id === id);
     return att ? [toAttachmentRef(att)] : [];
   });
 
@@ -266,7 +296,7 @@ export function AttachmentLibrary() {
           <div className="flex items-center gap-2">
             <Paperclip size={18} className="text-text-secondary" />
             <h1 className="text-base font-semibold text-text-primary">{t("attachments.library.title")}</h1>
-            <span className="text-xs text-text-tertiary">({filtered.length})</span>
+            <span className="text-xs text-text-tertiary">({totalCount})</span>
           </div>
 
           <div className="flex-1" />
@@ -394,15 +424,15 @@ export function AttachmentLibrary() {
           <div className="flex items-center justify-center h-full">
             <p className="text-sm text-text-tertiary">{t("attachments.library.loading")}</p>
           </div>
-        ) : filtered.length === 0 ? (
+        ) : attachments.length === 0 ? (
           <EmptyState
             icon={Paperclip}
-            title={attachments.length === 0 ? t("attachments.library.noAttachments") : t("attachments.library.noMatchingAttachments")}
-            subtitle={attachments.length === 0 ? t("attachments.library.noAttachmentsHint") : t("attachments.library.noMatchingAttachmentsHint")}
+            title={hasActiveFilters ? t("attachments.library.noMatchingAttachments") : t("attachments.library.noAttachments")}
+            subtitle={hasActiveFilters ? t("attachments.library.noMatchingAttachmentsHint") : t("attachments.library.noAttachmentsHint")}
           />
         ) : viewMode === "grid" ? (
           <div className="grid grid-cols-[repeat(auto-fill,minmax(180px,1fr))] gap-3">
-            {filtered.map((att) => (
+            {attachments.map((att) => (
               <AttachmentGridItem
                 key={att.id}
                 attachment={att}
@@ -424,7 +454,7 @@ export function AttachmentLibrary() {
           </div>
         ) : (
           <div className="flex flex-col">
-            {filtered.map((att) => (
+            {attachments.map((att) => (
               <AttachmentListItem
                 key={att.id}
                 attachment={att}
@@ -443,6 +473,19 @@ export function AttachmentLibrary() {
                 onJumpToEmail={() => handleJumpToEmail(att)}
               />
             ))}
+          </div>
+        )}
+        {!loading && hasMore && (
+          <div className="flex justify-center pt-4">
+            <button
+              onClick={loadMore}
+              disabled={loadingMore}
+              className="text-xs px-3 py-1.5 rounded-md border border-border-primary bg-bg-secondary text-text-secondary hover:text-text-primary hover:border-accent disabled:opacity-50 transition-colors"
+            >
+              {loadingMore
+                ? t("attachments.library.loading")
+                : t("attachments.library.loadMore", { shown: attachments.length, total: totalCount })}
+            </button>
           </div>
         )}
       </div>
