@@ -40,7 +40,11 @@ async function processAndStoreThread(
   client?: GmailClient,
   autoArchiveCategories?: Set<string>,
 ): Promise<void> {
-  const lastMessage = parsedMessages[parsedMessages.length - 1]!;
+  // A reply draft must not drive the thread's date/snippet: it would float the
+  // thread to the top of Sent with the text of a mail that never left.
+  const sentOrReceived = parsedMessages.filter((m) => !m.labelIds.includes("DRAFT"));
+  const lastMessage =
+    sentOrReceived[sentOrReceived.length - 1] ?? parsedMessages[parsedMessages.length - 1]!;
   const firstMessage = parsedMessages[0]!;
 
   const allLabelIds = new Set<string>();

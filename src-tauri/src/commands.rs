@@ -2065,6 +2065,12 @@ pub async fn gmail_store_thread(
         let is_trashed = msg.label_ids.as_ref()
             .map(|ids| ids.iter().any(|id| id == "TRASH") as i32)
             .unwrap_or(0);
+        // A server draft carries the DRAFT label. Without is_draft=1 it renders
+        // in the reading pane as a sent reply — and the thread's SENT label
+        // (from earlier messages) lists it under Sent, though it never left.
+        let is_draft = msg.label_ids.as_ref()
+            .map(|ids| ids.iter().any(|id| id == "DRAFT") as i32)
+            .unwrap_or(0);
         conn.execute(
             "INSERT INTO messages \
              (id, account_id, thread_id, from_address, from_name, to_addresses, \
@@ -2072,9 +2078,9 @@ pub async fn gmail_store_thread(
               is_read, is_starred, body_html, body_text, body_cached, raw_size, \
               internal_date, list_unsubscribe, list_unsubscribe_post, auth_results, \
               message_id_header, references_header, in_reply_to_header, imap_uid, imap_folder, \
-              gmail_label_ids, is_trashed) \
+              gmail_label_ids, is_trashed, is_draft) \
              VALUES \
-             (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,NULL,NULL,?26,?27) \
+             (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,NULL,NULL,?26,?27,?28) \
              ON CONFLICT(account_id, id) DO UPDATE SET \
                from_address=?4, from_name=?5, to_addresses=?6, cc_addresses=?7, \
                bcc_addresses=?8, reply_to=?9, subject=?10, snippet=?11, \
@@ -2087,7 +2093,7 @@ pub async fn gmail_store_thread(
                references_header=COALESCE(?24, references_header), \
                in_reply_to_header=COALESCE(?25, in_reply_to_header), \
                gmail_label_ids=COALESCE(?26, gmail_label_ids), \
-               is_trashed=?27",
+               is_trashed=?27, is_draft=?28",
             rusqlite::params![
                 msg.id,
                 account_id,
@@ -2116,6 +2122,7 @@ pub async fn gmail_store_thread(
                 msg.in_reply_to_header,
                 gmail_label_ids_json,
                 is_trashed,
+                is_draft,
             ],
         )
         .map_err(|e| e.to_string())?;
