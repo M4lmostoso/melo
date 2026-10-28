@@ -33,7 +33,16 @@ export interface DbMessage {
   has_attachments: number;
   /** 1 = the send reported success but no copy was ever confirmed on the server. */
   send_unconfirmed: number;
+  /** 1 = this message (not just its thread) is filed as spam. Computed by the thread queries. */
+  is_spam?: number;
 }
+
+// Per-message spam flag. Thread labels are the union of their messages', so one message
+// filed as spam paints a whole legitimate conversation red — this tells which one it is.
+// Gmail: SPAM in gmail_label_ids. IMAP: the message's folder maps to the SPAM (\Junk) label.
+const IS_SPAM_SQL = `CASE WHEN m.gmail_label_ids LIKE '%"SPAM"%'
+         OR EXISTS(SELECT 1 FROM labels l WHERE l.account_id = m.account_id AND l.id = 'SPAM' AND l.imap_folder_path = m.imap_folder)
+       THEN 1 ELSE 0 END AS is_spam`;
 
 export async function getMessagesForThread(
   accountId: string,
@@ -52,7 +61,8 @@ export async function getMessagesForThread(
       : "AND m.is_trashed = 0";
   return db.select<DbMessage[]>(
     `SELECT m.*,
-       (SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END FROM attachments WHERE message_id = m.id AND is_inline = 0) AS has_attachments
+       (SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END FROM attachments WHERE message_id = m.id AND is_inline = 0) AS has_attachments,
+       ${IS_SPAM_SQL}
      FROM messages m WHERE m.account_id = $1 AND m.thread_id = $2 AND m.is_draft = 0 ${trashedFilter} ORDER BY m.date ASC`,
     [accountId, threadId],
   );
@@ -71,7 +81,8 @@ export async function getMessagesMetaForThread(
      m.is_starred, m.body_cached, m.raw_size, m.internal_date, m.list_unsubscribe,
      m.list_unsubscribe_post, m.auth_results, m.message_id_header, m.references_header,
      m.in_reply_to_header, m.imap_uid, m.imap_folder, m.send_unconfirmed,
-     (SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END FROM attachments WHERE message_id = m.id AND is_inline = 0) AS has_attachments
+     (SELECT CASE WHEN COUNT(*) > 0 THEN 1 ELSE 0 END FROM attachments WHERE message_id = m.id AND is_inline = 0) AS has_attachments,
+     ${IS_SPAM_SQL}
      FROM messages m WHERE m.account_id = $1 AND m.thread_id = $2 AND m.is_draft = 0 AND m.is_trashed = 0 ORDER BY m.date ASC`,
     [accountId, threadId],
   );

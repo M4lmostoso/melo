@@ -6,7 +6,7 @@ import { AttachmentList, getAttachmentsForMessage } from "./AttachmentList";
 import { CalendarInviteWidget } from "./CalendarInviteWidget";
 import type { DbMessage } from "@/services/db/messages";
 import type { DbAttachment } from "@/services/db/attachments";
-import { MailMinus, Reply, ReplyAll, Forward, Trash2, Paperclip } from "lucide-react";
+import { MailMinus, Reply, ReplyAll, Forward, Trash2, Paperclip, ShieldAlert } from "lucide-react";
 import { AuthBadge } from "./AuthBadge";
 import { AuthWarningBanner } from "./AuthWarningBanner";
 import { UnconfirmedSendBanner, UnconfirmedSendBadge } from "./UnconfirmedSendBanner";
@@ -418,6 +418,15 @@ export const MessageItem = memo(forwardRef<HTMLDivElement, MessageItemProps>(fun
                   )}
                   <AuthBadge authResults={message.auth_results} />
                   {message.send_unconfirmed === 1 && <UnconfirmedSendBadge />}
+                  {message.is_spam === 1 && (
+                    <span
+                      title={t("messageItem.spamBadgeTitle")}
+                      className="inline-flex items-center gap-1 shrink-0 px-1.5 py-0.5 rounded bg-danger/15 text-danger text-[10px] font-medium align-middle"
+                    >
+                      <ShieldAlert size={10} />
+                      {t("messageItem.spamBadge")}
+                    </span>
+                  )}
                 </span>
                 {!expanded && (
                   <span className="text-xs text-text-tertiary truncate block">

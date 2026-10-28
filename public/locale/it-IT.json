@@ -2118,6 +2118,8 @@
     "folderMapped": "Etichetta collegata a una cartella IMAP"
   },
   "messageItem": {
+    "spamBadge": "Spam",
+    "spamBadgeTitle": "Il server di posta ha classificato questo messaggio come spam. Segnalalo come non spam per riportarlo in Posta in arrivo.",
     "unknown": "Sconosciuto",
     "loading": "Caricamento...",
     "to": "A:",

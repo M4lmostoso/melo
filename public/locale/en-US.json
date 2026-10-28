@@ -2118,6 +2118,8 @@
     "folderMapped": "Label linked to an IMAP folder"
   },
   "messageItem": {
+    "spamBadge": "Spam",
+    "spamBadgeTitle": "This message was filed as spam by the mail server. Mark it as not spam to move it back to the Inbox.",
     "unknown": "Unknown",
     "loading": "Loading...",
     "to": "To:",
