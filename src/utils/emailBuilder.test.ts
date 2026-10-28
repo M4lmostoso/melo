@@ -353,4 +353,16 @@ describe("buildRawEmail — inline image dedup", () => {
     expect(text.match(/^Content-ID:/gim)).toHaveLength(2);
     expect(text.match(/iVBORw0KGgoAAAANSUhEUg==/g)).toHaveLength(1);
   });
+
+  it("treats line-wrapped base64 of the same image as the same part", () => {
+    const raw = buildRawEmail({
+      from: "me@example.com",
+      to: ["you@example.com"],
+      subject: "Re: Parigi",
+      htmlBody:
+        '<img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==">' +
+        '<img src="data:IMAGE/PNG;base64,iVBORw0KGgo\nAAAANSUhEUg==">',
+    });
+    expect(decodeBase64Url(raw).match(/^Content-ID:/gim)).toHaveLength(1);
+  });
 });

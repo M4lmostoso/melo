@@ -212,7 +212,8 @@ function extractInlineImages(html: string): { html: string; images: InlineImage[
   const processed = html.replace(
     /<img([^>]*)\ssrc="data:([^;]+);base64,([^"]+)"([^>]*)>/g,
     (_match, before: string, mime: string, data: string, after: string) => {
-      const key = `${mime};${data}`;
+      // Line-wrapped base64 of the same bytes must still collapse to one part.
+      const key = `${mime.toLowerCase()};${data.replace(/\s+/g, "")}`;
       let cid = cidByData.get(key);
       if (!cid) {
         cid = `inline_${Date.now()}_${images.length}@melomail`;
