@@ -1397,7 +1397,9 @@ export class ImapSmtpProvider implements EmailProvider {
       date: now,
       isRead: true,
       isStarred: false,
-      bodyHtml: bodyHtml ? bodyHtml.slice(0, 50000) : null, // Limit stored body size
+      // Never truncate: a sliced body cuts an inline image mid-base64 and becomes
+      // the (broken) quote of every later reply to this message.
+      bodyHtml: bodyHtml ?? null,
       bodyText: snippet,
       rawSize: raw.length,
       internalDate: now,
@@ -1559,7 +1561,7 @@ export class ImapSmtpProvider implements EmailProvider {
       date: now,
       isRead: false,
       isStarred: false,
-      bodyHtml: bodyHtml ? bodyHtml.slice(0, 50000) : null,
+      bodyHtml: bodyHtml ?? null,
       bodyText: snippet,
       rawSize: raw.length,
       internalDate: now,

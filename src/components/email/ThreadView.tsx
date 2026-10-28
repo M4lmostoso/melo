@@ -227,8 +227,6 @@ export function ThreadView({ thread }: ThreadViewProps) {
       toHeader: msg.to_addresses,
       selfEmails: accounts.map((a) => a.email),
     });
-    const msgIndex = messages.findIndex(m => m.id === msg.id);
-    const quotedMessages = msgIndex >= 0 ? messages.slice(0, msgIndex + 1) : messages;
     const rfcMsgId = msg.message_id_header ?? null;
     const refs = rfcMsgId
       ? [msg.references_header, rfcMsgId].filter(Boolean).join(" ")
@@ -237,7 +235,7 @@ export function ThreadView({ thread }: ThreadViewProps) {
       mode: "reply",
       to: replyToList,
       subject: `Re: ${msg.subject ?? ""}`,
-      quotedHtml: buildReplyQuote(quotedMessages),
+      quotedHtml: buildReplyQuote(msg),
       threadId: msg.thread_id,
       inReplyToMessageId: rfcMsgId,
       references: refs,
@@ -258,8 +256,6 @@ export function ThreadView({ thread }: ThreadViewProps) {
       selfEmails: accounts.map((a) => a.email),
     });
 
-    const msgIndex = messages.findIndex(m => m.id === msg.id);
-    const quotedMessages = msgIndex >= 0 ? messages.slice(0, msgIndex + 1) : messages;
     const rfcMsgId = msg.message_id_header ?? null;
     const refs = rfcMsgId
       ? [msg.references_header, rfcMsgId].filter(Boolean).join(" ")
@@ -270,7 +266,7 @@ export function ThreadView({ thread }: ThreadViewProps) {
       to: replyAllTo,
       cc: ccList,
       subject: `Re: ${msg.subject ?? ""}`,
-      quotedHtml: buildReplyQuote(quotedMessages),
+      quotedHtml: buildReplyQuote(msg),
       threadId: msg.thread_id,
       inReplyToMessageId: rfcMsgId,
       references: refs,

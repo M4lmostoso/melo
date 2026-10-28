@@ -13,32 +13,32 @@ const msg = (over: Partial<QuotableMessage> = {}): QuotableMessage => ({
 
 describe("buildReplyQuote", () => {
   it("quotes a comma-bearing display name in the attribution line", () => {
-    const html = buildReplyQuote([msg()]);
+    const html = buildReplyQuote(msg());
     expect(html).toContain('&quot;Melki, Benjamin&quot; &lt;benjamin.melki@suez.com&gt; wrote:');
     // The bare form was unreadable: "…, Melki, Benjamin <…> wrote:"
     expect(html).not.toContain("Melki, Benjamin &lt;");
   });
 
   it("leaves a plain display name unquoted", () => {
-    const html = buildReplyQuote([msg({ from_name: "Anna Bianchi", from_address: "a@x.com" })]);
+    const html = buildReplyQuote(msg({ from_name: "Anna Bianchi", from_address: "a@x.com" }));
     expect(html).toContain("Anna Bianchi &lt;a@x.com&gt; wrote:");
   });
 
   it("falls back to the bare address when there is no display name", () => {
-    const html = buildReplyQuote([msg({ from_name: null })]);
+    const html = buildReplyQuote(msg({ from_name: null }));
     expect(html).toContain("benjamin.melki@suez.com wrote:");
   });
 
   it("keeps the quoted body and returns '' for no messages", () => {
-    expect(buildReplyQuote([msg()])).toContain("Bonjour");
-    expect(buildReplyQuote([])).toBe("");
+    expect(buildReplyQuote(msg())).toContain("Bonjour");
+    expect(buildReplyQuote(undefined)).toBe("");
   });
 
-  it("orders newest message last-in-first (most recent quote first)", () => {
-    const older = msg({ body_html: "<p>older</p>", from_address: "old@x.com" });
-    const newer = msg({ body_html: "<p>newer</p>", from_address: "new@x.com" });
-    const html = buildReplyQuote([older, newer]);
-    expect(html.indexOf("newer")).toBeLessThan(html.indexOf("older"));
+  it("quotes exactly one message — its body already carries the history", () => {
+    const html = buildReplyQuote(msg({ body_html: "<p>newer</p><blockquote>older</blockquote>" }));
+    expect(html.match(/border-left/g)).toHaveLength(1);
+    expect(html).toContain("newer");
+    expect(html).toContain("older");
   });
 });
 

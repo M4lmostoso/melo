@@ -35,24 +35,19 @@ const QUOTE_STYLE =
   "border-left:2px solid #ccc;padding-left:12px;margin-left:0;color:#666;margin-bottom:8px";
 
 /**
- * Reply quote: newest message first, each wrapped in a quoted block introduced
- * by a localized attribution line.
+ * Reply quote: ONLY the message being replied to, in a quoted block introduced
+ * by a localized attribution line. Its body already carries the earlier history,
+ * so quoting the rest of the thread too re-quoted every message N times — the
+ * chain doubled at each reply and a ~13-message thread reached 253 attributions
+ * and 11.6 MB, which Exchange refused to send.
  */
-export function buildReplyQuote(msgs: QuotableMessage[]): string {
-  if (msgs.length === 0) return "";
-  return (
-    "<br><br>" +
-    [...msgs]
-      .reverse()
-      .map((msg) => {
-        const date = new Date(msg.date).toLocaleString();
-        const body = msg.body_html ? sanitizeHtml(msg.body_html) : escapeHtml(msg.body_text ?? "");
-        const attribution = escapeHtml(t("composer.quote.attribution", { date }))
-          .replace("{sender}", quoteSender(msg));
-        return `<div style="${QUOTE_STYLE}">${attribution}<br>${body}</div>`;
-      })
-      .join("")
-  );
+export function buildReplyQuote(msg: QuotableMessage | undefined): string {
+  if (!msg) return "";
+  const date = new Date(msg.date).toLocaleString();
+  const body = msg.body_html ? sanitizeHtml(msg.body_html) : escapeHtml(msg.body_text ?? "");
+  const attribution = escapeHtml(t("composer.quote.attribution", { date }))
+    .replace("{sender}", quoteSender(msg));
+  return `<br><br><div style="${QUOTE_STYLE}">${attribution}<br>${body}</div>`;
 }
 
 /**

@@ -265,7 +265,7 @@ function ThreadMenu({
       mode: "reply",
       to: replyTo ? [replyTo] : [],
       subject: `Re: ${lastMessage.subject ?? ""}`,
-      quotedHtml: buildReplyQuote(messages),
+      quotedHtml: buildReplyQuote(lastMessage),
       threadId: lastMessage.thread_id,
       inReplyToMessageId: lastMessage.message_id_header ?? null,
     });
@@ -284,7 +284,7 @@ function ThreadMenu({
       to,
       cc,
       subject: `Re: ${lastMessage.subject ?? ""}`,
-      quotedHtml: buildReplyQuote(messages),
+      quotedHtml: buildReplyQuote(lastMessage),
       threadId: lastMessage.thread_id,
       inReplyToMessageId: lastMessage.message_id_header ?? null,
     });
@@ -662,7 +662,7 @@ function MessageMenu({
       mode: "reply",
       to: replyAddr ? [replyAddr] : [],
       subject: `Re: ${subject ?? ""}`,
-      quotedHtml: buildReplyQuote(msgs),
+      quotedHtml: buildReplyQuote(msgs[msgs.length - 1]),
       threadId,
       inReplyToMessageId: rfcMsgId,
     });
@@ -687,7 +687,7 @@ function MessageMenu({
       to,
       cc,
       subject: `Re: ${subject ?? ""}`,
-      quotedHtml: buildReplyQuote(msgs),
+      quotedHtml: buildReplyQuote(msgs[msgs.length - 1]),
       threadId,
       inReplyToMessageId: rfcMsgId,
     });

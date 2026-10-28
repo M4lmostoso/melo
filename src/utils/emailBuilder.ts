@@ -201,14 +201,24 @@ interface InlineImage {
 /**
  * Extract base64 data URLs from HTML and replace with cid: references.
  * Returns the modified HTML and extracted inline images.
+ *
+ * Identical images share ONE part: a signature logo repeated down a quoted chain
+ * otherwise became one MIME part per occurrence (251 copies of the same 36 KB
+ * logo in one reply).
  */
 function extractInlineImages(html: string): { html: string; images: InlineImage[] } {
   const images: InlineImage[] = [];
+  const cidByData = new Map<string, string>();
   const processed = html.replace(
     /<img([^>]*)\ssrc="data:([^;]+);base64,([^"]+)"([^>]*)>/g,
     (_match, before: string, mime: string, data: string, after: string) => {
-      const cid = `inline_${Date.now()}_${images.length}@melomail`;
-      images.push({ cid, mimeType: mime, base64: data });
+      const key = `${mime};${data}`;
+      let cid = cidByData.get(key);
+      if (!cid) {
+        cid = `inline_${Date.now()}_${images.length}@melomail`;
+        cidByData.set(key, cid);
+        images.push({ cid, mimeType: mime, base64: data });
+      }
       return `<img${before} src="cid:${cid}"${after}>`;
     },
   );

@@ -1,4 +1,4 @@
-import { getDb } from "./connection";
+import { getDb, executeAtomicBatch } from "./connection";
 import { getCurrentUnixTimestamp } from "@/utils/timestamp";
 
 export interface DbScheduledEmail {
@@ -114,6 +114,34 @@ export async function getScheduledEmailsByAccounts(
     `SELECT * FROM scheduled_emails WHERE account_id IN (${placeholders}) AND status IN ('pending', 'failed') ORDER BY scheduled_at ASC`,
     accountIds,
   );
+}
+
+/**
+ * At fire time a scheduled email leaves Scheduled and becomes an Outgoing send:
+ * ONE transaction inserts its `sendMessage` row (status 'executing', raw inside)
+ * and closes the scheduled row. From here on every outcome — refused, unconfirmed,
+ * interrupted by a crash (queueRecovery flags 'executing' sends as failed) — is
+ * visible in Outgoing, never buried as a 'failed' row inside the Scheduled panel.
+ */
+export async function handOffScheduledToOutgoing(
+  scheduledId: string,
+  accountId: string,
+  resourceId: string,
+  params: Record<string, unknown>,
+): Promise<string> {
+  const opId = crypto.randomUUID();
+  await executeAtomicBatch([
+    {
+      sql: `INSERT INTO pending_operations (id, account_id, operation_type, resource_id, params, status)
+            VALUES (?1, ?2, 'sendMessage', ?3, ?4, 'executing')`,
+      params: [opId, accountId, resourceId, JSON.stringify(params)],
+    },
+    {
+      sql: "UPDATE scheduled_emails SET status = 'sent' WHERE id = ?1",
+      params: [scheduledId],
+    },
+  ]);
+  return opId;
 }
 
 /** Re-arm a failed scheduled email: send at the next checker tick. */

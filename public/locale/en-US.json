@@ -2514,6 +2514,8 @@
     "opFailedBody": "A pending \"{operation}\" operation failed permanently. Check Outgoing in the sidebar.",
     "scheduledFailedTitle": "Scheduled email not sent",
     "scheduledFailedBody": "\"{subject}\" could not be sent. It's kept in Scheduled — retry it from there.",
+    "scheduledInOutgoingBody": "\"{subject}\" could not be sent at its scheduled time. It's kept in Outgoing.",
+    "scheduledInOutgoingBodyWithError": "\"{subject}\" could not be sent at its scheduled time: {error}. It's kept in Outgoing.",
     "sendUnconfirmedTitle": "Send not confirmed",
     "sendUnconfirmedBody": "The server accepted the connection but no copy of this email could be found in Sent, so there is no proof it was delivered. It is in Outgoing — check with the recipient before sending it again."
   },

@@ -1,12 +1,21 @@
 import {
   getPendingScheduledEmails,
+  handOffScheduledToOutgoing,
   updateScheduledEmailStatus,
+  type DbScheduledEmail,
 } from "../db/scheduledEmails";
+import {
+  deleteOperation,
+  patchOperationParams,
+  updateOperationStatus,
+} from "../db/pendingOperations";
 import { buildRawEmail, type EmailAttachment } from "@/utils/emailBuilder";
 import { getAccount } from "../db/accounts";
 import { createBackgroundChecker } from "../backgroundCheckers";
 import { sendEmail } from "../emailActions";
 import { useOutgoingStore } from "@/stores/outgoingStore";
+import { useToastStore } from "@/stores/toastStore";
+import { playSound } from "../soundService";
 import { t } from "@/i18n";
 import { splitAddressList } from "@/utils/emailUtils";
 
@@ -22,6 +31,14 @@ function notifyScheduledFailed(subject: string | null): void {
   window.dispatchEvent(new Event("melo-sync-done"));
 }
 
+function notifyOutgoingFailure(title: string, body: string): void {
+  useToastStore.getState().showToast("error", body);
+  void playSound("send_error");
+  import("@tauri-apps/plugin-notification")
+    .then(({ sendNotification }) => sendNotification({ title, body }))
+    .catch(() => {});
+}
+
 /**
  * Check for scheduled emails that are ready to be sent.
  */
@@ -29,6 +46,7 @@ async function checkScheduledEmails(): Promise<void> {
   const pending = await getPendingScheduledEmails();
 
   for (const email of pending) {
+    let opId: string | null = null;
     try {
       const account = await getAccount(email.account_id);
       if (!account) {
@@ -68,11 +86,21 @@ async function checkScheduledEmails(): Promise<void> {
         attachments,
       });
 
-      // Surface the scheduled email in Outgoing only now, at fire time — it stays there
-      // for the few seconds of the real SMTP+APPEND, then disappears (→ Sent). Routing
-      // through sendEmail (not provider.sendMessage directly) means that if we're offline
-      // the send is queued to pending_operations, so it remains visible in Outgoing and
-      // is retried automatically instead of vanishing.
+      // Fire time: the email leaves Scheduled and becomes an Outgoing send. The
+      // pending_operations row (raw inside) is written in the same transaction that
+      // closes the scheduled row, so whatever happens next — refused, unconfirmed,
+      // app killed mid-send — the email sits in Outgoing where the failure is
+      // obvious, instead of reverting to a 'failed' row hidden in Scheduled.
+      const threadId = email.thread_id ?? undefined;
+      opId = await handOffScheduledToOutgoing(
+        email.id,
+        email.account_id,
+        email.thread_id ?? crypto.randomUUID(),
+        { rawBase64Url: raw, threadId },
+      );
+
+      // While the SMTP+APPEND runs the DB row is 'executing' (not counted by
+      // Outgoing), so the in-memory entry is what shows it as "sending".
       const outgoingId = `scheduled-${email.id}`;
       useOutgoingStore.getState().addEmail({
         id: outgoingId,
@@ -91,28 +119,84 @@ async function checkScheduledEmails(): Promise<void> {
       });
 
       try {
-        const result = await sendEmail(email.account_id, raw, email.thread_id ?? undefined);
-        if (!result.success) {
-          throw new Error(result.error ?? "Scheduled send failed");
-        }
-        // Sent or handed to the offline queue (queued) — either way the scheduled row is done.
-        await updateScheduledEmailStatus(email.id, "sent");
+        await settleOutgoingSend(opId, email, raw, threadId);
       } finally {
         useOutgoingStore.getState().removeEmail(outgoingId);
+        window.dispatchEvent(new Event("melo-sync-done"));
       }
     } catch (err) {
       console.error(`Failed to send scheduled email ${email.id}:`, err);
-      // Distinguish transient vs permanent errors
-      const message = err instanceof Error ? err.message : String(err);
-      const isTransient = message.includes("5") && /\b5\d{2}\b/.test(message)
-        || message.toLowerCase().includes("network")
-        || message.toLowerCase().includes("timeout")
-        || message.toLowerCase().includes("econnrefused");
-      // Revert to pending for transient errors (allows retry), mark failed for permanent
-      await updateScheduledEmailStatus(email.id, isTransient ? "pending" : "failed");
-      if (!isTransient) notifyScheduledFailed(email.subject);
+      if (opId) {
+        // Already in Outgoing: never revive the scheduled row (duplicate send risk).
+        // If even this write fails the row stays 'executing' and startup recovery
+        // flags it as an interrupted send.
+        await updateOperationStatus(opId, "failed", t("outgoing.interruptedBody")).catch(() => {});
+        notifyOutgoingFailure(
+          t("outgoing.scheduledFailedTitle"),
+          t("outgoing.scheduledInOutgoingBody", { subject: email.subject ?? "" }),
+        );
+        window.dispatchEvent(new Event("melo-sync-done"));
+      } else {
+        // Before the hand-off there is no raw yet — the scheduled row is the only
+        // copy, so it stays in Scheduled as 'failed' with a Retry.
+        await updateScheduledEmailStatus(email.id, "failed").catch(() => {});
+        notifyScheduledFailed(email.subject);
+      }
     }
   }
+}
+
+/**
+ * Send the handed-off email and leave its Outgoing row in the state that matches
+ * the outcome — the same rules as an interactive send (App.tsx melo-execute-send).
+ */
+async function settleOutgoingSend(
+  opId: string,
+  email: DbScheduledEmail,
+  raw: string,
+  threadId: string | undefined,
+): Promise<void> {
+  let result: Awaited<ReturnType<typeof sendEmail>>;
+  try {
+    result = await sendEmail(email.account_id, raw, threadId);
+  } catch (err) {
+    result = { success: false, error: err instanceof Error ? err.message : String(err) };
+  }
+
+  if (!result.success) {
+    await updateOperationStatus(opId, "failed", result.error ?? undefined);
+    notifyOutgoingFailure(
+      t("outgoing.scheduledFailedTitle"),
+      result.error
+        ? t("outgoing.scheduledInOutgoingBodyWithError", { subject: email.subject ?? "", error: result.error })
+        : t("outgoing.scheduledInOutgoingBody", { subject: email.subject ?? "" }),
+    );
+    return;
+  }
+
+  if (result.queued) {
+    // executeEmailAction queued its own retryable op (offline / transient error);
+    // that row now carries the email in Outgoing, ours would be a duplicate.
+    await deleteOperation(opId);
+    return;
+  }
+
+  if (result.sendUnconfirmed) {
+    // Deliberately NOT deliveredNoCopy: that would rule out an actual re-send.
+    await updateOperationStatus(opId, "failed", t("outgoing.sendUnconfirmedBody"));
+    notifyOutgoingFailure(t("outgoing.sendUnconfirmedTitle"), t("outgoing.sendUnconfirmedBody"));
+    return;
+  }
+
+  if (result.sentCopyDurable === false) {
+    // Delivered, but this row is the last copy — a retry must file it, not re-send.
+    await patchOperationParams(opId, { deliveredNoCopy: true });
+    await updateOperationStatus(opId, "failed", t("outgoing.sentCopyMissingBody"));
+    notifyOutgoingFailure(t("outgoing.sentCopyMissingTitle"), t("outgoing.sentCopyMissingBody"));
+    return;
+  }
+
+  await deleteOperation(opId);
 }
 
 const scheduledSendChecker = createBackgroundChecker("ScheduledSend", checkScheduledEmails);

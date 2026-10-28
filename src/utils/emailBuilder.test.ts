@@ -338,3 +338,19 @@ describe("emailBuilder — Lastname, Firstname recipients", () => {
     );
   });
 });
+
+describe("buildRawEmail — inline image dedup", () => {
+  it("emits one MIME part for an image repeated down a quoted chain", () => {
+    const logo = '<img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==">';
+    const other = '<img src="data:image/jpeg;base64,/9j/4AAQSkZJRg==">';
+    const raw = buildRawEmail({
+      from: "me@example.com",
+      to: ["you@example.com"],
+      subject: "Re: Parigi",
+      htmlBody: `<p>hi</p>${logo}<div>${logo}<div>${logo}${other}</div></div>`,
+    });
+    const text = decodeBase64Url(raw);
+    expect(text.match(/^Content-ID:/gim)).toHaveLength(2);
+    expect(text.match(/iVBORw0KGgoAAAANSUhEUg==/g)).toHaveLength(1);
+  });
+});

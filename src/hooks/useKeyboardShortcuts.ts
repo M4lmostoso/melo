@@ -333,9 +333,9 @@ case "action.reply": {
           if (replyMode === "replyAll") {
             const myEmails = useAccountStore.getState().accounts.map(a => a.email);
             const { to, cc } = buildReplyAllRecipients({ replyTo, toHeader: lastMessage.to_addresses, ccHeader: lastMessage.cc_addresses, selfEmails: myEmails });
-            useComposerStore.getState().openComposer({ mode: "replyAll", to, cc, subject: `Re: ${lastMessage.subject ?? ""}`, quotedHtml: buildReplyQuote(messages), threadId: lastMessage.thread_id, inReplyToMessageId: lastMessage.id, accountId: activeAccountId });
+            useComposerStore.getState().openComposer({ mode: "replyAll", to, cc, subject: `Re: ${lastMessage.subject ?? ""}`, quotedHtml: buildReplyQuote(lastMessage), threadId: lastMessage.thread_id, inReplyToMessageId: lastMessage.id, accountId: activeAccountId });
           } else {
-            useComposerStore.getState().openComposer({ mode: "reply", to: replyTo ? [replyTo] : [], subject: `Re: ${lastMessage.subject ?? ""}`, quotedHtml: buildReplyQuote(messages), threadId: lastMessage.thread_id, inReplyToMessageId: lastMessage.id, accountId: activeAccountId });
+            useComposerStore.getState().openComposer({ mode: "reply", to: replyTo ? [replyTo] : [], subject: `Re: ${lastMessage.subject ?? ""}`, quotedHtml: buildReplyQuote(lastMessage), threadId: lastMessage.thread_id, inReplyToMessageId: lastMessage.id, accountId: activeAccountId });
           }
         }
       }
@@ -349,7 +349,7 @@ case "action.reply": {
           const replyTo = lastMessage.reply_to ?? lastMessage.from_address;
           const myEmails = useAccountStore.getState().accounts.map(a => a.email);
           const { to, cc } = buildReplyAllRecipients({ replyTo, toHeader: lastMessage.to_addresses, ccHeader: lastMessage.cc_addresses, selfEmails: myEmails });
-          useComposerStore.getState().openComposer({ mode: "replyAll", to, cc, subject: `Re: ${lastMessage.subject ?? ""}`, quotedHtml: buildReplyQuote(messages), threadId: lastMessage.thread_id, inReplyToMessageId: lastMessage.id, accountId: activeAccountId });
+          useComposerStore.getState().openComposer({ mode: "replyAll", to, cc, subject: `Re: ${lastMessage.subject ?? ""}`, quotedHtml: buildReplyQuote(lastMessage), threadId: lastMessage.thread_id, inReplyToMessageId: lastMessage.id, accountId: activeAccountId });
         }
       }
       break;

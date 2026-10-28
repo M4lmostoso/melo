@@ -160,7 +160,7 @@ async function saveLocal(): Promise<void> {
       date: now,
       isRead: true, // you authored it — an unread draft row inflates unread counts
       isStarred: false,
-      bodyHtml: state.bodyHtml.slice(0, 50000),
+      bodyHtml: state.bodyHtml,
       bodyText: null,
       rawSize: state.bodyHtml.length,
       internalDate: now,
