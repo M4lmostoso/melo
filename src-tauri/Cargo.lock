@@ -3034,6 +3034,7 @@ dependencies = [
  "log",
  "mail-parser",
  "native-tls",
+ "objc2-foundation",
  "rayon",
  "reqwest 0.12.28",
  "rusqlite",

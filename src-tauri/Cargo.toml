@@ -63,6 +63,9 @@ tray-item = { version = "0.10.0", default-features = false, features = ["ksni"] 
 [target.'cfg(target_os = "macos")'.dependencies]
 tikv-jemallocator = "0.6"
 tikv-jemalloc-sys = "0.6"
+# NSProcessInfo activity assertion: keeps App Nap from suspending the app while
+# minimized / hidden in the tray, where the sync timers would otherwise stop.
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSProcessInfo", "NSString"] }
 
 [target.'cfg(target_os = "linux")'.dependencies.tikv-jemallocator]
 version = "0.6"

@@ -224,6 +224,25 @@ fn draw_char_on_pixels(
     }
 }
 
+/// Opts the app out of App Nap for its whole lifetime.
+///
+/// Background sync, the outgoing queue, scheduled send and snooze all run on
+/// webview timers. Minimized or hidden in the tray, macOS napped the app and
+/// those timers stopped: the log showed 37 minutes with no sync on any account
+/// until the window was reopened. The assertion still allows idle system sleep.
+#[cfg(target_os = "macos")]
+fn disable_app_nap() {
+    use objc2_foundation::{NSActivityOptions, NSProcessInfo, NSString};
+
+    let activity = NSProcessInfo::processInfo().beginActivityWithOptions_reason(
+        NSActivityOptions::UserInitiatedAllowingIdleSystemSleep,
+        &NSString::from_str("Background mail sync"),
+    );
+    // The assertion lasts as long as the token lives — never end it.
+    std::mem::forget(activity);
+    log::info!("[startup] App Nap disabled for background sync");
+}
+
 /// Decodes `tray-64x64-badge-light.png` or `tray-64x64-badge-dark.png` based on macOS appearance.
 #[cfg(target_os = "macos")]
 fn render_tray_badge_icon(count: usize, use_dark: bool) -> tauri::image::Image<'static> {
@@ -531,6 +550,9 @@ pub fn run() {
                         .build(),
                 )?;
             }
+
+            #[cfg(target_os = "macos")]
+            disable_app_nap();
 
             #[cfg(not(target_os = "linux"))]
             {
