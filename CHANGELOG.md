@@ -4,6 +4,24 @@
 
 ---
 
+## [0.1.13](https://github.com/M4lmostoso/melo/compare/v0.1.12...v0.1.13) (2026-10-29)
+
+
+### Features
+
+* add in-app EML preview and parsing support ([634dc2d](https://github.com/M4lmostoso/melo/commit/634dc2dae475ebc7ea32023d08954f990a204e6a))
+* add spam badge to message items based on database flag ([003bd3c](https://github.com/M4lmostoso/melo/commit/003bd3cd3ce1cfab188f144780790ab768ce554b))
+* add support for parsing and displaying iCalendar METHOD:REPLY responses in CalendarInviteWidget ([62a5b79](https://github.com/M4lmostoso/melo/commit/62a5b7917e708fb4a04f17aaad1bb2ab14881fee))
+* enhance unsubscribe manager with HTML body parsing and sender cleanup options ([2cf2670](https://github.com/M4lmostoso/melo/commit/2cf2670b0e41c0a67c5fed44374926b0284c4ae6))
+* hand off scheduled emails to outgoing queue upon firing ([869d943](https://github.com/M4lmostoso/melo/commit/869d9432a6991950dd0da611e23c052fae705051))
+
+
+### Bug Fixes
+
+* disable macOS App Nap and webview background throttling for reliable sync ([665ea0b](https://github.com/M4lmostoso/melo/commit/665ea0b40a058e024c29e8cc65a370782ac06411))
+* exclude draft messages from thread sorting and persist is_draft flag in database ([8a70c43](https://github.com/M4lmostoso/melo/commit/8a70c43a6e240641783d45ab712d82ca0b466073))
+* normalize base64 image data and mime type to prevent duplicate inline parts ([f0993cc](https://github.com/M4lmostoso/melo/commit/f0993cc6aec988b132f3ac69bf00a2616d9e806c))
+
 ## [0.1.12](https://github.com/M4lmostoso/melo/compare/v0.1.11...v0.1.12) (2026-10-13)
 
 
