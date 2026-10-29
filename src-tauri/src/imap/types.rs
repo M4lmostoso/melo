@@ -130,6 +130,35 @@ pub struct ImapAttachment {
     pub is_inline: bool,
 }
 
+/// A `message/rfc822` attachment (.eml) parsed for the Quick Look preview.
+/// Every attachment of the inner message is written next to the .eml, so
+/// the webview loads inline images and opens files straight from disk.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EmlPreview {
+    pub subject: Option<String>,
+    pub from_address: Option<String>,
+    pub from_name: Option<String>,
+    pub to_addresses: Option<String>,
+    pub cc_addresses: Option<String>,
+    pub date: Option<i64>,
+    pub body_html: Option<String>,
+    pub body_text: Option<String>,
+    pub parts: Vec<EmlPart>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EmlPart {
+    pub filename: String,
+    pub mime_type: String,
+    pub size: u32,
+    pub content_id: Option<String>,
+    pub is_inline: bool,
+    /// Absolute path of the extracted part on disk.
+    pub path: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImapFolderStatus {
     pub uidvalidity: u32,

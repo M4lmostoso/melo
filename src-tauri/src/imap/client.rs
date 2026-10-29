@@ -3551,6 +3551,77 @@ fn fix_mojibake(s: &str) -> String {
     current
 }
 
+/// Parse a forwarded-as-attachment message (.eml) for the Quick Look preview.
+///
+/// The inner message's attachments are written to `parts_dir` (inline images
+/// included, so `cid:` references resolve to files the webview can load).
+/// Files already on disk with the right size are kept, so re-opening the
+/// preview costs only the parse.
+pub fn parse_eml_preview(raw: &[u8], parts_dir: &std::path::Path) -> Result<EmlPreview, String> {
+    let message = MessageParser::default()
+        .parse(raw)
+        .ok_or("Failed to parse MIME message")?;
+
+    let (from_address, from_name) = extract_first_address(message.from());
+    let date = message
+        .date()
+        .map(|d| d.to_timestamp() * 1000)
+        .filter(|&ts| ts > 0);
+
+    let mut parts = Vec::new();
+    if !message.attachments.is_empty() {
+        std::fs::create_dir_all(parts_dir).map_err(|e| e.to_string())?;
+    }
+    for (i, &part_idx) in message.attachments.iter().enumerate() {
+        let Some(part) = message.parts.get(part_idx) else { continue };
+        let mime_type = part
+            .content_type()
+            .map(|ct| format!("{}/{}", ct.ctype(), ct.subtype().unwrap_or("octet-stream")))
+            .unwrap_or_else(|| "application/octet-stream".to_string());
+        // A nested forwarded message rarely carries a filename (Outlook sends
+        // none) — name it after its subject so it reads like a mail, not "attachment".
+        let filename = match (part.attachment_name(), part.message()) {
+            (Some(name), _) => name.to_string(),
+            (None, Some(inner)) => format!(
+                "{}.eml",
+                inner.subject().map(fix_mojibake).unwrap_or_else(|| "message".to_string())
+            ),
+            (None, None) => "attachment".to_string(),
+        };
+        let safe: String = filename
+            .chars()
+            .map(|c| if c.is_alphanumeric() || " ._-()".contains(c) { c } else { '_' })
+            .take(120)
+            .collect();
+        let path = parts_dir.join(format!("{i}-{}", safe.trim()));
+        let contents = part.contents();
+        let up_to_date = std::fs::metadata(&path).is_ok_and(|m| m.len() == contents.len() as u64);
+        if !up_to_date {
+            std::fs::write(&path, contents).map_err(|e| e.to_string())?;
+        }
+        parts.push(EmlPart {
+            filename,
+            mime_type,
+            size: contents.len() as u32,
+            content_id: part.content_id().map(|s| s.to_string()),
+            is_inline: part.content_disposition().is_some_and(|cd| cd.is_inline()),
+            path: path.to_string_lossy().into_owned(),
+        });
+    }
+
+    Ok(EmlPreview {
+        subject: message.subject().map(fix_mojibake),
+        from_address,
+        from_name,
+        to_addresses: format_address_list(message.to()),
+        cc_addresses: format_address_list(message.cc()),
+        date,
+        body_html: message.body_html(0).map(|s| s.to_string()),
+        body_text: message.body_text(0).map(|s| s.to_string()),
+        parts,
+    })
+}
+
 /// Extract the first address (email, display name) from an Address field.
 fn extract_first_address(
     addr: Option<&mail_parser::Address>,
@@ -3594,6 +3665,57 @@ fn format_address_list(addr: Option<&mail_parser::Address>) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn eml_preview_decodes_headers_and_extracts_parts() {
+        let raw = b"From: Diego <d@example.com>\r\n\
+To: Ben <b@example.com>\r\n\
+Subject: =?utf-8?B?STogUkU6IHLDqXVuaW9uIFRNRS9TdWV6?=\r\n\
+Date: Wed, 23 Sep 2026 13:43:26 +0000\r\n\
+MIME-Version: 1.0\r\n\
+Content-Type: multipart/mixed; boundary=\"b1\"\r\n\
+\r\n\
+--b1\r\n\
+Content-Type: text/html; charset=utf-8\r\n\
+\r\n\
+<p>Ciao <img src=\"cid:logo@x\"></p>\r\n\
+--b1\r\n\
+Content-Type: image/png\r\n\
+Content-ID: <logo@x>\r\n\
+Content-Disposition: inline; filename=\"logo.png\"\r\n\
+Content-Transfer-Encoding: base64\r\n\
+\r\n\
+iVBORw0KGgo=\r\n\
+--b1\r\n\
+Content-Type: message/rfc822\r\n\
+Content-Disposition: attachment\r\n\
+\r\n\
+From: x@example.com\r\n\
+Subject: Inner/one\r\n\
+\r\n\
+body\r\n\
+--b1--\r\n";
+        let dir = std::env::temp_dir().join(format!("melo-eml-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let p = parse_eml_preview(raw, &dir).unwrap();
+        assert_eq!(p.subject.as_deref(), Some("I: RE: réunion TME/Suez"));
+        assert_eq!(p.from_address.as_deref(), Some("d@example.com"));
+        assert!(p.body_html.unwrap().contains("cid:logo@x"));
+        assert_eq!(p.parts.len(), 2);
+
+        let logo = &p.parts[0];
+        assert_eq!(logo.content_id.as_deref(), Some("logo@x"));
+        assert!(logo.is_inline);
+        assert_eq!(std::fs::read(&logo.path).unwrap(), b"\x89PNG\r\n\x1a\n");
+
+        // Unnamed nested message → named after its subject, path stays inside dir.
+        let inner = &p.parts[1];
+        assert_eq!(inner.filename, "Inner/one.eml");
+        assert!(inner.path.ends_with("1-Inner_one.eml"));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn list_unsubscribe_survives_the_address_parser() {

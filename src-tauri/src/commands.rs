@@ -10,7 +10,7 @@ use crate::imap::idle::ImapIdleRegistry;
 use crate::imap::pool::ImapSessionPool;
 use crate::imap::types::{
     AttachmentDownloadRequest, AttachmentDownloadResult, BodyCache, BodyEntry, CidImageRequest,
-    CidImageResult, DeltaCheckRequest, DeltaCheckResult, GmailAttachment, GmailMessage,
+    CidImageResult, DeltaCheckRequest, DeltaCheckResult, EmlPreview, GmailAttachment, GmailMessage,
     GmailStoredHeader, ImapConfig, ImapFetchResult, ImapFetchResultMeta, ImapFolder,
     ImapFolderSearchResult, ImapFolderStatus, ImapFolderSyncResult, ImapListHeaders, ImapMessage,
     ImapMessageMeta,
@@ -232,6 +232,37 @@ pub async fn imap_fetch_raw_message_base64(
     uid: u32,
 ) -> Result<String, String> {
     imap_client::raw_fetch_message_base64(&config, &folder, uid).await
+}
+
+/// Parse a cached `message/rfc822` attachment for the in-app preview. Only
+/// files inside `attachment_cache` are accepted; the inner message's parts
+/// are extracted to `<file>.parts/` beside it (same asset/open-path scope).
+#[tauri::command]
+pub async fn parse_eml_file(app: tauri::AppHandle, path: String) -> Result<EmlPreview, String> {
+    let cache_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| e.to_string())?
+        .join("attachment_cache")
+        .canonicalize()
+        .map_err(|e| e.to_string())?;
+    let file = std::path::PathBuf::from(&path)
+        .canonicalize()
+        .map_err(|e| format!("{path}: {e}"))?;
+    if !file.starts_with(&cache_dir) {
+        return Err(format!("{path} is outside the attachment cache"));
+    }
+    let file_name = file
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let parts_dir = file.with_file_name(format!("{file_name}.parts"));
+    tokio::task::spawn_blocking(move || {
+        let raw = std::fs::read(&file).map_err(|e| e.to_string())?;
+        imap_client::parse_eml_preview(&raw, &parts_dir)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]

@@ -794,6 +794,12 @@
       "title": "Delivery not confirmed",
       "description": "The server never confirmed this message: no copy of it exists in the Sent folder on the server. It may not have reached the recipient. The warning disappears on its own as soon as the copy turns up.",
       "badge": "Not confirmed"
+    },
+    "emlPreview": {
+      "from": "From:",
+      "date": "Date:",
+      "openPart": "Click to open",
+      "parseFailed": "Could not read this message"
     }
   },
   "composer": {

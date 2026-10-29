@@ -466,6 +466,7 @@ pub fn run() {
             log_startup_stage,
             open_devtools,
             commands::imap_test_connection,
+            commands::parse_eml_file,
             commands::imap_list_folders,
             commands::imap_create_folder,
             commands::imap_rename_folder,

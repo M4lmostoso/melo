@@ -36,8 +36,14 @@ export function isOfficeSpreadsheet(mimeType: string | null, filename?: string |
   return ext?.endsWith(".xlsx") || ext?.endsWith(".xls") || ext?.endsWith(".ods") || ext?.endsWith(".csv") || false;
 }
 
+/** A whole email attached as a file (forward-as-attachment, saved .eml). */
+export function isEml(mimeType: string | null, filename?: string | null): boolean {
+  if (mimeType === "message/rfc822") return true;
+  return filename?.toLowerCase().endsWith(".eml") ?? false;
+}
+
 export function canPreview(mimeType: string | null, filename: string | null): boolean {
-  return isImage(mimeType) || isPdf(mimeType, filename) || isText(mimeType) || isOfficeDoc(mimeType, filename) || isOfficeSpreadsheet(mimeType, filename);
+  return isImage(mimeType) || isPdf(mimeType, filename) || isText(mimeType) || isOfficeDoc(mimeType, filename) || isOfficeSpreadsheet(mimeType, filename) || isEml(mimeType, filename);
 }
 
 export function isDocument(mimeType: string | null, filename?: string | null): boolean {
@@ -81,6 +87,7 @@ export function getFileIcon(mimeType: string | null, filename?: string | null): 
   if (mimeType?.startsWith("video/")) return "\u{1F3AC}";
   if (mimeType?.startsWith("audio/")) return "\u{1F3B5}";
   if (isPdf(mimeType, filename)) return "\u{1F4D5}";
+  if (isEml(mimeType, filename)) return "\u{2709}";
   if (isPresentation(mimeType, filename)) return "\u{1F4D9}";
   if (isDocument(mimeType, filename)) return "\u{1F4D8}";
   if (isSpreadsheet(mimeType, filename)) return "\u{1F4CA}";

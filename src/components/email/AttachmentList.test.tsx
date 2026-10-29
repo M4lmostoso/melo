@@ -19,9 +19,22 @@ vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn().mockResolvedValue(() => {}),
 }));
 
-// Reveal-in-folder after a successful download.
+// Reveal-in-folder after a successful download; openPath for .eml inner parts.
 vi.mock("@tauri-apps/plugin-opener", () => ({
   revealItemInDir: vi.fn().mockResolvedValue(undefined),
+  openPath: vi.fn().mockResolvedValue(undefined),
+}));
+
+// .eml preview: Rust parses the cached message (parse_eml_file).
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn(),
+  convertFileSrc: (p: string) => `asset://${p}`,
+}));
+
+vi.mock("./EmailRenderer", () => ({
+  EmailRenderer: ({ html, cidMap }: { html: string | null; cidMap?: Map<string, string> }) => (
+    <div data-testid="eml-body" data-cids={JSON.stringify([...(cidMap ?? new Map()).entries()])}>{html}</div>
+  ),
 }));
 
 // Preview/download now go through the unified attachment cache: materialize to
@@ -44,6 +57,8 @@ vi.mock("@tauri-apps/plugin-fs", async (importOriginal) => {
 import { materializeAttachment } from "@/services/attachments/attachmentActions";
 import { readFile, copyFile } from "@tauri-apps/plugin-fs";
 import { save } from "@tauri-apps/plugin-dialog";
+import { invoke } from "@tauri-apps/api/core";
+import { openPath } from "@tauri-apps/plugin-opener";
 
 const makeAttachment = (overrides: Partial<DbAttachment> = {}): DbAttachment => ({
   id: "att-1",
@@ -267,5 +282,37 @@ describe("AttachmentList", () => {
     await waitFor(() => {
       expect(screen.getByText("Failed to load preview")).toBeInTheDocument();
     });
+  });
+
+  it("previews a message/rfc822 attachment as a mail: headers, body with cid images, inner attachments", async () => {
+    vi.mocked(materializeAttachment).mockResolvedValue("/cache/h/attachment");
+    vi.mocked(invoke).mockResolvedValue({
+      subject: "I: RE: réunion TME/Suez",
+      fromAddress: "d@example.com",
+      fromName: "Diego",
+      toAddresses: "Ben <b@example.com>",
+      ccAddresses: null,
+      date: 1790171006000,
+      bodyHtml: '<p>ciao <img src="cid:logo@x"></p>',
+      bodyText: "ciao",
+      parts: [
+        { filename: "logo.png", mimeType: "image/png", size: 10, contentId: "logo@x", isInline: true, path: "/cache/h/attachment.parts/0-logo.png" },
+        { filename: "Presentation.pdf", mimeType: "application/pdf", size: 2048, contentId: null, isInline: false, path: "/cache/h/attachment.parts/1-Presentation.pdf" },
+      ],
+    });
+
+    render(<AttachmentList attachments={[makeAttachment({ filename: "attachment", mime_type: "message/rfc822" })]} />);
+    fireEvent.keyDown(screen.getByText("attachment"), { key: " " });
+
+    await waitFor(() => expect(screen.getByText("I: RE: réunion TME/Suez")).toBeInTheDocument());
+    expect(invoke).toHaveBeenCalledWith("parse_eml_file", { path: "/cache/h/attachment" });
+    expect(readFile).not.toHaveBeenCalled();
+    expect(screen.getByText("Diego <d@example.com>")).toBeInTheDocument();
+    // The inline logo is resolved into the body, not listed as a file.
+    expect(screen.getByTestId("eml-body").dataset.cids).toContain("asset:///cache/h/attachment.parts/0-logo.png");
+    expect(screen.queryByText("logo.png")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Presentation.pdf"));
+    await waitFor(() => expect(openPath).toHaveBeenCalledWith("/cache/h/attachment.parts/1-Presentation.pdf"));
   });
 });

@@ -94,6 +94,8 @@ export async function evictOldestCached(): Promise<void> {
     try {
       const { remove, BaseDirectory } = await import("@tauri-apps/plugin-fs");
       await remove(row.local_path, { baseDir: BaseDirectory.AppData });
+      // Parts extracted by the .eml preview (parse_eml_file) live beside the file.
+      await remove(`${row.local_path}.parts`, { baseDir: BaseDirectory.AppData, recursive: true }).catch(() => {});
     } catch {
       // file may not exist
     }

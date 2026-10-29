@@ -5,8 +5,9 @@ import { getAttachmentsForMessage, type DbAttachment } from "@/services/db/attac
 import { Modal } from "@/components/ui/Modal";
 import { Download, Eye, Loader2, GripVertical } from "lucide-react";
 import { t } from "@/i18n";
-import { formatFileSize, isImage, isPdf, isText, isOfficeDoc, isOfficeSpreadsheet, canPreview, getFileIcon } from "@/utils/fileTypeHelpers";
+import { formatFileSize, isImage, isPdf, isText, isOfficeDoc, isOfficeSpreadsheet, isEml, canPreview, getFileIcon } from "@/utils/fileTypeHelpers";
 import { OfficeDocPreview } from "@/components/ui/OfficeDocPreview";
+import { EmlPreview } from "./EmlPreview";
 import { useMultiSelect } from "@/hooks/useMultiSelect";
 import { useDragOut } from "@/hooks/useDragOut";
 import { toAttachmentRef, openAttachmentWithDefaultApp, downloadAttachmentsToFolder, materializeAttachment } from "@/services/attachments/attachmentActions";
@@ -280,6 +281,8 @@ export function AttachmentPreview({
   const [downloading, setDownloading] = useState(false);
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [previewBytes, setPreviewBytes] = useState<Uint8Array | null>(null);
+  // Cache path of a .eml attachment — EmlPreview parses it in Rust.
+  const [emlPath, setEmlPath] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Download progress (0-100) while saving; undefined when idle. Separate red flag
   // so the bar only turns red for download failures, not preview-load errors.
@@ -327,10 +330,16 @@ export function AttachmentPreview({
   }, [attachment]);
 
   const handlePreviewLoad = useCallback(async () => {
-    if (!attachmentId || !isPreviewable || blobUrl || previewBytes) return;
+    if (!attachmentId || !isPreviewable || blobUrl || previewBytes || emlPath) return;
 
     setLoading(true);
     try {
+      if (isEml(attachment.mime_type, attachment.filename)) {
+        const path = cachePathRef.current ?? await materializeAttachment(toAttachmentRef(attachment));
+        cachePathRef.current = path;
+        setEmlPath(path);
+        return;
+      }
       if (isPdf(attachment.mime_type, attachment.filename)) {
         // Straight from the cache file through the asset protocol: WKWebView
         // renders the PDF itself, and no multi-MB copy sits in webview memory.
@@ -361,13 +370,13 @@ export function AttachmentPreview({
     } finally {
       setLoading(false);
     }
-  }, [attachment, isPreviewable, isOffice, blobUrl, previewBytes, fetchData]);
+  }, [attachment, isPreviewable, isOffice, blobUrl, previewBytes, emlPath, fetchData]);
 
   useEffect(() => {
-    if (isPreviewable && !blobUrl && !previewBytes && !loading && !error) {
+    if (isPreviewable && !blobUrl && !previewBytes && !emlPath && !loading && !error) {
       handlePreviewLoad();
     }
-  }, [isPreviewable, blobUrl, previewBytes, loading, error, handlePreviewLoad]);
+  }, [isPreviewable, blobUrl, previewBytes, emlPath, loading, error, handlePreviewLoad]);
 
   const handleDownload = async () => {
     if (!attachmentId || saving || downloading) return;
@@ -522,6 +531,9 @@ export function AttachmentPreview({
       )}
       {!loading && !error && blobUrl && isText(attachment.mime_type) && (
         <TextPreview url={blobUrl} fill={windowed} />
+      )}
+      {!loading && !error && emlPath && (
+        <EmlPreview path={emlPath} fill={windowed} />
       )}
       {!loading && !error && previewBytes && (
         <OfficeDocPreview bytes={previewBytes} mimeType={attachment.mime_type} filename={attachment.filename ?? null} />

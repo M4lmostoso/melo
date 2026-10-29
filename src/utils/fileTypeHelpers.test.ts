@@ -7,6 +7,7 @@ import {
   isPdf,
   isText,
   canPreview,
+  isEml,
   formatFileSize,
   getFileIcon,
 } from "./fileTypeHelpers";
@@ -123,5 +124,14 @@ describe("existing helpers", () => {
   it("getFileIcon returns emoji strings", () => {
     expect(typeof getFileIcon("image/png")).toBe("string");
     expect(typeof getFileIcon(null)).toBe("string");
+  });
+});
+
+describe("isEml", () => {
+  it("detects forwarded-as-attachment mail by mime type or extension", () => {
+    expect(isEml("message/rfc822", "attachment")).toBe(true);
+    expect(isEml("application/octet-stream", "Re: offerta.EML")).toBe(true);
+    expect(isEml("application/pdf", "report.pdf")).toBe(false);
+    expect(canPreview("message/rfc822", null)).toBe(true);
   });
 });

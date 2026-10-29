@@ -794,6 +794,12 @@
       "title": "Consegna non confermata",
       "description": "Il server non ha mai confermato questo messaggio: sul server non esiste alcuna copia in Posta inviata. Potrebbe non essere arrivato al destinatario. L'avviso sparisce da solo non appena la copia compare.",
       "badge": "Non confermata"
+    },
+    "emlPreview": {
+      "from": "Da:",
+      "date": "Data:",
+      "openPart": "Clicca per aprire",
+      "parseFailed": "Impossibile leggere questo messaggio"
     }
   },
   "composer": {
