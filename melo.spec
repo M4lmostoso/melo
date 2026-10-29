@@ -1,6 +1,6 @@
 %global app_name melo
 # x-release-please-start-version
-%global app_version 0.1.12
+%global app_version 0.1.13
 # x-release-please-end
 %global app_release 1
 
