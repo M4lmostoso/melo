@@ -120,7 +120,7 @@ export async function initNotifications(): Promise<void> {
     actionTypesRegistered = true;
 
     await onAction(async (event) => {
-      const actionId = event.actionTypeId;
+      const actionId = event.actionId;
       const ctx = lastNotificationContext;
 
       if (actionId === "join" && ctx?.meetingUrl) {
