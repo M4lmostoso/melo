@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ImapSmtpProvider } from "./imapSmtpProvider";
+import { onSmtpAccepted } from "./sendHooks";
 
 // Mock all external dependencies
 vi.mock("../db/accounts", () => ({
@@ -669,6 +670,37 @@ describe("ImapSmtpProvider", () => {
       error.mockRestore();
 
       expect(result.sentCopyDurable).toBe(false);
+    });
+
+    // 2026-11-09: a 10 MB DavMail send kept its draft in Drafts for ~95 s because
+    // the draft cleanup waited for the Sent-folder probe. The hook lets it go at the 250.
+    it("fires the smtp-accepted hook right after the 250, before the Sent probe", async () => {
+      vi.mocked(smtpSendEmail).mockResolvedValue({ success: true, message: "OK" });
+      vi.mocked(findSpecialFolder).mockResolvedValue("Sent");
+      vi.mocked(imapAppendMessage).mockResolvedValue(100);
+      const order: string[] = [];
+      vi.mocked(imapSearchMessageId).mockImplementation(async () => {
+        order.push("probe");
+        return [];
+      });
+      const off = onSmtpAccepted("test123@example.com", () => void order.push("hook"));
+
+      await provider.sendMessage(rawBase64Url);
+      off();
+
+      expect(order[0]).toBe("hook");
+      expect(order).toContain("probe");
+    });
+
+    it("never fires the smtp-accepted hook for a refused send", async () => {
+      vi.mocked(smtpSendEmail).mockResolvedValue({ success: false, message: "451 Error" });
+      const hook = vi.fn();
+      const off = onSmtpAccepted("test123@example.com", hook);
+
+      await expect(provider.sendMessage(rawBase64Url)).rejects.toThrow("SMTP send failed");
+      off();
+
+      expect(hook).not.toHaveBeenCalled();
     });
 
     it("reports the copy durable on the normal path", async () => {

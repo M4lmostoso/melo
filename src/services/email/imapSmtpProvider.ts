@@ -29,6 +29,7 @@ import { upsertMessage, getMessagesForThread } from "../db/messages";
 import { upsertAttachment } from "../db/attachments";
 import { getDb } from "../db/connection";
 import { getSetting, setSetting } from "../db/settings";
+import { fireSmtpAccepted, messageIdFromRaw } from "./sendHooks";
 import { decodeEncodedWords, decodeMimeBodyText } from "@/utils/rawEmailParser";
 import {
   upsertThread,
@@ -998,6 +999,9 @@ export class ImapSmtpProvider implements EmailProvider {
     if (!result.success) {
       throw new Error(`SMTP send failed: ${result.message}`);
     }
+    // The server took the mail: let the caller drop the draft NOW instead of after
+    // the Sent-folder probe/APPEND below (which can take a minute on DavMail).
+    fireSmtpAccepted(messageIdFromRaw(rawBase64Url));
 
     // Append to server Sent folder. If we get the real IMAP UID back we can
     // build a stable message ID and save locally — the background sync will

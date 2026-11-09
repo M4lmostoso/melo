@@ -506,8 +506,37 @@ export default function App() {
         window.dispatchEvent(new Event("melo-sync-done"));
         window.dispatchEvent(new Event("melo-badges-refresh"));
 
+        // Drop the server draft as soon as the SMTP server accepts the mail, not
+        // after the Sent-folder probe/APPEND that follows (≈95 s for a 10 MB
+        // DavMail send — the draft sat in Drafts all that time). The raw is safe
+        // in the Outgoing row until the send settles, so the draft is no longer
+        // the last copy. A refused send never fires the hook: the draft stays.
+        const draftIdsToDrop = [...new Set([p.currentDraftId, p.preTombstonedDraftId])].filter(
+          (id): id is string => !!id,
+        );
+        let earlyDraftCleanup: Promise<void> | null = null;
+        const { onSmtpAccepted, messageIdFromRaw } = await import("./services/email/sendHooks");
+        const sentMessageId = draftIdsToDrop.length > 0 ? messageIdFromRaw(p.raw) : null;
+        const unregisterAcceptedHook = sentMessageId
+          ? onSmtpAccepted(sentMessageId, () => {
+              earlyDraftCleanup = (async () => {
+                for (const id of draftIdsToDrop) {
+                  await deleteDraftAction(p.accountId, id, p.threadId ?? undefined).catch(() => {});
+                }
+                window.dispatchEvent(new Event("melo-sync-done"));
+                window.dispatchEvent(new Event("melo-badges-refresh"));
+              })();
+              return earlyDraftCleanup;
+            })
+          : null;
+
         try {
-          const sendResult = await sendEmail(p.accountId, p.raw, p.threadId ?? undefined);
+          let sendResult: Awaited<ReturnType<typeof sendEmail>>;
+          try {
+            sendResult = await sendEmail(p.accountId, p.raw, p.threadId ?? undefined);
+          } finally {
+            unregisterAcceptedHook?.();
+          }
 
           if (!sendResult.success) {
             // Permanent send failure. The draft was already tombstoned in the Composer, so
@@ -635,7 +664,9 @@ export default function App() {
             }).catch(() => {});
           }
 
-          if (p.currentDraftId) {
+          // Server draft(s) already dropped at the SMTP 250 (onSmtpAccepted above).
+          if (earlyDraftCleanup) await earlyDraftCleanup;
+          if (p.currentDraftId && !earlyDraftCleanup) {
             // currentDraftId = server UID-based IMAP ID (or Gmail API ID).
             // deleteDraftAction tombstones + EXPUNGEs the server draft and cleans
             // up the local stable-UUID row via is_draft=1 query on the thread.
@@ -644,7 +675,7 @@ export default function App() {
               p.currentDraftId,
               p.threadId ?? undefined,
             ).catch(() => {});
-          } else if (p.localDraftId) {
+          } else if (!p.currentDraftId && p.localDraftId) {
             // No server draft (sent within the 18s server debounce window):
             // only a local SQLite row exists — delete it directly.
             const { getDb } = await import("./services/db/connection");
@@ -678,7 +709,7 @@ export default function App() {
           // suppressed) but never EXPUNGEd it from the server Drafts folder — so it would
           // linger there ("stuck in Drafts"). The composer window can't be trusted to finish
           // that network round trip, so the EXPUNGE is handed to this persistent window.
-          if (p.preTombstonedDraftId) {
+          if (p.preTombstonedDraftId && !earlyDraftCleanup) {
             await deleteDraftAction(
               p.accountId,
               p.preTombstonedDraftId,

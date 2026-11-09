@@ -675,6 +675,26 @@ const getFullHtml = useCallback(() => {
         // a still-painted toast invites an Undo click that can no longer work.
         await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
 
+        // The undo window is over: the draft is no longer the way back to this
+        // mail — the persisted Outgoing row is. Drop it from Drafts NOW instead of
+        // when the main window receives the hand-off below: serialising a 10 MB
+        // raw across IPC takes long enough that the "sent" mail kept showing in
+        // Drafts. Only with the undo row persisted (anti-loss); the main window's
+        // purge at hand-off stays as the idempotent backstop.
+        if (undoOpId) {
+          const draftForPurge = getServerDraftId() ?? currentDraftId;
+          if (draftForPurge?.startsWith("imap-")) {
+            await tombstoneImapDraft(effectiveAccountId, draftForPurge).catch(() => {});
+          }
+          await purgeDraftFromDb(
+            effectiveAccountId,
+            draftForPurge ?? null,
+            state.threadId ?? null,
+            state.localDraftId ?? null,
+          ).catch(() => {});
+          notifyDraftChanged();
+        }
+
         // Hand off the actual SMTP send to the main window via Tauri event.
         // The main window's JS context is persistent — it handles SMTP, draft
         // cleanup, archive, and contact upsert while this composer window closes.
@@ -1070,9 +1090,9 @@ const getFullHtml = useCallback(() => {
     if (!isFullpage) return;
     const title = subject.trim() || modeLabel;
     import("@tauri-apps/api/window")
-      .then(({ getCurrentWindow }) => {
-        getCurrentWindow().setTitle(title);
-      })
+      // Return the promise so a refusal lands in this catch instead of escaping as
+      // an unhandled rejection — once per keystroke in the subject field.
+      .then(({ getCurrentWindow }) => getCurrentWindow().setTitle(title))
       .catch((err) => console.error("Failed to set window title", err));
   }, [subject, modeLabel, isFullpage]);
 

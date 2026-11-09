@@ -1391,6 +1391,74 @@ pub async fn imap_flush_bodies(
 // These commands fetch from IMAP and write ALL SQL via rusqlite,
 // so WebKit never receives or allocates memory for message content.
 
+/// Server UIDs in `folder` already represented by a local draft row whose id is
+/// NOT the UID-derived `imap-{account}-{folder}-{uid}` — i.e. the composer's
+/// stable-UUID draft row stamped with its latest autosave copy's coordinates.
+/// The sync must not import those copies as a second draft (see Filter 1b).
+fn load_draft_coord_uids(
+    conn: &rusqlite::Connection,
+    account_id: &str,
+    folder: &str,
+) -> Result<std::collections::HashSet<u32>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT imap_uid FROM messages \
+             WHERE account_id = ?1 AND imap_folder = ?2 AND is_draft = 1 \
+               AND imap_uid IS NOT NULL \
+               AND id <> ('imap-' || ?1 || '-' || ?2 || '-' || imap_uid)",
+        )
+        .map_err(|e| e.to_string())?;
+    let uids = stmt
+        .query_map(rusqlite::params![account_id, folder], |r| r.get::<_, u32>(0))
+        .map_err(|e| e.to_string())?
+        .filter_map(|r| r.ok())
+        .collect();
+    Ok(uids)
+}
+
+#[cfg(test)]
+mod draft_coord_tests {
+    use super::load_draft_coord_uids;
+
+    fn db() -> rusqlite::Connection {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE messages (id TEXT, account_id TEXT, imap_uid INTEGER, \
+             imap_folder TEXT, is_draft INTEGER);",
+        )
+        .unwrap();
+        conn
+    }
+
+    #[test]
+    fn stable_draft_row_claims_its_server_copy() {
+        let conn = db();
+        // composer's stable-UUID draft, stamped with the autosave copy's coords
+        conn.execute(
+            "INSERT INTO messages VALUES ('9560bb79-uuid','acc',4330,'Drafts',1)",
+            [],
+        )
+        .unwrap();
+        let uids = load_draft_coord_uids(&conn, "acc", "Drafts").unwrap();
+        assert!(uids.contains(&4330));
+    }
+
+    #[test]
+    fn ordinary_rows_and_other_scopes_are_not_claimed() {
+        let conn = db();
+        conn.execute_batch(
+            "INSERT INTO messages VALUES ('imap-acc-Drafts-12','acc',12,'Drafts',1); \
+             INSERT INTO messages VALUES ('uuid-sent','acc',13,'Drafts',0); \
+             INSERT INTO messages VALUES ('uuid-other-folder','acc',14,'INBOX.Drafts',1); \
+             INSERT INTO messages VALUES ('uuid-other-acc','acc2',15,'Drafts',1); \
+             INSERT INTO messages VALUES ('uuid-no-coords','acc',NULL,'Drafts',1);",
+        )
+        .unwrap();
+        let uids = load_draft_coord_uids(&conn, "acc", "Drafts").unwrap();
+        assert!(uids.is_empty(), "unexpected claims: {uids:?}");
+    }
+}
+
 /// Fetch a batch of messages from IMAP and write thread placeholders, messages (with full
 /// body_html + body_text), and attachments directly to SQLite via rusqlite.
 /// Returns only the minimal `ImapSyncHeader` slice needed for JWZ threading (~200 B/msg).
@@ -1471,6 +1539,19 @@ pub async fn imap_fetch_and_store(
         .collect();
     drop(tombstone_stmt);
 
+    // Server UIDs already represented by a local draft row under a DIFFERENT id.
+    // The composer keeps one stable-UUID row per draft and stamps it with the
+    // coordinates of its latest autosave copy (`draftAutoSave.saveServer`), but not
+    // with that copy's Message-ID — so Filter 2 can't recognise the copy. When the
+    // sync fetched it after the APPEND continuation had already run, it was stored
+    // as a SECOND draft in its own thread; the send-time purge only sweeps the
+    // composer's thread, so the copy sat in Drafts next to the sent mail until the
+    // post-send server delete (~95 s for a 10 MB DavMail send, 2026-11-09).
+    // A UID is unique within a folder: a row already carrying these coordinates IS
+    // this server message. Scoped to drafts — every other row's id is derived from
+    // its coordinates and is handled by the ON CONFLICT path below.
+    let draft_coord_uids = load_draft_coord_uids(&conn, &account_id, &folder)?;
+
     // Load existing RFC message IDs for this batch to detect cross-folder duplicates.
     let rfc_ids_in_batch: Vec<String> = fetch_result
         .messages
@@ -1520,6 +1601,10 @@ pub async fn imap_fetch_and_store(
     for msg in fetch_result.messages.into_iter() {
         // Filter 1: tombstone
         if tombstones.contains(&msg.uid) {
+            continue;
+        }
+        // Filter 1b: the composer's own draft row already stands for this server copy.
+        if draft_coord_uids.contains(&msg.uid) {
             continue;
         }
 
