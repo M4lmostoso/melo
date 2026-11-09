@@ -1,6 +1,7 @@
 import { isAiAvailable } from "./providerManager";
 import { categorizeThreads } from "./aiService";
 import { getSetting } from "@/services/db/settings";
+import { isRateLimitError } from "./errors";
 import {
   getRecentRuleCategorizedThreadIds,
   setThreadCategoriesBatch,
@@ -34,6 +35,9 @@ export async function categorizeNewThreads(accountId: string): Promise<void> {
     // Store results (setThreadCategoriesBatch respects manual overrides)
     await setThreadCategoriesBatch(accountId, categories);
   } catch (err) {
+    // Rate limited: the limiter already logged the pause once — don't add a
+    // console.error per sync cycle while it lasts.
+    if (isRateLimitError(err)) return;
     // Non-blocking — log and continue
     console.error("Auto-categorization failed:", err);
   }

@@ -139,8 +139,9 @@ To enable AI features, add your API key for one or more providers in Settings:
 
 - **Anthropic Claude** -- [Get API key](https://console.anthropic.com/) -- Haiku 4.5 (default), Sonnet 4.6, Opus 4.8, Fable 5
 - **OpenAI** -- [Get API key](https://platform.openai.com/) -- GPT-5 Mini (default), GPT-5
-- **Google Gemini** -- [Get API key](https://aistudio.google.com/) -- Gemini 3 Flash (default), Gemini 3 Pro
+- **Google AI Studio** -- [Get API key](https://aistudio.google.com/) -- Gemini 3.6 Flash (default), 3.5 Flash-Lite, 3.8 Flash, 3.1 Pro (preview), Gemma 4 31B / 26B A4B. Retired ids stored in settings are remapped on read (`resolveModelId` in `ai/types.ts`)
 - **Ollama** (local) -- Install [Ollama](https://ollama.com/), set server URL (default `http://localhost:11434`) and model (default `llama3.3`, e.g. `gemma4:12b`) in Settings > AI. No API key required.
 - **GitHub Copilot** -- Requires a Copilot subscription. Set your API key in Settings > AI.
+- **Kilo Gateway** -- OpenAI-compatible router with free models (`kilo-auto/free`, `*:free`, rate-limited). Create a key at app.kilo.ai and set it in Settings > AI.
 
 After configuring a provider, select which model to use per feature in Settings > AI.

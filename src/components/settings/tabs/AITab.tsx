@@ -2,11 +2,12 @@ import { useState, useEffect } from "react";
 import { t } from "@/i18n";
 import { useAccountStore } from "@/stores/accountStore";
 import { getSetting, setSetting, getSecureSetting, setSecureSetting } from "@/services/db/settings";
-import { PROVIDER_MODELS } from "@/services/ai/types";
+import { PROVIDER_MODELS, DEFAULT_MODELS, resolveModelId } from "@/services/ai/types";
 import { Section, SettingRow, ToggleRow } from "./shared";
 import { Button } from "@/components/ui/Button";
 import { TextField } from "@/components/ui/TextField";
 import { SoulEditorDialog } from "@/components/settings/SoulEditorDialog";
+import { ModelPicker } from "@/components/settings/ModelPicker";
 
 
 function BundleSettings() {
@@ -139,17 +140,19 @@ export function AITab() {
   const storedActiveId = useAccountStore((s) => s.activeAccountId);
   const activeAccountId = storedActiveId ?? accounts[0]?.id;
 
-  const [aiProvider, setAiProvider] = useState<"claude" | "openai" | "gemini" | "ollama" | "copilot">("claude");
+  const [aiProvider, setAiProvider] = useState<"claude" | "openai" | "gemini" | "ollama" | "copilot" | "kilo">("claude");
   const [claudeApiKey, setClaudeApiKey] = useState("");
   const [openaiApiKey, setOpenaiApiKey] = useState("");
   const [geminiApiKey, setGeminiApiKey] = useState("");
   const [copilotApiKey, setCopilotApiKey] = useState("");
+  const [kiloApiKey, setKiloApiKey] = useState("");
   const [ollamaServerUrl, setOllamaServerUrl] = useState("http://localhost:11434");
   const [ollamaModel, setOllamaModel] = useState("llama3.3");
   const [claudeModel, setClaudeModel] = useState("claude-haiku-4-5-20251001");
   const [openaiModel, setOpenaiModel] = useState("gpt-5-mini");
-  const [geminiModel, setGeminiModel] = useState("gemini-3-flash");
+  const [geminiModel, setGeminiModel] = useState(DEFAULT_MODELS.gemini);
   const [copilotModel, setCopilotModel] = useState("openai/gpt-4o-mini");
+  const [kiloModel, setKiloModel] = useState("kilo-auto/free");
   const [aiEnabled, setAiEnabled] = useState(true);
   const [aiAutoCategorize, setAiAutoCategorize] = useState(true);
   const [aiAutoSummarize, setAiAutoSummarize] = useState(true);
@@ -157,6 +160,7 @@ export function AITab() {
   const [aiKeySaved, setAiKeySaved] = useState(false);
   const [aiTesting, setAiTesting] = useState(false);
   const [aiTestResult, setAiTestResult] = useState<"success" | "fail" | null>(null);
+  const [rateLimit, setRateLimit] = useState<{ pausedUntil: number; backfillResumeAt: number } | null>(null);
   const [aiAutoDraftEnabled, setAiAutoDraftEnabled] = useState(true);
   const [aiWritingStyleEnabled, setAiWritingStyleEnabled] = useState(true);
   const [styleAnalyzing, setStyleAnalyzing] = useState(false);
@@ -173,7 +177,7 @@ export function AITab() {
   useEffect(() => {
     async function load() {
       const provider = await getSetting("ai_provider");
-      if (provider === "openai" || provider === "gemini" || provider === "ollama" || provider === "copilot")
+      if (provider === "openai" || provider === "gemini" || provider === "ollama" || provider === "copilot" || provider === "kilo")
         setAiProvider(provider);
       const ollamaUrl = await getSetting("ollama_server_url");
       if (ollamaUrl) setOllamaServerUrl(ollamaUrl);
@@ -184,9 +188,11 @@ export function AITab() {
       const openaiModelVal = await getSetting("openai_model");
       if (openaiModelVal) setOpenaiModel(openaiModelVal);
       const geminiModelVal = await getSetting("gemini_model");
-      if (geminiModelVal) setGeminiModel(geminiModelVal);
+      if (geminiModelVal) setGeminiModel(resolveModelId("gemini", geminiModelVal));
       const copilotModelVal = await getSetting("copilot_model");
       if (copilotModelVal) setCopilotModel(copilotModelVal);
+      const kiloModelVal = await getSetting("kilo_model");
+      if (kiloModelVal) setKiloModel(kiloModelVal);
       const aiKey = await getSecureSetting("claude_api_key");
       setClaudeApiKey(aiKey ?? "");
       const oaiKey = await getSecureSetting("openai_api_key");
@@ -195,6 +201,8 @@ export function AITab() {
       setGeminiApiKey(gemKey ?? "");
       const copKey = await getSecureSetting("copilot_api_key");
       setCopilotApiKey(copKey ?? "");
+      const kiloKey = await getSecureSetting("kilo_api_key");
+      setKiloApiKey(kiloKey ?? "");
       const aiEn = await getSetting("ai_enabled");
       setAiEnabled(aiEn !== "false");
       const aiCat = await getSetting("ai_auto_categorize");
@@ -229,6 +237,49 @@ export function AITab() {
     load();
   }, []);
 
+  const currentModel = {
+    claude: claudeModel,
+    openai: openaiModel,
+    gemini: geminiModel,
+    copilot: copilotModel,
+    kilo: kiloModel,
+    ollama: ollamaModel,
+  }[aiProvider];
+
+  const setCurrentModel = (val: string) => {
+    if (aiProvider === "claude") setClaudeModel(val);
+    else if (aiProvider === "openai") setOpenaiModel(val);
+    else if (aiProvider === "gemini") setGeminiModel(val);
+    else if (aiProvider === "copilot") setCopilotModel(val);
+    else if (aiProvider === "kilo") setKiloModel(val);
+    else setOllamaModel(val);
+  };
+
+  useEffect(() => {
+    let alive = true;
+    const poll = () =>
+      import("@/services/ai/rateLimiter")
+        .then(({ getRateLimitStatus }) => alive && setRateLimit(getRateLimitStatus()))
+        .catch(() => {});
+    poll();
+    const id = setInterval(poll, 30_000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, []);
+
+  /** Persist the model of the current provider (empty → provider default). */
+  const saveModel = async (value: string) => {
+    const { DEFAULT_MODELS: defaults } = await import("@/services/ai/types");
+    const { modelSettingKey } = await import("@/services/ai/modelCatalog");
+    const val = value.trim() || defaults[aiProvider];
+    setCurrentModel(val);
+    await setSetting(modelSettingKey(aiProvider), val);
+    const { clearProviderClients } = await import("@/services/ai/providerManager");
+    clearProviderClients();
+  };
+
   const currentApiKey =
     aiProvider === "claude"
       ? claudeApiKey
@@ -236,7 +287,9 @@ export function AITab() {
         ? openaiApiKey
         : aiProvider === "copilot"
           ? copilotApiKey
-          : geminiApiKey;
+          : aiProvider === "kilo"
+            ? kiloApiKey
+            : geminiApiKey;
 
   const handleTestConnection = async () => {
     setAiTesting(true);
@@ -266,13 +319,14 @@ export function AITab() {
               const { clearProviderClients } = await import("@/services/ai/providerManager");
               clearProviderClients();
             }}
-            className="w-48 bg-bg-tertiary text-text-primary text-sm px-3 py-1.5 rounded-md border border-border-primary focus:border-accent outline-none"
+            className="w-64 bg-bg-tertiary text-text-primary text-sm px-3 py-1.5 rounded-md border border-border-primary focus:border-accent outline-none"
           >
             <option value="claude">{t("settings.ai.providerClaude")}</option>
             <option value="openai">{t("settings.ai.providerOpenAI")}</option>
             <option value="gemini">{t("settings.ai.providerGemini")}</option>
             <option value="ollama">{t("settings.ai.providerOllama")}</option>
             <option value="copilot">{t("settings.ai.providerCopilot")}</option>
+            <option value="kilo">{t("settings.ai.providerKilo")}</option>
           </select>
         </SettingRow>
         <p className="text-xs text-text-tertiary">
@@ -281,11 +335,27 @@ export function AITab() {
           {aiProvider === "openai" &&
             t("settings.ai.usesModel", { model: PROVIDER_MODELS.openai.find((m) => m.id === openaiModel)?.label ?? openaiModel })}
           {aiProvider === "gemini" &&
-            t("settings.ai.usesModel", { model: PROVIDER_MODELS.gemini.find((m) => m.id === geminiModel)?.label ?? geminiModel })}
+            t("settings.ai.geminiDesc", { model: PROVIDER_MODELS.gemini.find((m) => m.id === geminiModel)?.label ?? geminiModel })}
           {aiProvider === "ollama" && t("settings.ai.ollamaNoKey")}
           {aiProvider === "copilot" &&
             t("settings.ai.copilotDesc", { model: PROVIDER_MODELS.copilot.find((m) => m.id === copilotModel)?.label ?? copilotModel })}
+          {aiProvider === "kilo" &&
+            t("settings.ai.kiloDesc", {
+              model: PROVIDER_MODELS.kilo.find((m) => m.id === kiloModel)?.label ?? kiloModel,
+            })}
         </p>
+        {rateLimit && (
+          <p className="text-xs text-warning">
+            {t("settings.ai.rateLimited", {
+              live: new Date(rateLimit.pausedUntil).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+              backlog: new Date(rateLimit.backfillResumeAt).toLocaleString([], {
+                weekday: "short",
+                hour: "2-digit",
+                minute: "2-digit",
+              }),
+            })}
+          </p>
+        )}
       </Section>
 
       {aiProvider === "ollama" ? (
@@ -298,11 +368,12 @@ export function AITab() {
               onChange={(e) => setOllamaServerUrl(e.target.value)}
               placeholder="http://localhost:11434"
             />
-            <TextField
-              label={t("settings.ai.modelName")}
-              size="md"
+            <ModelPicker
+              provider="ollama"
               value={ollamaModel}
-              onChange={(e) => setOllamaModel(e.target.value)}
+              onChange={setOllamaModel}
+              onCommit={(v) => v && saveModel(v)}
+              serverUrl={ollamaServerUrl.trim()}
               placeholder="llama3.3"
             />
             <div className="flex items-center gap-2">
@@ -346,7 +417,9 @@ export function AITab() {
                     ? t("settings.ai.apiKeyOpenAI")
                     : aiProvider === "copilot"
                       ? t("settings.ai.apiKeyCopilot")
-                      : t("settings.ai.apiKeyGemini")
+                      : aiProvider === "kilo"
+                        ? t("settings.ai.apiKeyKilo")
+                        : t("settings.ai.apiKeyGemini")
               }
               size="md"
               type="password"
@@ -355,6 +428,7 @@ export function AITab() {
                 if (aiProvider === "claude") setClaudeApiKey(e.target.value);
                 else if (aiProvider === "openai") setOpenaiApiKey(e.target.value);
                 else if (aiProvider === "copilot") setCopilotApiKey(e.target.value);
+                else if (aiProvider === "kilo") setKiloApiKey(e.target.value);
                 else setGeminiApiKey(e.target.value);
               }}
               placeholder={
@@ -364,45 +438,20 @@ export function AITab() {
                     ? "sk-..."
                     : aiProvider === "copilot"
                       ? "ghp_..."
-                      : "AI..."
+                      : aiProvider === "kilo"
+                        ? "eyJ..."
+                        : "AI..."
               }
             />
-            <SettingRow label={t("settings.ai.model")}>
-              <select
-                value={
-                  aiProvider === "claude"
-                    ? claudeModel
-                    : aiProvider === "openai"
-                      ? openaiModel
-                      : aiProvider === "copilot"
-                        ? copilotModel
-                        : geminiModel
-                }
-                onChange={async (e) => {
-                  const val = e.target.value;
-                  const modelSettingMap = {
-                    claude: "claude_model",
-                    openai: "openai_model",
-                    gemini: "gemini_model",
-                    copilot: "copilot_model",
-                  } as const;
-                  if (aiProvider === "claude") setClaudeModel(val);
-                  else if (aiProvider === "openai") setOpenaiModel(val);
-                  else if (aiProvider === "copilot") setCopilotModel(val);
-                  else setGeminiModel(val);
-                  await setSetting(modelSettingMap[aiProvider], val);
-                  const { clearProviderClients } = await import("@/services/ai/providerManager");
-                  clearProviderClients();
-                }}
-                className="w-48 bg-bg-tertiary text-text-primary text-sm px-3 py-1.5 rounded-md border border-border-primary focus:border-accent outline-none"
-              >
-                {PROVIDER_MODELS[aiProvider].map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.label}
-                  </option>
-                ))}
-              </select>
-            </SettingRow>
+            <ModelPicker
+              key={aiProvider}
+              provider={aiProvider}
+              value={currentModel}
+              onChange={setCurrentModel}
+              onCommit={saveModel}
+              apiKey={currentApiKey.trim()}
+              placeholder={PROVIDER_MODELS[aiProvider][0]?.id}
+            />
             <div className="flex items-center gap-2">
               <Button
                 variant="primary"
@@ -413,7 +462,9 @@ export function AITab() {
                     openai: "openai_api_key",
                     gemini: "gemini_api_key",
                     copilot: "copilot_api_key",
+                    kilo: "kilo_api_key",
                   } as const;
+                  await saveModel(currentModel);
                   if (currentApiKey.trim()) {
                     await setSecureSetting(keySettingMap[aiProvider], currentApiKey.trim());
                     const { clearProviderClients } = await import("@/services/ai/providerManager");

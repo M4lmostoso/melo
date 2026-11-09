@@ -1,25 +1,51 @@
 import { getSetting, getSecureSetting } from "@/services/db/settings";
 import { AiError } from "./errors";
 import type { AiProvider, AiProviderClient } from "./types";
-import { DEFAULT_MODELS, MODEL_SETTINGS } from "./types";
+import { API_KEY_SETTINGS, MODEL_SETTINGS, resolveModelId } from "./types";
 import { createClaudeProvider, clearClaudeProvider } from "./providers/claudeProvider";
 import { createOpenAIProvider, clearOpenAIProvider } from "./providers/openaiProvider";
 import { createGeminiProvider, clearGeminiProvider } from "./providers/geminiProvider";
 import { createOllamaProvider, clearOllamaProvider } from "./providers/ollamaProvider";
 import { createCopilotProvider, clearCopilotProvider } from "./providers/copilotProvider";
+import { createKiloProvider, clearKiloProvider } from "./providers/kiloProvider";
+import { acquire, report429, reportSuccess, resetRateLimit } from "./rateLimiter";
+import { isRateLimitError } from "./errors";
 
-const API_KEY_SETTINGS: Record<Exclude<AiProvider, "ollama">, string> = {
-  claude: "claude_api_key",
-  openai: "openai_api_key",
-  gemini: "gemini_api_key",
-  copilot: "copilot_api_key",
-};
 
 let cachedProvider: { name: AiProvider; key: string; client: AiProviderClient } | null = null;
+/** provider|credentials|model the rate limiter's current pause belongs to. */
+let limiterOwner: string | null = null;
+
+/**
+ * Every completion goes through the rate limiter: background lanes wait for a
+ * slot (or fail fast while paused), and a 429 pauses them. testConnection is
+ * left alone — it is an explicit user check.
+ */
+function withRateLimit(name: AiProvider, key: string, client: AiProviderClient): AiProviderClient {
+  const owner = `${name}|${key}`;
+  // A different provider/key/model has its own quota: drop the old pause.
+  if (limiterOwner !== null && limiterOwner !== owner) resetRateLimit();
+  limiterOwner = owner;
+
+  return {
+    async complete(req) {
+      await acquire(req.priority ?? "interactive");
+      try {
+        const out = await client.complete(req);
+        reportSuccess();
+        return out;
+      } catch (err) {
+        if (isRateLimitError(err)) report429(err, name);
+        throw err;
+      }
+    },
+    testConnection: () => client.testConnection(),
+  };
+}
 
 export async function getActiveProviderName(): Promise<AiProvider> {
   const setting = await getSetting("ai_provider");
-  if (setting === "openai" || setting === "gemini" || setting === "ollama" || setting === "copilot") return setting;
+  if (setting === "openai" || setting === "gemini" || setting === "ollama" || setting === "copilot" || setting === "kilo") return setting;
   return "claude";
 }
 
@@ -35,7 +61,7 @@ export async function getActiveProvider(): Promise<AiProviderClient> {
       return cachedProvider.client;
     }
 
-    const client = createOllamaProvider(serverUrl, model);
+    const client = withRateLimit("ollama", cacheKey, createOllamaProvider(serverUrl, model));
     cachedProvider = { name: "ollama", key: cacheKey, client };
     return client;
   }
@@ -47,7 +73,7 @@ export async function getActiveProvider(): Promise<AiProviderClient> {
     throw new AiError("NOT_CONFIGURED", `${providerName} API key not configured`);
   }
 
-  const model = (await getSetting(MODEL_SETTINGS[providerName])) ?? DEFAULT_MODELS[providerName];
+  const model = resolveModelId(providerName, await getSetting(MODEL_SETTINGS[providerName]));
   const cacheKey = `${apiKey}|${model}`;
 
   if (cachedProvider && cachedProvider.name === providerName && cachedProvider.key === cacheKey) {
@@ -68,8 +94,12 @@ export async function getActiveProvider(): Promise<AiProviderClient> {
     case "copilot":
       client = createCopilotProvider(apiKey, model);
       break;
+    case "kilo":
+      client = createKiloProvider(apiKey, model);
+      break;
   }
 
+  client = withRateLimit(providerName, cacheKey, client);
   cachedProvider = { name: providerName, key: cacheKey, client };
   return client;
 }
@@ -100,4 +130,5 @@ export function clearProviderClients(): void {
   clearGeminiProvider();
   clearOllamaProvider();
   clearCopilotProvider();
+  clearKiloProvider();
 }

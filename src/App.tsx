@@ -1160,6 +1160,11 @@ export default function App() {
         // Start auto-update checker
         startUpdateChecker();
 
+        // Keep the AI model list current and move off models a provider retired
+        import("./services/ai/modelCatalog")
+          .then(({ startModelCatalogChecker }) => startModelCatalogChecker())
+          .catch(() => {});
+
         // Kick off embedding backfill (fire-and-forget; no-ops if rag_enabled != 'true')
         runEmbeddingBackfill().catch(() => {});
 
@@ -1222,6 +1227,7 @@ export default function App() {
       stopQueueProcessor();
       stopPreCacheManager();
       stopUpdateChecker();
+      import("./services/ai/modelCatalog").then(({ stopModelCatalogChecker }) => stopModelCatalogChecker()).catch(() => {});
       stopEmbeddingBackfill();
       unregisterComposeShortcut();
       deepLinkCleanupRef.current?.();

@@ -1,9 +1,9 @@
 import { getSetting } from "@/services/db/settings";
 import { getActiveProvider } from "./providerManager";
 import { getAiCache, setAiCache } from "@/services/db/aiCache";
-import { AiError } from "./errors";
+import { AiError, toAiError } from "./errors";
 import type { DbMessage } from "@/services/db/messages";
-import type { ConversationMessage } from "./types";
+import type { AiPriority, ConversationMessage } from "./types";
 import {
   SUMMARIZE_PROMPT,
   COMPOSE_PROMPT,
@@ -29,7 +29,7 @@ import { getSoul } from "./soulService";
 // not by reaching into providerManager directly (see eslint no-restricted-imports).
 export { isAiAvailable } from "./providerManager";
 
-async function callAi(systemPrompt: string, userContent: string, options?: { skipLanguage?: boolean; skipSoul?: boolean; conversationHistory?: ConversationMessage[] }): Promise<string> {
+async function callAi(systemPrompt: string, userContent: string, options?: { skipLanguage?: boolean; skipSoul?: boolean; conversationHistory?: ConversationMessage[]; priority?: AiPriority }): Promise<string> {
   let finalSystemPrompt = systemPrompt;
 
   // Prepend SOUL.md content as base personality
@@ -71,21 +71,13 @@ async function callAi(systemPrompt: string, userContent: string, options?: { ski
   try {
     const provider = await getActiveProvider();
     return await provider.complete({
+      priority: options?.priority ?? "interactive",
       systemPrompt: finalSystemPrompt,
       userContent,
       conversationHistory: options?.conversationHistory,
     });
-
   } catch (err) {
-    if (err instanceof AiError) throw err;
-    const message = err instanceof Error ? err.message : String(err);
-    if (message.includes("401") || message.includes("authentication")) {
-      throw new AiError("AUTH_ERROR", "Invalid API key");
-    }
-    if (message.includes("429") || message.includes("rate")) {
-      throw new AiError("RATE_LIMITED", "Rate limited — please try again shortly");
-    }
-    throw new AiError("NETWORK_ERROR", message);
+    throw toAiError(err);
   }
 }
 
@@ -247,6 +239,7 @@ const VALID_CATEGORIES = new Set(["Primary", "Updates", "Promotions", "Social", 
 
 export async function categorizeThreads(
   threads: { id: string; subject: string; snippet: string; fromAddress: string }[],
+  priority: AiPriority = "live",
 ): Promise<Map<string, string>> {
   const input = threads
     .map((t) => `<email_content>ID:${t.id} | From:${t.fromAddress} | Subject:${t.subject} | ${t.snippet}</email_content>`)
@@ -254,7 +247,7 @@ export async function categorizeThreads(
 
   const validThreadIds = new Set(threads.map((t) => t.id));
 
-  const result = await callAi(CATEGORIZE_PROMPT, input);
+  const result = await callAi(CATEGORIZE_PROMPT, input, { priority });
   const categories = new Map<string, string>();
 
   for (const line of result.split("\n")) {
@@ -290,7 +283,7 @@ export async function classifyThreadsBySmartLabels(
   const validThreadIds = new Set(threads.map((t) => t.id));
   const validLabelIds = new Set(labelRules.map((r) => r.labelId));
 
-  const result = await callAi(SMART_LABEL_PROMPT, userContent);
+  const result = await callAi(SMART_LABEL_PROMPT, userContent, { priority: "live" });
   const assignments = new Map<string, string[]>();
 
   for (const line of result.split("\n")) {
@@ -357,15 +350,20 @@ export async function testConnection(): Promise<boolean> {
 export async function judgeUrgencyResolved(
   urgentEmailText: string,
   replyText?: string,
+  priority: AiPriority = "live",
 ): Promise<boolean> {
   try {
     let userContent = `<original_email>${urgentEmailText.slice(0, 600)}</original_email>`;
     if (replyText) {
       userContent += `\n<user_reply>${replyText.slice(0, 400)}</user_reply>`;
     }
-    const result = await callAi(HEAT_EXTINGUISH_JUDGE_PROMPT, userContent, { skipLanguage: true });
+    const result = await callAi(HEAT_EXTINGUISH_JUDGE_PROMPT, userContent, { skipLanguage: true, priority });
     return result.trim().toUpperCase().startsWith("RESOLVED");
-  } catch {
+  } catch (err) {
+    // A rate limit is NOT a verdict: answering RESOLVED here zeroed the urgency
+    // of every replied thread the extinguish backfill touched while the
+    // provider was refusing calls. Let the caller skip and retry later.
+    if (err instanceof AiError && err.code === "RATE_LIMITED") throw err;
     return true;
   }
 }
@@ -387,6 +385,7 @@ export async function judgePhishingRisk(context: string): Promise<PhishingJudgem
   const result = await callAi(PHISHING_JUDGE_PROMPT, context, {
     skipLanguage: true,
     skipSoul: true,
+    priority: "live",
   });
   const trimmed = result.trim();
   const upper = trimmed.toUpperCase();
@@ -420,6 +419,7 @@ export async function scoreUrgencyWithAi(
   fromAddress: string,
   fromName: string,
   labels?: { id: string; name: string; examples?: { subject: string; fromAddress: string }[] }[],
+  priority: AiPriority = "live",
 ): Promise<UrgencyResult | null> {
   const cached = await getAiCache(accountId, threadId, "urgency");
   if (cached !== null) {
@@ -474,7 +474,7 @@ export async function scoreUrgencyWithAi(
   const result = await callAi(
     systemPrompt,
     `<email_content>${content}</email_content>`,
-    { skipLanguage: true, skipSoul: true },
+    { skipLanguage: true, skipSoul: true, priority },
   );
 
   try {

@@ -14,7 +14,8 @@ vi.mock("@/services/db/aiCache", () => ({
   setAiCache: vi.fn(),
 }));
 
-import { classifyThreadsBySmartLabels, judgePhishingRisk } from "./aiService";
+import { classifyThreadsBySmartLabels, judgePhishingRisk, judgeUrgencyResolved, categorizeThreads } from "./aiService";
+import { AiError } from "./errors";
 
 describe("classifyThreadsBySmartLabels", () => {
   beforeEach(() => {
@@ -139,5 +140,35 @@ describe("judgePhishingRisk", () => {
 
     mockComplete.mockResolvedValueOnce("I think this is fine");
     expect((await judgePhishingRisk("ctx")).verdict).toBe("safe");
+  });
+});
+
+describe("rate-limit handling in aiService", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("judgeUrgencyResolved rethrows a rate limit instead of answering RESOLVED", async () => {
+    mockComplete.mockRejectedValueOnce(Object.assign(new Error("Too Many Requests"), { status: 429 }));
+    await expect(judgeUrgencyResolved("urgent", "reply", "backfill")).rejects.toMatchObject({ code: "RATE_LIMITED" });
+  });
+
+  it("judgeUrgencyResolved keeps its lenient fallback for other failures", async () => {
+    mockComplete.mockRejectedValueOnce(new Error("socket hang up"));
+    expect(await judgeUrgencyResolved("urgent")).toBe(true);
+  });
+
+  it("passes the lane to the provider (categorisation = live by default)", async () => {
+    mockComplete.mockResolvedValueOnce("");
+    await categorizeThreads([{ id: "t1", subject: "s", snippet: "x", fromAddress: "a@b.c" }]);
+    expect(mockComplete.mock.calls[0]![0]).toMatchObject({ priority: "live" });
+
+    mockComplete.mockResolvedValueOnce("SAFE");
+    await judgePhishingRisk("ctx");
+    expect(mockComplete.mock.calls[1]![0]).toMatchObject({ priority: "live" });
+  });
+
+  it("a 'generate…' failure is not mistaken for a rate limit any more", async () => {
+    mockComplete.mockRejectedValueOnce(new Error("failed to generate content: model overloaded"));
+    await expect(judgePhishingRisk("ctx")).rejects.toMatchObject({ code: "NETWORK_ERROR" });
+    expect(AiError).toBeDefined();
   });
 });

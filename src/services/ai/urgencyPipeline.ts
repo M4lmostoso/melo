@@ -10,6 +10,11 @@ import {
 } from "./reputationEngine";
 import { scoreUrgencyWithAi } from "./aiService";
 import { isAiAvailable } from "./providerManager";
+import { AiError } from "./errors";
+import { isLaneOpen, onBacklogResume, waitForLane } from "./rateLimiter";
+
+/** Mail older than this is backlog: it goes in the rate limiter's slowest lane. */
+const LIVE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 const SKIP_LABELS = new Set(["SENT", "DRAFT", "TRASH", "SPAM"]);
 // Gmail category labels that indicate non-Primary threads — urgency is suppressed for these.
@@ -149,6 +154,8 @@ export async function processThreadUrgency(params: ThreadUrgencyParams): Promise
         fromAddress,
         fromName,
         autoLabelLabels,
+        // Old mail is slowed first when the provider pushes back (rateLimiter.ts).
+        params.isBackfill || Date.now() - params.lastMessageAt > LIVE_MAX_AGE_MS ? "backfill" : "live",
       );
       if (aiResult !== null) {
         rawScore = aiResult.score;
@@ -253,21 +260,43 @@ type BackfillRow = {
 const BACKFILL_BATCH = 20;
 const BACKFILL_DELAY_MS = 30;
 
+let urgencyBackfillRun: Promise<void> | null = null;
+let resumeHookInstalled = false;
+
 /**
  * Score urgency for all recent un-scored threads across all accounts.
- * Run once after the user enables Behavioral Intelligence.
- * Emits "melo-sync-done" on completion so the email list refreshes.
+ * Runs at startup, and again whenever the AI backlog lane reopens after a
+ * provider rate limit (threads skipped while paused keep urgency_score = 0, so
+ * they are picked up here). Emits "melo-sync-done" on completion.
+ *
+ * Newest first: when the provider limits us, the OLDEST mail is what waits.
+ * Keyset pagination — the old OFFSET skipped rows, because every thread scored
+ * in a batch leaves the `urgency_score = 0` set and shifts the next page.
  */
-export async function runUrgencyBackfill(): Promise<void> {
+export function runUrgencyBackfill(): Promise<void> {
+  if (!resumeHookInstalled) {
+    resumeHookInstalled = true;
+    onBacklogResume(() => {
+      runUrgencyBackfill().catch(() => {});
+    });
+  }
+  urgencyBackfillRun ??= doUrgencyBackfill().finally(() => {
+    urgencyBackfillRun = null;
+  });
+  return urgencyBackfillRun;
+}
+
+async function doUrgencyBackfill(): Promise<void> {
   const settings = await getUrgencySettings();
   if (!settings.behaviorEnabled || !settings.urgencyEnabled) return;
 
   const cutoffMs = Date.now() - settings.decayFloorDays * 86_400_000;
   const db = await getDb();
-  let offset = 0;
+  const aiAvailable = await isAiAvailable();
+  let cursor: { at: number; id: string } | null = null;
 
   while (true) {
-    const rows = await db.select<BackfillRow[]>(
+    const rows: BackfillRow[] = await db.select<BackfillRow[]>(
       `SELECT t.id, t.account_id, t.subject, t.last_message_at,
               m.from_address, m.from_name, m.body_text,
               (SELECT GROUP_CONCAT(tl.label_id) FROM thread_labels tl
@@ -281,14 +310,20 @@ export async function runUrgencyBackfill(): Promise<void> {
          AND t.last_message_at IS NOT NULL
          AND t.last_message_at >= $1
          AND (tc.category IS NULL OR tc.category = 'Primary')
+         AND ($2 IS NULL OR t.last_message_at < $2 OR (t.last_message_at = $2 AND t.id < $3))
        GROUP BY t.id, t.account_id
-       LIMIT $2 OFFSET $3`,
-      [cutoffMs, BACKFILL_BATCH, offset],
+       ORDER BY t.last_message_at DESC, t.id DESC
+       LIMIT $4`,
+      [cutoffMs, cursor?.at ?? null, cursor?.id ?? "", BACKFILL_BATCH],
     );
 
     if (rows.length === 0) break;
 
     for (const row of rows) {
+      // Provider said "slow down": wait for the backlog lane instead of firing
+      // calls that are refused anyway (they used to retry forever).
+      if (aiAvailable && !isLaneOpen("backfill")) await waitForLane("backfill");
+
       await processThreadUrgency({
         accountId: row.account_id,
         threadId: row.id,
@@ -300,10 +335,15 @@ export async function runUrgencyBackfill(): Promise<void> {
         labelIds: row.label_ids ? row.label_ids.split(",") : [],
         isBackfill: true,
       });
+
+      // This very call hit the limit: the thread is still unscored. Don't move
+      // the cursor past it — re-query from here once the lane reopens.
+      if (aiAvailable && !isLaneOpen("backfill")) break;
+      cursor = { at: row.last_message_at ?? 0, id: row.id };
       await new Promise<void>((r) => setTimeout(r, BACKFILL_DELAY_MS));
     }
 
-    offset += rows.length;
+    if (aiAvailable && !isLaneOpen("backfill")) continue;
     if (rows.length < BACKFILL_BATCH) break;
   }
 
@@ -381,6 +421,9 @@ export async function runExtinguishBackfill(): Promise<void> {
   const { judgeUrgencyResolved } = await import("./aiService");
 
   for (const row of replied) {
+    // Backlog lane paused by a provider rate limit: stop. The remaining rows keep
+    // their flags and are retried on the next run (after every sync cycle).
+    if (aiAvailable && !isLaneOpen("backfill")) break;
     try {
       const receivedText = [row.received_subject ?? "", (row.received_text ?? "").slice(0, 600)]
         .filter(Boolean)
@@ -392,8 +435,11 @@ export async function runExtinguishBackfill(): Promise<void> {
       let resolved = false;
       if (aiAvailable && receivedText) {
         try {
-          resolved = await judgeUrgencyResolved(receivedText, replyText);
-        } catch {
+          resolved = await judgeUrgencyResolved(receivedText, replyText, "backfill");
+        } catch (err) {
+          // Rate limited: no verdict — leave the thread untouched for a later run
+          // rather than decaying it on a non-answer.
+          if (err instanceof AiError && err.code === "RATE_LIMITED") break;
           resolved = false;
         }
       }

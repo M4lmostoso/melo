@@ -5,6 +5,7 @@ vi.mock("@/services/db/settings", () => {
   return {
     getSetting: fn,
     getSecureSetting: fn,
+    setSetting: vi.fn(async () => {}),
   };
 });
 
@@ -35,12 +36,21 @@ vi.mock("./providers/copilotProvider", () => ({
   clearCopilotProvider: vi.fn(),
 }));
 
+vi.mock("@/utils/fileLog", () => ({ logToFile: vi.fn() }));
+
+vi.mock("./providers/kiloProvider", () => ({
+  createKiloProvider: vi.fn(() => createMockAiProvider("kilo response")),
+  clearKiloProvider: vi.fn(),
+}));
+
 import { getSetting } from "@/services/db/settings";
 import { createClaudeProvider, clearClaudeProvider } from "./providers/claudeProvider";
 import { createOpenAIProvider } from "./providers/openaiProvider";
 import { createGeminiProvider } from "./providers/geminiProvider";
 import { createOllamaProvider } from "./providers/ollamaProvider";
 import { createCopilotProvider } from "./providers/copilotProvider";
+import { createKiloProvider } from "./providers/kiloProvider";
+import { __resetForTests as resetLimiter, isLaneOpen } from "./rateLimiter";
 import {
   getActiveProvider,
   getActiveProviderName,
@@ -82,6 +92,11 @@ describe("providerManager", () => {
       expect(await getActiveProviderName()).toBe("copilot");
     });
 
+    it("returns kilo when ai_provider is kilo", async () => {
+      mockGetSetting.mockResolvedValue("kilo");
+      expect(await getActiveProviderName()).toBe("kilo");
+    });
+
     it("defaults to claude for unknown provider value", async () => {
       mockGetSetting.mockResolvedValue("unknown_provider");
       expect(await getActiveProviderName()).toBe("claude");
@@ -119,7 +134,7 @@ describe("providerManager", () => {
       });
 
       await getActiveProvider();
-      expect(createGeminiProvider).toHaveBeenCalledWith("AItest", "gemini-3-flash");
+      expect(createGeminiProvider).toHaveBeenCalledWith("AItest", "gemini-3.6-flash");
     });
 
     it("uses custom model from settings when configured", async () => {
@@ -167,6 +182,17 @@ describe("providerManager", () => {
 
       await getActiveProvider();
       expect(createCopilotProvider).toHaveBeenCalledWith("ghp_test123", "openai/gpt-4o-mini");
+    });
+
+    it("creates kilo provider with the free auto-router by default", async () => {
+      mockGetSetting.mockImplementation(async (key: string) => {
+        if (key === "ai_provider") return "kilo";
+        if (key === "kilo_api_key") return "kilo_test";
+        return null;
+      });
+
+      await getActiveProvider();
+      expect(createKiloProvider).toHaveBeenCalledWith("kilo_test", "kilo-auto/free");
     });
 
     it("creates ollama provider with server url and model", async () => {
@@ -317,6 +343,48 @@ describe("providerManager", () => {
 
       await getActiveProvider();
       expect(createClaudeProvider).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe("rate limiting wrapper", () => {
+    beforeEach(() => {
+      resetLimiter();
+      mockGetSetting.mockImplementation(async (key: string) => {
+        if (key === "ai_provider") return "openai";
+        if (key === "openai_api_key") return "sk-test";
+        return null;
+      });
+    });
+
+    it("a 429 from the provider pauses the background lanes", async () => {
+      vi.mocked(createOpenAIProvider).mockReturnValueOnce({
+        complete: vi.fn().mockRejectedValue(Object.assign(new Error("Too Many Requests"), { status: 429 })),
+        testConnection: vi.fn(),
+      });
+      const client = await getActiveProvider();
+      await expect(client.complete({ systemPrompt: "s", userContent: "u", priority: "live" })).rejects.toThrow();
+      expect(isLaneOpen("live")).toBe(false);
+      expect(isLaneOpen("backfill")).toBe(false);
+      // …but the user can still ask
+      await expect(client.complete({ systemPrompt: "s", userContent: "u" })).rejects.toThrow("Too Many Requests");
+    });
+
+    it("switching to another key drops the old pause", async () => {
+      vi.mocked(createOpenAIProvider).mockReturnValueOnce({
+        complete: vi.fn().mockRejectedValue(Object.assign(new Error("429"), { status: 429 })),
+        testConnection: vi.fn(),
+      });
+      const client = await getActiveProvider();
+      await expect(client.complete({ systemPrompt: "s", userContent: "u" })).rejects.toThrow();
+      expect(isLaneOpen("live")).toBe(false);
+
+      mockGetSetting.mockImplementation(async (key: string) => {
+        if (key === "ai_provider") return "openai";
+        if (key === "openai_api_key") return "sk-other";
+        return null;
+      });
+      await getActiveProvider();
+      expect(isLaneOpen("live")).toBe(true);
     });
   });
 });
