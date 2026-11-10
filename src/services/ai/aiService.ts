@@ -77,7 +77,18 @@ async function callAi(systemPrompt: string, userContent: string, options?: { ski
       conversationHistory: options?.conversationHistory,
     });
   } catch (err) {
-    throw toAiError(err);
+    const aiErr = toAiError(err);
+    // Interactive failures (composer, summaries…) used to surface only in the UI:
+    // log status + provider message so they reach Melo.log via console forwarding.
+    if (aiErr.code !== "RATE_LIMITED") {
+      const status = (err as { status?: unknown } | null)?.status;
+      const raw = err instanceof Error ? err.message : String(err);
+      console.error(
+        `[ai] completion failed (status ${status ?? "?"}, system ${finalSystemPrompt.length} chars, ` +
+          `user ${userContent.length} chars, history ${options?.conversationHistory?.length ?? 0}): ${raw.slice(0, 1000)}`,
+      );
+    }
+    throw aiErr;
   }
 }
 

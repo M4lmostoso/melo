@@ -213,6 +213,8 @@ openComposer: (opts) => {
             dragDropEnabled: false,
             // @ts-ignore - titleBarStyle is valid for macOS in Tauri 2
             titleBarStyle: "Overlay",
+            // Melo draws its own title in the overlay bar — hide the native one or both show.
+            hiddenTitle: true,
           });
         }
       }).catch(err => {
