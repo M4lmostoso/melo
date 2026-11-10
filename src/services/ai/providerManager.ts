@@ -8,6 +8,7 @@ import { createGeminiProvider, clearGeminiProvider } from "./providers/geminiPro
 import { createOllamaProvider, clearOllamaProvider } from "./providers/ollamaProvider";
 import { createCopilotProvider, clearCopilotProvider } from "./providers/copilotProvider";
 import { createKiloProvider, clearKiloProvider } from "./providers/kiloProvider";
+import { createOpenRouterProvider, clearOpenRouterProvider } from "./providers/openrouterProvider";
 import { acquire, report429, reportSuccess, resetRateLimit } from "./rateLimiter";
 import { isRateLimitError } from "./errors";
 
@@ -45,7 +46,7 @@ function withRateLimit(name: AiProvider, key: string, client: AiProviderClient):
 
 export async function getActiveProviderName(): Promise<AiProvider> {
   const setting = await getSetting("ai_provider");
-  if (setting === "openai" || setting === "gemini" || setting === "ollama" || setting === "copilot" || setting === "kilo") return setting;
+  if (setting === "openai" || setting === "gemini" || setting === "ollama" || setting === "copilot" || setting === "kilo" || setting === "openrouter") return setting;
   return "claude";
 }
 
@@ -97,6 +98,9 @@ export async function getActiveProvider(): Promise<AiProviderClient> {
     case "kilo":
       client = createKiloProvider(apiKey, model);
       break;
+    case "openrouter":
+      client = createOpenRouterProvider(apiKey, model);
+      break;
   }
 
   client = withRateLimit(providerName, cacheKey, client);
@@ -131,4 +135,5 @@ export function clearProviderClients(): void {
   clearOllamaProvider();
   clearCopilotProvider();
   clearKiloProvider();
+  clearOpenRouterProvider();
 }

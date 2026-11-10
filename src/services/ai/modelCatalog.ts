@@ -43,6 +43,7 @@ export interface ModelCatalog {
 
 export const CATALOG_TTL_MS = 24 * 60 * 60 * 1000;
 export const KILO_BASE_URL = "https://api.kilo.ai/api/gateway";
+export const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 
 const cacheKey = (p: AiProvider) => `ai_model_catalog_${p}`;
 
@@ -136,25 +137,31 @@ async function fetchCopilot(creds: Credentials): Promise<CatalogModel[]> {
     .map((m) => ({ id: m.id, label: m.name ?? m.id }));
 }
 
-interface KiloEntry {
+interface GatewayEntry {
   id: string;
   name?: string;
   pricing?: { prompt?: string | number; completion?: string | number };
+  architecture?: { output_modalities?: string[] };
 }
 
-function isKiloFree(m: KiloEntry): boolean {
+function isGatewayFree(m: GatewayEntry): boolean {
   if (m.id.endsWith(":free") || m.id.endsWith("/free")) return true;
   const zero = (v: string | number | undefined) => v !== undefined && v !== "" && Number(v) === 0;
   return !!m.pricing && zero(m.pricing.prompt) && zero(m.pricing.completion);
 }
 
-/** Public endpoint — works without a key. Free models first. */
-async function fetchKilo(): Promise<CatalogModel[]> {
-  const body = (await getJson(`${KILO_BASE_URL}/models`)) as { data?: KiloEntry[] } | KiloEntry[];
+/**
+ * OpenRouter-style `/models` (Kilo, OpenRouter) — public, works without a key.
+ * Text-output models only (OpenRouter lists zero-priced music models like Lyria
+ * that would pass as "free"). Free models first.
+ */
+async function fetchGatewayModels(baseUrl: string): Promise<CatalogModel[]> {
+  const body = (await getJson(`${baseUrl}/models`)) as { data?: GatewayEntry[] } | GatewayEntry[];
   const entries = Array.isArray(body) ? body : (body.data ?? []);
   return entries
     .filter((m) => typeof m?.id === "string" && m.id.length > 0)
-    .map((m) => ({ id: m.id, label: m.name ?? m.id, free: isKiloFree(m) }))
+    .filter((m) => !m.architecture?.output_modalities || m.architecture.output_modalities.includes("text"))
+    .map((m) => ({ id: m.id, label: m.name ?? m.id, free: isGatewayFree(m) }))
     .sort((a, b) => Number(b.free) - Number(a.free) || a.id.localeCompare(b.id));
 }
 
@@ -176,7 +183,9 @@ export async function fetchProviderModels(provider: AiProvider, creds: Credentia
     case "copilot":
       return fetchCopilot(creds);
     case "kilo":
-      return fetchKilo();
+      return fetchGatewayModels(KILO_BASE_URL);
+    case "openrouter":
+      return fetchGatewayModels(OPENROUTER_BASE_URL);
     case "ollama":
       return fetchOllama(creds);
   }
@@ -195,7 +204,7 @@ function builtInCatalog(provider: AiProvider): ModelCatalog {
   const models =
     provider === "ollama"
       ? [{ id: DEFAULT_MODELS.ollama, label: DEFAULT_MODELS.ollama }]
-      : PROVIDER_MODELS[provider].map((m) => ({ ...m, free: provider === "kilo" }));
+      : PROVIDER_MODELS[provider].map((m) => ({ ...m, free: provider === "kilo" || provider === "openrouter" }));
   return { provider, models, fetchedAt: 0, fallback: true };
 }
 
@@ -248,6 +257,7 @@ const PREFERENCES: Record<AiProvider, RegExp[]> = {
   gemini: [/^gemini-[\d.]+-flash$/, /^gemini-[\d.]+-flash/],
   copilot: [/mini/],
   kilo: [/^kilo-auto\/free$/, /:free$/],
+  openrouter: [/^openrouter\/free$/, /:free$/],
   ollama: [],
 };
 

@@ -212,6 +212,7 @@ export function ModelPicker({ provider, value, onChange, onCommit, apiKey, serve
             ? t("settings.ai.models.builtIn")
             : t("settings.ai.models.live", { count: catalog.models.length, age: formatAge(catalog.fetchedAt) })}
         {provider === "kilo" && ` ${t("settings.ai.kiloModelHint")}`}
+        {provider === "openrouter" && ` ${t("settings.ai.openrouterModelHint")}`}
       </p>
       {unknown && (
         <p className="text-xs text-warning mt-1 flex items-center gap-1">

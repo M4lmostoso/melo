@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { t } from "@/i18n";
 import { useAccountStore } from "@/stores/accountStore";
 import { getSetting, setSetting, getSecureSetting, setSecureSetting } from "@/services/db/settings";
-import { PROVIDER_MODELS, DEFAULT_MODELS, resolveModelId } from "@/services/ai/types";
+import { PROVIDER_MODELS, DEFAULT_MODELS, API_KEY_SETTINGS, resolveModelId, type AiProvider } from "@/services/ai/types";
 import { Section, SettingRow, ToggleRow } from "./shared";
 import { Button } from "@/components/ui/Button";
 import { TextField } from "@/components/ui/TextField";
@@ -140,12 +140,13 @@ export function AITab() {
   const storedActiveId = useAccountStore((s) => s.activeAccountId);
   const activeAccountId = storedActiveId ?? accounts[0]?.id;
 
-  const [aiProvider, setAiProvider] = useState<"claude" | "openai" | "gemini" | "ollama" | "copilot" | "kilo">("claude");
+  const [aiProvider, setAiProvider] = useState<AiProvider>("claude");
   const [claudeApiKey, setClaudeApiKey] = useState("");
   const [openaiApiKey, setOpenaiApiKey] = useState("");
   const [geminiApiKey, setGeminiApiKey] = useState("");
   const [copilotApiKey, setCopilotApiKey] = useState("");
   const [kiloApiKey, setKiloApiKey] = useState("");
+  const [openrouterApiKey, setOpenrouterApiKey] = useState("");
   const [ollamaServerUrl, setOllamaServerUrl] = useState("http://localhost:11434");
   const [ollamaModel, setOllamaModel] = useState("llama3.3");
   const [claudeModel, setClaudeModel] = useState("claude-haiku-4-5-20251001");
@@ -153,6 +154,7 @@ export function AITab() {
   const [geminiModel, setGeminiModel] = useState(DEFAULT_MODELS.gemini);
   const [copilotModel, setCopilotModel] = useState("openai/gpt-4o-mini");
   const [kiloModel, setKiloModel] = useState("kilo-auto/free");
+  const [openrouterModel, setOpenrouterModel] = useState(DEFAULT_MODELS.openrouter);
   const [aiEnabled, setAiEnabled] = useState(true);
   const [aiAutoCategorize, setAiAutoCategorize] = useState(true);
   const [aiAutoSummarize, setAiAutoSummarize] = useState(true);
@@ -177,7 +179,7 @@ export function AITab() {
   useEffect(() => {
     async function load() {
       const provider = await getSetting("ai_provider");
-      if (provider === "openai" || provider === "gemini" || provider === "ollama" || provider === "copilot" || provider === "kilo")
+      if (provider === "openai" || provider === "gemini" || provider === "ollama" || provider === "copilot" || provider === "kilo" || provider === "openrouter")
         setAiProvider(provider);
       const ollamaUrl = await getSetting("ollama_server_url");
       if (ollamaUrl) setOllamaServerUrl(ollamaUrl);
@@ -193,6 +195,8 @@ export function AITab() {
       if (copilotModelVal) setCopilotModel(copilotModelVal);
       const kiloModelVal = await getSetting("kilo_model");
       if (kiloModelVal) setKiloModel(kiloModelVal);
+      const openrouterModelVal = await getSetting("openrouter_model");
+      if (openrouterModelVal) setOpenrouterModel(openrouterModelVal);
       const aiKey = await getSecureSetting("claude_api_key");
       setClaudeApiKey(aiKey ?? "");
       const oaiKey = await getSecureSetting("openai_api_key");
@@ -203,6 +207,8 @@ export function AITab() {
       setCopilotApiKey(copKey ?? "");
       const kiloKey = await getSecureSetting("kilo_api_key");
       setKiloApiKey(kiloKey ?? "");
+      const openrouterKey = await getSecureSetting("openrouter_api_key");
+      setOpenrouterApiKey(openrouterKey ?? "");
       const aiEn = await getSetting("ai_enabled");
       setAiEnabled(aiEn !== "false");
       const aiCat = await getSetting("ai_auto_categorize");
@@ -243,6 +249,7 @@ export function AITab() {
     gemini: geminiModel,
     copilot: copilotModel,
     kilo: kiloModel,
+    openrouter: openrouterModel,
     ollama: ollamaModel,
   }[aiProvider];
 
@@ -252,6 +259,7 @@ export function AITab() {
     else if (aiProvider === "gemini") setGeminiModel(val);
     else if (aiProvider === "copilot") setCopilotModel(val);
     else if (aiProvider === "kilo") setKiloModel(val);
+    else if (aiProvider === "openrouter") setOpenrouterModel(val);
     else setOllamaModel(val);
   };
 
@@ -289,7 +297,9 @@ export function AITab() {
           ? copilotApiKey
           : aiProvider === "kilo"
             ? kiloApiKey
-            : geminiApiKey;
+            : aiProvider === "openrouter"
+              ? openrouterApiKey
+              : geminiApiKey;
 
   const handleTestConnection = async () => {
     setAiTesting(true);
@@ -321,12 +331,14 @@ export function AITab() {
             }}
             className="w-64 bg-bg-tertiary text-text-primary text-sm px-3 py-1.5 rounded-md border border-border-primary focus:border-accent outline-none"
           >
+            {/* Alphabetical by label; the local option last, apart from the cloud ones. */}
             <option value="claude">{t("settings.ai.providerClaude")}</option>
-            <option value="openai">{t("settings.ai.providerOpenAI")}</option>
-            <option value="gemini">{t("settings.ai.providerGemini")}</option>
-            <option value="ollama">{t("settings.ai.providerOllama")}</option>
             <option value="copilot">{t("settings.ai.providerCopilot")}</option>
+            <option value="gemini">{t("settings.ai.providerGemini")}</option>
             <option value="kilo">{t("settings.ai.providerKilo")}</option>
+            <option value="openai">{t("settings.ai.providerOpenAI")}</option>
+            <option value="openrouter">{t("settings.ai.providerOpenRouter")}</option>
+            <option value="ollama">{t("settings.ai.providerOllama")}</option>
           </select>
         </SettingRow>
         <p className="text-xs text-text-tertiary">
@@ -342,6 +354,10 @@ export function AITab() {
           {aiProvider === "kilo" &&
             t("settings.ai.kiloDesc", {
               model: PROVIDER_MODELS.kilo.find((m) => m.id === kiloModel)?.label ?? kiloModel,
+            })}
+          {aiProvider === "openrouter" &&
+            t("settings.ai.openrouterDesc", {
+              model: PROVIDER_MODELS.openrouter.find((m) => m.id === openrouterModel)?.label ?? openrouterModel,
             })}
         </p>
         {rateLimit && (
@@ -419,7 +435,9 @@ export function AITab() {
                       ? t("settings.ai.apiKeyCopilot")
                       : aiProvider === "kilo"
                         ? t("settings.ai.apiKeyKilo")
-                        : t("settings.ai.apiKeyGemini")
+                        : aiProvider === "openrouter"
+                          ? t("settings.ai.apiKeyOpenRouter")
+                          : t("settings.ai.apiKeyGemini")
               }
               size="md"
               type="password"
@@ -429,6 +447,7 @@ export function AITab() {
                 else if (aiProvider === "openai") setOpenaiApiKey(e.target.value);
                 else if (aiProvider === "copilot") setCopilotApiKey(e.target.value);
                 else if (aiProvider === "kilo") setKiloApiKey(e.target.value);
+                else if (aiProvider === "openrouter") setOpenrouterApiKey(e.target.value);
                 else setGeminiApiKey(e.target.value);
               }}
               placeholder={
@@ -440,7 +459,9 @@ export function AITab() {
                       ? "ghp_..."
                       : aiProvider === "kilo"
                         ? "eyJ..."
-                        : "AI..."
+                        : aiProvider === "openrouter"
+                          ? "sk-or-v1-..."
+                          : "AI..."
               }
             />
             <ModelPicker
@@ -457,16 +478,9 @@ export function AITab() {
                 variant="primary"
                 size="md"
                 onClick={async () => {
-                  const keySettingMap = {
-                    claude: "claude_api_key",
-                    openai: "openai_api_key",
-                    gemini: "gemini_api_key",
-                    copilot: "copilot_api_key",
-                    kilo: "kilo_api_key",
-                  } as const;
                   await saveModel(currentModel);
                   if (currentApiKey.trim()) {
-                    await setSecureSetting(keySettingMap[aiProvider], currentApiKey.trim());
+                    await setSecureSetting(API_KEY_SETTINGS[aiProvider], currentApiKey.trim());
                     const { clearProviderClients } = await import("@/services/ai/providerManager");
                     clearProviderClients();
                   }

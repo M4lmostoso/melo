@@ -143,5 +143,6 @@ To enable AI features, add your API key for one or more providers in Settings:
 - **Ollama** (local) -- Install [Ollama](https://ollama.com/), set server URL (default `http://localhost:11434`) and model (default `llama3.3`, e.g. `gemma4:12b`) in Settings > AI. No API key required.
 - **GitHub Copilot** -- Requires a Copilot subscription. Set your API key in Settings > AI.
 - **Kilo Gateway** -- OpenAI-compatible router with free models (`kilo-auto/free`, `*:free`, rate-limited). Create a key at app.kilo.ai and set it in Settings > AI.
+- **OpenRouter** -- OpenAI-compatible router with free models (`openrouter/free`, `*:free`, rate-limited). Create a key at openrouter.ai/keys and set it in Settings > AI.
 
 After configuring a provider, select which model to use per feature in Settings > AI.

@@ -1,4 +1,4 @@
-export type AiProvider = "claude" | "openai" | "gemini" | "ollama" | "copilot" | "kilo";
+export type AiProvider = "claude" | "openai" | "gemini" | "ollama" | "copilot" | "kilo" | "openrouter";
 
 export interface ConversationMessage {
   role: "user" | "assistant";
@@ -32,6 +32,7 @@ export const DEFAULT_MODELS: Record<AiProvider, string> = {
   ollama: "llama3.3",
   copilot: "openai/gpt-4o-mini",
   kilo: "kilo-auto/free",
+  openrouter: "openrouter/free",
 };
 
 export interface ModelOption {
@@ -75,6 +76,15 @@ export const PROVIDER_MODELS: Record<Exclude<AiProvider, "ollama">, ModelOption[
     { id: "nvidia/nemotron-3-ultra-550b-a55b:free", label: "Nemotron 3 Ultra (Free)" },
     { id: "openrouter/free", label: "OpenRouter Free Router" },
   ],
+  // OpenRouter free tier (`:free`, rate-limited). Like Kilo the list rotates;
+  // `openrouter/free` routes to whatever free model is currently up.
+  openrouter: [
+    { id: "openrouter/free", label: "Free Models Router" },
+    { id: "google/gemma-4-31b-it:free", label: "Gemma 4 31B (Free)" },
+    { id: "nvidia/nemotron-3.5-super-vl:free", label: "Nemotron 3.5 Super (Free)" },
+    { id: "nvidia/nemotron-3.5-lightning:free", label: "Nemotron 3.5 Lightning (Free)" },
+    { id: "google/gemma-4-26b-a4b-it:free", label: "Gemma 4 26B A4B (Free)" },
+  ],
 };
 
 /**
@@ -105,6 +115,7 @@ export const API_KEY_SETTINGS: Record<Exclude<AiProvider, "ollama">, string> = {
   gemini: "gemini_api_key",
   copilot: "copilot_api_key",
   kilo: "kilo_api_key",
+  openrouter: "openrouter_api_key",
 };
 
 export const MODEL_SETTINGS: Record<Exclude<AiProvider, "ollama">, string> = {
@@ -113,4 +124,5 @@ export const MODEL_SETTINGS: Record<Exclude<AiProvider, "ollama">, string> = {
   gemini: "gemini_model",
   copilot: "copilot_model",
   kilo: "kilo_model",
+  openrouter: "openrouter_model",
 };

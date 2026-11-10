@@ -93,6 +93,27 @@ describe("modelCatalog", () => {
     ]);
   });
 
+  it("lists OpenRouter without a key, text models only (zero-priced music models are not 'free' chat)", async () => {
+    h.fetch.mockResolvedValue(
+      ok({
+        data: [
+          { id: "openai/gpt-x", architecture: { output_modalities: ["text"] }, pricing: { prompt: "0.000001", completion: "0.000002" } },
+          { id: "google/gemma-4-31b-it:free", name: "Gemma 4 31B (free)", architecture: { output_modalities: ["text"] } },
+          { id: "google/lyria-3-pro-preview", architecture: { output_modalities: ["audio"] }, pricing: { prompt: "0", completion: "0" } },
+          { id: "openrouter/free", pricing: { prompt: "0", completion: "0" } },
+        ],
+      }),
+    );
+    const c = await getModelCatalog("openrouter");
+    expect(h.fetch.mock.calls[0]![0]).toBe("https://openrouter.ai/api/v1/models");
+    expect(c.models.map((m) => [m.id, m.free])).toEqual([
+      ["google/gemma-4-31b-it:free", true],
+      ["openrouter/free", true],
+      ["openai/gpt-x", false],
+    ]);
+    expect(pickReplacement("openrouter", [{ id: "x/y:free", label: "" }, { id: "x/paid", label: "" }])).toBe("x/y:free");
+  });
+
   describe("pickReplacement", () => {
     it("prefers the curated pick, then the provider heuristic", () => {
       expect(pickReplacement("gemini", [{ id: "gemini-3.8-flash", label: "" }, { id: "gemini-3.6-flash", label: "" }])).toBe(
