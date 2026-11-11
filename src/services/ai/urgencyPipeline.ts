@@ -98,7 +98,13 @@ export async function processThreadUrgency(params: ThreadUrgencyParams): Promise
     const settings = await getUrgencySettings();
     if (!settings.behaviorEnabled || !settings.urgencyEnabled) return;
 
-    if (params.labelIds.some((l) => SKIP_LABELS.has(l))) return;
+    // Thread labels are the UNION over its messages: a conversation the user
+    // replied to carries SENT, one with a trashed copy carries TRASH. Skipping on
+    // any of them excluded every conversation the user had ever answered — the
+    // work threads — from urgency altogether. Skip spam, and threads that are not
+    // in the inbox at all (sent-only, trashed, drafts).
+    if (params.labelIds.includes("SPAM")) return;
+    if (!params.labelIds.includes("INBOX") && params.labelIds.some((l) => SKIP_LABELS.has(l))) return;
     if (params.labelIds.some((l) => NON_PRIMARY_GMAIL_LABELS.has(l))) return;
 
     // Skip muted threads — their urgency score is managed by the mute action
@@ -144,6 +150,31 @@ export async function processThreadUrgency(params: ThreadUrgencyParams): Promise
       }
     }
 
+    // Latest message of the thread: who sent it (a reply of ours?) and whether
+    // the account is a direct recipient.
+    const recipientRows = await db.select<{
+      email: string;
+      from_address: string | null;
+      to_addresses: string | null;
+      cc_addresses: string | null;
+      bcc_addresses: string | null;
+    }[]>(
+      `SELECT a.email, m.from_address, m.to_addresses, m.cc_addresses, m.bcc_addresses
+       FROM accounts a
+       JOIN messages m ON m.account_id = a.id AND m.thread_id = ?2
+       WHERE a.id = ?1
+       ORDER BY m.date DESC LIMIT 1`,
+      [params.accountId, params.threadId],
+    );
+    const recipientRow = recipientRows[0];
+    const latestInbound =
+      !!recipientRow &&
+      (recipientRow.from_address ?? "").toLowerCase() !== recipientRow.email.toLowerCase();
+    // The user answered last: the ball is in the other court. Keep whatever score
+    // the thread has (the extinguish judge lowers it) — scoring the user's own
+    // reply as if it were incoming mail would be meaningless.
+    if (recipientRow && !latestInbound) return;
+
     const aiAvailable = await isAiAvailable();
     if (aiAvailable) {
       const aiResult = await scoreUrgencyWithAi(
@@ -156,6 +187,9 @@ export async function processThreadUrgency(params: ThreadUrgencyParams): Promise
         autoLabelLabels,
         // Old mail is slowed first when the provider pushes back (rateLimiter.ts).
         params.isBackfill || Date.now() - params.lastMessageAt > LIVE_MAX_AGE_MS ? "backfill" : "live",
+        // A new inbound message invalidates the cached score; our own reply doesn't
+        // (the extinguish judge handles replies).
+        latestInbound ? params.lastMessageAt : undefined,
       );
       if (aiResult !== null) {
         rawScore = aiResult.score;
@@ -195,21 +229,6 @@ export async function processThreadUrgency(params: ThreadUrgencyParams): Promise
       : boostedScore;
 
     // Reduce urgency by 50% when the account is in CC/BCC but not a direct TO recipient
-    const recipientRows = await db.select<{
-      email: string;
-      from_address: string | null;
-      to_addresses: string | null;
-      cc_addresses: string | null;
-      bcc_addresses: string | null;
-    }[]>(
-      `SELECT a.email, m.from_address, m.to_addresses, m.cc_addresses, m.bcc_addresses
-       FROM accounts a
-       JOIN messages m ON m.account_id = a.id AND m.thread_id = ?2
-       WHERE a.id = ?1
-       ORDER BY m.date DESC LIMIT 1`,
-      [params.accountId, params.threadId],
-    );
-    const recipientRow = recipientRows[0];
     let adjustedScore = finalScore;
     // Whether the most recent message in the thread was sent by the account owner (a reply).
     let latestFromOwner = false;

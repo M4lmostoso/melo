@@ -1,6 +1,6 @@
 import { getSetting } from "@/services/db/settings";
 import { getActiveProvider } from "./providerManager";
-import { getAiCache, setAiCache } from "@/services/db/aiCache";
+import { getAiCache, getAiCacheEntry, setAiCache } from "@/services/db/aiCache";
 import { AiError, toAiError } from "./errors";
 import type { DbMessage } from "@/services/db/messages";
 import type { AiPriority, ConversationMessage } from "./types";
@@ -431,8 +431,15 @@ export async function scoreUrgencyWithAi(
   fromName: string,
   labels?: { id: string; name: string; examples?: { subject: string; fromAddress: string }[] }[],
   priority: AiPriority = "live",
+  /**
+   * Epoch ms of the thread's latest INBOUND message. A cached score older than
+   * that predates the message (a reminder, an escalation) and is re-scored —
+   * the cache used to be kept forever, so a follow-up never changed the score.
+   */
+  freshAfterMs?: number,
 ): Promise<UrgencyResult | null> {
-  const cached = await getAiCache(accountId, threadId, "urgency");
+  const entry = await getAiCacheEntry(accountId, threadId, "urgency");
+  const cached = entry && !(freshAfterMs && entry.createdAt < freshAfterMs) ? entry.content : null;
   if (cached !== null) {
     try {
       const parsed = JSON.parse(cached) as { score: number; reason?: string; label?: { id: string; confidence: number } };
@@ -490,7 +497,12 @@ export async function scoreUrgencyWithAi(
 
   try {
     const jsonMatch = result.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return null;
+    if (!jsonMatch) {
+      // Free reasoning models sometimes answer with garbage; without this the
+      // thread silently fell back to keywords and looked "not urgent".
+      console.warn(`[ai] urgency: no JSON in model answer for ${threadId}: ${JSON.stringify(result.slice(0, 200))}`);
+      return null;
+    }
 
     if (useUnified) {
       const parsed = JSON.parse(jsonMatch[0]) as {

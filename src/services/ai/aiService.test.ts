@@ -9,12 +9,23 @@ vi.mock("./providerManager", () => ({
   })),
 }));
 
+const { cacheEntry } = vi.hoisted(() => ({ cacheEntry: vi.fn() }));
+
 vi.mock("@/services/db/aiCache", () => ({
   getAiCache: vi.fn(() => Promise.resolve(null)),
+  getAiCacheEntry: cacheEntry,
   setAiCache: vi.fn(),
 }));
 
-import { classifyThreadsBySmartLabels, judgePhishingRisk, judgeUrgencyResolved, categorizeThreads } from "./aiService";
+vi.mock("@/services/db/settings", () => ({ getSetting: vi.fn(async () => null) }));
+
+import {
+  classifyThreadsBySmartLabels,
+  judgePhishingRisk,
+  judgeUrgencyResolved,
+  categorizeThreads,
+  scoreUrgencyWithAi,
+} from "./aiService";
 import { AiError } from "./errors";
 
 describe("classifyThreadsBySmartLabels", () => {
@@ -170,5 +181,40 @@ describe("rate-limit handling in aiService", () => {
     mockComplete.mockRejectedValueOnce(new Error("failed to generate content: model overloaded"));
     await expect(judgePhishingRisk("ctx")).rejects.toMatchObject({ code: "NETWORK_ERROR" });
     expect(AiError).toBeDefined();
+  });
+});
+
+describe("scoreUrgencyWithAi cache freshness", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const cached = (createdAt: number) => ({ content: JSON.stringify({ score: 0.2, reason: "old" }), createdAt });
+
+  it("re-scores when a new inbound message arrived after the cached score", async () => {
+    cacheEntry.mockResolvedValue(cached(1_000));
+    mockComplete.mockResolvedValue('{"score": 0.8, "reason": "sollecito"}');
+
+    const r = await scoreUrgencyWithAi("a", "t", "s", "b", "x@y.z", "", undefined, "live", 2_000);
+
+    expect(mockComplete).toHaveBeenCalledTimes(1);
+    expect(r).toEqual({ score: 0.8, reason: "sollecito" });
+  });
+
+  it("keeps the cached score when it is newer than the latest inbound message, or no stamp is given", async () => {
+    cacheEntry.mockResolvedValue(cached(5_000));
+    expect(await scoreUrgencyWithAi("a", "t", "s", "b", "x@y.z", "", undefined, "live", 2_000)).toMatchObject({ score: 0.2 });
+    cacheEntry.mockResolvedValue(cached(1_000));
+    expect(await scoreUrgencyWithAi("a", "t", "s", "b", "x@y.z", "")).toMatchObject({ score: 0.2 });
+    expect(mockComplete).not.toHaveBeenCalled();
+  });
+
+  it("logs a model answer without JSON instead of failing silently", async () => {
+    cacheEntry.mockResolvedValue(null);
+    mockComplete.mockResolvedValue("<tool_call>PSC.sup puł");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    expect(await scoreUrgencyWithAi("a", "t", "s", "b", "x@y.z", "")).toBeNull();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("no JSON"));
   });
 });

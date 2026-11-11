@@ -46,7 +46,7 @@ describe("openrouterProvider", () => {
     expect(out).toBe("ciao");
     expect(mockCreate).toHaveBeenCalledWith({
       model: "google/gemma-4-31b-it:free",
-      max_tokens: 1024,
+      max_tokens: 8192,
       messages: [
         { role: "system", content: "sys" },
         { role: "assistant", content: "prev" },

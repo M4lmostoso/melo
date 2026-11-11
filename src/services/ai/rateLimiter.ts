@@ -217,13 +217,16 @@ export function report429(err: unknown, provider?: string): number {
   const now = Date.now();
   const backoff = BACKOFF_MS[Math.min(state.level, BACKOFF_MS.length - 1)]!;
   let pause = Math.max(backoff, parseRetryAfterMs(err) ?? 0);
-  if (provider === "gemini" && isDailyQuotaError(err)) pause = Math.max(pause, msUntilPacificMidnight());
+  const daily = provider === "gemini" && isDailyQuotaError(err);
+  if (daily) pause = Math.max(pause, msUntilPacificMidnight());
 
   state.level = Math.min(state.level + 1, BACKOFF_MS.length - 1);
   state.gapMs = Math.min(MAX_GAP_MS, Math.max(2_000, state.gapMs * 2));
   state.pausedUntil = Math.max(state.pausedUntil, now + pause);
-  // Old mail waits twice as long as new mail before it may try again.
-  state.backfillResumeAt = Math.max(state.backfillResumeAt, now + pause * 2);
+  // Old mail waits twice as long as new mail before it may try again — except
+  // after a daily quota: the quota resets at a fixed time for both lanes, and
+  // doubling a ~15h pause kept the backlog stopped for 30h (2026-11-10).
+  state.backfillResumeAt = Math.max(state.backfillResumeAt, now + (daily ? pause : pause * 2));
   persist();
   scheduleResume();
   logToFile(

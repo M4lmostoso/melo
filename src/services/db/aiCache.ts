@@ -22,6 +22,21 @@ export async function getAiCache(
   return rows[0]?.content ?? null;
 }
 
+/** Cached content plus when it was written (epoch ms). */
+export async function getAiCacheEntry(
+  accountId: string,
+  threadId: string,
+  type: string,
+): Promise<{ content: string; createdAt: number } | null> {
+  const db = await getDb();
+  const rows = await db.select<Pick<AiCacheEntry, "content" | "created_at">[]>(
+    "SELECT content, created_at FROM ai_cache WHERE account_id = $1 AND thread_id = $2 AND type = $3",
+    [accountId, threadId, type],
+  );
+  const row = rows[0];
+  return row ? { content: row.content, createdAt: Number(row.created_at) * 1000 } : null;
+}
+
 export async function setAiCache(
   accountId: string,
   threadId: string,

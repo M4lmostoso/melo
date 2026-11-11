@@ -7,6 +7,7 @@ const h = vi.hoisted(() => ({
   judge: vi.fn(),
   extinguishRows: [] as unknown[],
   store: new Map<string, string>(),
+  latest: [] as { email: string; from_address: string }[],
 }));
 
 vi.mock("@/services/db/settings", () => ({
@@ -36,6 +37,7 @@ vi.mock("@/services/db/connection", () => ({
   getDb: vi.fn(async () => ({
     select: vi.fn(async (sql: string, params: unknown[]) => {
       if (sql.includes("t.is_heat_extinguished = 0")) return h.extinguishRows;
+      if (sql.includes("FROM accounts a")) return h.latest;
       if (!sql.includes("t.urgency_score = 0")) return [];
       h.backfillQueries.push(params);
       const [, cursorAt, cursorId, limit] = params as [number, number | null, string, number];
@@ -49,7 +51,7 @@ vi.mock("@/services/db/connection", () => ({
   })),
 }));
 
-import { runUrgencyBackfill, runExtinguishBackfill } from "./urgencyPipeline";
+import { runUrgencyBackfill, runExtinguishBackfill, processThreadUrgency } from "./urgencyPipeline";
 import { setThreadUrgency, setHeatExtinguished } from "@/services/db/threads";
 import { report429, isLaneOpen, __resetForTests } from "./rateLimiter";
 import { AiError } from "./errors";
@@ -162,5 +164,51 @@ describe("runExtinguishBackfill under rate limits", () => {
     expect(h.judge.mock.calls[0]![2]).toBe("backfill");
     expect(setThreadUrgency).not.toHaveBeenCalled();
     expect(setHeatExtinguished).not.toHaveBeenCalled();
+  });
+});
+
+describe("processThreadUrgency cache freshness", () => {
+  beforeEach(() => {
+    __resetForTests();
+    h.score.mockReset();
+    h.score.mockResolvedValue({ score: 0.5 });
+  });
+
+  const params = {
+    accountId: "a",
+    threadId: "t",
+    subject: "s",
+    bodyText: "b",
+    fromAddress: "boss@x.it",
+    fromName: "",
+    lastMessageAt: Date.now() - 60_000,
+    labelIds: ["INBOX"],
+  };
+
+  it("asks for a score newer than the latest INBOUND message (a reminder re-scores the thread)", async () => {
+    h.latest = [{ email: "me@x.it", from_address: "boss@x.it" }];
+    await processThreadUrgency(params);
+    expect(h.score.mock.calls[0]![8]).toBe(params.lastMessageAt);
+  });
+
+  it("does not re-score a thread whose latest message is our own reply", async () => {
+    h.latest = [{ email: "me@x.it", from_address: "ME@x.it" }];
+    await processThreadUrgency(params);
+    expect(h.score).not.toHaveBeenCalled();
+  });
+
+  it("scores a conversation the user has replied to before (thread labels are a union: INBOX + SENT)", async () => {
+    h.latest = [{ email: "me@x.it", from_address: "boss@x.it" }];
+    await processThreadUrgency({ ...params, labelIds: ["INBOX", "SENT", "UNREAD"] });
+    await processThreadUrgency({ ...params, labelIds: ["INBOX", "TRASH"] });
+    expect(h.score).toHaveBeenCalledTimes(2);
+  });
+
+  it("still skips spam and threads that are not in the inbox at all", async () => {
+    h.latest = [{ email: "me@x.it", from_address: "boss@x.it" }];
+    await processThreadUrgency({ ...params, labelIds: ["INBOX", "SPAM"] });
+    await processThreadUrgency({ ...params, labelIds: ["SENT"] });
+    await processThreadUrgency({ ...params, labelIds: ["TRASH", "IMPORTANT"] });
+    expect(h.score).not.toHaveBeenCalled();
   });
 });

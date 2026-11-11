@@ -82,6 +82,8 @@ describe("rateLimiter", () => {
       "gemini",
     );
     expect(pause).toBe(20 * 3_600_000 + 60_000);
+    // The quota resets at the same time for both lanes — the backlog is not doubled to 40h.
+    expect(laneReopensAt("backfill")).toBe(laneReopensAt("live"));
   });
 
   it("spaces background calls, and new mail jumps ahead of waiting backlog calls", async () => {

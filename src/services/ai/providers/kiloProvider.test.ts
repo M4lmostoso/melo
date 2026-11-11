@@ -45,7 +45,7 @@ describe("kiloProvider", () => {
     expect(out).toBe("ok");
     expect(mockCreate).toHaveBeenCalledWith({
       model: "kilo-auto/free",
-      max_tokens: 1024,
+      max_tokens: 8192,
       messages: [
         { role: "system", content: "sys" },
         { role: "assistant", content: "prev" },
@@ -60,6 +60,15 @@ describe("kiloProvider", () => {
     });
     const provider = createKiloProvider("kilo_key", "kilo-auto/free");
     expect(await provider.complete({ systemPrompt: "s", userContent: "u" })).toBe("Final answer");
+  });
+
+  it("treats an empty answer as a failure, naming a reasoning model that ran out of tokens", async () => {
+    mockCreate.mockResolvedValue({ choices: [{ message: { content: "" }, finish_reason: "length" }] });
+    const provider = createKiloProvider("kilo_key", "nvidia/nemotron-3.5-lightning:free");
+    await expect(provider.complete({ systemPrompt: "s", userContent: "u" })).rejects.toThrow(/ran out of tokens/);
+
+    mockCreate.mockResolvedValue({ choices: [{ message: { content: "<think>only thoughts</think>" }, finish_reason: "stop" }] });
+    await expect(provider.complete({ systemPrompt: "s", userContent: "u" })).rejects.toThrow(/returned no answer/);
   });
 
   it("testConnection reports failure instead of throwing", async () => {
