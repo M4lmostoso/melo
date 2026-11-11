@@ -43,8 +43,12 @@ export async function pruneCalendarInvites(): Promise<void> {
       `SELECT m.account_id, m.thread_id,
               GROUP_CONCAT(m.id) as message_ids
        FROM messages m
+       JOIN threads t ON t.account_id = m.account_id AND t.id = m.thread_id
        WHERE m.date < $1
-         AND m.is_deleted = 0
+         AND m.is_trashed = 0
+         -- Archive only conversations that went quiet: an old invite inside a
+         -- thread that is still active must not take the whole thread out of Inbox.
+         AND t.last_message_at < $1
          AND EXISTS (
            SELECT 1 FROM attachments a
            WHERE a.account_id = m.account_id
