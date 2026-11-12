@@ -104,6 +104,13 @@ jobs:
         target: [aarch64-apple-darwin, x86_64-apple-darwin]
     env:
       RELEASE_TAG: ${{ inputs.tag || needs.release-please.outputs.tag_name }}
+      # Deliberately empty: an env RUSTFLAGS (even empty) replaces the
+      # `-C target-cpu=native` of src-tauri/.cargo/config.toml. "native" means the
+      # CPU of the build machine: on the virtualized arm64 runner it reports fewer
+      # features than the target guarantees and `ring` refuses to compile (its
+      # const assert on aarch64-apple-darwin — the v0.1.14 arm64 build died there),
+      # and a binary tuned for the runner is wrong to ship to other Macs anyway.
+      RUSTFLAGS: ""
     steps:
       - uses: actions/checkout@v4
         with:
