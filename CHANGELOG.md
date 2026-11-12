@@ -4,6 +4,22 @@
 
 ---
 
+## [0.1.14](https://github.com/M4lmostoso/melo/compare/v0.1.13...v0.1.14) (2026-11-12)
+
+
+### Features
+
+* add Kilo AI provider and live model catalog with rate-limiting support ([b7b3656](https://github.com/M4lmostoso/melo/commit/b7b365619f17b02e43da395fe12e06f2f3281889))
+* add OpenRouter AI provider support ([28cc2be](https://github.com/M4lmostoso/melo/commit/28cc2be32929edb83b2abd5779431847818f54aa))
+
+
+### Bug Fixes
+
+* hide native window titles in overlay titlebar mode and add AI error logging ([dd9ae23](https://github.com/M4lmostoso/melo/commit/dd9ae23c754818bf937fe341f96487a44ba1d3ff))
+* improve ai urgency scoring cache freshness, label filters, and openrouter gateway error handling ([4e3b15f](https://github.com/M4lmostoso/melo/commit/4e3b15fe781258e9a69ff53e923a89edc6bfbf35))
+* prevent duplicate draft sync and drop server draft immediately on SMTP acceptance ([692ced8](https://github.com/M4lmostoso/melo/commit/692ced8cfbf7772a9f6c9d1c91dcd236fac22a41))
+* restrict calendar invite archiving to inactive threads based on last message date ([182c6b3](https://github.com/M4lmostoso/melo/commit/182c6b339dcfff4f7f3f9e2829670617a451b879))
+
 ## [0.1.13](https://github.com/M4lmostoso/melo/compare/v0.1.12...v0.1.13) (2026-10-29)
 
 
