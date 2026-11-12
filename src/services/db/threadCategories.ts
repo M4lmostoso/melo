@@ -55,9 +55,36 @@ export async function getRecentRuleCategorizedThreadIds(
      LEFT JOIN messages m ON m.account_id = t.account_id AND m.thread_id = t.id
        AND m.date = (SELECT MAX(m2.date) FROM messages m2 WHERE m2.account_id = t.account_id AND m2.thread_id = t.id)
      WHERE t.account_id = $1 AND tl.label_id = 'INBOX' AND tc.is_manual = 0
+       AND NOT EXISTS (
+         SELECT 1 FROM ai_cache ac
+         WHERE ac.account_id = t.account_id AND ac.thread_id = t.id AND ac.type = $3
+       )
      ORDER BY t.last_message_at DESC
      LIMIT $2`,
-    [accountId, limit],
+    [accountId, limit, AI_CATEGORY_MARKER],
+  );
+}
+
+/**
+ * `ai_cache` type marking a thread the AI has already categorised. Without it
+ * the query above returned the same newest-20 inbox threads on every Gmail
+ * delta cycle, so each sync with activity re-sent them all to the provider —
+ * the one AI path with no cache at all.
+ */
+export const AI_CATEGORY_MARKER = "category";
+
+/** Record that the AI has seen these threads, whatever it answered. */
+export async function markThreadsAiCategorized(
+  accountId: string,
+  threadIds: string[],
+): Promise<void> {
+  if (threadIds.length === 0) return;
+  const db = await getDb();
+  const values = threadIds.map((_, i) => `($${i * 2 + 3}, $1, $${i * 2 + 4}, $2, '1')`).join(", ");
+  await db.execute(
+    `INSERT INTO ai_cache (id, account_id, thread_id, type, content) VALUES ${values}
+     ON CONFLICT(account_id, thread_id, type) DO UPDATE SET created_at = unixepoch()`,
+    [accountId, AI_CATEGORY_MARKER, ...threadIds.flatMap((id) => [crypto.randomUUID(), id])],
   );
 }
 

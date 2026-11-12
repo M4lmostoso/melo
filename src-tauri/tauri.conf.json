@@ -78,7 +78,7 @@
       ]
     },
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDM0NjlGREYzMjVBRDYwRjMKUldUellLMGw4KzFwTkJ4RmJ0ejArWUNTZTEzT01SMnJveHc4K3ErNHVIdEVuYmZmYW94U295QzcK",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDFCODZBODEzMUU1OEJGMkIKUldRcnYxZ2VFNmlHRzBNcm5qSGszUy9Sa2IzRXZXSmV0QThPcDIvQTE0SHR0TUdpS0pqaFNqN2QK",
       "endpoints": [
         "https://github.com/M4lmostoso/melo/releases/latest/download/latest.json"
       ]

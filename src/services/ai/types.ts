@@ -7,9 +7,10 @@ export interface ConversationMessage {
 
 /**
  * Rate-limit lane (see rateLimiter.ts): `interactive` = the user asked for it,
+ * `auto` = the UI asked by itself when a thread opened (refused while paused),
  * `live` = mail that just arrived, `backfill` = old mail — slowed first.
  */
-export type AiPriority = "interactive" | "live" | "backfill";
+export type AiPriority = "interactive" | "auto" | "live" | "backfill";
 
 export interface AiCompletionRequest {
   /** Defaults to "interactive". */

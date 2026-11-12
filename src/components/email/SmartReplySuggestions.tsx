@@ -2,7 +2,9 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { Sparkles, RefreshCw } from "lucide-react";
 import { t } from "@/i18n";
 import { isAiAvailable, generateSmartReplies } from "@/services/ai/aiService";
-import { deleteAiCache } from "@/services/db/aiCache";
+import { isRateLimitError } from "@/services/ai/errors";
+import { deleteAiCache, getAiCache } from "@/services/db/aiCache";
+import { getSetting } from "@/services/db/settings";
 import { useComposerStore } from "@/stores/composerStore";
 import type { DbMessage } from "@/services/db/messages";
 
@@ -27,26 +29,55 @@ export function SmartReplySuggestions({ threadId, accountId, messages, noReply }
     isAiAvailable().then(setAvailable);
   }, []);
 
-  const loadReplies = useCallback(async () => {
+  // `auto` = fired by opening the thread, not by a click: refused without a
+  // network call while the provider is rate-limiting us (see ai/rateLimiter.ts).
+  const loadReplies = useCallback(async (auto: boolean) => {
     if (loadingRef.current) return;
     loadingRef.current = true;
     setLoading(true);
     try {
-      const result = await generateSmartReplies(threadId, accountId, messages);
+      const result = await generateSmartReplies(threadId, accountId, messages, auto ? "auto" : "interactive");
       setReplies(result);
     } catch (err) {
-      console.error("Failed to generate smart replies:", err);
+      // A refused automatic call is expected, not a failure — the button stays.
+      if (!(auto && isRateLimitError(err))) console.error("Failed to generate smart replies:", err);
     } finally {
       loadingRef.current = false;
       setLoading(false);
     }
   }, [threadId, accountId, messages]);
 
-  // Auto-load when available
+  // On open: show what is cached; generate only if the user opted in
+  // (`ai_auto_smart_replies`, default off — one AI request per opened thread
+  // adds up fast on a free tier). Tried once per thread: this effect re-runs
+  // whenever `messages` changes identity, and it used to re-fire every time.
+  const autoTriedRef = useRef<string | null>(null);
   useEffect(() => {
     if (!available || messages.length === 0 || replies !== null || loadingRef.current) return;
-    loadReplies();
-  }, [available, messages.length, replies, loadReplies]);
+    if (autoTriedRef.current === threadId) return;
+    autoTriedRef.current = threadId;
+    // Staleness is judged by thread, not by an effect-cleanup flag: a cleanup
+    // on a mere `messages` change would cancel the one attempt we allow.
+    const stale = () => autoTriedRef.current !== threadId;
+    (async () => {
+      const cached = await getAiCache(accountId, threadId, "smart_replies").catch(() => null);
+      if (stale()) return;
+      if (cached) {
+        try {
+          const parsed: unknown = JSON.parse(cached);
+          if (Array.isArray(parsed)) {
+            setReplies(parsed.filter((r): r is string => typeof r === "string"));
+            return;
+          }
+        } catch {
+          // corrupted cache — fall through and regenerate on request
+        }
+      }
+      const autoOn = (await getSetting("ai_auto_smart_replies").catch(() => null)) === "true";
+      if (!stale() && autoOn) loadReplies(true);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per thread, see above
+  }, [available, messages.length, replies, threadId, accountId]);
 
   const handleRefresh = useCallback(async () => {
     await deleteAiCache(accountId, threadId, "smart_replies");
@@ -98,6 +129,14 @@ export function SmartReplySuggestions({ threadId, accountId, messages, noReply }
           <div className="w-3 h-3 border-2 border-accent/30 border-t-accent rounded-full animate-spin" />
           <span className="text-xs">{t("email.smartReply.generating")}</span>
         </div>
+      )}
+      {!loading && !replies && (
+        <button
+          onClick={() => loadReplies(false)}
+          className="px-3 py-1.5 text-xs text-accent bg-bg-primary border border-accent/30 rounded-full hover:bg-bg-hover transition-colors"
+        >
+          {t("email.smartReply.suggest")}
+        </button>
       )}
       {replies && (
         <div className="flex flex-wrap gap-2">

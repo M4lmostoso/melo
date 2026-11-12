@@ -5,9 +5,22 @@ name: Release Please
 # package.json + the extra-files (tauri.conf.json, Cargo.toml, metainfo, spec) and
 # regenerates CHANGELOG.md. Merging that PR tags the release (vX.Y.Z) and creates the
 # GitHub Release. Until merged, the PR keeps updating itself with new commits.
+#
+# When that release is created, the `build` job below builds the macOS app, signs the
+# updater bundle and uploads it to the release together with `latest.json` — the file
+# the in-app updater polls (tauri.conf.json → plugins.updater.endpoints). Without it
+# every update check answered 404: releases v0.1.8–v0.1.13 were published with no
+# assets at all. `workflow_dispatch` re-runs the build for an existing tag (a failed
+# build, or a release published before this job existed).
 on:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to build and upload assets for (e.g. v0.1.14)"
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -20,7 +33,11 @@ concurrency:
 
 jobs:
   release-please:
+    if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
     steps:
       - uses: googleapis/release-please-action@v4
         id: release
@@ -65,3 +82,55 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git commit -am "chore: sync Cargo.lock to ${VERSION}"
           git push origin "$BRANCH"
+
+  # Build the app for the release that was just created and attach the bundles, their
+  # signatures and latest.json to it.
+  #
+  # Updater signing: TAURI_SIGNING_PRIVATE_KEY must be the private half of the pubkey
+  # in tauri.conf.json (plugins.updater.pubkey). The app refuses any update whose
+  # signature does not verify against that pubkey, so the two can only change together
+  # — and installed copies keep trusting the pubkey they were built with.
+  #
+  # `createUpdaterArtifacts` lives in tauri.updater.conf.json, applied only here: with
+  # it in the main config a plain local `npm run tauri build` fails for lack of the key.
+  build:
+    name: Build & publish (${{ matrix.target }})
+    needs: release-please
+    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || needs.release-please.outputs.release_created == 'true') }}
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [aarch64-apple-darwin, x86_64-apple-darwin]
+    env:
+      RELEASE_TAG: ${{ inputs.tag || needs.release-please.outputs.tag_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: ${{ matrix.target }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ env.RELEASE_TAG }}
+          args: --target ${{ matrix.target }} --config src-tauri/tauri.updater.conf.json

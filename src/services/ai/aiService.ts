@@ -105,10 +105,15 @@ function formatMessageForSummary(msg: DbMessage): string {
   return `<email_content>From: ${from}\nDate: ${date}\n\n${body}</email_content>`;
 }
 
+/**
+ * `priority`: pass "auto" when the UI fires this by itself on thread open — it
+ * is then refused (RATE_LIMITED, no network) while the provider is pausing us.
+ */
 export async function summarizeThread(
   threadId: string,
   accountId: string,
   messages: DbMessage[],
+  priority: AiPriority = "interactive",
 ): Promise<string> {
   // Check cache first
   const cached = await getAiCache(accountId, threadId, "summary");
@@ -117,7 +122,7 @@ export async function summarizeThread(
   const subject = messages[0]?.subject ?? "No subject";
   const formatted = messages.map(formatMessageForSummary).join("\n---\n");
   const combined = `Subject: ${subject}\n\n${formatted}`.slice(0, 6000);
-  const summary = await callAi(SUMMARIZE_PROMPT, combined);
+  const summary = await callAi(SUMMARIZE_PROMPT, combined, { priority });
 
   // Cache the result
   await setAiCache(accountId, threadId, "summary", summary);
@@ -187,10 +192,12 @@ export async function transformText(
   return callAi(prompts[type], text, { skipLanguage: true });
 }
 
+/** `priority`: "auto" when fired by the UI on thread open (see summarizeThread). */
 export async function generateSmartReplies(
   threadId: string,
   accountId: string,
   messages: DbMessage[],
+  priority: AiPriority = "interactive",
 ): Promise<string[]> {
   // Check cache first
   const cached = await getAiCache(accountId, threadId, "smart_replies");
@@ -205,7 +212,7 @@ export async function generateSmartReplies(
   const formatted = messages.map(formatMessageForSummary).join("\n---\n");
   const combined = formatted.slice(0, 4000);
   // skipLanguage: true — SMART_REPLY_PROMPT detects email language and responds in kind
-  const result = await callAi(SMART_REPLY_PROMPT, `<email_content>${combined}</email_content>`, { skipLanguage: true });
+  const result = await callAi(SMART_REPLY_PROMPT, `<email_content>${combined}</email_content>`, { skipLanguage: true, priority });
 
   // Parse JSON array from response
   let replies: string[];

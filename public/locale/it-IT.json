@@ -692,6 +692,7 @@
     "smartReply": {
       "quickReplies": "Risposte rapide",
       "refreshSuggestions": "Aggiorna suggerimenti",
+      "suggest": "Suggerisci risposte",
       "generating": "Generazione suggerimenti..."
     },
     "threadSummary": {
@@ -1725,6 +1726,8 @@
       "autoCategorizeDesc": "Usa l'AI per perfezionare la categorizzazione basata su regole",
       "autoSummarize": "Riepiloga automaticamente i thread",
       "autoSummarizeDesc": "Mostra riepiloghi AI sui thread con più messaggi",
+      "autoSmartReplies": "Suggerisci risposte rapide automaticamente",
+      "autoSmartRepliesDesc": "Genera tre risposte brevi appena apri un thread. Se disattivato, vengono generate solo su richiesta: una chiamata AI in meno per ogni thread aperto",
       "phishingAiVerdict": "Revisione AI del phishing",
       "phishingAiVerdictDesc": "Fai ricontrollare all'AI le email segnalate per scartare i falsi positivi (es. newsletter), così gli avvisi compaiono solo per minacce reali",
       "aiLanguage": "Lingua AI",

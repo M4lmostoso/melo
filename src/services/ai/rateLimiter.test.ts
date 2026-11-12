@@ -17,6 +17,7 @@ import {
   msUntilPacificMidnight,
   onBacklogResume,
   resetRateLimit,
+  setRateLimitOwner,
   getRateLimitStatus,
   __resetForTests,
 } from "./rateLimiter";
@@ -54,13 +55,71 @@ describe("rateLimiter", () => {
     expect(isLaneOpen("backfill")).toBe(true);
   });
 
-  it("backs off exponentially and relaxes on success", () => {
+  it("backs off exponentially across pauses and relaxes on success", () => {
     expect(report429(rl429())).toBe(30_000);
+    vi.advanceTimersByTime(30_001);
     expect(report429(rl429())).toBe(60_000);
+    vi.advanceTimersByTime(60_001);
     expect(report429(rl429())).toBe(120_000);
+    vi.advanceTimersByTime(120_001);
     reportSuccess();
     reportSuccess();
     expect(report429(rl429())).toBe(60_000);
+  });
+
+  it("a 429 while already paused neither escalates nor renews the pause", () => {
+    // 2026-11-12: quick replies on every opened thread drove 30s → 1h and kept
+    // renewing the hour while the user read mail.
+    report429(rl429());
+    const until = laneReopensAt("live");
+    const backlogUntil = laneReopensAt("backfill");
+    vi.advanceTimersByTime(10_000);
+    for (let i = 0; i < 20; i++) expect(report429(rl429())).toBe(20_000); // time left
+    expect(laneReopensAt("live")).toBe(until);
+    expect(laneReopensAt("backfill")).toBe(backlogUntil);
+    // …and the next real one, after the pause, is level 1 — not level 21.
+    vi.advanceTimersByTime(20_001);
+    expect(report429(rl429())).toBe(60_000);
+  });
+
+  it("while paused, an explicit longer Retry-After still extends the pause", () => {
+    report429(rl429());
+    const headers = new Headers({ "retry-after": "600" });
+    expect(report429(rl429("rate limited", { headers }))).toBe(600_000);
+    expect(laneReopensAt("live")).toBe(Date.now() + 600_000);
+  });
+
+  it("auto calls (thread opened, nobody clicked) are refused while paused and never queued", async () => {
+    await expect(acquire("auto")).resolves.toBeUndefined();
+    report429(rl429()); // gap → 2s: a live call would now wait for its slot
+    await expect(acquire("auto")).rejects.toMatchObject({ code: "RATE_LIMITED" });
+    await expect(acquire("interactive")).resolves.toBeUndefined();
+    vi.advanceTimersByTime(30_001);
+    await acquire("live"); // claims the slot
+    await expect(acquire("auto")).resolves.toBeUndefined(); // no spacing for auto
+  });
+
+  it("a pause persisted by another provider/key/model is not reloaded after a restart", async () => {
+    setRateLimitOwner("openrouter|key|model-a");
+    report429(rl429());
+    __resetForTests(); // restart…
+    setRateLimitOwner("kilo|key|model-b"); // …on a different provider
+    await expect(acquire("live")).resolves.toBeUndefined();
+
+    __resetForTests();
+    setRateLimitOwner("kilo|key|model-b");
+    report429(rl429());
+    __resetForTests(); // restart on the SAME provider keeps the pause
+    setRateLimitOwner("kilo|key|model-b");
+    await expect(acquire("live")).rejects.toMatchObject({ code: "RATE_LIMITED" });
+  });
+
+  it("changing owner in-session drops the pause; the API key is not persisted in clear", () => {
+    setRateLimitOwner("openai|sk-secret|m");
+    report429(rl429());
+    expect(store.get("ai_rate_limit_state")).not.toContain("sk-secret");
+    setRateLimitOwner("openai|sk-other|m");
+    expect(isLaneOpen("live")).toBe(true);
   });
 
   it("honours the provider's Retry-After when longer than the backoff", () => {

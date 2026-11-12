@@ -158,6 +158,7 @@ export function AITab() {
   const [aiEnabled, setAiEnabled] = useState(true);
   const [aiAutoCategorize, setAiAutoCategorize] = useState(true);
   const [aiAutoSummarize, setAiAutoSummarize] = useState(true);
+  const [aiAutoSmartReplies, setAiAutoSmartReplies] = useState(false);
   const [phishingAiVerdictEnabled, setPhishingAiVerdictEnabled] = useState(true);
   const [aiKeySaved, setAiKeySaved] = useState(false);
   const [aiTesting, setAiTesting] = useState(false);
@@ -215,6 +216,8 @@ export function AITab() {
       setAiAutoCategorize(aiCat !== "false");
       const aiSum = await getSetting("ai_auto_summarize");
       setAiAutoSummarize(aiSum !== "false");
+      const aiReplies = await getSetting("ai_auto_smart_replies");
+      setAiAutoSmartReplies(aiReplies === "true");
       const phishingAi = await getSetting("phishing_ai_verdict_enabled");
       setPhishingAiVerdictEnabled(phishingAi !== "false");
       const aiDraft = await getSetting("ai_auto_draft_enabled");
@@ -536,6 +539,16 @@ export function AITab() {
             const newVal = !aiAutoSummarize;
             setAiAutoSummarize(newVal);
             await setSetting("ai_auto_summarize", newVal ? "true" : "false");
+          }}
+        />
+        <ToggleRow
+          label={t("settings.ai.autoSmartReplies")}
+          description={t("settings.ai.autoSmartRepliesDesc")}
+          checked={aiAutoSmartReplies}
+          onToggle={async () => {
+            const newVal = !aiAutoSmartReplies;
+            setAiAutoSmartReplies(newVal);
+            await setSetting("ai_auto_smart_replies", newVal ? "true" : "false");
           }}
         />
         <ToggleRow

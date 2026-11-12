@@ -13,6 +13,10 @@
  *  - `live`        — mail that just arrived (sync-time urgency, categorisation,
  *                    smart labels, phishing judge). Paused for the provider's
  *                    retry window only.
+ *  - `auto`        — something the UI asks for by itself when a thread opens
+ *                    (auto summary, quick replies). Not queued — it is on
+ *                    screen — but refused while `live` is paused: nobody clicked,
+ *                    so it must not spend a request on a provider that said no.
  *  - `interactive` — something the user just asked for (summary, draft, Ask
  *                    Inbox…). Never queued or paused: the user clicked, they get
  *                    an answer or the provider's error.
@@ -21,12 +25,19 @@
  * retryDelay if longer; a Google daily-quota error pauses until the quota resets
  * at midnight Pacific), background spacing doubles; successes relax it again.
  * The pause is persisted so a restart doesn't hammer a provider that said no.
+ *
+ * A 429 that arrives while the lanes are ALREADY paused never escalates: it can
+ * only come from an `interactive` call or from one that was in flight when the
+ * pause began, so it says nothing about whether the pause was long enough. On
+ * 2026-11-12 quick replies firing on every opened thread took the pause from
+ * 30s to 1h in 21 minutes and then renewed the full hour 20 more times — new
+ * mail got no urgency/category for as long as the user kept reading.
  */
 import { getSetting, setSetting } from "@/services/db/settings";
 import { logToFile } from "@/utils/fileLog";
 import { AiError } from "./errors";
 
-export type AiPriority = "interactive" | "live" | "backfill";
+export type AiPriority = "interactive" | "auto" | "live" | "backfill";
 
 const BACKOFF_MS = [30_000, 60_000, 120_000, 300_000, 900_000, 1_800_000, 3_600_000];
 const BASE_GAP_MS = 250;
@@ -57,6 +68,8 @@ const fresh = (): LimiterState => ({
 });
 
 let state = fresh();
+/** Hash of provider|credentials|model the current pause belongs to. */
+let owner: string | null = null;
 let loaded: Promise<void> | null = null;
 let resumeTimer: ReturnType<typeof setTimeout> | null = null;
 const resumeListeners = new Set<() => void>();
@@ -67,7 +80,10 @@ function loadPersisted(): Promise<void> {
   loaded ??= getSetting(STATE_KEY)
     .then((raw) => {
       if (!raw) return;
-      const p = JSON.parse(raw) as Partial<LimiterState>;
+      const p = JSON.parse(raw) as Partial<LimiterState> & { owner?: string };
+      // A pause earned by another provider/key/model is not ours to serve: the
+      // in-session switch resets it, but a restart used to reload it blindly.
+      if (p.owner && owner && p.owner !== owner) return;
       const now = Date.now();
       if ((p.backfillResumeAt ?? 0) > now) {
         state.pausedUntil = Math.max(state.pausedUntil, p.pausedUntil ?? 0);
@@ -82,7 +98,7 @@ function loadPersisted(): Promise<void> {
 
 function persist(): void {
   const { pausedUntil, backfillResumeAt, level } = state;
-  setSetting(STATE_KEY, JSON.stringify({ pausedUntil, backfillResumeAt, level })).catch(() => {});
+  setSetting(STATE_KEY, JSON.stringify({ pausedUntil, backfillResumeAt, level, owner })).catch(() => {});
 }
 
 function scheduleResume(): void {
@@ -107,16 +123,20 @@ function rateLimited(until: number): AiError {
   return err;
 }
 
+/** `auto` shares the `live` pause; only `backfill` waits longer. */
+const laneUntil = (lane: AiPriority): number =>
+  lane === "backfill" ? state.backfillResumeAt : state.pausedUntil;
+
 /** Whether `lane` may call the provider right now. */
 export function isLaneOpen(lane: AiPriority, now = Date.now()): boolean {
   if (lane === "interactive") return true;
-  return now >= (lane === "live" ? state.pausedUntil : state.backfillResumeAt);
+  return now >= laneUntil(lane);
 }
 
 /** When `lane` reopens (0 = open now). */
 export function laneReopensAt(lane: AiPriority): number {
   if (lane === "interactive") return 0;
-  const at = lane === "live" ? state.pausedUntil : state.backfillResumeAt;
+  const at = laneUntil(lane);
   return at > Date.now() ? at : 0;
 }
 
@@ -128,6 +148,7 @@ export async function acquire(lane: AiPriority): Promise<void> {
   if (lane === "interactive") return;
   await loadPersisted();
   if (!isLaneOpen(lane)) throw rateLimited(laneReopensAt(lane));
+  if (lane === "auto") return; // on screen: refused while paused, never queued
 
   if (lane === "live") state.liveWaiting++;
   try {
@@ -215,13 +236,22 @@ export function msUntilPacificMidnight(now = new Date()): number {
 /** Record a 429 and pause the background lanes. Returns the pause length. */
 export function report429(err: unknown, provider?: string): number {
   const now = Date.now();
-  const backoff = BACKOFF_MS[Math.min(state.level, BACKOFF_MS.length - 1)]!;
-  let pause = Math.max(backoff, parseRetryAfterMs(err) ?? 0);
+  const hinted = parseRetryAfterMs(err) ?? 0;
   const daily = provider === "gemini" && isDailyQuotaError(err);
-  if (daily) pause = Math.max(pause, msUntilPacificMidnight());
+  let pause: number;
 
-  state.level = Math.min(state.level + 1, BACKOFF_MS.length - 1);
-  state.gapMs = Math.min(MAX_GAP_MS, Math.max(2_000, state.gapMs * 2));
+  if (state.pausedUntil > now) {
+    // Already paused: no escalation (see the header). Only an explicit, longer
+    // wait from the provider may extend the pause.
+    pause = daily ? Math.max(hinted, msUntilPacificMidnight()) : hinted;
+    if (now + pause <= state.pausedUntil) return state.pausedUntil - now;
+  } else {
+    const backoff = BACKOFF_MS[Math.min(state.level, BACKOFF_MS.length - 1)]!;
+    pause = Math.max(backoff, hinted);
+    if (daily) pause = Math.max(pause, msUntilPacificMidnight());
+    state.level = Math.min(state.level + 1, BACKOFF_MS.length - 1);
+    state.gapMs = Math.min(MAX_GAP_MS, Math.max(2_000, state.gapMs * 2));
+  }
   state.pausedUntil = Math.max(state.pausedUntil, now + pause);
   // Old mail waits twice as long as new mail before it may try again — except
   // after a daily quota: the quota resets at a fixed time for both lanes, and
@@ -241,6 +271,19 @@ export function report429(err: unknown, provider?: string): number {
 export function onBacklogResume(cb: () => void): () => void {
   resumeListeners.add(cb);
   return () => resumeListeners.delete(cb);
+}
+
+/**
+ * Declare which provider|credentials|model the limiter is serving. A change
+ * drops the pause — the new one has its own quota. The id is stored hashed
+ * (it contains the API key) so a restart can tell a stale pause from its own.
+ */
+export function setRateLimitOwner(id: string): void {
+  let h = 5381;
+  for (let i = 0; i < id.length; i++) h = ((h << 5) + h + id.charCodeAt(i)) | 0;
+  const next = (h >>> 0).toString(36);
+  if (owner !== null && owner !== next) resetRateLimit();
+  owner = next;
 }
 
 /** Forget every pause (provider/key/model changed — the new one has its own quota). */
@@ -271,6 +314,7 @@ export function getRateLimitStatus(): { pausedUntil: number; backfillResumeAt: n
 /** Test hook. */
 export function __resetForTests(): void {
   state = fresh();
+  owner = null;
   loaded = null;
   if (resumeTimer) clearTimeout(resumeTimer);
   resumeTimer = null;

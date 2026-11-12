@@ -9,13 +9,11 @@ import { createOllamaProvider, clearOllamaProvider } from "./providers/ollamaPro
 import { createCopilotProvider, clearCopilotProvider } from "./providers/copilotProvider";
 import { createKiloProvider, clearKiloProvider } from "./providers/kiloProvider";
 import { createOpenRouterProvider, clearOpenRouterProvider } from "./providers/openrouterProvider";
-import { acquire, report429, reportSuccess, resetRateLimit } from "./rateLimiter";
+import { acquire, report429, reportSuccess, setRateLimitOwner } from "./rateLimiter";
 import { isRateLimitError } from "./errors";
 
 
 let cachedProvider: { name: AiProvider; key: string; client: AiProviderClient } | null = null;
-/** provider|credentials|model the rate limiter's current pause belongs to. */
-let limiterOwner: string | null = null;
 
 /**
  * Every completion goes through the rate limiter: background lanes wait for a
@@ -23,10 +21,8 @@ let limiterOwner: string | null = null;
  * left alone — it is an explicit user check.
  */
 function withRateLimit(name: AiProvider, key: string, client: AiProviderClient): AiProviderClient {
-  const owner = `${name}|${key}`;
-  // A different provider/key/model has its own quota: drop the old pause.
-  if (limiterOwner !== null && limiterOwner !== owner) resetRateLimit();
-  limiterOwner = owner;
+  // A different provider/key/model has its own quota: this drops the old pause.
+  setRateLimitOwner(`${name}|${key}`);
 
   return {
     async complete(req) {

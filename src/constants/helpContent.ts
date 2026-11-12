@@ -804,7 +804,7 @@ export const HELP_CATEGORIES: HelpCategory[] = [
         description:
           "For threads with many messages, click the summary button to get a concise AI-generated overview. The summary captures the key points, decisions, and action items from the entire conversation, saving you from reading through dozens of messages. Summaries are cached locally so you only pay for the API call once. Especially useful for threads you were CC'd on or need to catch up on after being away.",
         tips: [
-          { text: "Click the summary icon in the thread view header." },
+          { text: "With \"Auto-summarize threads\" on (Settings → AI), the summary appears by itself when you open a thread; turn it off to generate it only when you click Summarize." },
           { text: "Summaries are cached — subsequent views are instant and free." },
           { text: "Best for long threads with 5+ messages." },
           { text: "Captures key decisions, action items, and takeaways." },
@@ -818,7 +818,8 @@ export const HELP_CATEGORIES: HelpCategory[] = [
         description:
           "When viewing a thread, AI analyzes the latest message and suggests 2-3 short reply options — like \"Sounds good, thanks!\", \"Let me check and get back to you.\", or \"I'm available next Tuesday.\" Click a suggestion to insert it into the reply editor, then edit it before sending. Smart replies save time for quick, routine responses.",
         tips: [
-          { text: "Smart reply suggestions appear below the last message in a thread." },
+          { text: "Click \"Suggest replies\" below the last message in a thread." },
+          { text: "To get them without clicking, turn on \"Suggest quick replies automatically\" in Settings → AI — it costs one AI request per opened thread." },
           { text: "Click a suggestion to insert it into the reply editor." },
           { text: "Edit the suggestion before sending — it's a starting point, not final." },
           { text: "Suggestions are context-aware based on the email content." },

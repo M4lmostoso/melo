@@ -4,6 +4,7 @@ import { getSetting } from "@/services/db/settings";
 import { isRateLimitError } from "./errors";
 import {
   getRecentRuleCategorizedThreadIds,
+  markThreadsAiCategorized,
   setThreadCategoriesBatch,
 } from "@/services/db/threadCategories";
 
@@ -28,6 +29,14 @@ export async function categorizeNewThreads(accountId: string): Promise<void> {
         snippet: t.snippet ?? "",
         fromAddress: t.fromAddress ?? "",
       })),
+    );
+
+    // The call went through: never send these threads again, including the
+    // ones the model left out of its answer (they would be re-sent forever).
+    // A thrown call (429, network) skips this, so those are retried.
+    await markThreadsAiCategorized(
+      accountId,
+      threads.map((t) => t.id),
     );
 
     if (categories.size === 0) return;

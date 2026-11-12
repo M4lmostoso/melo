@@ -408,11 +408,19 @@ export async function purgeOrphanPlaceholderThreads(accountId: string): Promise<
 export async function purgeImapDuplicates(accountId: string): Promise<number> {
   const db = await getDb();
 
-  // Collect all victim (duplicate) message IDs in one CTE query — no per-victim loops
+  // Collect all victim (duplicate) message IDs in one query — no per-victim loops.
+  //
+  // `dupes CROSS JOIN messages` is deliberate: CROSS JOIN pins the join order, so
+  // the (normally empty) duplicate groups drive the lookup and `m` is reached
+  // through idx_messages_dedup. Written as `messages m INNER JOIN dupes`, SQLite
+  // walked every message of the account and fetched its row to read
+  // message_id_header — a column stored AFTER body_html/body_text, so each fetch
+  // followed the whole overflow chain of the body. Measured on a 4,000-message
+  // account: 61,200 pages (~240 MB) and 1.5–4.9 s to return zero rows, twice per
+  // maintenance cycle; now 189 pages and ~1 ms.
   const victims = await db.select<{ id: string; thread_id: string }[]>(
     `SELECT m.id, m.thread_id
-     FROM messages m
-     INNER JOIN (
+     FROM (
        SELECT message_id_header, imap_folder, MIN(imap_uid) AS keep_uid
        FROM messages
        WHERE account_id = $1
@@ -422,10 +430,11 @@ export async function purgeImapDuplicates(accountId: string): Promise<number> {
        GROUP BY message_id_header, imap_folder
        HAVING COUNT(*) > 1
      ) dupes
-       ON m.message_id_header = dupes.message_id_header
+     CROSS JOIN messages m
+       ON m.account_id = $1
+      AND m.message_id_header = dupes.message_id_header
       AND m.imap_folder = dupes.imap_folder
-      AND m.imap_uid != dupes.keep_uid
-     WHERE m.account_id = $1`,
+      AND m.imap_uid != dupes.keep_uid`,
     [accountId],
   );
 
@@ -434,8 +443,7 @@ export async function purgeImapDuplicates(accountId: string): Promise<number> {
   // separate APPEND calls). Keep the row with the lowest rowid (oldest).
   const sameUidVictims = await db.select<{ id: string; thread_id: string }[]>(
     `SELECT m.id, m.thread_id
-     FROM messages m
-     INNER JOIN (
+     FROM (
        SELECT message_id_header, imap_folder, imap_uid, MIN(rowid) AS keep_rowid
        FROM messages
        WHERE account_id = $1
@@ -445,11 +453,12 @@ export async function purgeImapDuplicates(accountId: string): Promise<number> {
        GROUP BY message_id_header, imap_folder, imap_uid
        HAVING COUNT(*) > 1
      ) dupes
-       ON m.message_id_header = dupes.message_id_header
+     CROSS JOIN messages m
+       ON m.account_id = $1
+      AND m.message_id_header = dupes.message_id_header
       AND m.imap_folder = dupes.imap_folder
       AND m.imap_uid = dupes.imap_uid
-      AND m.rowid != dupes.keep_rowid
-     WHERE m.account_id = $1`,
+      AND m.rowid != dupes.keep_rowid`,
     [accountId],
   );
 
