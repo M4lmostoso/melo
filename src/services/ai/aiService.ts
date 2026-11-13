@@ -381,9 +381,10 @@ export async function extractTaskFromThread(
   return callAi(prompt, combined, { skipLanguage: true });
 }
 
-export async function testConnection(): Promise<boolean> {
+/** `purpose: "composer"` tests the composer provider/model (Settings → AI → Composer). */
+export async function testConnection(purpose?: AiPurpose): Promise<boolean> {
   try {
-    const provider = await getActiveProvider();
+    const provider = await getActiveProvider(purpose);
     return await provider.testConnection();
   } catch {
     return false;

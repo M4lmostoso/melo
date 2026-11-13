@@ -161,6 +161,8 @@ export function AITab() {
   const [composerProvider, setComposerProvider] = useState<AiProvider | "">("");
   const [composerModel, setComposerModel] = useState("");
   const [configuredProviders, setConfiguredProviders] = useState<AiProvider[]>([]);
+  const [composerTesting, setComposerTesting] = useState(false);
+  const [composerTestResult, setComposerTestResult] = useState<"success" | "fail" | null>(null);
   const [aiEnabled, setAiEnabled] = useState(true);
   const [aiAutoCategorize, setAiAutoCategorize] = useState(true);
   const [aiAutoSummarize, setAiAutoSummarize] = useState(true);
@@ -317,6 +319,7 @@ export function AITab() {
     const pm = await import("@/services/ai/providerManager");
     setComposerProvider(value as AiProvider | "");
     setComposerModel("");
+    setComposerTestResult(null);
     await setSetting(pm.COMPOSER_PROVIDER_SETTING, value);
     await setSetting(pm.COMPOSER_MODEL_SETTING, "");
     pm.clearProviderClients();
@@ -327,6 +330,7 @@ export function AITab() {
     const pm = await import("@/services/ai/providerManager");
     const val = value.trim();
     setComposerModel(val);
+    setComposerTestResult(null);
     await setSetting(pm.COMPOSER_MODEL_SETTING, val);
     pm.clearProviderClients();
   };
@@ -344,6 +348,22 @@ export function AITab() {
     })[p];
 
   const effectiveComposerProvider: AiProvider = composerProvider || aiProvider;
+
+  /** Real call to the composer provider/model (gateways give up after 30 s). */
+  const handleTestComposer = async () => {
+    setComposerTesting(true);
+    setComposerTestResult(null);
+    try {
+      // Commit a model still being typed before testing it.
+      await saveComposerModel(composerModel);
+      const { testConnection } = await import("@/services/ai/aiService");
+      setComposerTestResult((await testConnection("composer")) ? "success" : "fail");
+    } catch {
+      setComposerTestResult("fail");
+    } finally {
+      setComposerTesting(false);
+    }
+  };
 
   /** Persist the model of the current provider (empty → provider default). */
   const saveModel = async (value: string) => {
@@ -614,6 +634,19 @@ export function AITab() {
           hint={t("settings.ai.composerModelHint")}
           placeholder={t("settings.ai.composerModelSame")}
         />
+        <div className="flex items-center gap-2">
+          <Button
+            variant="secondary"
+            size="md"
+            onClick={handleTestComposer}
+            disabled={composerTesting}
+            className="bg-bg-tertiary text-text-primary border border-border-primary"
+          >
+            {composerTesting ? t("settings.ai.testing") : t("settings.ai.testConnection")}
+          </Button>
+          {composerTestResult === "success" && <span className="text-xs text-success">{t("settings.ai.connected")}</span>}
+          {composerTestResult === "fail" && <span className="text-xs text-danger">{t("settings.ai.connectionFailed")}</span>}
+        </div>
       </Section>
 
       <Section title={t("settings.ai.sections.features")}>

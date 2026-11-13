@@ -28,6 +28,7 @@ import {
   modifyEmailContent,
   generateReply,
   categorizeThreads as categorize,
+  testConnection,
 } from "./aiService";
 import { getActiveProvider } from "./providerManager";
 import { SIGNATURE_APPENDED_RULE } from "./prompts";
@@ -236,6 +237,13 @@ describe("composer calls", () => {
     await generateReply(["mail"], "ringrazia", undefined, []);
     expect(getActiveProvider).toHaveBeenLastCalledWith("composer");
     expect(mockComplete.mock.calls[1]![0].systemPrompt).not.toContain("SIGNATURE:");
+  });
+
+  it("the composer Test connection button tests the composer provider, not the main one", async () => {
+    expect(await testConnection("composer")).toBe(true);
+    expect(getActiveProvider).toHaveBeenLastCalledWith("composer");
+    await testConnection();
+    expect(getActiveProvider).toHaveBeenLastCalledWith(undefined);
   });
 
   it("background work stays on the main model", async () => {
