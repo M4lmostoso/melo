@@ -9,11 +9,14 @@ import {
 import { getRecentSentMessages, getRecentSentMessagesToAddress, type DbMessage } from "@/services/db/messages";
 import { getAccount } from "@/services/db/accounts";
 import { getSetting } from "@/services/db/settings";
-import { WRITING_STYLE_ANALYSIS_PROMPT, AUTO_DRAFT_REPLY_PROMPT } from "./prompts";
+import { WRITING_STYLE_ANALYSIS_PROMPT, AUTO_DRAFT_REPLY_PROMPT, SIGNATURE_APPENDED_RULE } from "./prompts";
+import { getDefaultSignature } from "@/services/db/signatures";
+import { stripSignatureEcho } from "@/utils/stripSignatureEcho";
 
+/** Drafts are writing: they run on the composer model when one is set. */
 async function callAi(systemPrompt: string, userContent: string): Promise<string> {
   try {
-    const provider = await getActiveProvider();
+    const provider = await getActiveProvider("composer");
     return await provider.complete({ systemPrompt, userContent });
   } catch (err) {
     throw toAiError(err);
@@ -149,7 +152,11 @@ export async function generateAutoDraft(
     6000,
   );
 
-  const draft = await callAi(AUTO_DRAFT_REPLY_PROMPT, userContent);
+  // The composer appends the account's default signature: the draft must not carry one.
+  const signature = await getDefaultSignature(accountId).catch(() => null);
+  const sigHtml = signature?.body_html ?? "";
+  const raw = await callAi(sigHtml ? `${AUTO_DRAFT_REPLY_PROMPT}\n${SIGNATURE_APPENDED_RULE}` : AUTO_DRAFT_REPLY_PROMPT, userContent);
+  const draft = stripSignatureEcho(raw, sigHtml);
 
   // Cache the result
   await setAiCache(accountId, threadId, cacheType, draft);

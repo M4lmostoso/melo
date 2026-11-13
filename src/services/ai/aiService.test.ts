@@ -25,7 +25,12 @@ import {
   judgeUrgencyResolved,
   categorizeThreads,
   scoreUrgencyWithAi,
+  modifyEmailContent,
+  generateReply,
+  categorizeThreads as categorize,
 } from "./aiService";
+import { getActiveProvider } from "./providerManager";
+import { SIGNATURE_APPENDED_RULE } from "./prompts";
 import { AiError } from "./errors";
 
 describe("classifyThreadsBySmartLabels", () => {
@@ -216,5 +221,26 @@ describe("scoreUrgencyWithAi cache freshness", () => {
 
     expect(await scoreUrgencyWithAi("a", "t", "s", "b", "x@y.z", "")).toBeNull();
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("no JSON"));
+  });
+});
+
+describe("composer calls", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("run on the composer model and, with a signature selected, forbid writing it", async () => {
+    mockComplete.mockResolvedValue("<p>ok</p>");
+    await modifyEmailContent("<p>bozza</p>", "accorcia", [], { signatureAppended: true });
+    expect(getActiveProvider).toHaveBeenLastCalledWith("composer");
+    expect(mockComplete.mock.calls[0]![0].systemPrompt).toContain(SIGNATURE_APPENDED_RULE.trim());
+
+    await generateReply(["mail"], "ringrazia", undefined, []);
+    expect(getActiveProvider).toHaveBeenLastCalledWith("composer");
+    expect(mockComplete.mock.calls[1]![0].systemPrompt).not.toContain("SIGNATURE:");
+  });
+
+  it("background work stays on the main model", async () => {
+    mockComplete.mockResolvedValue("t1: Primary");
+    await categorize([{ id: "t1", subject: "s", snippet: "x", fromAddress: "a@b.c" }]);
+    expect(getActiveProvider).toHaveBeenLastCalledWith(undefined);
   });
 });

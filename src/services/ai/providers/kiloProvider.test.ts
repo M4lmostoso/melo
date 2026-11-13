@@ -29,6 +29,8 @@ describe("kiloProvider", () => {
       baseURL: KILO_BASE_URL,
       dangerouslyAllowBrowser: true,
       fetch: tauriFetch,
+      timeout: 120_000,
+      maxRetries: 1,
     });
   });
 

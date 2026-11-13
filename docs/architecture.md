@@ -31,7 +31,7 @@ Melo follows a **three-layer architecture** with clear separation of concerns.
 | **Backend** | Rust |
 | **Database** | SQLite (via tauri-plugin-sql) |
 | **Search** | FTS5, trigram tokenizer with diacritics folding; weighted BM25 ranking |
-| **AI** | Anthropic Claude, OpenAI GPT, Google Gemini, Ollama (local), GitHub Copilot, Kilo Gateway, OpenRouter (user-selectable models per provider) |
+| **AI** | Anthropic Claude, OpenAI GPT, Google Gemini, Ollama (local), GitHub Copilot, Kilo Gateway, Groq, NVIDIA NIM (user-selectable models per provider) |
 | **Icons** | Lucide React |
 | **Drag & Drop** | @dnd-kit |
 | **Testing** | Vitest + Testing Library |
@@ -160,7 +160,7 @@ All business logic lives in `src/services/` as plain async functions (except `Gm
 | `imap/` | IMAP sync, folder-to-label mapping, auto-discovery, Tauri command wrappers |
 | `oauth/` | OAuth PKCE flow, token refresh, multi-account token management |
 | `threading/` | JWZ threading algorithm for IMAP message grouping |
-| `ai/` | AI service with 7 providers — Claude, OpenAI, Google AI Studio (Gemini/Gemma), Ollama (local), Copilot, Kilo Gateway, OpenRouter — live model catalogs (`modelCatalog.ts`), selectable per feature, categorization, Ask Inbox, writing style analysis, auto-drafts, task extraction |
+| `ai/` | AI service with 8 providers — Claude, OpenAI, Google AI Studio (Gemini/Gemma), Ollama (local), Copilot, Kilo Gateway, Groq, NVIDIA NIM — live model catalogs (`modelCatalog.ts`), selectable per feature, categorization, Ask Inbox, writing style analysis, auto-drafts, task extraction |
 | `google/` | Google Calendar API |
 | `composer/` | Draft auto-save — two-tier: stable UUID row in SQLite (3s debounce) + server APPEND (18s debounce) |
 | `search/` | Gmail-style query parser, SQL builder |

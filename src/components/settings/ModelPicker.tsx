@@ -14,6 +14,10 @@ interface ModelPickerProps {
   apiKey?: string;
   serverUrl?: string;
   placeholder?: string;
+  /** Field label (default: "Model"). */
+  label?: string;
+  /** Text under the field, replacing the catalog status + provider hint. */
+  hint?: string;
 }
 
 function formatAge(fetchedAt: number): string {
@@ -38,7 +42,7 @@ export function filterModels(models: CatalogModel[], query: string | null): Cata
  * Model combobox: free text + the provider's LIVE catalog (`modelCatalog.ts`,
  * cached 24h) as a dropdown. Any id can be typed; the list only helps.
  */
-export function ModelPicker({ provider, value, onChange, onCommit, apiKey, serverUrl, placeholder }: ModelPickerProps) {
+export function ModelPicker({ provider, value, onChange, onCommit, apiKey, serverUrl, placeholder, label, hint }: ModelPickerProps) {
   const listId = useId();
   const inputId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -104,7 +108,7 @@ export function ModelPicker({ provider, value, onChange, onCommit, apiKey, serve
   return (
     <div ref={rootRef}>
       <label htmlFor={inputId} className="text-sm text-text-secondary block mb-1.5">
-        {t("settings.ai.model")}
+        {label ?? t("settings.ai.model")}
       </label>
       <div className="flex items-stretch gap-2">
         <div className="relative flex-1">
@@ -206,13 +210,15 @@ export function ModelPicker({ provider, value, onChange, onCommit, apiKey, serve
         </button>
       </div>
       <p className="text-xs text-text-tertiary mt-1">
-        {catalog === null
+        {hint ??
+          (catalog === null
           ? t("settings.ai.models.loading")
           : catalog.fallback
             ? t("settings.ai.models.builtIn")
-            : t("settings.ai.models.live", { count: catalog.models.length, age: formatAge(catalog.fetchedAt) })}
-        {provider === "kilo" && ` ${t("settings.ai.kiloModelHint")}`}
-        {provider === "openrouter" && ` ${t("settings.ai.openrouterModelHint")}`}
+            : t("settings.ai.models.live", { count: catalog.models.length, age: formatAge(catalog.fetchedAt) }))}
+        {!hint && provider === "kilo" && ` ${t("settings.ai.kiloModelHint")}`}
+        {!hint && provider === "groq" && ` ${t("settings.ai.groqModelHint")}`}
+        {!hint && provider === "nvidia" && ` ${t("settings.ai.nvidiaModelHint")}`}
       </p>
       {unknown && (
         <p className="text-xs text-warning mt-1 flex items-center gap-1">

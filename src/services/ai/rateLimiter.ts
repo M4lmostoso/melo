@@ -32,6 +32,19 @@
  * 2026-11-12 quick replies firing on every opened thread took the pause from
  * 30s to 1h in 21 minutes and then renewed the full hour 20 more times — new
  * mail got no urgency/category for as long as the user kept reading.
+ *
+ * A provider with a published per-minute quota (NVIDIA NIM: 40/min) also gets a
+ * request CAP (`setRequestCap`): `live`/`backfill` wait for a free slot in the
+ * last 60 s and `auto` is refused when there is none — so the backfill, which
+ * otherwise fires as fast as the model answers, never reaches the 429 at all.
+ * Every call counts toward the window; `interactive` is never held by it (the
+ * cap sits below the quota precisely to leave that headroom).
+ *
+ * The cap can also count TOKENS per minute (Groq's free plan: 8K/min per model,
+ * which binds long before its 30 requests/min — one categorisation of 20 threads
+ * is ~3.5K tokens on Qwen and ~6.5K on GPT-OSS 20B, soul.md alone ~1K). A call
+ * enters the window with an estimate and is settled with the provider's real
+ * `usage.total_tokens` when it completes (`CapSlot`).
  */
 import { getSetting, setSetting } from "@/services/db/settings";
 import { logToFile } from "@/utils/fileLog";
@@ -68,6 +81,20 @@ const fresh = (): LimiterState => ({
 });
 
 let state = fresh();
+/** Max calls started in any 60 s window (null = no cap). */
+let requestCap: number | null = null;
+/** Max tokens (in + out) spent in any 60 s window (null = no cap). */
+let tokenCap: number | null = null;
+
+/** One call in the cap window. `tokens` starts as an estimate and is settled later. */
+export interface CapSlot {
+  at: number;
+  tokens: number;
+}
+
+/** Calls started in the last 60 s, oldest first. */
+let recentStarts: CapSlot[] = [];
+const CAP_WINDOW_MS = 60_000;
 /** Hash of provider|credentials|model the current pause belongs to. */
 let owner: string | null = null;
 let loaded: Promise<void> | null = null;
@@ -117,6 +144,45 @@ function scheduleResume(): void {
   }, delay + 1_000);
 }
 
+/** ms until a call of ~`estTokens` may start without exceeding the caps (0 = now). */
+function capWait(estTokens = 0, now = Date.now()): number {
+  if (requestCap === null && tokenCap === null) return 0;
+  while (recentStarts.length > 0 && recentStarts[0]!.at <= now - CAP_WINDOW_MS) recentStarts.shift();
+  let wait = 0;
+  if (requestCap !== null && recentStarts.length >= requestCap) {
+    // The window drops below the cap once the (len − cap)-th oldest start expires.
+    wait = recentStarts[recentStarts.length - requestCap]!.at + CAP_WINDOW_MS - now + 1;
+  }
+  // An empty window always admits one call, however big — otherwise a single
+  // request larger than the cap would wait forever.
+  if (tokenCap !== null && recentStarts.length > 0) {
+    let used = recentStarts.reduce((sum, s) => sum + s.tokens, 0);
+    for (const s of recentStarts) {
+      if (used + estTokens <= tokenCap) break;
+      used -= s.tokens;
+      wait = Math.max(wait, s.at + CAP_WINDOW_MS - now + 1);
+    }
+  }
+  return wait;
+}
+
+function noteStart(estTokens: number, slot?: CapSlot): void {
+  const entry = slot ?? { at: 0, tokens: 0 };
+  entry.at = Date.now();
+  entry.tokens = Math.max(entry.tokens, estTokens);
+  recentStarts.push(entry);
+}
+
+/**
+ * Cap the calls (and optionally the tokens) per minute for the active provider
+ * (null = no cap). Set by the provider manager from its tables whenever it builds
+ * a client.
+ */
+export function setRequestCap(perMinute: number | null, tokensPerMinute: number | null = null): void {
+  requestCap = perMinute && perMinute > 0 ? Math.floor(perMinute) : null;
+  tokenCap = tokensPerMinute && tokensPerMinute > 0 ? Math.floor(tokensPerMinute) : null;
+}
+
 function rateLimited(until: number): AiError {
   const err = new AiError("RATE_LIMITED", `AI provider rate limit — paused until ${new Date(until).toISOString()}`);
   err.retryAt = until;
@@ -143,12 +209,24 @@ export function laneReopensAt(lane: AiPriority): number {
 /**
  * Wait for a slot in `lane`. Throws `AiError("RATE_LIMITED")` immediately —
  * without touching the network — while the lane is paused.
+ *
+ * `estTokens` is the call's expected size for the token cap; pass a `slot` to
+ * correct it afterwards with the real usage (`slot.tokens = usage`).
  */
-export async function acquire(lane: AiPriority): Promise<void> {
-  if (lane === "interactive") return;
+export async function acquire(lane: AiPriority, estTokens = 0, slot?: CapSlot): Promise<void> {
+  if (lane === "interactive") {
+    noteStart(estTokens, slot);
+    return;
+  }
   await loadPersisted();
   if (!isLaneOpen(lane)) throw rateLimited(laneReopensAt(lane));
-  if (lane === "auto") return; // on screen: refused while paused, never queued
+  if (lane === "auto") {
+    // On screen: refused while paused or while the minute's quota is spent, never queued.
+    const wait = capWait(estTokens);
+    if (wait > 0) throw rateLimited(Date.now() + wait);
+    noteStart(estTokens, slot);
+    return;
+  }
 
   if (lane === "live") state.liveWaiting++;
   try {
@@ -158,13 +236,16 @@ export async function acquire(lane: AiPriority): Promise<void> {
         await sleep(Math.max(state.gapMs, 50));
         continue;
       }
-      const wait = state.nextBackgroundAt - Date.now();
+      const wait = Math.max(state.nextBackgroundAt - Date.now(), capWait(estTokens));
       if (wait <= 0) break;
-      await sleep(wait);
+      // Re-check at least every 5 s: a pause, a reset or a waiting live call may
+      // change the answer while a backfill call sleeps on the minute window.
+      await sleep(Math.min(wait, 5_000));
     }
     // Claim the slot synchronously right after the check — no other waiter can
     // run between the two, so two calls never start in the same slot.
     state.nextBackgroundAt = Date.now() + (lane === "backfill" ? state.gapMs * 2 : state.gapMs);
+    noteStart(estTokens, slot);
   } finally {
     if (lane === "live") state.liveWaiting--;
   }
@@ -315,6 +396,9 @@ export function getRateLimitStatus(): { pausedUntil: number; backfillResumeAt: n
 export function __resetForTests(): void {
   state = fresh();
   owner = null;
+  requestCap = null;
+  tokenCap = null;
+  recentStarts = [];
   loaded = null;
   if (resumeTimer) clearTimeout(resumeTimer);
   resumeTimer = null;

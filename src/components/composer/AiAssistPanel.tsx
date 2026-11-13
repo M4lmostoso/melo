@@ -13,6 +13,7 @@ import {
 } from "@/services/ai/aiService";
 import type { ConversationMessage } from "@/services/ai/types";
 import { useComposerStore } from "@/stores/composerStore";
+import { stripSignatureEcho } from "@/utils/stripSignatureEcho";
 
 interface AiMessage {
   role: "user" | "assistant";
@@ -109,6 +110,9 @@ export function AiAssistPanel({ editor, isReplyMode, threadMessages, senderPastR
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const setBodyHtml = useComposerStore((s) => s.setBodyHtml);
+  // The composer appends this below the body on send: the AI must not write it again.
+  const signatureHtml = useComposerStore((s) => s.signatureHtml);
+  const sigOpts = { signatureAppended: !!signatureHtml };
 
   const resizeTextarea = () => {
     const el = textareaRef.current;
@@ -142,7 +146,7 @@ export function AiAssistPanel({ editor, isReplyMode, threadMessages, senderPastR
 
   const applyToEditor = (html: string) => {
     if (!editor) return;
-    const cleaned = html.replace(/^```html\s*/i, "").replace(/```$/gm, "").trim();
+    const cleaned = stripSignatureEcho(html.replace(/^```html\s*/i, "").replace(/```$/gm, "").trim(), signatureHtml);
     editor.chain().focus().setContent(cleaned).run();
     setBodyHtml(editor.getHTML());
     const el = editor.view.dom as HTMLElement;
@@ -203,15 +207,15 @@ export function AiAssistPanel({ editor, isReplyMode, threadMessages, senderPastR
       let result: string;
 
       if (!bodyEmpty && !isClearRequest(userPrompt)) {
-        result = await modifyEmailContent(editor!.getHTML(), userPrompt, history);
+        result = await modifyEmailContent(editor!.getHTML(), userPrompt, history, sigOpts);
         applyToEditor(result);
         addAiFeedback(result, `Modified draft per instructions: "${userPrompt}"`);
       } else if (isReplyMode && threadMessages?.length) {
-        result = await generateReply(threadMessages, userPrompt, senderPastReplies, history);
+        result = await generateReply(threadMessages, userPrompt, senderPastReplies, history, sigOpts);
         applyToEditor(result);
         addAiFeedback(result, userPrompt ? `Reply generated with instructions: "${userPrompt}"` : "Reply generated from thread context");
       } else if (bodyEmpty) {
-        result = await composeFromPrompt(userPrompt, { skipLanguage, conversationHistory: history });
+        result = await composeFromPrompt(userPrompt, { skipLanguage, conversationHistory: history, ...sigOpts });
         if (shouldWriteToBodyWhenEmpty(userPrompt)) {
           applyToEditor(result);
           addAiFeedback(result, `New draft composed from instructions: "${userPrompt}"`);
@@ -219,7 +223,7 @@ export function AiAssistPanel({ editor, isReplyMode, threadMessages, senderPastR
           addAiMessage(result, true);
         }
       } else {
-        result = await composeFromPrompt(userPrompt, { skipLanguage, conversationHistory: history });
+        result = await composeFromPrompt(userPrompt, { skipLanguage, conversationHistory: history, ...sigOpts });
         applyToEditor(result);
         addAiFeedback(result, `Draft rewritten from scratch: "${userPrompt}"`);
       }
@@ -244,7 +248,7 @@ export function AiAssistPanel({ editor, isReplyMode, threadMessages, senderPastR
     setError(null);
 
     try {
-      const result = await transformText(editor.getHTML(), type);
+      const result = await transformText(editor.getHTML(), type, sigOpts);
       applyToEditor(result);
       addAiFeedback(result, TRANSFORM_DESCRIPTIONS[type]);
     } catch (err) {

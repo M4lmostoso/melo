@@ -4,7 +4,7 @@ import type { AiProviderClient, AiCompletionRequest } from "../types";
 import { createProviderFactory } from "../providerFactory";
 
 /**
- * Shared client for OpenAI-compatible routers (Kilo, OpenRouter): same chat
+ * Shared client for OpenAI-compatible routers (Kilo, Groq, NVIDIA NIM): same chat
  * completions API, different base URL.
  *
  * Requests go through the Tauri HTTP plugin, not the webview fetch: Kilo answers
@@ -15,7 +15,7 @@ export interface GatewayConfig {
   /** Name used in logs. */
   name: string;
   baseURL: string;
-  /** Extra headers on every request (e.g. OpenRouter app attribution). */
+  /** Extra headers on every request (e.g. app attribution). */
   defaultHeaders?: Record<string, string>;
 }
 
@@ -27,6 +27,18 @@ export interface GatewayConfig {
  * (~11k chars in) still ran out at 4096, hence 8192.
  */
 const GATEWAY_MAX_TOKENS = 8192;
+
+/**
+ * Time limits. The OpenAI SDK defaults to a 10-minute timeout with 2 retries, so a
+ * request a gateway accepts but never serves kept "Test connection" spinning for
+ * up to half an hour. NVIDIA NIM's free tier does exactly that: on 2026-11-13
+ * Gemma 4 31B, DeepSeek, GPT-OSS and GLM were accepted and never answered (>90 s,
+ * streaming included) while Nemotron 3.5 answered in 0.6 s on the same key.
+ * A completion gets 2 minutes (big batch categorisations on reasoning models do
+ * take tens of seconds) and one retry; the test gets 30 s and none.
+ */
+const COMPLETION_TIMEOUT_MS = 120_000;
+const TEST_TIMEOUT_MS = 30_000;
 
 /** Free reasoning models may inline their chain of thought — keep only the answer. */
 function stripThinking(text: string): string {
@@ -44,6 +56,8 @@ export function createGatewayProviderFactory(config: GatewayConfig): {
         baseURL: config.baseURL,
         dangerouslyAllowBrowser: true,
         fetch,
+        timeout: COMPLETION_TIMEOUT_MS,
+        maxRetries: 1,
         ...(config.defaultHeaders ? { defaultHeaders: config.defaultHeaders } : {}),
       }),
   );
@@ -65,6 +79,8 @@ export function createGatewayProviderFactory(config: GatewayConfig): {
             { role: "user", content: req.userContent },
           ],
         });
+        const total = response.usage?.total_tokens;
+        if (typeof total === "number") req.onUsage?.(total);
         const choice = response.choices[0];
         const text = stripThinking(choice?.message?.content ?? "");
         if (!text) {
@@ -79,11 +95,14 @@ export function createGatewayProviderFactory(config: GatewayConfig): {
 
       async testConnection(): Promise<boolean> {
         try {
-          await client.chat.completions.create({
-            model,
-            max_tokens: 16,
-            messages: [{ role: "user", content: "Say hi" }],
-          });
+          await client.chat.completions.create(
+            {
+              model,
+              max_tokens: 16,
+              messages: [{ role: "user", content: "Say hi" }],
+            },
+            { timeout: TEST_TIMEOUT_MS, maxRetries: 0 },
+          );
           return true;
         } catch (err) {
           console.error(`${config.name} connection test failed:`, err);

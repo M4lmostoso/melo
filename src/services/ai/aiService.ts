@@ -1,5 +1,5 @@
 import { getSetting } from "@/services/db/settings";
-import { getActiveProvider } from "./providerManager";
+import { getActiveProvider, type AiPurpose } from "./providerManager";
 import { getAiCache, getAiCacheEntry, setAiCache } from "@/services/db/aiCache";
 import { AiError, toAiError } from "./errors";
 import type { DbMessage } from "@/services/db/messages";
@@ -22,6 +22,7 @@ import {
   PHISHING_JUDGE_PROMPT,
   URGENCY_SCORE_PROMPT,
   UNIFIED_URGENCY_AUTOLABEL_PROMPT_TEMPLATE,
+  SIGNATURE_APPENDED_RULE,
 } from "./prompts";
 import { getSoul } from "./soulService";
 
@@ -29,7 +30,24 @@ import { getSoul } from "./soulService";
 // not by reaching into providerManager directly (see eslint no-restricted-imports).
 export { isAiAvailable } from "./providerManager";
 
-async function callAi(systemPrompt: string, userContent: string, options?: { skipLanguage?: boolean; skipSoul?: boolean; conversationHistory?: ConversationMessage[]; priority?: AiPriority }): Promise<string> {
+interface CallAiOptions {
+  skipLanguage?: boolean;
+  skipSoul?: boolean;
+  conversationHistory?: ConversationMessage[];
+  priority?: AiPriority;
+  /** `composer` runs on the composer model when one is configured. */
+  purpose?: AiPurpose;
+  /** The composer appends the user's signature: tell the model not to write one. */
+  signatureAppended?: boolean;
+}
+
+/** Options the composer passes to its writing calls. */
+export interface ComposerAiOptions {
+  /** A signature is selected and will be appended below the body. */
+  signatureAppended?: boolean;
+}
+
+async function callAi(systemPrompt: string, userContent: string, options?: CallAiOptions): Promise<string> {
   let finalSystemPrompt = systemPrompt;
 
   // Prepend SOUL.md content as base personality
@@ -68,8 +86,10 @@ async function callAi(systemPrompt: string, userContent: string, options?: { ski
     }
   }
 
+  if (options?.signatureAppended) finalSystemPrompt += `\n${SIGNATURE_APPENDED_RULE}`;
+
   try {
-    const provider = await getActiveProvider();
+    const provider = await getActiveProvider(options?.purpose);
     return await provider.complete({
       priority: options?.priority ?? "interactive",
       systemPrompt: finalSystemPrompt,
@@ -129,8 +149,11 @@ export async function summarizeThread(
   return summary;
 }
 
-export async function composeFromPrompt(instructions: string, options?: { skipLanguage?: boolean; conversationHistory?: ConversationMessage[] }): Promise<string> {
-  return callAi(COMPOSE_PROMPT, instructions, options);
+export async function composeFromPrompt(
+  instructions: string,
+  options?: { skipLanguage?: boolean; conversationHistory?: ConversationMessage[] } & ComposerAiOptions,
+): Promise<string> {
+  return callAi(COMPOSE_PROMPT, instructions, { ...options, purpose: "composer" });
 }
 
 export async function generateComposerFeedback(
@@ -144,13 +167,18 @@ export async function generateComposerFeedback(
     ? `\n\n<operation_context>${context.operation}</operation_context>`
     : "";
   const userContent = `<email_draft>\n${draftText}\n</email_draft>${operationBlock}`;
-  return callAi(COMPOSER_FEEDBACK_PROMPT, userContent);
+  return callAi(COMPOSER_FEEDBACK_PROMPT, userContent, { purpose: "composer" });
 }
 
-export async function modifyEmailContent(currentBody: string, instructions: string, conversationHistory?: ConversationMessage[]): Promise<string> {
+export async function modifyEmailContent(
+  currentBody: string,
+  instructions: string,
+  conversationHistory?: ConversationMessage[],
+  options?: ComposerAiOptions,
+): Promise<string> {
   const userContent = `<current_body>${currentBody}</current_body>\n\nUser instructions: ${instructions}`;
   // skipLanguage: true because MODIFY_PROMPT itself handles language continuity
-  return callAi(MODIFY_PROMPT, userContent, { skipLanguage: true, conversationHistory });
+  return callAi(MODIFY_PROMPT, userContent, { skipLanguage: true, conversationHistory, purpose: "composer", ...options });
 }
 
 export async function generateReply(
@@ -158,6 +186,7 @@ export async function generateReply(
   instructions?: string,
   senderPastReplies?: string[],
   conversationHistory?: ConversationMessage[],
+  options?: ComposerAiOptions,
 ): Promise<string> {
   const combined = messagesText.join("\n---\n").slice(0, 4000);
   let userContent = `<email_content>${combined}</email_content>`;
@@ -174,7 +203,7 @@ export async function generateReply(
   }
 
   // skipLanguage: true — REPLY_PROMPT detects email language and responds in kind
-  return callAi(REPLY_PROMPT, userContent, { skipLanguage: true, conversationHistory });
+  return callAi(REPLY_PROMPT, userContent, { skipLanguage: true, conversationHistory, purpose: "composer", ...options });
 }
 
 export type TransformType = "improve" | "shorten" | "formalize";
@@ -182,6 +211,7 @@ export type TransformType = "improve" | "shorten" | "formalize";
 export async function transformText(
   text: string,
   type: TransformType,
+  options?: ComposerAiOptions,
 ): Promise<string> {
   const prompts: Record<TransformType, string> = {
     improve: IMPROVE_PROMPT,
@@ -189,7 +219,7 @@ export async function transformText(
     formalize: FORMALIZE_PROMPT,
   };
   // skipLanguage: true — prompts already enforce "same language as input"
-  return callAi(prompts[type], text, { skipLanguage: true });
+  return callAi(prompts[type], text, { skipLanguage: true, purpose: "composer", ...options });
 }
 
 /** `priority`: "auto" when fired by the UI on thread open (see summarizeThread). */

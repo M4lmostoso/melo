@@ -13,29 +13,30 @@ const { tauriFetch } = vi.hoisted(() => ({ tauriFetch: vi.fn() }));
 vi.mock("@tauri-apps/plugin-http", () => ({ fetch: tauriFetch }));
 
 import OpenAI from "openai";
-import { createOpenRouterProvider, clearOpenRouterProvider, OPENROUTER_BASE_URL } from "./openrouterProvider";
+import { createNvidiaProvider, clearNvidiaProvider, NVIDIA_BASE_URL } from "./nvidiaProvider";
 
-describe("openrouterProvider", () => {
+describe("nvidiaProvider", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    clearOpenRouterProvider();
+    clearNvidiaProvider();
   });
 
-  it("targets OpenRouter through the Tauri HTTP fetch with app attribution headers", () => {
-    createOpenRouterProvider("sk-or-v1-key", "openrouter/free");
-    expect(OPENROUTER_BASE_URL).toBe("https://openrouter.ai/api/v1");
+  it("targets NVIDIA NIM through the Tauri HTTP fetch (its preflights carry no CORS headers)", () => {
+    createNvidiaProvider("nvapi-key", "google/gemma-4-31b-it");
+    expect(NVIDIA_BASE_URL).toBe("https://integrate.api.nvidia.com/v1");
     expect(OpenAI).toHaveBeenCalledWith({
-      apiKey: "sk-or-v1-key",
-      baseURL: OPENROUTER_BASE_URL,
+      apiKey: "nvapi-key",
+      baseURL: NVIDIA_BASE_URL,
       dangerouslyAllowBrowser: true,
       fetch: tauriFetch,
-      defaultHeaders: { "HTTP-Referer": "https://github.com/M4lmostoso/melo", "X-Title": "Melo" },
+      timeout: 120_000,
+      maxRetries: 1,
     });
   });
 
   it("sends system, history and user messages and strips <think> blocks", async () => {
     mockCreate.mockResolvedValue({ choices: [{ message: { content: "<think>hm</think> ciao" } }] });
-    const provider = createOpenRouterProvider("k", "google/gemma-4-31b-it:free");
+    const provider = createNvidiaProvider("k", "google/gemma-4-31b-it");
 
     const out = await provider.complete({
       systemPrompt: "sys",
@@ -45,7 +46,7 @@ describe("openrouterProvider", () => {
 
     expect(out).toBe("ciao");
     expect(mockCreate).toHaveBeenCalledWith({
-      model: "google/gemma-4-31b-it:free",
+      model: "google/gemma-4-31b-it",
       max_tokens: 8192,
       messages: [
         { role: "system", content: "sys" },
@@ -56,16 +57,25 @@ describe("openrouterProvider", () => {
   });
 
   it("reuses one client per key and rebuilds it when the key changes", () => {
-    createOpenRouterProvider("a", "m");
-    createOpenRouterProvider("a", "m2");
+    createNvidiaProvider("a", "m");
+    createNvidiaProvider("a", "m2");
     expect(OpenAI).toHaveBeenCalledTimes(1);
-    createOpenRouterProvider("b", "m");
+    createNvidiaProvider("b", "m");
     expect(OpenAI).toHaveBeenCalledTimes(2);
+  });
+
+  it("testConnection gives up after 30 s without retrying (NIM queues some free models forever)", async () => {
+    mockCreate.mockResolvedValue({ choices: [{ message: { content: "hi" } }] });
+    expect(await createNvidiaProvider("k", "google/gemma-4-31b-it").testConnection()).toBe(true);
+    expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ max_tokens: 16 }), {
+      timeout: 30_000,
+      maxRetries: 0,
+    });
   });
 
   it("testConnection reports failure instead of throwing", async () => {
     mockCreate.mockRejectedValue(new Error("401"));
     vi.spyOn(console, "error").mockImplementation(() => {});
-    expect(await createOpenRouterProvider("bad", "openrouter/free").testConnection()).toBe(false);
+    expect(await createNvidiaProvider("bad", "google/gemma-4-31b-it").testConnection()).toBe(false);
   });
 });

@@ -18,6 +18,7 @@ import {
   onBacklogResume,
   resetRateLimit,
   setRateLimitOwner,
+  setRequestCap,
   getRateLimitStatus,
   __resetForTests,
 } from "./rateLimiter";
@@ -112,6 +113,62 @@ describe("rateLimiter", () => {
     __resetForTests(); // restart on the SAME provider keeps the pause
     setRateLimitOwner("kilo|key|model-b");
     await expect(acquire("live")).rejects.toMatchObject({ code: "RATE_LIMITED" });
+  });
+
+  it("a request cap holds background calls in a 60 s window without a 429", async () => {
+    setRequestCap(3);
+    const t0 = Date.now();
+    for (let i = 0; i < 3; i++) {
+      const p = acquire("live"); // live calls are also spaced 250 ms apart
+      await vi.advanceTimersByTimeAsync(300);
+      await p;
+    }
+    let fourth = false;
+    const pending = acquire("live").then(() => (fourth = true));
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(fourth).toBe(false); // still inside the minute
+    await vi.advanceTimersByTimeAsync(31_000);
+    expect(Date.now() - t0).toBeGreaterThanOrEqual(60_000);
+    await pending;
+    expect(fourth).toBe(true);
+    expect(isLaneOpen("live")).toBe(true); // waited, never paused
+  });
+
+  it("under the cap: auto is refused once the minute is spent, interactive is not held but counts", async () => {
+    setRequestCap(2);
+    await acquire("interactive");
+    await acquire("auto");
+    await expect(acquire("auto")).rejects.toMatchObject({ code: "RATE_LIMITED" });
+    await expect(acquire("interactive")).resolves.toBeUndefined();
+    vi.advanceTimersByTime(60_001);
+    await expect(acquire("auto")).resolves.toBeUndefined();
+  });
+
+  it("a token cap holds a big call until the window has room, settled with the real usage", async () => {
+    setRequestCap(null, 8_000);
+    const first = { at: 0, tokens: 0 };
+    await acquire("live", 2_000, first);
+    first.tokens = 6_500; // the provider reported more than estimated
+    await vi.advanceTimersByTimeAsync(300);
+    let second = false;
+    const pending = acquire("live", 2_000).then(() => (second = true));
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(second).toBe(false); // 6.5K + 2K > 8K: waits for the first to leave the window
+    await vi.advanceTimersByTimeAsync(31_000);
+    await pending;
+    expect(second).toBe(true);
+  });
+
+  it("a token cap refuses auto calls that don't fit and never blocks an empty window", async () => {
+    setRequestCap(null, 1_000);
+    await expect(acquire("auto", 5_000)).resolves.toBeUndefined(); // empty window: admitted
+    await expect(acquire("auto", 100)).rejects.toMatchObject({ code: "RATE_LIMITED" });
+    await expect(acquire("interactive", 100)).resolves.toBeUndefined();
+  });
+
+  it("without a cap nothing is held", async () => {
+    setRequestCap(null);
+    for (let i = 0; i < 100; i++) await acquire("auto");
   });
 
   it("changing owner in-session drops the pause; the API key is not persisted in clear", () => {

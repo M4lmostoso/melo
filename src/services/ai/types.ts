@@ -1,4 +1,4 @@
-export type AiProvider = "claude" | "openai" | "gemini" | "ollama" | "copilot" | "kilo" | "openrouter";
+export type AiProvider = "claude" | "openai" | "gemini" | "ollama" | "copilot" | "kilo" | "groq" | "nvidia";
 
 export interface ConversationMessage {
   role: "user" | "assistant";
@@ -19,6 +19,11 @@ export interface AiCompletionRequest {
   userContent: string;
   maxTokens?: number;
   conversationHistory?: ConversationMessage[];
+  /**
+   * Called with the provider's reported `usage.total_tokens` (gateway providers),
+   * so the rate limiter's token cap counts what the call really cost.
+   */
+  onUsage?: (totalTokens: number) => void;
 }
 
 export interface AiProviderClient {
@@ -33,7 +38,8 @@ export const DEFAULT_MODELS: Record<AiProvider, string> = {
   ollama: "llama3.3",
   copilot: "openai/gpt-4o-mini",
   kilo: "kilo-auto/free",
-  openrouter: "openrouter/free",
+  groq: "qwen/qwen3.8-27b",
+  nvidia: "nvidia/nemotron-3.5-super-vl-120b-a12b",
 };
 
 export interface ModelOption {
@@ -77,14 +83,27 @@ export const PROVIDER_MODELS: Record<Exclude<AiProvider, "ollama">, ModelOption[
     { id: "nvidia/nemotron-3-ultra-550b-a55b:free", label: "Nemotron 3 Ultra (Free)" },
     { id: "openrouter/free", label: "OpenRouter Free Router" },
   ],
-  // OpenRouter free tier (`:free`, rate-limited). Like Kilo the list rotates;
-  // `openrouter/free` routes to whatever free model is currently up.
-  openrouter: [
-    { id: "openrouter/free", label: "Free Models Router" },
-    { id: "google/gemma-4-31b-it:free", label: "Gemma 4 31B (Free)" },
-    { id: "nvidia/nemotron-3.5-super-vl:free", label: "Nemotron 3.5 Super (Free)" },
-    { id: "nvidia/nemotron-3.5-lightning:free", label: "Nemotron 3.5 Lightning (Free)" },
-    { id: "google/gemma-4-26b-a4b-it:free", label: "Gemma 4 26B A4B (Free)" },
+  // Groq (console.groq.com): free plan per model, 1K requests/day and 8K
+  // tokens/min (confirmed by the x-ratelimit headers on 2026-11-13) — RPM_CAPS and
+  // TPM_CAPS keep Melo below it. No Gemma; Qwen 3.8 27B is the same size class as
+  // Gemma 4 31B and, not reasoning, spends 1/5 of GPT-OSS's tokens per call.
+  // GPT-OSS 120B wrote the most faithful reply drafts. Llama 3.3 70B is in Groq's
+  // public docs but not in a free account's catalog.
+  groq: [
+    { id: "qwen/qwen3.8-27b", label: "Qwen 3.8 27B" },
+    { id: "openai/gpt-oss-120b", label: "GPT-OSS 120B" },
+    { id: "openai/gpt-oss-20b", label: "GPT-OSS 20B" },
+  ],
+  // NVIDIA NIM API catalog (build.nvidia.com): every hosted model is free on the
+  // developer tier, rate-limited per key (~40 requests/min) — see RPM_CAPS in
+  // providerManager. Ids carry no `:free` suffix. Being listed is no promise of
+  // service: on 2026-11-13 NVIDIA's own Nemotrons answered in 0.6 s while Gemma 4,
+  // DeepSeek, GPT-OSS and GLM were accepted and never served, and Gemma 3 /
+  // Nemotron 3 Super answered 404 "not found for account". Default = what answered.
+  nvidia: [
+    { id: "nvidia/nemotron-3.5-super-vl-120b-a12b", label: "Nemotron 3.5 Super" },
+    { id: "nvidia/nemotron-3.5-lightning-30b-a3b", label: "Nemotron 3.5 Lightning" },
+    { id: "google/gemma-4-31b-it", label: "Gemma 4 31B" },
   ],
 };
 
@@ -116,7 +135,8 @@ export const API_KEY_SETTINGS: Record<Exclude<AiProvider, "ollama">, string> = {
   gemini: "gemini_api_key",
   copilot: "copilot_api_key",
   kilo: "kilo_api_key",
-  openrouter: "openrouter_api_key",
+  groq: "groq_api_key",
+  nvidia: "nvidia_api_key",
 };
 
 export const MODEL_SETTINGS: Record<Exclude<AiProvider, "ollama">, string> = {
@@ -125,5 +145,6 @@ export const MODEL_SETTINGS: Record<Exclude<AiProvider, "ollama">, string> = {
   gemini: "gemini_model",
   copilot: "copilot_model",
   kilo: "kilo_model",
-  openrouter: "openrouter_model",
+  groq: "groq_model",
+  nvidia: "nvidia_model",
 };

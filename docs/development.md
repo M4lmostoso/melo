@@ -143,6 +143,7 @@ To enable AI features, add your API key for one or more providers in Settings:
 - **Ollama** (local) -- Install [Ollama](https://ollama.com/), set server URL (default `http://localhost:11434`) and model (default `llama3.3`, e.g. `gemma4:12b`) in Settings > AI. No API key required.
 - **GitHub Copilot** -- Requires a Copilot subscription. Set your API key in Settings > AI.
 - **Kilo Gateway** -- OpenAI-compatible router with free models (`kilo-auto/free`, `*:free`, rate-limited). Create a key at app.kilo.ai and set it in Settings > AI.
-- **OpenRouter** -- OpenAI-compatible router with free models (`openrouter/free`, `*:free`, rate-limited). Create a key at openrouter.ai/keys and set it in Settings > AI.
+- **Groq** -- OpenAI-compatible API (`https://api.groq.com/openai/v1`), free plan with per-model limits (~30 requests/min, 1,000/day); default `qwen/qwen3.8-27b`, Melo caps itself at 24/min. Create a `gsk_` key at console.groq.com and set it in Settings > AI.
+- **NVIDIA NIM** -- OpenAI-compatible API catalog at build.nvidia.com: every hosted model (default `nvidia/nemotron-3.5-super-vl-120b-a12b`; some listed models, Gemma 4 included, may sit queued and never answer) is free on the developer tier, ~40 requests/min per key; Melo caps itself at 30/min. Create an `nvapi-` key there and set it in Settings > AI.
 
 After configuring a provider, select which model to use per feature in Settings > AI.

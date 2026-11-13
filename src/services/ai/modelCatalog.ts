@@ -43,7 +43,8 @@ export interface ModelCatalog {
 
 export const CATALOG_TTL_MS = 24 * 60 * 60 * 1000;
 export const KILO_BASE_URL = "https://api.kilo.ai/api/gateway";
-export const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
+export const GROQ_BASE_URL = "https://api.groq.com/openai/v1";
+export const NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1";
 
 const cacheKey = (p: AiProvider) => `ai_model_catalog_${p}`;
 
@@ -151,7 +152,7 @@ function isGatewayFree(m: GatewayEntry): boolean {
 }
 
 /**
- * OpenRouter-style `/models` (Kilo, OpenRouter) — public, works without a key.
+ * OpenRouter-style `/models` (Kilo) — public, works without a key.
  * Text-output models only (OpenRouter lists zero-priced music models like Lyria
  * that would pass as "free"). Free models first.
  */
@@ -163,6 +164,44 @@ async function fetchGatewayModels(baseUrl: string): Promise<CatalogModel[]> {
     .filter((m) => !m.architecture?.output_modalities || m.architecture.output_modalities.includes("text"))
     .map((m) => ({ id: m.id, label: m.name ?? m.id, free: isGatewayFree(m) }))
     .sort((a, b) => Number(b.free) - Number(a.free) || a.id.localeCompare(b.id));
+}
+
+/**
+ * NVIDIA NIM `/models` — public, OpenAI-shaped (`{ data: [{ id, owned_by }] }`,
+ * no names, no pricing, no modalities). It lists embedders, rerankers, safety
+ * guards, parsers and detectors next to the chat models; none of those can
+ * answer a chat completion, so they are dropped by id. Everything is free on
+ * the developer tier.
+ */
+const NVIDIA_NON_CHAT = /embed|retriever|rerank|guard|safety|reward|parse|nvclip|detector|deplot|calibration/i;
+
+export async function fetchNvidiaModels(): Promise<CatalogModel[]> {
+  const body = (await getJson(`${NVIDIA_BASE_URL}/models`)) as { data?: { id?: unknown }[] };
+  return (body.data ?? [])
+    .map((m) => m?.id)
+    .filter((id): id is string => typeof id === "string" && id.length > 0 && !NVIDIA_NON_CHAT.test(id))
+    .map((id) => ({ id, label: id, free: true }))
+    .sort((a, b) => a.id.localeCompare(b.id));
+}
+
+/**
+ * Groq `/models` — needs the key, OpenAI-shaped plus `active`/`context_window`.
+ * Speech (whisper, orpheus) and classifier (prompt-guard, safeguard) models sit
+ * next to the chat ones and are dropped by id, and so is ALLaM (Arabic-only, it
+ * rejects Melo's max_tokens with a 400). All usable on the free plan.
+ */
+const GROQ_NON_CHAT = /whisper|orpheus|tts|guard|safeguard|embed|allam/i;
+
+async function fetchGroqModels(creds: Credentials): Promise<CatalogModel[]> {
+  const body = (await getJson(`${GROQ_BASE_URL}/models`, {
+    Authorization: `Bearer ${requireKey(creds, "groq")}`,
+  })) as { data?: { id?: unknown; active?: boolean }[] };
+  return (body.data ?? [])
+    .filter((m) => m?.active !== false)
+    .map((m) => m?.id)
+    .filter((id): id is string => typeof id === "string" && id.length > 0 && !GROQ_NON_CHAT.test(id))
+    .map((id) => ({ id, label: id, free: true }))
+    .sort((a, b) => a.id.localeCompare(b.id));
 }
 
 async function fetchOllama(creds: Credentials): Promise<CatalogModel[]> {
@@ -184,8 +223,10 @@ export async function fetchProviderModels(provider: AiProvider, creds: Credentia
       return fetchCopilot(creds);
     case "kilo":
       return fetchGatewayModels(KILO_BASE_URL);
-    case "openrouter":
-      return fetchGatewayModels(OPENROUTER_BASE_URL);
+    case "groq":
+      return fetchGroqModels(creds);
+    case "nvidia":
+      return fetchNvidiaModels();
     case "ollama":
       return fetchOllama(creds);
   }
@@ -204,7 +245,7 @@ function builtInCatalog(provider: AiProvider): ModelCatalog {
   const models =
     provider === "ollama"
       ? [{ id: DEFAULT_MODELS.ollama, label: DEFAULT_MODELS.ollama }]
-      : PROVIDER_MODELS[provider].map((m) => ({ ...m, free: provider === "kilo" || provider === "openrouter" }));
+      : PROVIDER_MODELS[provider].map((m) => ({ ...m, free: provider === "kilo" || provider === "groq" || provider === "nvidia" }));
   return { provider, models, fetchedAt: 0, fallback: true };
 }
 
@@ -257,7 +298,8 @@ const PREFERENCES: Record<AiProvider, RegExp[]> = {
   gemini: [/^gemini-[\d.]+-flash$/, /^gemini-[\d.]+-flash/],
   copilot: [/mini/],
   kilo: [/^kilo-auto\/free$/, /:free$/],
-  openrouter: [/^openrouter\/free$/, /:free$/],
+  groq: [/qwen/, /gpt-oss-120b/, /gpt-oss/],
+  nvidia: [/nemotron-3\.5/, /nemotron/, /gemma-4/],
   ollama: [],
 };
 

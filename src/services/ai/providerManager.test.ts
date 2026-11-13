@@ -43,6 +43,16 @@ vi.mock("./providers/kiloProvider", () => ({
   clearKiloProvider: vi.fn(),
 }));
 
+vi.mock("./providers/groqProvider", () => ({
+  createGroqProvider: vi.fn(() => createMockAiProvider("groq response")),
+  clearGroqProvider: vi.fn(),
+}));
+
+vi.mock("./providers/nvidiaProvider", () => ({
+  createNvidiaProvider: vi.fn(() => createMockAiProvider("nvidia response")),
+  clearNvidiaProvider: vi.fn(),
+}));
+
 import { getSetting } from "@/services/db/settings";
 import { createClaudeProvider, clearClaudeProvider } from "./providers/claudeProvider";
 import { createOpenAIProvider } from "./providers/openaiProvider";
@@ -50,12 +60,15 @@ import { createGeminiProvider } from "./providers/geminiProvider";
 import { createOllamaProvider } from "./providers/ollamaProvider";
 import { createCopilotProvider } from "./providers/copilotProvider";
 import { createKiloProvider } from "./providers/kiloProvider";
-import { __resetForTests as resetLimiter, isLaneOpen } from "./rateLimiter";
+import { createNvidiaProvider } from "./providers/nvidiaProvider";
+import { createGroqProvider } from "./providers/groqProvider";
+import { __resetForTests as resetLimiter, isLaneOpen, acquire } from "./rateLimiter";
 import {
   getActiveProvider,
   getActiveProviderName,
   isAiAvailable,
   clearProviderClients,
+  getConfiguredProviders,
 } from "./providerManager";
 
 const mockGetSetting = vi.mocked(getSetting);
@@ -95,6 +108,11 @@ describe("providerManager", () => {
     it("returns kilo when ai_provider is kilo", async () => {
       mockGetSetting.mockResolvedValue("kilo");
       expect(await getActiveProviderName()).toBe("kilo");
+    });
+
+    it("returns nvidia when ai_provider is nvidia", async () => {
+      mockGetSetting.mockResolvedValue("nvidia");
+      expect(await getActiveProviderName()).toBe("nvidia");
     });
 
     it("defaults to claude for unknown provider value", async () => {
@@ -193,6 +211,120 @@ describe("providerManager", () => {
 
       await getActiveProvider();
       expect(createKiloProvider).toHaveBeenCalledWith("kilo_test", "kilo-auto/free");
+    });
+
+    it("creates the nvidia provider with Nemotron 3.5 Super by default and caps it below the 40/min quota", async () => {
+      resetLimiter();
+      mockGetSetting.mockImplementation(async (key: string) => {
+        if (key === "ai_provider") return "nvidia";
+        if (key === "nvidia_api_key") return "nvapi-test";
+        return null;
+      });
+
+      await getActiveProvider();
+      expect(createNvidiaProvider).toHaveBeenCalledWith("nvapi-test", "nvidia/nemotron-3.5-super-vl-120b-a12b");
+      // 30 automatic calls fit in a minute, the 31st is refused without a request.
+      for (let i = 0; i < 30; i++) await acquire("auto");
+      await expect(acquire("auto")).rejects.toMatchObject({ code: "RATE_LIMITED" });
+      // A click still goes through.
+      await expect(acquire("interactive")).resolves.toBeUndefined();
+      resetLimiter();
+    });
+
+    it("creates the groq provider with Qwen 3.8 27B by default, capped below 30/min", async () => {
+      resetLimiter();
+      mockGetSetting.mockImplementation(async (key: string) => {
+        if (key === "ai_provider") return "groq";
+        if (key === "groq_api_key") return "gsk_test";
+        return null;
+      });
+      await getActiveProvider();
+      expect(createGroqProvider).toHaveBeenCalledWith("gsk_test", "qwen/qwen3.8-27b");
+      for (let i = 0; i < 24; i++) await acquire("auto");
+      await expect(acquire("auto")).rejects.toMatchObject({ code: "RATE_LIMITED" });
+      resetLimiter();
+    });
+
+    it("composer on the same provider: its own model, shared limiter state", async () => {
+      resetLimiter();
+      const settings: Record<string, string> = {
+        ai_provider: "groq",
+        groq_api_key: "gsk_test",
+        groq_model: "qwen/qwen3.8-27b",
+        ai_composer_model: "openai/gpt-oss-120b",
+      };
+      mockGetSetting.mockImplementation(async (key: string) => settings[key] ?? null);
+      clearProviderClients();
+
+      const main = await getActiveProvider();
+      const composer = await getActiveProvider("composer");
+      expect(createGroqProvider).toHaveBeenCalledWith("gsk_test", "qwen/qwen3.8-27b");
+      expect(createGroqProvider).toHaveBeenCalledWith("gsk_test", "openai/gpt-oss-120b");
+      expect(composer).not.toBe(main);
+      expect(await getActiveProvider()).toBe(main);
+      expect(await getActiveProvider("composer")).toBe(composer);
+      resetLimiter();
+    });
+
+    it("composer on ANOTHER provider: its 429 never pauses the main provider's background lanes", async () => {
+      resetLimiter();
+      const settings: Record<string, string> = {
+        ai_provider: "groq",
+        groq_api_key: "gsk_test",
+        nvidia_api_key: "nvapi-test",
+        ai_composer_provider: "nvidia",
+        ai_composer_model: "nvidia/nemotron-3.5-super-vl-120b-a12b",
+      };
+      mockGetSetting.mockImplementation(async (key: string) => settings[key] ?? null);
+      clearProviderClients();
+      vi.mocked(createNvidiaProvider).mockReturnValueOnce({
+        complete: vi.fn().mockRejectedValue(Object.assign(new Error("Too Many Requests"), { status: 429 })),
+        testConnection: vi.fn(),
+      });
+
+      await getActiveProvider(); // main (groq) sets the limiter owner
+      const composer = await getActiveProvider("composer");
+      expect(createNvidiaProvider).toHaveBeenCalledWith("nvapi-test", "nvidia/nemotron-3.5-super-vl-120b-a12b");
+      await expect(composer.complete({ systemPrompt: "s", userContent: "u" })).rejects.toThrow("Too Many Requests");
+      expect(isLaneOpen("live")).toBe(true);
+      expect(isLaneOpen("backfill")).toBe(true);
+      resetLimiter();
+    });
+
+    it("a blank composer model means the main model", async () => {
+      const settings: Record<string, string> = { ai_provider: "groq", groq_api_key: "gsk_x", groq_model: "qwen/qwen3.8-27b", ai_composer_model: "  " };
+      mockGetSetting.mockImplementation(async (key: string) => settings[key] ?? null);
+      clearProviderClients();
+      vi.mocked(createGroqProvider).mockClear();
+      await getActiveProvider("composer");
+      expect(createGroqProvider).toHaveBeenCalledWith("gsk_x", "qwen/qwen3.8-27b");
+      expect(createGroqProvider).toHaveBeenCalledTimes(1);
+    });
+
+    it("composer provider without credentials falls back to the main provider", async () => {
+      const settings: Record<string, string> = {
+        ai_provider: "groq",
+        groq_api_key: "gsk_x",
+        groq_model: "qwen/qwen3.8-27b",
+        ai_composer_provider: "nvidia",
+      };
+      mockGetSetting.mockImplementation(async (key: string) => settings[key] ?? null);
+      clearProviderClients();
+      vi.mocked(createGroqProvider).mockClear();
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      await getActiveProvider("composer");
+      expect(createGroqProvider).toHaveBeenCalledWith("gsk_x", "qwen/qwen3.8-27b");
+    });
+
+    it("lists only the providers that have credentials", async () => {
+      const settings: Record<string, string> = { groq_api_key: "g", nvidia_api_key: "n", ollama_server_url: "http://localhost:11434" };
+      mockGetSetting.mockImplementation(async (key: string) => settings[key] ?? null);
+      expect(await getConfiguredProviders()).toEqual(["ollama", "groq", "nvidia"]);
+    });
+
+    it("a stored 'openrouter' (provider removed) falls back to the default", async () => {
+      mockGetSetting.mockResolvedValue("openrouter");
+      expect(await getActiveProviderName()).toBe("claude");
     });
 
     it("creates ollama provider with server url and model", async () => {

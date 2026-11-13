@@ -93,25 +93,59 @@ describe("modelCatalog", () => {
     ]);
   });
 
-  it("lists OpenRouter without a key, text models only (zero-priced music models are not 'free' chat)", async () => {
+  it("lists Groq with the stored key, active chat models only, all free", async () => {
+    h.store.set("groq_api_key", "gsk_test");
     h.fetch.mockResolvedValue(
       ok({
         data: [
-          { id: "openai/gpt-x", architecture: { output_modalities: ["text"] }, pricing: { prompt: "0.000001", completion: "0.000002" } },
-          { id: "google/gemma-4-31b-it:free", name: "Gemma 4 31B (free)", architecture: { output_modalities: ["text"] } },
-          { id: "google/lyria-3-pro-preview", architecture: { output_modalities: ["audio"] }, pricing: { prompt: "0", completion: "0" } },
-          { id: "openrouter/free", pricing: { prompt: "0", completion: "0" } },
+          { id: "qwen/qwen3.8-27b", active: true, context_window: 131072 },
+          { id: "llama-3.3-70b-versatile", active: true },
+          { id: "whisper-large-v3", active: true },
+          { id: "canopylabs/orpheus-v1-english", active: true },
+          { id: "meta-llama/llama-prompt-guard-2-86m", active: true },
+          { id: "openai/gpt-oss-safeguard-20b", active: true },
+          { id: "allam-2-7b", active: true },
+          { id: "old/retired-model", active: false },
         ],
       }),
     );
-    const c = await getModelCatalog("openrouter");
-    expect(h.fetch.mock.calls[0]![0]).toBe("https://openrouter.ai/api/v1/models");
+    const c = await getModelCatalog("groq");
+    expect(h.fetch.mock.calls[0]![0]).toBe("https://api.groq.com/openai/v1/models");
+    expect(h.fetch.mock.calls[0]![1]).toMatchObject({ headers: { Authorization: "Bearer gsk_test" } });
     expect(c.models.map((m) => [m.id, m.free])).toEqual([
-      ["google/gemma-4-31b-it:free", true],
-      ["openrouter/free", true],
-      ["openai/gpt-x", false],
+      ["llama-3.3-70b-versatile", true],
+      ["qwen/qwen3.8-27b", true],
     ]);
-    expect(pickReplacement("openrouter", [{ id: "x/y:free", label: "" }, { id: "x/paid", label: "" }])).toBe("x/y:free");
+  });
+
+  it("lists NVIDIA NIM without a key, chat models only, all free", async () => {
+    h.fetch.mockResolvedValue(
+      ok({
+        data: [
+          { id: "nvidia/nemotron-3.5-lightning-30b-a3b", object: "model", owned_by: "nvidia" },
+          { id: "google/gemma-4-31b-it", object: "model", owned_by: "google" },
+          { id: "nvidia/nemotron-3.5-embed-8b", object: "model" },
+          { id: "nvidia/llama-3.1-nemoguard-8b-content-safety", object: "model" },
+          { id: "nvidia/nemotron-4-340b-reward", object: "model" },
+          { id: "nvidia/nemotron-parse-2.0", object: "model" },
+          { id: "nvidia/llama-3.2-nemoretriever-1b-vlm-embed-v1", object: "model" },
+          { id: "nvidia/nvclip", object: "model" },
+        ],
+      }),
+    );
+    const c = await getModelCatalog("nvidia");
+    expect(h.fetch.mock.calls[0]![0]).toBe("https://integrate.api.nvidia.com/v1/models");
+    expect(c.models.map((m) => [m.id, m.free])).toEqual([
+      ["google/gemma-4-31b-it", true],
+      ["nvidia/nemotron-3.5-lightning-30b-a3b", true],
+    ]);
+    // No curated pick served → the Nemotron 3.5 family, never a random id.
+    expect(
+      pickReplacement("nvidia", [
+        { id: "a/other", label: "" },
+        { id: "nvidia/nemotron-3.5-new", label: "" },
+      ]),
+    ).toBe("nvidia/nemotron-3.5-new");
   });
 
   describe("pickReplacement", () => {

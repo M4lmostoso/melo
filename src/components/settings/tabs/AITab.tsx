@@ -146,7 +146,8 @@ export function AITab() {
   const [geminiApiKey, setGeminiApiKey] = useState("");
   const [copilotApiKey, setCopilotApiKey] = useState("");
   const [kiloApiKey, setKiloApiKey] = useState("");
-  const [openrouterApiKey, setOpenrouterApiKey] = useState("");
+  const [groqApiKey, setGroqApiKey] = useState("");
+  const [nvidiaApiKey, setNvidiaApiKey] = useState("");
   const [ollamaServerUrl, setOllamaServerUrl] = useState("http://localhost:11434");
   const [ollamaModel, setOllamaModel] = useState("llama3.3");
   const [claudeModel, setClaudeModel] = useState("claude-haiku-4-5-20251001");
@@ -154,7 +155,12 @@ export function AITab() {
   const [geminiModel, setGeminiModel] = useState(DEFAULT_MODELS.gemini);
   const [copilotModel, setCopilotModel] = useState("openai/gpt-4o-mini");
   const [kiloModel, setKiloModel] = useState("kilo-auto/free");
-  const [openrouterModel, setOpenrouterModel] = useState(DEFAULT_MODELS.openrouter);
+  const [groqModel, setGroqModel] = useState(DEFAULT_MODELS.groq);
+  const [nvidiaModel, setNvidiaModel] = useState(DEFAULT_MODELS.nvidia);
+  /** Composer provider ("" = same as the main one) and model ("" = that provider's main model). */
+  const [composerProvider, setComposerProvider] = useState<AiProvider | "">("");
+  const [composerModel, setComposerModel] = useState("");
+  const [configuredProviders, setConfiguredProviders] = useState<AiProvider[]>([]);
   const [aiEnabled, setAiEnabled] = useState(true);
   const [aiAutoCategorize, setAiAutoCategorize] = useState(true);
   const [aiAutoSummarize, setAiAutoSummarize] = useState(true);
@@ -180,7 +186,7 @@ export function AITab() {
   useEffect(() => {
     async function load() {
       const provider = await getSetting("ai_provider");
-      if (provider === "openai" || provider === "gemini" || provider === "ollama" || provider === "copilot" || provider === "kilo" || provider === "openrouter")
+      if (provider === "openai" || provider === "gemini" || provider === "ollama" || provider === "copilot" || provider === "kilo" || provider === "groq" || provider === "nvidia")
         setAiProvider(provider);
       const ollamaUrl = await getSetting("ollama_server_url");
       if (ollamaUrl) setOllamaServerUrl(ollamaUrl);
@@ -196,8 +202,10 @@ export function AITab() {
       if (copilotModelVal) setCopilotModel(copilotModelVal);
       const kiloModelVal = await getSetting("kilo_model");
       if (kiloModelVal) setKiloModel(kiloModelVal);
-      const openrouterModelVal = await getSetting("openrouter_model");
-      if (openrouterModelVal) setOpenrouterModel(openrouterModelVal);
+      const groqModelVal = await getSetting("groq_model");
+      if (groqModelVal) setGroqModel(groqModelVal);
+      const nvidiaModelVal = await getSetting("nvidia_model");
+      if (nvidiaModelVal) setNvidiaModel(nvidiaModelVal);
       const aiKey = await getSecureSetting("claude_api_key");
       setClaudeApiKey(aiKey ?? "");
       const oaiKey = await getSecureSetting("openai_api_key");
@@ -208,8 +216,10 @@ export function AITab() {
       setCopilotApiKey(copKey ?? "");
       const kiloKey = await getSecureSetting("kilo_api_key");
       setKiloApiKey(kiloKey ?? "");
-      const openrouterKey = await getSecureSetting("openrouter_api_key");
-      setOpenrouterApiKey(openrouterKey ?? "");
+      const groqKey = await getSecureSetting("groq_api_key");
+      setGroqApiKey(groqKey ?? "");
+      const nvidiaKey = await getSecureSetting("nvidia_api_key");
+      setNvidiaApiKey(nvidiaKey ?? "");
       const aiEn = await getSetting("ai_enabled");
       setAiEnabled(aiEn !== "false");
       const aiCat = await getSetting("ai_auto_categorize");
@@ -252,7 +262,8 @@ export function AITab() {
     gemini: geminiModel,
     copilot: copilotModel,
     kilo: kiloModel,
-    openrouter: openrouterModel,
+    groq: groqModel,
+    nvidia: nvidiaModel,
     ollama: ollamaModel,
   }[aiProvider];
 
@@ -262,7 +273,8 @@ export function AITab() {
     else if (aiProvider === "gemini") setGeminiModel(val);
     else if (aiProvider === "copilot") setCopilotModel(val);
     else if (aiProvider === "kilo") setKiloModel(val);
-    else if (aiProvider === "openrouter") setOpenrouterModel(val);
+    else if (aiProvider === "groq") setGroqModel(val);
+    else if (aiProvider === "nvidia") setNvidiaModel(val);
     else setOllamaModel(val);
   };
 
@@ -279,6 +291,59 @@ export function AITab() {
       clearInterval(id);
     };
   }, []);
+
+  // Composer provider/model: independent of the main provider, any configured one.
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const pm = await import("@/services/ai/providerManager");
+      const [prov, model, configured] = await Promise.all([
+        getSetting(pm.COMPOSER_PROVIDER_SETTING),
+        getSetting(pm.COMPOSER_MODEL_SETTING),
+        pm.getConfiguredProviders(),
+      ]);
+      if (!alive) return;
+      setComposerProvider((prov as AiProvider | null) ?? "");
+      setComposerModel(model ?? "");
+      setConfiguredProviders(configured);
+    })().catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [aiProvider, aiKeySaved]);
+
+  /** Composer provider ("" = same as main). Switching provider clears the model: ids differ. */
+  const saveComposerProvider = async (value: string) => {
+    const pm = await import("@/services/ai/providerManager");
+    setComposerProvider(value as AiProvider | "");
+    setComposerModel("");
+    await setSetting(pm.COMPOSER_PROVIDER_SETTING, value);
+    await setSetting(pm.COMPOSER_MODEL_SETTING, "");
+    pm.clearProviderClients();
+  };
+
+  /** Composer model ("" = the composer provider's own main model). */
+  const saveComposerModel = async (value: string) => {
+    const pm = await import("@/services/ai/providerManager");
+    const val = value.trim();
+    setComposerModel(val);
+    await setSetting(pm.COMPOSER_MODEL_SETTING, val);
+    pm.clearProviderClients();
+  };
+
+  const providerLabel = (p: AiProvider): string =>
+    ({
+      claude: t("settings.ai.providerClaude"),
+      openai: t("settings.ai.providerOpenAI"),
+      gemini: t("settings.ai.providerGemini"),
+      ollama: t("settings.ai.providerOllama"),
+      copilot: t("settings.ai.providerCopilot"),
+      kilo: t("settings.ai.providerKilo"),
+      groq: t("settings.ai.providerGroq"),
+      nvidia: t("settings.ai.providerNvidia"),
+    })[p];
+
+  const effectiveComposerProvider: AiProvider = composerProvider || aiProvider;
 
   /** Persist the model of the current provider (empty → provider default). */
   const saveModel = async (value: string) => {
@@ -300,9 +365,11 @@ export function AITab() {
           ? copilotApiKey
           : aiProvider === "kilo"
             ? kiloApiKey
-            : aiProvider === "openrouter"
-              ? openrouterApiKey
-              : geminiApiKey;
+            : aiProvider === "groq"
+              ? groqApiKey
+              : aiProvider === "nvidia"
+                ? nvidiaApiKey
+                : geminiApiKey;
 
   const handleTestConnection = async () => {
     setAiTesting(true);
@@ -338,9 +405,10 @@ export function AITab() {
             <option value="claude">{t("settings.ai.providerClaude")}</option>
             <option value="copilot">{t("settings.ai.providerCopilot")}</option>
             <option value="gemini">{t("settings.ai.providerGemini")}</option>
+            <option value="groq">{t("settings.ai.providerGroq")}</option>
             <option value="kilo">{t("settings.ai.providerKilo")}</option>
+            <option value="nvidia">{t("settings.ai.providerNvidia")}</option>
             <option value="openai">{t("settings.ai.providerOpenAI")}</option>
-            <option value="openrouter">{t("settings.ai.providerOpenRouter")}</option>
             <option value="ollama">{t("settings.ai.providerOllama")}</option>
           </select>
         </SettingRow>
@@ -358,9 +426,13 @@ export function AITab() {
             t("settings.ai.kiloDesc", {
               model: PROVIDER_MODELS.kilo.find((m) => m.id === kiloModel)?.label ?? kiloModel,
             })}
-          {aiProvider === "openrouter" &&
-            t("settings.ai.openrouterDesc", {
-              model: PROVIDER_MODELS.openrouter.find((m) => m.id === openrouterModel)?.label ?? openrouterModel,
+          {aiProvider === "groq" &&
+            t("settings.ai.groqDesc", {
+              model: PROVIDER_MODELS.groq.find((m) => m.id === groqModel)?.label ?? groqModel,
+            })}
+          {aiProvider === "nvidia" &&
+            t("settings.ai.nvidiaDesc", {
+              model: PROVIDER_MODELS.nvidia.find((m) => m.id === nvidiaModel)?.label ?? nvidiaModel,
             })}
         </p>
         {rateLimit && (
@@ -438,9 +510,11 @@ export function AITab() {
                       ? t("settings.ai.apiKeyCopilot")
                       : aiProvider === "kilo"
                         ? t("settings.ai.apiKeyKilo")
-                        : aiProvider === "openrouter"
-                          ? t("settings.ai.apiKeyOpenRouter")
-                          : t("settings.ai.apiKeyGemini")
+                        : aiProvider === "groq"
+                          ? t("settings.ai.apiKeyGroq")
+                          : aiProvider === "nvidia"
+                            ? t("settings.ai.apiKeyNvidia")
+                            : t("settings.ai.apiKeyGemini")
               }
               size="md"
               type="password"
@@ -450,7 +524,8 @@ export function AITab() {
                 else if (aiProvider === "openai") setOpenaiApiKey(e.target.value);
                 else if (aiProvider === "copilot") setCopilotApiKey(e.target.value);
                 else if (aiProvider === "kilo") setKiloApiKey(e.target.value);
-                else if (aiProvider === "openrouter") setOpenrouterApiKey(e.target.value);
+                else if (aiProvider === "groq") setGroqApiKey(e.target.value);
+                else if (aiProvider === "nvidia") setNvidiaApiKey(e.target.value);
                 else setGeminiApiKey(e.target.value);
               }}
               placeholder={
@@ -462,9 +537,11 @@ export function AITab() {
                       ? "ghp_..."
                       : aiProvider === "kilo"
                         ? "eyJ..."
-                        : aiProvider === "openrouter"
-                          ? "sk-or-v1-..."
-                          : "AI..."
+                        : aiProvider === "groq"
+                          ? "gsk_..."
+                          : aiProvider === "nvidia"
+                            ? "nvapi-..."
+                            : "AI..."
               }
             />
             <ModelPicker
@@ -509,6 +586,35 @@ export function AITab() {
           </div>
         </Section>
       )}
+
+      <Section title={t("settings.ai.sections.composer")} description={t("settings.ai.composerDesc")}>
+        <SettingRow label={t("settings.ai.composerProvider")}>
+          <select
+            value={composerProvider}
+            onChange={(e) => saveComposerProvider(e.target.value)}
+            className="w-64 bg-bg-tertiary text-text-primary text-sm px-3 py-1.5 rounded-md border border-border-primary focus:border-accent outline-none"
+          >
+            <option value="">{t("settings.ai.composerProviderSame", { provider: providerLabel(aiProvider) })}</option>
+            {configuredProviders
+              .filter((p) => p !== aiProvider)
+              .map((p) => (
+                <option key={p} value={p}>
+                  {providerLabel(p)}
+                </option>
+              ))}
+          </select>
+        </SettingRow>
+        <ModelPicker
+          key={`composer-${effectiveComposerProvider}`}
+          provider={effectiveComposerProvider}
+          value={composerModel}
+          onChange={setComposerModel}
+          onCommit={saveComposerModel}
+          label={t("settings.ai.composerModel")}
+          hint={t("settings.ai.composerModelHint")}
+          placeholder={t("settings.ai.composerModelSame")}
+        />
+      </Section>
 
       <Section title={t("settings.ai.sections.features")}>
         <ToggleRow
