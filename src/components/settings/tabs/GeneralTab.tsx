@@ -141,6 +141,8 @@ export function GeneralTab() {
   const setColorTheme = useUIStore((s) => s.setColorTheme);
   const inboxViewMode = useUIStore((s) => s.inboxViewMode);
   const setInboxViewMode = useUIStore((s) => s.setInboxViewMode);
+  const showThreadLabels = useUIStore((s) => s.showThreadLabels);
+  const setShowThreadLabels = useUIStore((s) => s.setShowThreadLabels);
   const backgroundMode = useUIStore((s) => s.backgroundMode);
   const setBackgroundMode = useUIStore((s) => s.setBackgroundMode);
 
@@ -317,6 +319,12 @@ export function GeneralTab() {
             <option value="split">{t("settings.general.inboxViewSplit")}</option>
           </select>
         </SettingRow>
+        <ToggleRow
+          label={t("settings.general.showThreadLabels")}
+          description={t("settings.general.showThreadLabelsDesc")}
+          checked={showThreadLabels}
+          onToggle={() => setShowThreadLabels(!showThreadLabels)}
+        />
         <SettingRow label={t("settings.general.backgroundStyle")}>
           <select
             value={backgroundMode}

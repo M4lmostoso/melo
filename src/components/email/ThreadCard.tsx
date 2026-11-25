@@ -4,6 +4,7 @@ import type { Thread } from "@/stores/threadStore";
 import { useThreadStore } from "@/stores/threadStore";
 import { useUIStore } from "@/stores/uiStore";
 import { useAccountStore } from "@/stores/accountStore";
+import { useLabelStore, type Label } from "@/stores/labelStore";
 import { useActiveLabel } from "@/hooks/useRouteNavigation";
 import { formatRelativeDate } from "@/utils/date";
 import { decodeHtml } from "@/utils/sanitize";
@@ -16,6 +17,14 @@ import { useContactsStore } from "@/stores/contactsStore";
 import { useContextMenuStore } from "@/stores/contextMenuStore";
 import { HighlightedText } from "@/components/search/HighlightedText";
 import { highlightTermsFor } from "@/services/search/ftsQuery";
+
+const MAX_LABEL_CHIPS = 2;
+const EMPTY_LABELS: Label[] = [];
+
+/** Leaf of a nested label ("Progetti / PJ2610" → "PJ2610"); the full path stays in the tooltip. */
+function labelLeaf(name: string): string {
+  return name.split("/").pop()?.trim() || name;
+}
 
 const CATEGORY_COLORS: Record<string, string> = {
   Updates: "bg-yellow-500/15 text-yellow-600 dark:text-yellow-400",
@@ -57,11 +66,27 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
   const activeLabel = useActiveLabel();
   const emailDensity = useUIStore((s) => s.emailDensity);
   const contactsMap = useContactsStore((s) => s.contactsMap);
+  const showThreadLabels = useUIStore((s) => s.showThreadLabels);
+  // Stable per-account array reference, so a card re-renders only when that
+  // account's labels change.
+  const accountLabels = useLabelStore((s) =>
+    showThreadLabels ? s.allAccountLabels[thread.accountId] ?? EMPTY_LABELS : EMPTY_LABELS,
+  );
   const isSpam = thread.labelIds.includes("SPAM");
   const account = useAccountStore((s) => s.accounts.find((a) => a.id === thread.accountId) ?? null);
   const accountColor = account?.color ?? null;
 
   const isSent = thread.labelIds.includes("SENT") && !thread.labelIds.includes("INBOX");
+
+  // User labels only (accountLabels never holds system ids), minus the label the
+  // user is already browsing — on every row of that view it would be noise.
+  const threadLabels = useMemo(() => {
+    if (accountLabels.length === 0) return EMPTY_LABELS;
+    const ids = new Set(thread.labelIds);
+    return accountLabels.filter((l) => ids.has(l.id) && l.id !== activeLabel);
+  }, [accountLabels, thread.labelIds, activeLabel]);
+  const visibleLabels = threadLabels.slice(0, MAX_LABEL_CHIPS);
+  const hiddenLabels = threadLabels.slice(MAX_LABEL_CHIPS);
 
   const senderDisplay = useMemo(() => {
     const accountEmail = account?.email.toLowerCase() ?? "";
@@ -226,6 +251,20 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
               >
                 {senderDisplay}
               </span>
+              {emailDensity === "compact" && threadLabels.length > 0 && (
+                <span
+                  className="flex items-center gap-0.5 shrink-0"
+                  title={threadLabels.map((l) => l.name).join(", ")}
+                >
+                  {threadLabels.slice(0, 3).map((l) => (
+                    <span
+                      key={l.id}
+                      className={`w-1.5 h-1.5 rounded-full ${l.colorBg ? "" : "bg-text-tertiary"}`}
+                      style={l.colorBg ? { backgroundColor: l.colorBg } : undefined}
+                    />
+                  ))}
+                </span>
+              )}
             </span>
             <span className="text-xs text-text-tertiary whitespace-nowrap shrink-0">
               {formatRelativeDate(thread.lastMessageAt)}
@@ -255,6 +294,26 @@ export const ThreadCard = memo(function ThreadCard({ thread, isSelected, onClick
             {showCategoryBadge && category && category !== "Primary" && CATEGORY_COLORS[category] && (
               <span className={`shrink-0 text-[0.625rem] px-1.5 rounded-full leading-normal ${CATEGORY_COLORS[category]}`}>
                 {category}
+              </span>
+            )}
+            {visibleLabels.map((l) => (
+              <span
+                key={l.id}
+                title={l.name}
+                className={`shrink-0 max-w-[6rem] truncate text-[0.625rem] px-1.5 rounded-full leading-normal ${
+                  l.colorBg ? "" : "bg-bg-tertiary text-text-secondary"
+                }`}
+                style={l.colorBg ? { backgroundColor: l.colorBg, color: l.colorFg ?? undefined } : undefined}
+              >
+                {labelLeaf(l.name)}
+              </span>
+            ))}
+            {hiddenLabels.length > 0 && (
+              <span
+                className="shrink-0 text-[0.625rem] text-text-tertiary"
+                title={hiddenLabels.map((l) => l.name).join(", ")}
+              >
+                +{hiddenLabels.length}
               </span>
             )}
             {hasFollowUp && (

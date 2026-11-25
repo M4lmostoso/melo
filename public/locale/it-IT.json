@@ -1622,6 +1622,8 @@
       "inboxViewMode": "Modalità vista posta in arrivo",
       "inboxViewUnified": "Posta in arrivo",
       "inboxViewSplit": "Divisa (Categorie)",
+      "showThreadLabels": "Mostra etichette nella lista",
+      "showThreadLabelsDesc": "Mostra le etichette di ogni conversazione accanto all'anteprima (un pallino in densità compatta)",
       "backgroundStyle": "Stile sfondo",
       "backgroundFlat": "Piatto (nessuna animazione)",
       "backgroundAurora": "Aurora (bagliore tenue)",

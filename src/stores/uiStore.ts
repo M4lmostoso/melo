@@ -74,6 +74,8 @@ interface UIState {
   appFontFamily: AppFontFamily;
   colorTheme: ColorThemeId;
   sendAndArchive: boolean;
+  /** Show the thread's user labels as chips in the thread list. */
+  showThreadLabels: boolean;
   composerFontFamily: ComposerFontFamily;
   composerFontSize: ComposerFontSize;
   inboxViewMode: InboxViewMode;
@@ -104,6 +106,7 @@ interface UIState {
   setAppFontFamily: (family: AppFontFamily) => void;
   setColorTheme: (theme: ColorThemeId) => void;
   setSendAndArchive: (enabled: boolean) => void;
+  setShowThreadLabels: (enabled: boolean) => void;
   setComposerFontFamily: (family: ComposerFontFamily) => void;
   setComposerFontSize: (size: ComposerFontSize) => void;
   setInboxViewMode: (mode: InboxViewMode) => void;
@@ -137,6 +140,7 @@ export const useUIStore = create<UIState>((set) => ({
   appFontFamily: "system",
   colorTheme: DEFAULT_COLOR_THEME,
   sendAndArchive: false,
+  showThreadLabels: true,
   composerFontFamily: "system",
   composerFontSize: "14px",
   inboxViewMode: "unified",
@@ -215,6 +219,10 @@ export const useUIStore = create<UIState>((set) => ({
   setSendAndArchive: (sendAndArchive) => {
     setSetting("send_and_archive", String(sendAndArchive)).catch(() => {});
     set({ sendAndArchive });
+  },
+  setShowThreadLabels: (showThreadLabels) => {
+    setSetting("show_thread_labels", String(showThreadLabels)).catch(() => {});
+    set({ showThreadLabels });
   },
   setComposerFontFamily: (composerFontFamily) => {
     setSetting("composer_font_family", composerFontFamily).catch(() => {});

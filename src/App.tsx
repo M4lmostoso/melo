@@ -950,6 +950,12 @@ export default function App() {
           ui.setSendAndArchive(true);
         }
 
+        // Restore thread-list label chips (default on)
+        const savedShowLabels = await getSetting("show_thread_labels");
+        if (savedShowLabels === "false") {
+          useUIStore.setState({ showThreadLabels: false });
+        }
+
         // Restore font scale
         const savedFontScale = await getSetting("font_size");
         if (

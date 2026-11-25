@@ -1622,6 +1622,8 @@
       "inboxViewMode": "Inbox view mode",
       "inboxViewUnified": "Unified",
       "inboxViewSplit": "Split (Categories)",
+      "showThreadLabels": "Show labels in thread list",
+      "showThreadLabelsDesc": "Show each conversation's labels next to the snippet (as a dot in compact density)",
       "backgroundStyle": "Background style",
       "backgroundFlat": "Flat (no animation)",
       "backgroundAurora": "Aurora (subtle glow)",
