@@ -4,6 +4,20 @@
 
 ---
 
+## [0.1.15](https://github.com/M4lmostoso/melo/compare/v0.1.14...v0.1.15) (2026-11-27)
+
+
+### Features
+
+* add connection testing functionality for composer AI provider ([70929c4](https://github.com/M4lmostoso/melo/commit/70929c4932775d21af8f04222642e05c60eb4fb1))
+* replace OpenRouter with Groq and NVIDIA NIM AI providers ([4be9528](https://github.com/M4lmostoso/melo/commit/4be952859ef00f0b8706bd2933fb597e00f85ebd))
+* **ui:** add option to show thread labels in thread list ([2caf278](https://github.com/M4lmostoso/melo/commit/2caf278de46e124f62bfac165e1c1d29676ca336))
+
+
+### Bug Fixes
+
+* set empty RUSTFLAGS in release workflow to prevent ring compilation error on macOS ([550bf5c](https://github.com/M4lmostoso/melo/commit/550bf5c814f552c901995f37bf50a5d8ff66cc79))
+
 ## [0.1.14](https://github.com/M4lmostoso/melo/compare/v0.1.13...v0.1.14) (2026-11-12)
 
 
