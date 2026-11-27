@@ -1107,26 +1107,16 @@ describe("ImapSmtpProvider", () => {
     });
   });
 
-  // ---------- Config caching ----------
+  // ---------- Config freshness ----------
 
-  describe("config caching", () => {
-    it("caches IMAP config after first call", async () => {
+  describe("config freshness", () => {
+    it("rebuilds the IMAP config from the account row on every call", async () => {
       vi.mocked(imapSetFlags).mockResolvedValue(undefined);
 
       await provider.markRead("t1", ["imap-acc-1-INBOX-100"], true);
       await provider.markRead("t1", ["imap-acc-1-INBOX-200"], true);
 
-      // buildImapConfig should be called once (cached after first call)
-      expect(buildImapConfig).toHaveBeenCalledTimes(1);
-    });
-
-    it("clearConfigCache forces re-fetch", async () => {
-      vi.mocked(imapSetFlags).mockResolvedValue(undefined);
-
-      await provider.markRead("t1", ["imap-acc-1-INBOX-100"], true);
-      provider.clearConfigCache();
-      await provider.markRead("t1", ["imap-acc-1-INBOX-200"], true);
-
+      // A password changed in Settings between the two calls must be picked up
       expect(buildImapConfig).toHaveBeenCalledTimes(2);
     });
   });

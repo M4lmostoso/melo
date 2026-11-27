@@ -299,9 +299,6 @@ export class ImapSmtpProvider implements EmailProvider {
   readonly accountId: string;
   readonly type = "imap" as const;
 
-  private _imapConfig: ImapConfig | null = null;
-  private _smtpConfig: SmtpConfig | null = null;
-
   constructor(accountId: string) {
     this.accountId = accountId;
   }
@@ -321,10 +318,12 @@ export class ImapSmtpProvider implements EmailProvider {
       const token = await ensureFreshToken(account);
       return buildImapConfig(account, token);
     }
-    if (!this._imapConfig) {
-      this._imapConfig = buildImapConfig(account);
-    }
-    return this._imapConfig;
+    // Never cached: the account row is read on every call anyway, and a cached
+    // config kept the OLD password after the user changed it in Settings —
+    // every send/IMAP op kept failing with 535 until the app was restarted.
+    // Each window (main, thread-*, compose-*) has its own provider instance,
+    // so invalidating from the Settings window could never reach them all.
+    return buildImapConfig(account);
   }
 
   /**
@@ -349,18 +348,7 @@ export class ImapSmtpProvider implements EmailProvider {
       const token = await ensureFreshToken(account);
       return buildSmtpConfig(account, token);
     }
-    if (!this._smtpConfig) {
-      this._smtpConfig = buildSmtpConfig(account);
-    }
-    return this._smtpConfig;
-  }
-
-  /**
-   * Invalidate cached configs (e.g., after password change).
-   */
-  clearConfigCache(): void {
-    this._imapConfig = null;
-    this._smtpConfig = null;
+    return buildSmtpConfig(account); // never cached — see getImapConfig
   }
 
   // ---- Folder/Label operations ----
